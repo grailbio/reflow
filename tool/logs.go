@@ -15,6 +15,7 @@ func (c *Cmd) logs(ctx context.Context, args ...string) {
 	var (
 		flags      = flag.NewFlagSet("logs", flag.ExitOnError)
 		stdoutFlag = flags.Bool("stdout", false, "display stdout instead of stderr")
+		followFlag = flags.Bool("f", false, "follow the logs")
 		help       = "Logs displays logs from execs."
 	)
 	c.Parse(flags, args, help, "logs exec")
@@ -38,7 +39,7 @@ func (c *Cmd) logs(ctx context.Context, args ...string) {
 	if err != nil {
 		c.Fatalf("%s: %s", u.ExecID, err)
 	}
-	rc, err := exec.Logs(ctx, *stdoutFlag, !*stdoutFlag)
+	rc, err := exec.Logs(ctx, *stdoutFlag, !*stdoutFlag, *followFlag)
 	if err != nil {
 		c.Fatalf("logs %s: %s", exec.URI(), err)
 	}

@@ -10,6 +10,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/grailbio/base/digest"
@@ -242,18 +243,28 @@ type execNode struct {
 	e reflow.Exec
 }
 
-func (n execNode) logNode(stdout, stderr bool) rest.Node {
+func (n execNode) logNode(stdout, stderr bool, follow string) rest.Node {
+	f := false
+	if follow == "true" {
+		f = true
+	}
 	return rest.DoFunc(func(ctx context.Context, call *rest.Call) {
 		if !call.Allow("GET") {
 			return
 		}
-		rc, err := n.e.Logs(ctx, stdout, stderr)
+		rc, err := n.e.Logs(ctx, stdout, stderr, f)
 		if err != nil {
 			call.Error(err)
 			return
 		}
-		call.Write(http.StatusOK, rc)
+		_, err = io.Copy(&rest.StreamingCall{call}, rc)
+
+		if err != nil {
+			call.Error(err)
+			return
+		}
 		rc.Close()
+		call.Write(http.StatusOK, bytes.NewReader(nil))
 	})
 }
 
@@ -282,7 +293,12 @@ func (n execNode) shellNode() rest.Node {
 }
 
 func (n execNode) Walk(ctx context.Context, call *rest.Call, path string) rest.Node {
-	switch path {
+	u, err := url.Parse(path)
+	if err != nil {
+		call.Error(err)
+		return nil
+	}
+	switch u.Path {
 	default:
 		return nil
 	case "wait":
@@ -297,11 +313,11 @@ func (n execNode) Walk(ctx context.Context, call *rest.Call, path string) rest.N
 			}
 		})
 	case "logs":
-		return n.logNode(true, true)
+		return n.logNode(true, true, u.Query().Get("follow"))
 	case "stderr":
-		return n.logNode(false, true)
+		return n.logNode(false, true, u.Query().Get("follow"))
 	case "stdout":
-		return n.logNode(true, false)
+		return n.logNode(true, false, u.Query().Get("follow"))
 	case "shell":
 		return n.shellNode()
 	case "result":

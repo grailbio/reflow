@@ -654,10 +654,10 @@ type Exec interface {
 	Wait(ctx context.Context) error
 
 	// Logs returns the standard error and/or standard output of the Exec.
-	// If it is called during execution, it returns the output up until the current
-	// time (it does not "tail" the logs). Completed Execs return the full set of
-	// available logs.
-	Logs(ctx context.Context, stdout, stderr bool) (io.ReadCloser, error)
+	// If it is called during execution, and if follow is true, it follows
+	// the logs until completion of execution.
+	// Completed Execs return the full set of available logs.
+	Logs(ctx context.Context, stdout, stderr, follow bool) (io.ReadCloser, error)
 
 	// Shell invokes /bin/bash inside an Exec. It can be invoked only when
 	// the Exec is executing. r provides the shell input. The returned read

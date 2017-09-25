@@ -71,7 +71,7 @@ func (e *Exec) Wait(ctx context.Context) error {
 }
 
 // Logs is not implemented.
-func (e *Exec) Logs(ctx context.Context, stdout bool, stderr bool) (io.ReadCloser, error) {
+func (e *Exec) Logs(ctx context.Context, stdout bool, stderr bool, follow bool) (io.ReadCloser, error) {
 	panic("not implemented")
 }
 

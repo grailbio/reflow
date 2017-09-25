@@ -527,7 +527,7 @@ func (e *dockerExec) Go(ctx context.Context) {
 // the state check and acting on that state here); but we don't worry
 // too much about it, as this is used for diagnostics purposes, and
 // can easily be retried.
-func (e *dockerExec) Logs(ctx context.Context, stdout, stderr bool) (io.ReadCloser, error) {
+func (e *dockerExec) Logs(ctx context.Context, stdout, stderr, follow bool) (io.ReadCloser, error) {
 	state, err := e.getState()
 	if err != nil {
 		return nil, err
@@ -541,7 +541,7 @@ func (e *dockerExec) Logs(ctx context.Context, stdout, stderr bool) (io.ReadClos
 	case execRunning:
 		// Note that this is technically racy (we may be competing with the completion
 		// routine), but since this is for user interaction, it's probably not a big deal.
-		opts := types.ContainerLogsOptions{ShowStdout: stdout, ShowStderr: stderr}
+		opts := types.ContainerLogsOptions{ShowStdout: stdout, ShowStderr: stderr, Follow: follow}
 		rc, err := e.client.ContainerLogs(ctx, e.containerName(), opts)
 		if err != nil {
 			return nil, errors.E("ContainerLogs", e.containerName, fmt.Sprint(opts), kind(err), err)

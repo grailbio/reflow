@@ -148,7 +148,7 @@ func (z *zombieExec) Inspect(ctx context.Context) (reflow.ExecInspect, error) {
 	return inspect, nil
 }
 
-func (z *zombieExec) Logs(ctx context.Context, stdout, stderr bool) (io.ReadCloser, error) {
+func (z *zombieExec) Logs(ctx context.Context, stdout, stderr, follow bool) (io.ReadCloser, error) {
 	if !stdout && !stderr {
 		return nil, errors.E("logs",
 			z.URI(), fmt.Sprint(stdout), fmt.Sprint(stderr),

@@ -1223,7 +1223,7 @@ var statusPrinters = [maxOp]struct {
 				if f.Exec != nil {
 					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 					defer cancel()
-					if rc, err := f.Exec.Logs(ctx, true, false); err == nil {
+					if rc, err := f.Exec.Logs(ctx, true, false, false); err == nil {
 						fmt.Fprintln(w, "stdout:")
 						s := bufio.NewScanner(rc)
 						for s.Scan() {
@@ -1233,7 +1233,7 @@ var statusPrinters = [maxOp]struct {
 					} else {
 						fmt.Fprintf(w, "error retrieving stdout: %v\n", err)
 					}
-					if rc, err := f.Exec.Logs(ctx, false, true); err == nil {
+					if rc, err := f.Exec.Logs(ctx, false, true, false); err == nil {
 						fmt.Fprintln(w, "stderr:")
 						s := bufio.NewScanner(rc)
 						for s.Scan() {

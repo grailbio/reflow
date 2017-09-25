@@ -256,7 +256,7 @@ func (o *clientExec) Inspect(ctx context.Context) (reflow.ExecInspect, error) {
 }
 
 // Logs returns this exec's logs.
-func (o *clientExec) Logs(ctx context.Context, stdout, stderr bool) (io.ReadCloser, error) {
+func (o *clientExec) Logs(ctx context.Context, stdout, stderr, follow bool) (io.ReadCloser, error) {
 	var which string
 	if stderr && stdout {
 		which = "logs"
@@ -269,7 +269,7 @@ func (o *clientExec) Logs(ctx context.Context, stdout, stderr bool) (io.ReadClos
 			"logs", o.URI(), fmt.Sprint(stdout), fmt.Sprint(stderr),
 			errors.New("at least one of stdout, stderr must be set"))
 	}
-	call := o.Call("GET", "allocs/%s/execs/%s/%s", o.allocID, o.id, which)
+	call := o.Call("GET", "allocs/%s/execs/%s/%s?follow=%t", o.allocID, o.id, which, follow)
 	code, err := call.Do(ctx, nil)
 	if err != nil {
 		call.Close()

@@ -160,7 +160,7 @@ func TestPool(t *testing.T, p pool.Pool) {
 	if got, want := res, origres; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	rc, err := exec.Logs(ctx, true, false)
+	rc, err := exec.Logs(ctx, true, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}

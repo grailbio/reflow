@@ -557,7 +557,7 @@ func (e *s3Exec) Wait(ctx context.Context) error {
 }
 
 // Logs returns logs for this exec. Only stderr logs are emitted by s3 execs.
-func (e *s3Exec) Logs(ctx context.Context, stdout bool, stderr bool) (io.ReadCloser, error) {
+func (e *s3Exec) Logs(ctx context.Context, stdout bool, stderr bool, follow bool) (io.ReadCloser, error) {
 	if stderr {
 		return os.Open(e.path("stderr"))
 	}
