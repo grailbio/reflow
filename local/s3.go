@@ -564,6 +564,10 @@ func (e *s3Exec) Logs(ctx context.Context, stdout bool, stderr bool) (io.ReadClo
 	return ioutil.NopCloser(bytes.NewReader(nil)), nil
 }
 
+func (e *s3Exec) Shell(ctx context.Context) (io.ReadWriteCloser, error) {
+	return nil, errors.New("cannot shell into a file intern/extern")
+}
+
 // contextTransport is an http.RoundTripper that injects a context
 // into every request. It is used to inject contexts into HTTP
 // requests made by the S3 downloader.

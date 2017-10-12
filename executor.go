@@ -659,6 +659,13 @@ type Exec interface {
 	// available logs.
 	Logs(ctx context.Context, stdout, stderr bool) (io.ReadCloser, error)
 
+	// Shell invokes /bin/bash inside an Exec. It can be invoked only when
+	// the Exec is executing. r provides the shell input. The returned read
+	// closer has the shell output. The caller has to close the read closer
+	// once done.
+	// TODO(pgopal) - Implement shell for zombie execs.
+	Shell(ctx context.Context) (io.ReadWriteCloser, error)
+
 	// Promote installs this exec's objects into the alloc's repository.
 	Promote(context.Context) error
 }

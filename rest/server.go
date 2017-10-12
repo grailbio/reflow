@@ -21,6 +21,7 @@
 package rest
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -60,6 +61,22 @@ func (c *Call) Allow(methods ...string) bool {
 	c.code = http.StatusMethodNotAllowed
 	c.reply = errors.E(c.req.Method, c.req.URL.String(), errors.NotSupported)
 	return false
+}
+
+// StreamingCall implements the writer interface to write a chunk of
+// bytes to the response writer and flush.
+type StreamingCall struct {
+	*Call
+}
+
+// Write writes the data to the response writer and flushes it.
+func (c *StreamingCall) Write(p []byte) (n int, err error) {
+	m, err := io.Copy(c.writer, bytes.NewReader(p))
+	n = int(m)
+	if f, ok := c.writer.(http.Flusher); ok {
+		f.Flush()
+	}
+	return
 }
 
 // Write sets the call's status code and replies with the contents

@@ -283,6 +283,28 @@ func (o *clientExec) Logs(ctx context.Context, stdout, stderr bool) (io.ReadClos
 	return call, nil
 }
 
+type conn struct {
+	io.ReadCloser
+	io.Writer
+}
+
+func (o *clientExec) Shell(ctx context.Context) (io.ReadWriteCloser, error) {
+	s := fmt.Sprintf("allocs/%s/execs/%s/shell", o.allocID, o.id)
+	call := o.Call("POST", s)
+	r, w := io.Pipe()
+	code, err := call.Do(ctx, r)
+	if err != nil {
+		call.Close()
+		return nil, err
+	}
+	if code != http.StatusOK {
+		err := call.Error()
+		call.Close()
+		return nil, err
+	}
+	return &conn{call, w}, nil
+}
+
 // Wait blocks until the exec has completed.
 func (o *clientExec) Wait(ctx context.Context) error {
 	call := o.Call("GET", "allocs/%s/execs/%s/wait", o.allocID, o.id)

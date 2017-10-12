@@ -75,6 +75,11 @@ func (e *Exec) Logs(ctx context.Context, stdout bool, stderr bool) (io.ReadClose
 	panic("not implemented")
 }
 
+// Shell is not implemented
+func (e *Exec) Shell(ctx context.Context) (io.ReadWriteCloser, error) {
+	panic("not implemented")
+}
+
 // Ok rendezvous the value v as a successful result by this testExec.
 func (e *Exec) Ok(res reflow.Result) {
 	select {

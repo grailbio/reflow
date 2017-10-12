@@ -6,7 +6,9 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"time"
 
@@ -255,6 +257,30 @@ func (n execNode) logNode(stdout, stderr bool) rest.Node {
 	})
 }
 
+func (n execNode) shellNode() rest.Node {
+	return rest.DoFunc(func(ctx context.Context, call *rest.Call) {
+		if !call.Allow("POST") {
+			return
+		}
+		rwc, err := n.e.Shell(ctx)
+		if err != nil {
+			call.Error(err)
+			return
+		}
+		go func() {
+			io.Copy(rwc, call.Body())
+		}()
+
+		_, err = io.Copy(&rest.StreamingCall{call}, rwc)
+		if err != nil {
+			call.Error(err)
+			return
+		}
+		rwc.Close()
+		call.Write(http.StatusOK, bytes.NewReader(nil))
+	})
+}
+
 func (n execNode) Walk(ctx context.Context, call *rest.Call, path string) rest.Node {
 	switch path {
 	default:
@@ -276,6 +302,8 @@ func (n execNode) Walk(ctx context.Context, call *rest.Call, path string) rest.N
 		return n.logNode(false, true)
 	case "stdout":
 		return n.logNode(true, false)
+	case "shell":
+		return n.shellNode()
 	case "result":
 		return rest.DoFunc(func(ctx context.Context, call *rest.Call) {
 			if !call.Allow("GET") {

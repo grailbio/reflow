@@ -584,6 +584,35 @@ func (e *dockerExec) Logs(ctx context.Context, stdout, stderr bool) (io.ReadClos
 	panic("bug")
 }
 
+func (e *dockerExec) Shell(ctx context.Context) (io.ReadWriteCloser, error) {
+	state, err := e.getState()
+	if err != nil {
+		return nil, err
+	}
+	switch state {
+	case execRunning:
+		c := types.ExecConfig{
+			Cmd:          []string{"/bin/bash"},
+			AttachStdin:  true,
+			AttachStdout: true,
+			AttachStderr: true,
+			Tty:          true,
+			DetachKeys:   "ctrl-p,ctrl-q",
+		}
+		response, err := e.client.ContainerExecCreate(ctx, e.containerName(), c)
+		if err != nil {
+			return nil, err
+		}
+		conn, err := e.client.ContainerExecAttach(ctx, response.ID, c)
+		if err != nil {
+			return nil, err
+		}
+		return conn.Conn, nil
+	default:
+		return nil, errors.New("cannot shell into a non-running exec")
+	}
+}
+
 // Inspect returns the current state of the exec.
 func (e *dockerExec) Inspect(ctx context.Context) (reflow.ExecInspect, error) {
 	inspect := reflow.ExecInspect{

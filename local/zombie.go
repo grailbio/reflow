@@ -178,6 +178,10 @@ func (z *zombieExec) Logs(ctx context.Context, stdout, stderr bool) (io.ReadClos
 	return newAllCloser(io.MultiReader(readers...), closers...), nil
 }
 
+func (z *zombieExec) Shell(ctx context.Context) (io.ReadWriteCloser, error) {
+	return nil, errors.New("cannot shell into a zombie exec")
+}
+
 func (z *zombieExec) Wait(ctx context.Context) error {
 	return errors.E("wait", z.URI(), errors.NotSupported, errZombieExec)
 }

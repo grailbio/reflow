@@ -181,3 +181,7 @@ func (e *localfileExec) Wait(ctx context.Context) error {
 func (e *localfileExec) Logs(ctx context.Context, stdout bool, stderr bool) (io.ReadCloser, error) {
 	return ioutil.NopCloser(bytes.NewReader(nil)), nil
 }
+
+func (e *localfileExec) Shell(ctx context.Context) (io.ReadWriteCloser, error) {
+	return nil, errors.New("cannot shell into a file intern/extern")
+}
