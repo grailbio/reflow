@@ -136,7 +136,7 @@ func (c *Call) flush() {
 		reply interface{}
 		code  int
 	)
-	if c.done {
+	if c.done || c.Method() == "HEAD" {
 		return
 	}
 	if c.err != nil {
