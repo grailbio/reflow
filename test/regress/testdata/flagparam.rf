@@ -1,0 +1,12 @@
+// This tests that flag parameters can depend on each other.
+
+param (
+	x = "ok"
+	y = x+"!"
+)
+
+val test = make("$/test")
+
+val Main = test.Assert([
+	y == "ok!",
+])

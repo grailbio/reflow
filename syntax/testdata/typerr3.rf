@@ -1,0 +1,4 @@
+
+func F(x, y, z string) = x
+
+val Test = F("", file(""), "")

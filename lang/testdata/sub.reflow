@@ -1,0 +1,3 @@
+func(x) = image("ubuntu") {
+	echo {{x}} >$out
+}

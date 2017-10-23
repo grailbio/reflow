@@ -1,0 +1,13 @@
+// This tests that match coercion works on multiple levels of lazily computed data.
+
+val f2 = file("localfile://testdata/coerce.rf")
+
+val fs = f2 ~> [
+	"x": (123, file("localfile://testdata/flagparam.rf")),
+]
+
+@requires(cpu := 1)
+val Main = {
+	val (_, f) = fs["x"]
+	len(f)
+}

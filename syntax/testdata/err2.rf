@@ -1,0 +1,3 @@
+
+
+val x = panic("panic!") ~> 123

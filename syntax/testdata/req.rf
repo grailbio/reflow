@@ -1,0 +1,11 @@
+val mem = 10*GiB
+val cpu = 4
+val disk = TiB
+
+@requires(mem, cpu, disk, wide := true)
+val TestReq1 = file("s3://")
+val ExpectReq1 = {mem, cpu, disk, wide: true}
+
+@requires(mem := GiB)
+val TestReq2 = file("s3://")
+val ExpectReq2 = {mem: GiB, cpu: 0, disk: 0, wide: false}

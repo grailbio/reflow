@@ -1,0 +1,3 @@
+a = intern(args)
+b = intern("theinput=s3://bucket/input")
+extern(pullup(a, b), "s3://output")

@@ -1,0 +1,3 @@
+input = param("input", "the input directory")
+output = param("output", "the output directory")
+extern(intern(input), output)

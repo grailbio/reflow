@@ -1,0 +1,3 @@
+a = intern(args)
+b = intern("s3://input")
+extern(pullup(a, b), "s3://output")

@@ -1,0 +1,118 @@
+val test = make("$/test")
+
+val TestStruct = {
+	a := 1
+	b := 2
+	c := "string"
+	s := {a, b, c}
+	test.All([s.a == 1, s.b == 2, s.c == "string"])
+}
+
+val TestCompr = {
+	l := [1,2,3,4,5,6,7,8,9]
+	x2 := [x*2 | x <- l]
+	test.All([x*2 == y | (x, y) <- zip(l, x2)])
+}
+
+val TestDestructure = {
+	tup := (1,2,3,"ok")
+	val (_, two, _, ok) = tup
+	test.All([two == 2, ok == "ok"])
+}
+
+val TestDestructureStruct = {
+	val {a, b, c: (x, y)} = {a: 1, b: "ok", c: (90, "blah"), d: "ignoreme"}
+	test.All([
+		a == 1,
+		b == "ok",
+		x == 90,
+		y == "blah",
+	])
+}
+
+val TestApply = {
+	func fn(x, y, z int) = x+y*z
+	fn(1,10,20) == 201
+}
+
+val TestMapIndex = {
+	m := ["ok": 123, "blah": 333]
+	m["ok"] == 123
+}
+
+val TestLen = 
+	len([1,2,3,4]) == 4
+
+val TestCond =
+	(if 123 < 300 { 1 } else { 2 }) == 1
+
+func eq(x, y [int]) = test.All([i == j | (i, j) <- zip(x, y)])
+
+val TestModule = {
+	mul := make("./mul.rf")
+	mul2 := make("./mul.rf", l := [10,20,30])
+	l := [100,200,300]
+	mul3 := make("./mul.rf", l)
+	
+	test.All([
+		eq(mul.Do(1), [1,2,3]), 
+		eq(mul2.Do(10), [100, 200, 300]),
+		eq(mul3.Do(0), [0, 0, 0]),
+	])	
+}
+
+val TestConcat = 
+	eq([1,2,3]+[4,5,6], [1,2,3,4,5,6])
+
+val TestConcatMap = {
+	m1 := ["ok": 123, "blah": 333]
+	m2 := ["ok": 999, "another": 111]
+	m := m1+m2
+	test.All([
+		m["ok"] == 999,
+		m["blah"] == 333,
+		m["another"] == 111,
+		len(m) == 3,
+	])
+}
+
+val TestMap = {
+	m := map([("one", 1), ("two", 2)])
+	test.All([
+		m["one"] == 1,
+		m["two"] == 2,
+		len(m) == 2,
+	])
+}
+
+val TestUnmap = {
+	l := list(["one": 1, "two": 2])
+	len(l) == 2 && test.All([k == "one" && v == 1 || k == "two" && v == 2 | (k, v) <- l])
+}
+
+val TestShortCircuitAND =
+	false && (panic("notreached") ~> false) || true
+
+val TestshortCircuirOR =
+	true || (panic("notreached") ~> false)
+
+val TestUnify = {
+	func eq(x, y [{a int}]) bool = test.All([x == y | ({a: x}, {a: y}) <- zip(x, y)])
+	a := 1
+	b := "ok"
+	l := [{a, b}, {a, b}, {a}]
+	len(l) == 3 && eq(l, [{a}, {a}, {a}])
+}
+
+// This is a parsing test, to make sure semicolon insertion works
+// after comments, too.
+val TestComment = {
+	x := 123 // asdlkfjadsljkf
+	x == 123
+}
+
+val TestFlatten = {
+	func eq(x, y [int]) bool = test.All([x == y | (x, y) <- zip(x, y)])
+	val empty [int] = []
+	eq(flatten([[1,2,3], [4,5,6], [7, 8], empty]), [1,2,3,4,5,6,7,8])
+}

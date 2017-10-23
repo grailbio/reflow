@@ -1,0 +1,9 @@
+val test = make("$/test")
+val path = make("$/path")
+
+val url = "s3://foo/bar/baz.ext"
+
+val TestBase = path.Base(url) == "baz.ext"
+val TestExt = path.Ext(url) == ".ext"
+val TestDir = path.Dir(url) == "s3://foo/bar"
+val TestJoin = path.Join([path.Dir(url), path.Base(url)]) == url

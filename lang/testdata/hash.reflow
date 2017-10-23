@@ -1,0 +1,4 @@
+hash("v2")
+
+include("sub.reflow")
+extern(func(intern("file://blah")), "s3://blah")

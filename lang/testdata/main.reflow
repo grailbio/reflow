@@ -1,0 +1,3 @@
+include("sub.reflow")
+
+extern(func(intern("file://blah")), "s3://blah")

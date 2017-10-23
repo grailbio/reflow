@@ -1,0 +1,7 @@
+val test = make("$/test")
+val strings = make("$/strings")
+
+val TestSort = {
+	func eq(x, y [string]) = test.All([x == y | (x, y) <- zip(x, y)])
+	eq(strings.Sort(["z", "a", "b"]), ["a", "b", "z"])
+}

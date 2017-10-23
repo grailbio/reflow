@@ -1,0 +1,9 @@
+
+val mod = make("./typealias.rf")
+
+type t {x mod.X, y, z string}
+
+func foo(arg t) = arg.x.a
+
+val TestFoo = 
+	foo({x: {a: 10, b: 20, c: 30}, y: "ok", z: "blah"}) == 10

@@ -1,0 +1,2 @@
+a = intern("xyz=s3://bucket1/dir1/,s3://bucket2/dir2/,thefile=s3f://bucket3/file3")
+extern(a, "s3://output")

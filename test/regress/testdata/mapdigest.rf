@@ -1,0 +1,15 @@
+// This tests that digests are properly computed on lazy map keys.
+
+val dirs = make("$/dirs")
+val regexp = make("$/regexp")
+val strings = make("$/strings")
+
+val key = file("") ~> "ok"
+
+func x(m [string:int]) = m["a"]
+
+@requires(cpu := 1)
+val Main = x([
+	"a": 333,
+	...map([(key, 123)]),
+])

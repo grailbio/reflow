@@ -1,0 +1,6 @@
+param (
+	l = [1,2,3]
+)
+
+
+func Do(op int) = [op*x | x <- l]

@@ -1,0 +1,9 @@
+y = intern("s3://input")
+
+x = image("x") {
+	echo %
+	{{y}}
+}
+
+extern(x, "s3://output")
+
