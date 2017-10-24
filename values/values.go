@@ -239,6 +239,7 @@ func WriteDigest(w io.Writer, v T, t *types.T) {
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
+			io.WriteString(w, k)
 			digest.WriteDigest(w, dir[k].ID)
 		}
 	case types.UnitKind:
