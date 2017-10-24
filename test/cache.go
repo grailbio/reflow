@@ -4,9 +4,9 @@ import (
 	"context"
 	"sync"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
-	"grail.com/lib/digest"
 )
 
 // Cache is a implementation of reflow.Cache that stores values

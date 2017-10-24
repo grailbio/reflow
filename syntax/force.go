@@ -3,10 +3,10 @@ package syntax
 import (
 	"log"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
-	"grail.com/lib/digest"
 )
 
 var forceDigest = reflow.Digester.FromString("grail.com/reflow/syntax.Eval.Force")

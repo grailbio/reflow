@@ -7,13 +7,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
-	"grail.com/lib/digest"
 )
 
 //go:generate stringer -type=Phase

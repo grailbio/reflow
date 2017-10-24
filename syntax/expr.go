@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
-	"grail.com/lib/digest"
 	"grail.com/reflow/syntax/scanner"
 )
 

@@ -12,13 +12,13 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/grailbio/base/data"
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository"
 	"golang.org/x/sync/singleflight"
-	"grail.com/lib/data"
-	"grail.com/lib/digest"
 )
 
 // Repository implements a filesystem-backed Repository.

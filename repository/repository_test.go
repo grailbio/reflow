@@ -8,10 +8,10 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	. "github.com/grailbio/reflow/repository/testutil"
-	"grail.com/lib/digest"
 )
 
 type nilRepository struct{}

@@ -19,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/grailbio/base/data"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/ec2cluster/instances"
@@ -28,7 +29,6 @@ import (
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/pool/client"
 	yaml "gopkg.in/yaml.v2"
-	"grail.com/lib/data"
 )
 
 // memoryDiscount is the amount of memory that's reserved

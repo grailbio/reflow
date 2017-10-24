@@ -4,9 +4,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	fswalker "github.com/grailbio/reflow/internal/walker"
-	"grail.com/lib/digest"
 )
 
 type walker struct {

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/rest"
@@ -16,7 +17,6 @@ import (
 	"github.com/grailbio/reflow/pool"
 	repositoryclient "github.com/grailbio/reflow/repository/client"
 	"golang.org/x/sync/singleflight"
-	"grail.com/lib/digest"
 )
 
 // Client implements a reflow pool by dispatching calls to a remote

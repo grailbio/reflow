@@ -11,12 +11,12 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/internal/bloomlive"
 	"github.com/grailbio/reflow/repository"
 	. "github.com/grailbio/reflow/repository/testutil"
 	"github.com/willf/bloom"
-	"grail.com/lib/digest"
 	"grail.com/testutil"
 )
 

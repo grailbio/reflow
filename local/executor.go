@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/docker/engine-api/client"
 	"github.com/docker/engine-api/types"
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/ecrauth"
@@ -21,7 +22,6 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository/file"
 	"golang.org/x/sync/errgroup"
-	"grail.com/lib/digest"
 	"grail.com/lib/limiter"
 )
 

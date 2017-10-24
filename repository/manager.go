@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/grailbio/base/data"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/log"
 	"golang.org/x/sync/errgroup"
-	"grail.com/lib/data"
 	"grail.com/lib/limiter"
 )
 

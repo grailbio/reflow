@@ -5,7 +5,7 @@ import (
 	"io"
 	"net/url"
 
-	"grail.com/lib/digest"
+	"github.com/grailbio/base/digest"
 )
 
 // A Liveset contains a possibly approximate judgement about live

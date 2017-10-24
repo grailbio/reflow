@@ -7,9 +7,9 @@ import (
 	"os"
 	"text/tabwriter"
 
+	"github.com/grailbio/base/data"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/pool"
-	"grail.com/lib/data"
 	"grail.com/lib/traverse"
 )
 

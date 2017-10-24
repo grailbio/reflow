@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository/file"
-	"grail.com/lib/digest"
 )
 
 // localfileExec implements an exec for interning and externing

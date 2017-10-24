@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 
+	"github.com/grailbio/base/digest"
 	"github.com/willf/bloom"
-	"grail.com/lib/digest"
 )
 
 // T implements a reflow.Liveset using a concrete bloom filter.

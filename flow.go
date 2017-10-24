@@ -18,10 +18,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/grailbio/base/data"
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/values"
-	"grail.com/lib/data"
-	"grail.com/lib/digest"
 )
 
 // Universe is the global namespace for digest computation.

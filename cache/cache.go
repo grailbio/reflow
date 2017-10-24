@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
-	"grail.com/lib/digest"
 	"grail.com/lib/limiter"
 )
 

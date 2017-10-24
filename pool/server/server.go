@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/rest"
 	"github.com/grailbio/reflow/pool"
 	repositoryserver "github.com/grailbio/reflow/repository/server"
-	"grail.com/lib/digest"
 )
 
 // NewNode returns a rest.Node that implements the pool REST API.

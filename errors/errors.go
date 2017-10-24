@@ -21,8 +21,8 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow/log"
-	"grail.com/lib/digest"
 )
 
 // Separator is inserted between chained errors while rendering.

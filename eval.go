@@ -13,13 +13,13 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/grailbio/base/data"
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/bloomlive"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/values"
 	"github.com/willf/bloom"
-	"grail.com/lib/data"
-	"grail.com/lib/digest"
 )
 
 const (

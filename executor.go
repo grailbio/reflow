@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/docker/engine-api/types"
+	"github.com/grailbio/base/data"
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/values"
-	"grail.com/lib/data"
-	"grail.com/lib/digest"
 )
 
 // File represents a name-by-hash file.

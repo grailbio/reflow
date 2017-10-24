@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/pool"
-	"grail.com/lib/digest"
 )
 
 var (

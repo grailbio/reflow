@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/grailbio/base/data"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
-	"grail.com/lib/data"
 )
 
 const (

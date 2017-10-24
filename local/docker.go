@@ -20,11 +20,11 @@ import (
 	"github.com/docker/engine-api/types"
 	"github.com/docker/engine-api/types/container"
 	"github.com/docker/engine-api/types/network"
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository/file"
-	"grail.com/lib/digest"
 )
 
 // Exec directory layout:

@@ -5,9 +5,9 @@ import (
 	"io"
 	"sync"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
-	"grail.com/lib/digest"
 )
 
 // ExecResult stores the result of a completed exec.

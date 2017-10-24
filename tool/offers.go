@@ -7,7 +7,7 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"grail.com/lib/data"
+	"github.com/grailbio/base/data"
 )
 
 func (c *Cmd) offers(ctx context.Context, args ...string) {

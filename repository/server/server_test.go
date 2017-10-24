@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/bloomlive"
@@ -19,7 +20,6 @@ import (
 	"github.com/grailbio/reflow/repository/file"
 	. "github.com/grailbio/reflow/repository/testutil"
 	"github.com/willf/bloom"
-	"grail.com/lib/digest"
 	"grail.com/testutil"
 )
 

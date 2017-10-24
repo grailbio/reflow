@@ -12,11 +12,11 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/grailbio/base/data"
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/runner"
-	"grail.com/lib/data"
-	"grail.com/lib/digest"
 	"grail.com/lib/state"
 )
 

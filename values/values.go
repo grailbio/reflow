@@ -23,8 +23,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow/types"
-	"grail.com/lib/digest"
 )
 
 // Digester is the digester used to compute value digests.

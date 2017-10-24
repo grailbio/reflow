@@ -5,9 +5,9 @@ import (
 	"io"
 	"sort"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/values"
-	"grail.com/lib/digest"
 )
 
 var (

@@ -4,9 +4,9 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
-	"grail.com/lib/digest"
 )
 
 // Assoc implements a DynamoDB-backed Assoc for use in caches.

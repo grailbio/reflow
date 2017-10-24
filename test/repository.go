@@ -8,8 +8,8 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
-	"grail.com/lib/digest"
 )
 
 // panicRepository is an unimplemented Repository.

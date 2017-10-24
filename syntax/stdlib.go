@@ -10,12 +10,12 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/walker"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
-	"grail.com/lib/digest"
 )
 
 type systemFunc struct {

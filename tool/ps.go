@@ -11,11 +11,11 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/grailbio/base/data"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/runner"
 	"golang.org/x/sync/errgroup"
-	"grail.com/lib/data"
 )
 
 type execInfo struct {

@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/bloomlive"
 	"github.com/grailbio/reflow/internal/rest"
-	"grail.com/lib/digest"
 )
 
 // Node is a REST node serving a Repository.

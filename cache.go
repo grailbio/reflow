@@ -3,7 +3,7 @@ package reflow
 import (
 	"context"
 
-	"grail.com/lib/digest"
+	"github.com/grailbio/base/digest"
 )
 
 // A Cache stores Values and their associated File objects for later

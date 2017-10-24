@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/repository/testutil"
-	"grail.com/lib/digest"
 )
 
 type assoc map[digest.Digest]digest.Digest

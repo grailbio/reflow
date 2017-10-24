@@ -1,8 +1,8 @@
 package values
 
 import (
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow/types"
-	"grail.com/lib/digest"
 )
 
 // Symtab is a symbol table of values.

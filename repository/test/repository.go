@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
-	"grail.com/lib/digest"
 )
 
 //go:generate stringer -type=callType
