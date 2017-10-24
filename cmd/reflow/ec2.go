@@ -80,7 +80,7 @@ The resulting configuration can be examined with "reflow config".`
 		cfg.DiskType = "gp2"
 	}
 	if cfg.DiskSpace == 0 {
-		cfg.DiskSpace = 100
+		cfg.DiskSpace = 250
 	}
 	if cfg.AMI == "" {
 		cfg.AMI = "ami-d0e54eb0"
