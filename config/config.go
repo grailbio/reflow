@@ -1,3 +1,7 @@
+// Copyright 2017 GRAIL, Inc. All rights reserved.
+// Use of this source code is governed by the Apache 2.0
+// license that can be found in the LICENSE file.
+
 // Package config defines an interface for configuring a Reflow
 // instance. This interface can be composed in multiple ways,
 // allowing for layered configuration and also for distributions of

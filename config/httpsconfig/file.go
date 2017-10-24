@@ -1,3 +1,7 @@
+// Copyright 2017 GRAIL, Inc. All rights reserved.
+// Use of this source code is governed by the Apache 2.0
+// license that can be found in the LICENSE file.
+
 // Package httpsconfig defines a configuration provider named "file"
 // which can be used to configure HTTPS certificates. The package is
 // usually imported for its registration side effects.

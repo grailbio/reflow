@@ -1,3 +1,7 @@
+// Copyright 2017 GRAIL, Inc. All rights reserved.
+// Use of this source code is governed by the Apache 2.0
+// license that can be found in the LICENSE file.
+
 // Package types contains data structures and algorithms for dealing
 // with value types in Reflow. In particular, it defines type-trees,
 // constructors for type trees, together with unification and

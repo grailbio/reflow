@@ -1,3 +1,7 @@
+// Copyright 2017 GRAIL, Inc. All rights reserved.
+// Use of this source code is governed by the Apache 2.0
+// license that can be found in the LICENSE file.
+
 // Package file implements a filesystem-backed repository. It stores
 // objects in a directory on disk; the objects are named by the
 // string representation of their digest, i.e., of the form

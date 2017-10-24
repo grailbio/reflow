@@ -1,3 +1,7 @@
+// Copyright 2017 GRAIL, Inc. All rights reserved.
+// Use of this source code is governed by the Apache 2.0
+// license that can be found in the LICENSE file.
+
 // Package values defines data structures for representing (runtime) values
 // in Reflow. Any valid reflow type has representable values (see grail.com/reflow/types)
 // and the structures in this package mirror those in the type system.

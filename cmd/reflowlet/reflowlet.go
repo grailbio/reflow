@@ -1,3 +1,7 @@
+// Copyright 2017 GRAIL, Inc. All rights reserved.
+// Use of this source code is governed by the Apache 2.0
+// license that can be found in the LICENSE file.
+
 // Reflowlet is the agent process that is run on nodes in a Reflow
 // cluster. Reflowlet instantiates a local reflow pool and exposes it
 // via the standard REST API. Reflowlet receives a profile token

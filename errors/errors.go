@@ -1,3 +1,7 @@
+// Copyright 2017 GRAIL, Inc. All rights reserved.
+// Use of this source code is governed by the Apache 2.0
+// license that can be found in the LICENSE file.
+
 // Package errors provides a standard error definition for use in
 // Reflow. Each error is assigned a class of error (kind) and an
 // operation with optional arguments. Errors may be chained, and thus

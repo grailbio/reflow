@@ -1,3 +1,7 @@
+// Copyright 2017 GRAIL, Inc. All rights reserved.
+// Use of this source code is governed by the Apache 2.0
+// license that can be found in the LICENSE file.
+
 // Package ec2authenticator implements Docker repository
 // authentication for ECR using an AWS SDK session and a root.
 package ec2authenticator

@@ -1,3 +1,7 @@
+// Copyright 2017 GRAIL, Inc. All rights reserved.
+// Use of this source code is governed by the Apache 2.0
+// license that can be found in the LICENSE file.
+
 // Package ec2config defines and registers configuration providers
 // using Amazon's EC2 metadata service. It is imported for its side
 // effects. Note that ec2config does not marshal its key material.

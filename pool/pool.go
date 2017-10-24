@@ -1,3 +1,7 @@
+// Copyright 2017 GRAIL, Inc. All rights reserved.
+// Use of this source code is governed by the Apache 2.0
+// license that can be found in the LICENSE file.
+
 // Package pool implements resource pools for reflow. Reflow manages
 // resources in units of "allocs" -- an a resource allocation that
 // exists on a single machine, and to which is attached a shared

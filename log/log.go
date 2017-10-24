@@ -1,3 +1,7 @@
+// Copyright 2017 GRAIL, Inc. All rights reserved.
+// Use of this source code is governed by the Apache 2.0
+// license that can be found in the LICENSE file.
+
 // Package log implements leveling and teeing on top of Go's standard
 // logs package. As with the standard log package, this package
 // defines a standard logger available as a package global and via
