@@ -18,12 +18,6 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/log"
-	// Keycrypt implementations are needed to retrieve keycrypt credentials.
-	// These are the default set.
-	_ "grail.com/security/keycrypt/file"
-	_ "grail.com/security/keycrypt/keychain"
-	_ "grail.com/security/keycrypt/kms"
-	_ "grail.com/security/keycrypt/static"
 )
 
 // Func is the type of a command function.
