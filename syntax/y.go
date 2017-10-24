@@ -11,8 +11,8 @@ import __yyfmt__ "fmt"
 import (
 	"fmt"
 
+	"github.com/grailbio/reflow/internal/scanner"
 	"github.com/grailbio/reflow/types"
-	"grail.com/reflow/syntax/scanner"
 )
 
 type posIdents struct {

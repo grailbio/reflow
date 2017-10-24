@@ -12,9 +12,9 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/grailbio/reflow/internal/scanner"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
-	"grail.com/reflow/syntax/scanner"
 )
 
 func init() {

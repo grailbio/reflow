@@ -8,9 +8,9 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/grailbio/reflow/internal/scanner"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
-	"grail.com/reflow/syntax/scanner"
 )
 
 // DeclKind is the type of declaration.

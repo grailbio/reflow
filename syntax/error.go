@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"fmt"
 
-	"grail.com/reflow/syntax/scanner"
+	"github.com/grailbio/reflow/internal/scanner"
 )
 
 // posError attaches a position to an error.

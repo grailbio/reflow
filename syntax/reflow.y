@@ -4,7 +4,7 @@ package syntax
 import (
 	"fmt"
 	
-	"grail.com/reflow/syntax/scanner"
+	"github.com/grailbio/reflow/internal/scanner"
 	"github.com/grailbio/reflow/types"
 )
 
