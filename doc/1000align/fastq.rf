@@ -1,0 +1,13 @@
+val dirs = make("$/dirs")
+val image = "ubuntu"
+
+// Split splits a fastq file into multiple FASTQ files with
+// a given number of reads.
+func Split(fastq file, reads int) [file] = {
+	splits := exec(image) (splits dir) {"
+		zcat {{fastq}} | split -l {{reads*4}} - \
+			{{splits}}/split_ --filter='gzip > $FILE.gz'
+	"}
+	dirs.Files(splits)
+}
+

@@ -1,5 +1,7 @@
 ![Reflow](https://raw.github.com/grailbio/reflow/master/reflow.svg)
 
+[![Gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/grailbio/reflow?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 Reflow is a system for incremental data processing in the cloud.
 Reflow enables scientists and engineers to compose existing tools
 (packaged in Docker images) using ordinary programming constructs.
@@ -507,3 +509,53 @@ file to `s3://marius-test-bucket/aligned.sam`. Indeed it did:
 
 	% aws s3 ls s3://marius-test-bucket/aligned.sam
 	2017-10-19 10:47:37 14196491221 aligned.sam
+
+## 1000align
+
+This code was modularized and generalized in
+[1000align](https://github.com/grailbio/reflow/doc/1000align/). Here,
+fastq, bam, and alignment utilities are split into their own
+parameterized modules. The toplevel module, 1000align, is
+instantiated from the command line. Command line invocations (`reflow
+run`) can pass module parameters through flags (strings, booleans,
+and integers):
+
+	% reflow run 1000align.rf -help
+	usage of 1000align.rf:
+	  -out string
+	    	out is the target of the output merged BAM file (required)
+	  -sample string
+	    	sample is the name of the 1000genomes phase 3 sample (required)
+
+For example, to align the full sample from above, we can invoke
+1000align.rf with the following arguments:
+
+	% reflow run 1000align.rf  -sample HG00103 -out s3://marius-test-bucket/HG00103.bam
+
+In this case, if your account limits allow it, Reflow will launch
+additional EC2 instances in order to further parallelize the work to
+be done. (Since we're aligning multiple pairs of FASTQ files).
+In this run, we can see that Reflow is aligning 5 pairs in parallel
+across 2 instances (four can fit on the initial m4.16xlarge instance).
+
+	% reflow ps -l
+	marius@localhost/66986b84 align.align.sam 1:43PM 0:00 running 7.8GiB  4.7  6.5GiB   bwa ec2-52-40-140-59.us-west-2.compute.amazonaws.com:9000/21d327bb4da2b7cf/0551e1353c385dc420c00d93ff5b645c5b6dd022986d42fabb4003d9c632f383
+	marius@localhost/66986b84 align.align.sam 1:43PM 0:00 running 10.5GiB 58.1 4.2GiB   bwa ec2-52-40-140-59.us-west-2.compute.amazonaws.com:9000/21d327bb4da2b7cf/a39f5f6d8a8ed8b3200cc1ca6b6497dd6bc05ad501bd3f54587139e255972f21
+	marius@localhost/66986b84 align.align.sam 1:44PM 0:00 running 8.6GiB  50.8 925.0MiB bwa ec2-52-40-140-59.us-west-2.compute.amazonaws.com:9000/5cbba84c0ca1cb4e/5a956304a2cd3ec37db6240c82a97b4660803f2ea30f2b69139a384cd0664f68
+	marius@localhost/66986b84 align.align.sam 1:44PM 0:00 running 9.1GiB  3.3  0B       bwa ec2-52-40-140-59.us-west-2.compute.amazonaws.com:9000/5cbba84c0ca1cb4e/5ebd233dc5495c5c090c5177c7bfdecc1882972cf3504b532d22be1200e7e5f1
+	marius@localhost/66986b84 align.align.sam 1:48PM 0:00 running 6.8GiB  31.5 0B       bwa ec2-34-212-44-28.us-west-2.compute.amazonaws.com:9000/f128adf14a7a3d5a/6c1266c7c3e8fc9f2a56e370b552a163e14bf6f4ae73b7b5b067d408eb38dbcf
+
+When it completes, an approximately 17GiB BAM file is deposited to s3:
+
+	% aws s3 ls s3://marius-test-bucket/HG00103.bam
+	2017-10-24 20:25:48 18752460252 HG00103.bam
+
+## A note on Reflow's cluster manager
+
+Reflow comes with a built-in cluster manager, which is responsible
+for elastically increasing or decreasing required compute resources.
+The AWS EC2 cluster manager keeps track of instance type availability
+and account limits, and uses these to launch the most appropriate set
+of instances for a given job. When instances become idle, they will
+terminate themselves if they are about to cross a billing boundary
+(assumed to be 1h on EC2); idle instances are reused when possible.

@@ -1,0 +1,47 @@
+// This is the 1000align module. It aligns a single phase-3 sample
+// from the 1000genomes project.
+
+param (
+	// sample is the name of the 1000genomes phase 3 sample
+	sample string
+
+	// out is the target of the output merged BAM file
+	out string
+)
+
+// g1kv37 is the 1000genomes version of hg19.
+val g1kv37 = file("s3://1000genomes/technical/reference/human_g1k_v37.fasta.gz")
+
+// g1kv37Indexed is the BWA-indexed version of g1kv37.
+val g1kv37Indexed = exec(image := "biocontainers/bwa", mem := GiB, cpu := 1) (out dir) {"
+	# Ignore failures here. The file from 1000genomes has a trailer
+	# that isn't recognized by gunzip. (This is not recommended practice!)
+	gunzip -c {{g1kv37}} > {{out}}/g1k_v37.fa || true
+	cd {{out}}
+	bwa index -a bwtsw g1k_v37.fa
+"}
+
+val align = make("./align.rf", 
+	sequencingCenter := "1000genomes",
+	platform := "Illumina",
+	model := "unknown",
+	threads := 32,
+	sample,
+	alignmentGenome := g1kv37Indexed,
+	// 1000genomes uses a non-standard grouping pattern, e.g.,
+	// SRR062640_1.filt.fastq.gz, SRR062640_2.filt.fastq.gz
+	groupPattern := "(.*)_[12].filt.fastq.gz$",
+	// We don't really know metadata, so always return empty.
+	fastqMeta := func(name string) => ("unknown", "unknown"))
+
+val fastqs = dir("s3://1000genomes/phase3/data/"+sample+"/sequence_read/")
+val bam = make("./bam.rf")
+val merged = bam.Merge(align.AlignPairs(fastqs))
+
+val files = make("$/files")
+
+// Align a sample from the 1000genomes phase 3 dataset into a single,
+// merged BAM file. The module is parameterized on the sample name
+// (e.g., HG00103), and the output (e.g., an s3 path).
+@requires(cpu := 32, mem := 128*GiB, disk := 80*GiB)
+val Main = files.Copy(merged, out)

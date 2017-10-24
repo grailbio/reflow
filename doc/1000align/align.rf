@@ -1,0 +1,97 @@
+param (
+	// sequencingCenter specifies the sequencing center that
+	// produced the data.
+	sequencingCenter string
+	// platform is the sequencing platform (e.g., Illumina)
+	platform string
+	// model is the specific model of sequencer (e.g., HiSeqX)
+	model string
+	// sample is the sample identifier from which the data is sequenced.
+	sample string
+	// alignmentGenome is the reference dataset used by BWA to align
+	// reads.
+	alignmentGenome dir
+
+	// threads is the number of threads used in a single BWA instantiation.
+	threads = 16
+	
+	// splitFASTQ governs whether the aligner splits (and then merges) FASTQ
+	// files before aligning. Splitting FASTQ permits greater parallelism
+	// (i.e., across multiple machines) when aligning.
+	splitFASTQ = false
+	
+	splitSize = 5400000
+	
+	// image is the BWA Docker image
+	image = "biocontainers/bwa"
+	
+	// fastqMeta extracts flowcell and lane information from a FASTQ file 
+	// name.
+	fastqMeta = func(name string) => {
+		val regexp = make("$/regexp")
+		val [flowcell, lane] = regexp.Groups(name, 
+			"([0-9_A-Za-z]*)-.*_(L[0-9]*)_R[12]_[0-9]*.fastq.gz")
+		(flowcell, lane)
+	}
+	
+	// groupPattern is the regular expression used to group read pairs.
+	groupPattern = "(.*)_R[12]_001.fastq.gz$"
+)
+
+val dirs = make("$/dirs")
+val bam = make("./bam.rf", threads)
+val fastq = make("./fastq.rf")
+
+func readgroup(flowcell, lane string) = 
+	`@RG\tID:1\tCN:`+sequencingCenter+`\tPL:`+ 
+		platform+`\tPM:`+model+`\tPU:`+flowcell+`-`+lane + `\tSM:`+sample
+
+func align(r1, r2 file, flowcell, lane string) (bam file) = {
+	// TODO: create an image with both BWA and samtools so we don't have
+	// to do this in two execs.
+	val sam = exec(image, cpu := 16, mem := 12*GiB) (sam file) {"
+		bwa mem -R "{{readgroup(flowcell, lane)}}" -t {{threads}} \
+			{{alignmentGenome}}/g1k_v37.fa {{r1}} {{r2}} > {{sam}}
+	"}
+	val aligned = exec(image := "biocontainers/samtools", cpu := 1, mem := 500*MiB) (bam file) {"
+		< {{sam}} samtools view -Sb - > {{bam}}
+	"}
+	bam.Sort(aligned)
+}
+
+// Align aligns a pair of reads using BWA MEM. The flowcell and lane
+// are used to construct a readgroup, embedded by BWA. The module
+// parameters sequencingCenter, platform, model, and sample are also
+// embedded. Align returns the bam file along with the stderr output from
+// BWA. It uses the alignment genome as passed by module parameter.
+func Align(r1, r2 file, flowcell, lane string) (bam file) = 
+	if splitFASTQ {
+		splits := zip(fastq.Split(r1, splitSize), fastq.Split(r2, splitSize))
+		bam.Merge([align(s1, s2, flowcell, lane) | (s1, s2) <- splits])
+	} else {
+		 align(r1, r2, flowcell, lane)
+	}
+
+// AlignAndSort aligns a read pair and then sorts and indexes
+// the resulting BAM file.
+func AlignAndSort(r1, r2 file, flowcell, lane string) file = {
+	val aligned = Align(r1, r2, flowcell, lane)
+	sorted := bam.Sort(aligned)
+	bam.Index(sorted)
+}
+
+func pairs(fastqs dir) [{r1, r2 file, flowcell, lane string}] = {
+	func meta(d dir) = {
+		val (r1, r1name) = dirs.Pick(d, "*_1.filt.fastq.gz")
+		val (r2, _) = dirs.Pick(d, "*_2.filt.fastq.gz")
+		val (flowcell, lane) = fastqMeta(r1name)
+		{r1, r2, flowcell, lane}
+	}
+	[meta(d) | (_, d) <- dirs.Groups(fastqs, groupPattern)]
+}
+
+// AlignPairs takes a directory of paired FASTQ files, groups
+// them according to parameter groupPattern, and then returns
+// a BAM file for each aligned pair.
+func AlignPairs(fastqs dir) [file] =
+	[Align(pair.r1, pair.r2, pair.flowcell, pair.lane) | pair <- pairs(fastqs)]
