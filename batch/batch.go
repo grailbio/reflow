@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/lang"
@@ -31,7 +32,6 @@ import (
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
 	"golang.org/x/time/rate"
-	"grail.com/lib/state"
 )
 
 //go:generate stringer -type=State

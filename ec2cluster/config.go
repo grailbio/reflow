@@ -13,12 +13,12 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/internal/ec2authenticator"
 	"github.com/grailbio/reflow/runner"
 	"golang.org/x/net/http2"
 	yaml "gopkg.in/yaml.v2"
-	"grail.com/lib/state"
 )
 
 const (

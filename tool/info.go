@@ -18,10 +18,10 @@ import (
 
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/runner"
-	"grail.com/lib/state"
 )
 
 func (c *Cmd) info(ctx context.Context, args ...string) {

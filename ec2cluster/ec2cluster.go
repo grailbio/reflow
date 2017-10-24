@@ -25,6 +25,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/errors"
@@ -32,7 +33,6 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/pool/client"
-	"grail.com/lib/state"
 )
 
 const (

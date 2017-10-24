@@ -10,8 +10,8 @@ import (
 	"encoding/json"
 
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
-	"grail.com/lib/limiter"
 )
 
 // An Assoc is an associative array mapping digests to other digests.

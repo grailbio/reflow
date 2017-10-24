@@ -18,6 +18,7 @@ import (
 	"time"
 
 	dockerclient "github.com/docker/engine-api/client"
+	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/cache"
 	"github.com/grailbio/reflow/errors"
@@ -34,7 +35,6 @@ import (
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/types"
 	"golang.org/x/net/http2"
-	"grail.com/lib/state"
 )
 
 const maxConcurrentStreams = 2000

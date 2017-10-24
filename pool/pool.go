@@ -18,9 +18,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
-	"grail.com/lib/traverse"
 )
 
 const (

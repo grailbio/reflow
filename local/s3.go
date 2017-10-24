@@ -30,12 +30,12 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository/file"
 	"golang.org/x/sync/errgroup"
-	"grail.com/lib/limiter"
 )
 
 // DefaultS3Region is the region used for s3 requests if a bucket's

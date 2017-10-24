@@ -12,12 +12,12 @@ import (
 
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/cache"
 	"github.com/grailbio/reflow/cache/dynamodbassoc"
 	"github.com/grailbio/reflow/config"
 	reflows3 "github.com/grailbio/reflow/repository/s3"
-	"grail.com/lib/limiter"
 )
 
 func init() {

@@ -12,9 +12,9 @@ import (
 	"text/tabwriter"
 
 	"github.com/grailbio/base/data"
+	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/pool"
-	"grail.com/lib/traverse"
 )
 
 func (c *Cmd) list(ctx context.Context, args ...string) {

@@ -11,9 +11,9 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
+	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/repository/file"
-	"grail.com/lib/limiter"
 	"grail.com/testutil"
 	"grail.com/testutil/s3test"
 )

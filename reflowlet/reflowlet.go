@@ -16,6 +16,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/service/s3"
 	dockerclient "github.com/docker/engine-api/client"
+	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/internal/ec2authenticator"
 	"github.com/grailbio/reflow/internal/rest"
@@ -25,7 +26,6 @@ import (
 	repositoryhttp "github.com/grailbio/reflow/repository/http"
 	reflows3 "github.com/grailbio/reflow/repository/s3"
 	"golang.org/x/net/http2"
-	"grail.com/lib/limiter"
 )
 
 // maxConcurrentStreams is the number of concurrent http/2 streams we

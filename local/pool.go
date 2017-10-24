@@ -20,12 +20,12 @@ import (
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/docker/engine-api/client"
 	"github.com/docker/engine-api/types"
+	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/fs"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
-	"grail.com/lib/limiter"
 )
 
 const (
