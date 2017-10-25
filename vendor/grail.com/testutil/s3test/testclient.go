@@ -16,7 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
-	"grail.com/cloud/url"
 	"grail.com/testutil"
 )
 
@@ -413,7 +412,7 @@ func (c *Client) UploadPartCopyRequest(
 	c.incApiCount(name)
 	// c.t.Logf("%s input: %v", name, input)
 	req, output = c.svc.UploadPartCopyRequest(input)
-	source, err := url.Decode(aws.StringValue(input.CopySource))
+	source, err := Decode(aws.StringValue(input.CopySource))
 	if err != nil {
 		c.t.Errorf("UploadPartCopyRequest could not unescape CopySource: %s", aws.StringValue(input.CopySource))
 	}
@@ -548,7 +547,7 @@ func (c *Client) CopyObjectRequest(
 	req.Handlers.Unmarshal.Clear()
 
 	// c.t.Logf("CopyObjectRequest input: %v", *input)
-	source, err := url.Decode(aws.StringValue(input.CopySource))
+	source, err := Decode(aws.StringValue(input.CopySource))
 	if err != nil {
 		c.t.Errorf("UploadPartCopyRequest could not unescape CopySource: %s", aws.StringValue(input.CopySource))
 	}
@@ -573,7 +572,7 @@ func (c *Client) CopyObject(input *s3.CopyObjectInput) (*s3.CopyObjectOutput, er
 		c.t.Errorf("CopyObject received unexpected bucket got: %s want %s", got, want)
 	}
 	// c.t.Logf("CopyObject input: %v", *input)
-	source, err := url.Decode(aws.StringValue(input.CopySource))
+	source, err := Decode(aws.StringValue(input.CopySource))
 	if err != nil {
 		c.t.Errorf("UploadPartCopyRequest could not unescape CopySource: %s", aws.StringValue(input.CopySource))
 	}
