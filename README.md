@@ -558,7 +558,7 @@ file to `s3://marius-test-bucket/aligned.sam`. Indeed it did:
 ## 1000align
 
 This code was modularized and generalized in
-[1000align](https://github.com/grailbio/reflow/doc/1000align/). Here,
+[1000align](https://github.com/grailbio/reflow/tree/master/doc/1000align). Here,
 fastq, bam, and alignment utilities are split into their own
 parameterized modules. The toplevel module, 1000align, is
 instantiated from the command line. Command line invocations (`reflow
