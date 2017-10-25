@@ -6,7 +6,11 @@ Reflow is a system for incremental data processing in the cloud.
 Reflow enables scientists and engineers to compose existing tools
 (packaged in Docker images) using ordinary programming constructs.
 Reflow then evaluates these programs in a cloud environment,
-transparently parallelizing work and memoizing results.
+transparently parallelizing work and memoizing results. Reflow was
+created at [GRAIL](http://grail.com/) to manage our NGS (next
+generation sequencing) bioinformatics workloads on
+[AWS](https://aws.amazon.com), but has also been used for many other
+applications, including model training and ad-hoc data analyses.
 
 Reflow comprises:
 
@@ -30,7 +34,17 @@ daemon (including Docker for Mac).
 
 Reflow was designed to support sophisticated, large-scale
 bioinformatics workflows, but should be widely applicable to
-scientific and engineering computing workloads.
+scientific and engineering computing workloads. It was built 
+using [Go](https://golang.org).
+
+Reflow joins a [long
+list](https://github.com/pditommaso/awesome-pipeline) of systems
+designed to tackle bioinformatics workloads, but differ from these in
+important ways:
+
+- it is a vertically integrated system with a minimal set of external dependencies; this allows Reflow to be "plug-and-play": bring your cloud credentials, and you're off to the races;
+- it defines a strict data model which is used for transparent memoization and other optimizations;
+- it takes workflow software seriously: the Reflow DSL provides type checking, modularity, and other constructors that are commonplace in general purpose programming languages.
 
 ## Getting Reflow
 
