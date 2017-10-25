@@ -1,6 +1,6 @@
 ![Reflow](reflow.svg)
 
-[![Gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/grailbio/reflow?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![Gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/grailbio/reflow?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge) [![Build Status](https://travis-ci.org/grailbio/reflow.svg?branch=master)](https://travis-ci.org/grailbio/reflow)
 
 Reflow is a system for incremental data processing in the cloud.
 Reflow enables scientists and engineers to compose existing tools
