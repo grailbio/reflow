@@ -156,6 +156,12 @@ The resulting configuration can be examined with "reflow config".`
 	if err != nil {
 		c.Fatal(err)
 	}
+
+	configPath := filepath.Dir(c.ConfigFile)
+	if err := os.MkdirAll(configPath, 0766); err != nil {
+		c.Fatal(err)
+	}
+
 	if err := ioutil.WriteFile(c.ConfigFile, b, 0666); err != nil {
 		c.Fatal(err)
 	}
