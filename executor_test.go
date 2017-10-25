@@ -47,6 +47,15 @@ func TestResources(t *testing.T) {
 	}
 }
 
+func TestRequirements(t *testing.T) {
+	var req Requirements
+	req = req.Add(Resources{10, 5, 1})
+	req = req.Add(Resources{20, 3, 1})
+	if got, want := req.Min, (Resources{20, 5, 1}); got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
 var (
 	file1 = File{Digester.FromString("foo"), 3}
 	file2 = File{Digester.FromString("bar"), 3}

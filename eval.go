@@ -86,7 +86,7 @@ type Eval struct {
 	cached []*Flow
 	// A channel indicating how much extra resources are needed
 	// in order to avoid queueing.
-	needch chan Resources
+	needch chan Requirements
 	// A channel for evaluation errors.
 	errors chan error
 	// Total and currently available resources.
@@ -126,7 +126,7 @@ type Eval struct {
 // (*Eval).Do is called.
 func (e *Eval) Init(root *Flow) {
 	e.root = root.Canonicalize(e.Config)
-	e.needch = make(chan Resources)
+	e.needch = make(chan Requirements)
 	e.errors = make(chan error)
 	e.returnch = make(chan *Flow, 1024)
 	e.newStealer = make(chan *Stealer)
@@ -404,9 +404,9 @@ func (e *Eval) LogSummary(log *log.Logger) {
 	log.Printf(b.String())
 }
 
-// Need returns the total amount of additional resources that would be needed
-// in order to avoid queueing work.
-func (e *Eval) Need() Resources {
+// Need returns the total resource requirements needed in order to
+// avoid queueing work.
+func (e *Eval) Need() Requirements {
 	return <-e.needch
 }
 
@@ -470,7 +470,7 @@ func (e *Eval) wait(ctx context.Context) (err error) {
 
 		// Compute needed resources and find stealable nodes.
 		var (
-			need             Resources
+			need             Requirements
 			nready, nrunning int
 		)
 		for v := e.root.Visitor(); v.Walk(); {

@@ -37,14 +37,13 @@ poll:
 		select {
 		case <-ticker.C:
 			need := e.Need()
-			if need.Memory == 0 { // proxy for zero
+			if need.IsZero() {
 				continue poll
 			}
 			n++
-			min, _ := e.Requirements()
-			s.Log.Debugf("need min(%v) max(%v); starting new task stealing worker", min, need)
+			s.Log.Debugf("need %v; starting new task stealing worker", need)
 			actx, acancel := context.WithTimeout(ctx, allocTimeout)
-			alloc, err := s.Cluster.Allocate(actx, min, need, s.Labels)
+			alloc, err := s.Cluster.Allocate(actx, need.Min, need.Max, s.Labels)
 			acancel()
 			if err != nil {
 				continue poll

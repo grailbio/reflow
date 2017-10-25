@@ -605,6 +605,34 @@ func (r Resources) IsZeroAny() bool {
 	return r.Memory == 0 || r.CPU == 0 || r.Disk == 0
 }
 
+// Requirements stores a range of resource requirements. Minimum
+// requirements indicate the smallest acceptable unit of resources,
+// while max is the maximum (total) amount of useful resources.
+type Requirements struct {
+	Min, Max Resources
+}
+
+// IsZero tells whether there are zero requirements.
+func (r Requirements) IsZero() bool {
+	return r.Min.IsZeroAll()
+}
+
+// Add returns r with s as added requirements. S is added to the max,
+// and r's min is adjusted to account for all of s's resources. This
+// way, Requirements reflects the smallest amount of resources that
+// can fit any of the discrete resources added.
+func (r Requirements) Add(s Resources) Requirements {
+	return Requirements{
+		Min: r.Min.Max(s),
+		Max: r.Max.Add(s),
+	}
+}
+
+// String renders a human-readable representation of r.
+func (r Requirements) String() string {
+	return fmt.Sprintf("min(%v) max(%v)", r.Min, r.Max)
+}
+
 // An Exec computes a Value. It is created from an ExecConfig; the
 // Exec interface permits waiting on completion, and inspection of
 // results as well as ongoing execution.
