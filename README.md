@@ -32,6 +32,37 @@ Reflow was designed to support sophisticated, large-scale
 bioinformatics workflows, but should be widely applicable to
 scientific and engineering computing workloads.
 
+## Getting Reflow
+
+You can get binaries (macOS/amd64, Linux/amd64) for the latest
+release at the [GitHub release
+page](https://github.com/grailbio/reflow/releases).
+
+Reflow is implemented in Go, and its packages are go-gettable. You
+can retrieve Reflow and its dependencies with
+
+	% go get [-u] github.com/grailbio/reflow
+
+and build the "reflow" binary using
+
+	% go install github.com/grailbio/reflow/cmd/reflow
+	
+Note that Reflow makes use of its own agent binaries, called
+reflowlets.  These are compiled for Linux/amd64, and are invoked by
+the cluster manager during instance bootstrapping. Thus, when you
+make changes to the code, you may also have to update the agent
+docker image. This process is handled by command releasereflow, which
+can be installed by
+
+	% go install github.com/grailbio/reflow/cmd/releasereflow
+
+Releasereflow builds target agent binaries and uploads them to a
+Docker repository (the release builds use the grailbio/reflowlet
+repository). Releasereflow then updates the file
+[version.go](https://github.com/grailbio/reflow/blob/master/cmd/reflow/version.go)
+which is compiled into the standard reflow binary.
+
+
 ## Quickstart - AWS
 
 Reflow is distributed with an EC2 cluster manager, and a memoization
