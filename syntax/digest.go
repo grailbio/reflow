@@ -72,9 +72,8 @@ func (e *Expr) digest(w io.Writer, env *values.Env) {
 		io.WriteString(w, e.Op)
 		e.Left.digest(w, env)
 	case ExprApply:
-		env = env.Push()
-		for i := range e.Args {
-			env.Bind(e.Args[i].Name, e.Fields[i].Expr.Digest(env))
+		for _, f := range e.Fields {
+			f.Expr.digest(w, env)
 		}
 		e.Left.digest(w, env)
 	case ExprConst:
@@ -133,7 +132,6 @@ func (e *Expr) digest(w io.Writer, env *values.Env) {
 				break
 			}
 		}
-
 		// TODO(marius): normalize this to strip out identifier names;
 		// instead rely on indices.
 		io.WriteString(w, e.Template.FormatString())
