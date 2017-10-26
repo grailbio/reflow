@@ -449,7 +449,7 @@ was produced:
 	        g1k_v37.fa.pac: sha256:d62039666da85d859a29ea24af55b3c8ffc61ddf02287af4d51b0647f863b94c (739.5MiB)
 	        g1k_v37.fa.sa:  sha256:99eb6ff6b54fba663c25e2642bb2a6c82921c931338a7144327c1e3ee99a4447 (1.4GiB)
 
-In this case, "bwa index" produced a number of auxilliary index
+In this case, "bwa index" produced a number of auxiliary index
 files. These are the contents of the "reference" directory.
 
 We can again query Reflow for running execs, and examine the
@@ -546,7 +546,7 @@ And run it again:
 
 Here we see that Reflow did not need to recompute the aligned file,
 it is instead retrieved from cache. The reference index generation is
-skipped alltogether.  Status lines that indicate "xfer" (instead of
+skipped altogether.  Status lines that indicate "xfer" (instead of
 "run") means that Reflow is performing a cache transfer in place of
 running the computation. Reflow claims to have transferred a 13.2 GiB
 file to `s3://marius-test-bucket/aligned.sam`. Indeed it did:
