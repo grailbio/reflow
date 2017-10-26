@@ -76,7 +76,6 @@ repository). Releasereflow then updates the file
 [version.go](https://github.com/grailbio/reflow/blob/master/cmd/reflow/version.go)
 which is compiled into the standard reflow binary.
 
-
 ## Quickstart - AWS
 
 Reflow is distributed with an EC2 cluster manager, and a memoization
@@ -604,3 +603,11 @@ and account limits, and uses these to launch the most appropriate set
 of instances for a given job. When instances become idle, they will
 terminate themselves if they are about to cross a billing boundary
 (assumed to be 1h on EC2); idle instances are reused when possible.
+
+## Support and community
+
+Please join us on on [Gitter](https://gitter.im/grailbio/reflow) or 
+on the [mailing list](https://groups.google.com/forum/#!forum/reflowlets)
+to discuss Reflow.
+
+
