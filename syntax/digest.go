@@ -89,6 +89,10 @@ func (e *Expr) digest(w io.Writer, env *values.Env) {
 		e.Left.digest(w, env)
 	case ExprFunc:
 		env = env.Push()
+		// Note that it is sufficient to produce a digest for the
+		// argument's position here because ExprIdent also digests the
+		// environment's level; together these make a proper De Bruijn
+		// index.
 		for i, a := range e.Args {
 			env.Bind(a.Name, digestN(i))
 		}
