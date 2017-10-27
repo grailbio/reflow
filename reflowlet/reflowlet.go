@@ -50,7 +50,7 @@ type Server struct {
 	// NDigest is the number of allowable concurrent digest operations.
 	NDigest int
 	// EC2Cluster tells whether this reflowlet is part of an EC2cluster.
-	// When true, the reflowlet shuts down if it is idle on an EC2 billing boundary.
+	// When true, the reflowlet shuts down if it is idle after 10 minutes.
 	EC2Cluster bool
 
 	configFlag string
@@ -134,13 +134,14 @@ func (s *Server) ListenAndServe() error {
 	}
 	if s.EC2Cluster {
 		go func() {
-			period := time.Hour
+			const (
+				period = time.Minute
+				expiry = 10 * time.Minute
+			)
 			for {
 				time.Sleep(period - time.Since(startupTime)%period)
-				if p.StopIfIdle() {
-					log.Fatal("shutting down idle reflowlet")
-				} else {
-					log.Printf("reflowlet is busy; keep alive for another %v", period)
+				if p.StopIfIdleFor(expiry) {
+					log.Fatalf("reflowlet idle for %s; shutting down", expiry)
 				}
 			}
 		}()

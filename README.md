@@ -601,8 +601,8 @@ for elastically increasing or decreasing required compute resources.
 The AWS EC2 cluster manager keeps track of instance type availability
 and account limits, and uses these to launch the most appropriate set
 of instances for a given job. When instances become idle, they will
-terminate themselves if they are about to cross a billing boundary
-(assumed to be 1h on EC2); idle instances are reused when possible.
+terminate themselves if they are idle for more than 10 minutes; idle
+instances are reused when possible.
 
 ## Support and community
 

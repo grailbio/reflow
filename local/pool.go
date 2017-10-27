@@ -393,11 +393,11 @@ func (p *Pool) Allocs(ctx context.Context) ([]pool.Alloc, error) {
 }
 
 // StopIfIdle stops the pool if it is idle. Returns whether the pool was stopped.
-func (p *Pool) StopIfIdle() bool {
+func (p *Pool) StopIfIdleFor(d time.Duration) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, alloc := range p.allocs {
-		if !alloc.expired() {
+		if alloc.expiredBy() < d {
 			return false
 		}
 	}
