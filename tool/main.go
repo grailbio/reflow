@@ -207,15 +207,15 @@ func (c *Cmd) Main() {
 		}
 		c.Config.Keys()[k] = *v
 	}
-	var err error
-	c.Config, err = config.Make(c.Config)
-	if err != nil {
-		c.Fatal(err)
-	}
 	if c.MakeConfig != nil {
 		// The whole business of wrapping configuration is getting
 		// ugly. We should rethink this configuration system a little.
 		c.Config = c.MakeConfig(c.Config)
+	}
+	var err error
+	c.Config, err = config.Make(c.Config)
+	if err != nil {
+		c.Fatal(err)
 	}
 
 	if c.httpFlag != "" {

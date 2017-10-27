@@ -16,10 +16,10 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/internal/rest"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	repositoryclient "github.com/grailbio/reflow/repository/client"
+	"github.com/grailbio/reflow/rest"
 	"golang.org/x/sync/singleflight"
 )
 

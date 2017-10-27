@@ -19,12 +19,12 @@ import (
 	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/internal/ec2authenticator"
-	"github.com/grailbio/reflow/internal/rest"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool/server"
 	repositoryhttp "github.com/grailbio/reflow/repository/http"
 	reflows3 "github.com/grailbio/reflow/repository/s3"
+	"github.com/grailbio/reflow/rest"
 	"golang.org/x/net/http2"
 )
 
@@ -70,13 +70,16 @@ func (s *Server) AddFlags(flags *flag.FlagSet) {
 
 // ListenAndServe serves the Reflowlet server on the configured address.
 func (s *Server) ListenAndServe() error {
-	b, err := ioutil.ReadFile(s.configFlag)
-	if err != nil {
-		return err
+	if s.configFlag != "" {
+		b, err := ioutil.ReadFile(s.configFlag)
+		if err != nil {
+			return err
+		}
+		if err := config.Unmarshal(b, s.Config.Keys()); err != nil {
+			return err
+		}
 	}
-	if err := config.Unmarshal(b, s.Config.Keys()); err != nil {
-		return err
-	}
+	var err error
 	s.Config, err = config.Make(s.Config)
 	if err != nil {
 		return err

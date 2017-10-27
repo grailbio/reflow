@@ -11,9 +11,9 @@ import (
 
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/internal/rest"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/repository/client"
+	"github.com/grailbio/reflow/rest"
 )
 
 func init() {

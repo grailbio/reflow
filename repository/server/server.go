@@ -14,7 +14,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/bloomlive"
-	"github.com/grailbio/reflow/internal/rest"
+	"github.com/grailbio/reflow/rest"
 )
 
 // Node is a REST node serving a Repository.

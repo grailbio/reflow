@@ -19,10 +19,10 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/bloomlive"
-	"github.com/grailbio/reflow/internal/rest"
 	"github.com/grailbio/reflow/repository/client"
 	"github.com/grailbio/reflow/repository/file"
 	. "github.com/grailbio/reflow/repository/testutil"
+	"github.com/grailbio/reflow/rest"
 	"github.com/willf/bloom"
 	"grail.com/testutil"
 )

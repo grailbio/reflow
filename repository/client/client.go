@@ -14,7 +14,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/internal/rest"
+	"github.com/grailbio/reflow/rest"
 )
 
 // Client is a Repository that dispatches requests to a server

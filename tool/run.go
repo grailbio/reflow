@@ -25,13 +25,13 @@ import (
 	"github.com/grailbio/reflow/internal/ctxwg"
 	"github.com/grailbio/reflow/internal/ec2authenticator"
 	"github.com/grailbio/reflow/internal/iputil"
-	"github.com/grailbio/reflow/internal/rest"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/repository/file"
 	repositoryserver "github.com/grailbio/reflow/repository/server"
+	"github.com/grailbio/reflow/rest"
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/types"
 	"golang.org/x/net/http2"
@@ -180,7 +180,7 @@ retriable.`
 	defer cancel()
 
 	if config.local || config.hybrid != "" {
-		c.runLocal(ctx, config, execLogger, er.Flow, er.Type)
+		c.runLocal(ctx, config, execLogger, runName, er.Flow, er.Type)
 		return
 	}
 
@@ -270,7 +270,7 @@ retriable.`
 	}
 }
 
-func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, flow *reflow.Flow, typ *types.T) {
+func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runName runner.Name, flow *reflow.Flow, typ *types.T) {
 	client, err := dockerclient.NewClient(
 		"unix:///var/run/docker.sock", "1.22", /*client.DefaultVersion*/
 		nil, map[string]string{"user-agent": "reflow"})
@@ -380,6 +380,9 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 			Cache:   rcache,
 			Cluster: cluster,
 			Log:     c.Log.Tee(nil, "hybrid: "),
+			Labels: pool.Labels{
+				"Name": runName.String(),
+			},
 		}
 		go stealer.Go(ctx, &eval)
 	}

@@ -5,17 +5,27 @@
 package tool
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/grailbio/reflow"
 	repositoryhttp "github.com/grailbio/reflow/repository/http"
 	reflows3 "github.com/grailbio/reflow/repository/s3"
 	"github.com/grailbio/reflow/runner"
 	"golang.org/x/net/http2"
 )
 
+type needer interface {
+	Need() reflow.Resources
+}
+
 // Cluster returns a configured cluster and sets up repository
 // credentials so that remote repositories can be dialed.
+//
+// Cluster also registers an http handler to export the cluster's
+// additional resource needs, if the cluster exports this.
 //
 // TODO(marius): handle this more elegantly, perhaps by avoiding
 // such global registration altogether. The current way of doing this
@@ -38,5 +48,19 @@ func (c *Cmd) cluster() runner.Cluster {
 	transport := &http.Transport{TLSClientConfig: clientConfig}
 	http2.ConfigureTransport(transport)
 	repositoryhttp.HTTPClient = &http.Client{Transport: transport}
+	if n, ok := cluster.(needer); ok {
+		http.HandleFunc("/clusterneed", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != "GET" {
+				http.Error(w, "bad method", http.StatusMethodNotAllowed)
+				return
+			}
+			need := n.Need()
+			enc := json.NewEncoder(w)
+			if err := enc.Encode(need); err != nil {
+				http.Error(w, fmt.Sprintf("internal error: %v", err), http.StatusInternalServerError)
+				return
+			}
+		})
+	}
 	return cluster
 }
