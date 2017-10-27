@@ -405,6 +405,9 @@ var dirsDecls = []*Decl{
 			if err != nil {
 				return nil, err
 			}
+			if u.Scheme == "" {
+				return nil, fmt.Errorf("dirs.Copy: scheme not provided in destination url %s", rawurl)
+			}
 			return &reflow.Flow{
 				Op:       reflow.OpExtern,
 				Position: loc.Position,
@@ -430,6 +433,9 @@ var filesDecls = []*Decl{
 			u, err := url.Parse(rawurl)
 			if err != nil {
 				return nil, err
+			}
+			if u.Scheme == "" {
+				return nil, fmt.Errorf("files.Copy: scheme not provided in destination url %s", rawurl)
 			}
 			return &reflow.Flow{
 				Op:       reflow.OpExtern,
