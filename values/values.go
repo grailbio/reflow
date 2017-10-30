@@ -43,6 +43,11 @@ func NewInt(i int64) T {
 	return big.NewInt(i)
 }
 
+// NewFloat returns a new floating point value.
+func NewFloat(f float64) T {
+	return big.NewFloat(f)
+}
+
 // Tuple is the type of tuple values.
 type Tuple []T
 
@@ -117,6 +122,8 @@ func Sprint(v T, t *types.T) string {
 		panic("illegal type")
 	case types.IntKind:
 		return v.(*big.Int).String()
+	case types.FloatKind:
+		return v.(*big.Float).String()
 	case types.StringKind:
 		return fmt.Sprintf("%q", v.(string))
 	case types.BoolKind:
@@ -225,6 +232,8 @@ func WriteDigest(w io.Writer, v T, t *types.T) {
 		panic("illegal type")
 	case types.IntKind:
 		w.Write(v.(*big.Int).Bytes())
+	case types.FloatKind:
+		w.Write([]byte(v.(*big.Float).Text('e', 10)))
 	case types.StringKind:
 		io.WriteString(w, v.(string))
 	case types.BoolKind:

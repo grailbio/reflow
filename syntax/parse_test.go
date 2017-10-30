@@ -25,6 +25,7 @@ func TestParseTypeOk(t *testing.T) {
 		t *types.T
 	}{
 		{"int", types.Int},
+		{"float", types.Float},
 		{"string", types.String},
 		{"bool", types.Bool},
 		{"file", types.File},

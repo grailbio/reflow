@@ -314,16 +314,17 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		case "+":
 			switch e.Left.Type.Kind {
 			// TODO(marius): for maps and lists, we should unify here.
-			case types.StringKind, types.IntKind, types.ListKind, types.MapKind:
+			case types.StringKind, types.IntKind, types.FloatKind, types.ListKind, types.MapKind:
 				e.Type = e.Left.Type.Assign(nil)
 			default:
 				e.Type = types.Errorf("binary operator %s not allowed for type %v", e.Op, e.Left.Type)
 			}
 		case "*":
-			if e.Left.Type.Kind == types.IntKind {
-				e.Type = types.Int
-			} else {
-				e.Type = types.Errorf("binary operator \"*\" not allowed for type %v", e.Left.Type)
+			switch e.Left.Type.Kind {
+			case types.IntKind, types.FloatKind:
+				e.Type = e.Left.Type.Assign(nil)
+			default:
+				e.Type = types.Errorf("binary operator \"%s\" not allowed for type %v", e.Op, e.Left.Type)
 			}
 		case "&&", "||":
 			if e.Left.Type.Kind == types.BoolKind {
@@ -333,14 +334,14 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			}
 		case "==", "!=":
 			switch e.Left.Type.Kind {
-			case types.StringKind, types.IntKind, types.FileKind, types.DirKind, types.BoolKind:
+			case types.StringKind, types.IntKind, types.FloatKind, types.FileKind, types.DirKind, types.BoolKind:
 				e.Type = types.Bool
 			default:
 				e.Type = types.Errorf("cannot compare values of type %v", e.Left.Type)
 			}
 		case ">", "<", "<=", ">=":
 			switch e.Left.Type.Kind {
-			case types.StringKind, types.IntKind:
+			case types.StringKind, types.IntKind, types.FloatKind:
 				e.Type = types.Bool
 			default:
 				e.Type = types.Errorf("cannot compare values of type %v", e.Left.Type)
@@ -359,10 +360,12 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 				e.Type = types.Bool
 			}
 		case "-":
-			if e.Left.Type.Kind != types.IntKind {
-				e.Type = types.Errorf("unary operator \"-\" is only valid for integers, not %s", e.Left.Type)
-			} else {
-				e.Type = types.Int
+
+			switch e.Left.Type.Kind {
+			case types.IntKind, types.FloatKind:
+				e.Type = e.Left.Type.Assign(nil)
+			default:
+				e.Type = types.Errorf("unary operator \"-\" is only valid for integers and floats, not %s", e.Left.Type)
 			}
 		}
 	case ExprApply:
@@ -503,7 +506,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 				return
 			}
 			switch ae.Type.Kind {
-			case types.FileKind, types.DirKind, types.StringKind, types.IntKind:
+			case types.FileKind, types.DirKind, types.StringKind, types.IntKind, types.FloatKind:
 			case types.ListKind:
 				switch ae.Type.Elem.Kind {
 				case types.FileKind, types.DirKind:
@@ -605,6 +608,21 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 				e.Type = types.Int.Assign(e.Left.Type)
 			default:
 				e.Type = types.Errorf("cannot apply len operator to value of type %s", e.Left.Type)
+			}
+		case "int":
+			switch e.Left.Type.Kind {
+			case types.FloatKind:
+				e.Type = types.Int.Assign(e.Left.Type)
+			default:
+				e.Type = types.Errorf("cannot convert type %s to int", e.Left.Type)
+			}
+
+		case "float":
+			switch e.Left.Type.Kind {
+			case types.IntKind:
+				e.Type = types.Float.Assign(e.Left.Type)
+			default:
+				e.Type = types.Errorf("cannot convert type %s to float", e.Left.Type)
 			}
 		case "zip":
 			if e.Left.Type.Kind != types.ListKind {

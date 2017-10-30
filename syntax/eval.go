@@ -317,6 +317,9 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				case types.IntKind:
 					vint := v.(*big.Int)
 					b.WriteString(vint.String())
+				case types.FloatKind:
+					vfloat := v.(*big.Float)
+					b.WriteString(vfloat.String())
 				case types.FileKind, types.DirKind, types.ListKind:
 					// Files and directories must be wrapped back into flows since
 					// this is the only way they can be inlined by reflow's executor
@@ -531,6 +534,22 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 					panic("bug")
 				}
 			}, e.Left)
+		case "int":
+			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+				if e.Left.Type.Kind == types.FloatKind {
+					f := vs[0].(*big.Float)
+					i, _ := f.Int64()
+					return values.NewInt(i), nil
+				}
+			}, e.Left)
+		case "float":
+			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+				if e.Left.Type.Kind == types.IntKind {
+					i := vs[0].(*big.Int)
+					f := float64(i.Int64())
+					return values.NewFloat(f), nil
+				}
+			}, e.Left)
 		case "zip":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 				var (
@@ -685,6 +704,10 @@ func (e *Expr) evalBinop(vs []values.T) (values.T, error) {
 			v := new(big.Int)
 			v.Add(left.(*big.Int), right.(*big.Int))
 			return v, nil
+		case types.FloatKind:
+			v := new(big.Float)
+			v.Add(left.(*big.Float), right.(*big.Float))
+			return v, nil
 		case types.ListKind:
 			var (
 				left  = left.(values.List)
@@ -709,13 +732,27 @@ func (e *Expr) evalBinop(vs []values.T) (values.T, error) {
 			v := new(big.Int)
 			v.Mul(left.(*big.Int), right.(*big.Int))
 			return values.T(v), nil
+		case types.FloatKind:
+			v := new(big.Float)
+			v.Mul(left.(*big.Float), right.(*big.Float))
+			return values.T(v), nil
 		default:
 			panic("bug")
 		}
 	case "==":
-		return values.Equal(left, right), nil
+		switch e.Left.Type.Kind {
+		case types.FloatKind:
+			return left.(*big.Float).Cmp(right.(*big.Float)) == 0, nil
+		default:
+			return values.Equal(left, right), nil
+		}
 	case "!=":
-		return !values.Equal(left, right), nil
+		switch e.Left.Type.Kind {
+		case types.FloatKind:
+			return left.(*big.Float).Cmp(right.(*big.Float)) != 0, nil
+		default:
+			return !values.Equal(left, right), nil
+		}
 	case ">", "<", "<=", ">=":
 		switch e.Left.Type.Kind {
 		case types.StringKind:
@@ -736,6 +773,23 @@ func (e *Expr) evalBinop(vs []values.T) (values.T, error) {
 			}
 		case types.IntKind:
 			left, right := left.(*big.Int), right.(*big.Int)
+			cmp := left.Cmp(right)
+			switch e.Op {
+			case "==":
+				return cmp == 0, nil
+			case ">":
+				return cmp > 0, nil
+			case "<":
+				return cmp < 0, nil
+			case "<=":
+				return cmp <= 0, nil
+			case ">=":
+				return cmp >= 0, nil
+			case "!=":
+				return cmp != 0, nil
+			}
+		case types.FloatKind:
+			left, right := left.(*big.Float), right.(*big.Float)
 			cmp := left.Cmp(right)
 			switch e.Op {
 			case "==":

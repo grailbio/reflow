@@ -36,7 +36,7 @@ func Force(v values.T, t *types.T) values.T {
 		panic("bad type")
 	case types.BottomKind:
 		panic("bottom value")
-	case types.IntKind, types.StringKind, types.BoolKind,
+	case types.IntKind, types.FloatKind, types.StringKind, types.BoolKind,
 		types.FileKind, types.DirKind, types.UnitKind, types.FuncKind:
 		// These types are always strict.
 		return v

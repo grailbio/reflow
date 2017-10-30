@@ -18,6 +18,7 @@
 - eval: print full image name in debug logs
 - syntax: add few missing cases for trailing commas
 - syntax: add a semicolon at the end of a file if there is a missing newline
+- syntax: add arbitrary precision float, conversion between int and float
 
 ## [reflow0.5.1](https://github.com/grailbio/reflow/releases/tag/reflow0.5.1)
 

@@ -131,6 +131,7 @@ var identTokens = map[string]int{
 
 	"func":   tokFunc,
 	"int":    tokInt,
+	"float":  tokFloat,
 	"string": tokString,
 	"bool":   tokBool,
 
@@ -161,7 +162,6 @@ var identTokens = map[string]int{
 	"force":   tokReserved,
 	"switch":  tokReserved,
 	"case":    tokReserved,
-	"float":   tokReserved,
 	"import":  tokReserved,
 	"include": tokReserved,
 }
@@ -269,6 +269,21 @@ Scan:
 		}
 		yy.expr.Val = values.T(i)
 		return tokExpr
+	case scanner.Float:
+		yy.expr = &Expr{
+			Position: pos,
+			Kind:     ExprConst,
+			Type:     types.Float,
+		}
+		f := new(big.Float)
+		_, _, err := f.Parse(text, 10)
+		if err != nil {
+			x.Error("failed to parse float \"" + text + "\": " + err.Error())
+			return tokError
+		}
+		yy.expr.Val = values.T(f)
+		return tokExpr
+
 	case scanner.String, scanner.RawString:
 		yy.expr = &Expr{
 			Position: pos,

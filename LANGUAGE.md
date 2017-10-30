@@ -15,7 +15,7 @@ files. The Reflow language is:
 
 This combination of traits means that users can write straightforward
 programs that perform the smallest amount of computation needed for
-the desired result while computation is fully parallellized.
+the desired result while computation is fully parallelized.
 
 Because Reflow is referentially transparent, the runtime can freely
 memoize the results of sub expressions, reusing them within a program
@@ -38,7 +38,7 @@ classic "hello, world!", in Reflow:
 
 	val Main = "hello, world!"
 
-When we invoke `reflow run`, Reflow evaluates the expression bound to 
+When we invoke `reflow run`, Reflow evaluates the expression bound to
 `Main`, and prints the resulting value:
 
 	% reflow run hello.rf
@@ -51,15 +51,15 @@ in this case, Main was inferred to be of type `string`, as expected.
 
 	% reflow doc hello.rf
 	Declarations
-	
+
 	val Main string
-	
+
 We can also explicitly assign types to identifiers. For example, if we modify
 our program to be
 
 	val Main int = "hello, world!"
 
-We are (wrongly) declaring that Main should be of type `int`. This will cause 
+We are (wrongly) declaring that Main should be of type `int`. This will cause
 Reflow's type checker to complain.
 
 	% reflow run hello.rf
@@ -74,6 +74,8 @@ The following is an overview of Reflow's syntactic features:
   <dd>UTF-8-encoded Unicode strings; examples: <code>"hello, world!"</code>, <code>`raw strings"!@#$`</code></dd>
   <dt>integers (type <code>int</code>)</dt>
   <dd>Integers are arbitrary precision; examples: <code>1</code>, <code>2</code>, <code>31415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679</code>.</dd>
+	<dt>floats (type <code>float</code>)</dt>
+  <dd>Floats are arbitrary precision; examples: <code>1.0</code>, <code>2.23</code>,  <code>3e10</code>, <code>0.5e-8</code>,  <code>3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679</code>.</dd>
   <dt>booleans (type <code<>bool</code>)</dt>
   <dd><code>true</code>, <code>false</code></dt>
   <dt>files (type <code>file</code>)</dt>
@@ -100,7 +102,7 @@ func abs(x int) = if x < 0 { -x } else { x }
 (type <code>func(int) int</code> &mdash; Reflow infers the returned type for us).
 </dd>
   <dt>blocks</dt>
-  <dd>Blocks are a list of declarations and an expression, example: 
+  <dd>Blocks are a list of declarations and an expression, example:
 <pre>
 {
 	a := 1*2
@@ -117,7 +119,7 @@ func absMul(x, y int) = {
 	x*y
 }
 </pre>
-Blocks (and toplevel declarations) have a "strong update" property: 
+Blocks (and toplevel declarations) have a "strong update" property:
 identifier names may be re-bound; the latest lexical binding applies
 at the usage site.
 </dd>
@@ -127,8 +129,8 @@ at the usage site.
   data (e.g., files, directories, strings) interpolated from its environment (expressions
   delimited by <code>{{</code> and <code>}}</code>); they
   can return a number of files and directories.
-  The following exec runs <code>echo hello world</code> inside of the 
-  <code>ubuntu</code> image, placing its output in a file. It reserves 
+  The following exec runs <code>echo hello world</code> inside of the
+  <code>ubuntu</code> image, placing its output in a file. It reserves
   1 CPU and 100 MiB of memory.
   <pre>
 exec(image := "ubuntu", cpu := 1, mem := 100*MiB) (out file) {"
@@ -144,7 +146,7 @@ val image = "..."
 
 // Bins returns a BED resources for a given bin size and a given
 // genome with the given bin size.
-func Bins(alignmentGenome, genomeSizes file, binSize int) (bed, nuc file) = 
+func Bins(alignmentGenome, genomeSizes file, binSize int) (bed, nuc file) =
 	exec(image, mem := GiB, cpu := 1) (bed, nuc file)	{"
 		bedtools makewindows -g {{genomeSizes}} -w {{binSize}} > {{bed}}
 		bedtools nuc -fi {{alignmentGenome}} -bed {{bed}} > {{nuc}}
@@ -157,9 +159,9 @@ Execs provide a shortcut syntax: <code>exec(image, ..)</code> is syntax sugar fo
 <dd>
 Reflow supports pattern matching in assignments and list comprehensions (see below).
 Pattern matching syntax is complementary to the syntax for constructing literals, so
-for example, the list <code>[1,2,3]</code> can be pattern matched as <code>val [a, b, c] = [1, 2, 3]</code>, 
+for example, the list <code>[1,2,3]</code> can be pattern matched as <code>val [a, b, c] = [1, 2, 3]</code>,
 resulting in <code>a := 1; b := 2; c := 3</code>. Elements can be ignored with <code>_</code> and
-patterns can be nested. For example, 
+patterns can be nested. For example,
 <pre>
 val tup = (1, {r: ("a", 1)}, [1, 2, 3])
 val (_, {r: (a, one)}, [first, _, third]) = tup
@@ -193,7 +195,7 @@ Toplevel value bindings within a module are exported if they begin
 with a capital letter, otherwise they remain private to the module.
 
 A Reflow module must declare any parameters before regular declarations
-commence. Parameters may have default values, and, if they do, they 
+commence. Parameters may have default values, and, if they do, they
 may be omitted when instantiated.
 
 	// samples specifies the sample name to be processed.
@@ -202,7 +204,7 @@ may be omitted when instantiated.
 	param assay string
 	// mapq specifies the mapq filter threshold to use.
 	param mapq = 60
-	
+
 	// Declarations begin here.
 
 
@@ -216,12 +218,12 @@ Params may be grouped together; the above is equivalent to:
 		// mapq specifies the mapq filter threshold to use.
 		mapq = 60
 	)
-	
+
 	// Declarations begin here.
 
 Parameters may then be used like any other value in the module.
 
-We use `make` to instantiate a module. Make takes 
+We use `make` to instantiate a module. Make takes
 the module's path as its first argument, and then a set of declarations
 to specify arguments. For example:
 
@@ -236,11 +238,11 @@ the identifier name matches the parameter name, e.g.:
 
 Reflow provides a number of system modules; they begin with `$/`.
 They are: `$/test`, `$/dirs`, `$/files`, `$/regexp`, `$/strings`, and `$/path`.
-Reflow module documentation may be inspected with the command 
+Reflow module documentation may be inspected with the command
 `reflow doc module`.
 
 If a module defines the identifier `Main`, it can be invoked by `reflow run`.
-`reflow run` can instantiate such modules using command line flags, and they 
+`reflow run` can instantiate such modules using command line flags, and they
 can be queried by `reflow run module -help`, for example:
 
 	% cat main.rf
@@ -249,9 +251,9 @@ can be queried by `reflow run module -help`, for example:
 		b string
 		c int
 	)
-	
+
 	val Main = (a, b, c)
-	
+
 	% reflow run main.rf -help
 	usage of main.rf:
 	  -a string
@@ -264,7 +266,7 @@ can be queried by `reflow run module -help`, for example:
 	("ok", "hello", 123)
 	% reflow run main.rf -b hello -c 123 -a notok
 	("notok", "hello", 123)
-	% 
+	%
 
 ## Evaluation semantics
 
@@ -280,13 +282,13 @@ This means that, for example, in a block like:
 	}
 
 `x`, `y`, and `z` are evaluated in parallel. Similarly, list
-comprehensions are also evaluated in parallel. 
+comprehensions are also evaluated in parallel.
 
 Reflow programs are also evaluated _by need_, that is to say, lazily.
 This means that an expression is never evaluated unless it is required
 by the results sought by the toplevel invocation. Lazy evaluation holds
 everywhere in Reflow: for example, if you compute a list of expensive
-results, but access only the first item, the remaning ones are never 
+results, but access only the first item, the remaining ones are never
 computed. See the [wikipedia page](https://en.wikipedia.org/wiki/Lazy_evaluation)
 for more details on lazy evaluation.
 
@@ -296,17 +298,15 @@ evaluation means that most Reflow programs can be written in a
 the extent allowable by data dependencies, skipping needless
 computation altogether.
 
-Sometimes, it's useful to force ordering, for example because there 
+Sometimes, it's useful to force ordering, for example because there
 exists a dependency that is invisible to Reflow. Reflow thus provides
-an escape hatch, the `~>` operator, that forces sequencing of two 
+an escape hatch, the `~>` operator, that forces sequencing of two
 computations that otherwise would not be. The following example
 forces a copy to occur before invoking an exec:
 
 	val files = make("$/files")
 	val copy = files.Copy(file("s3://grail-marius/source"), "s3://grail-marius/destination")
-	
+
 	val Main = copy ~> exec(image := "ubuntu") (out file) {"
 		# do something that assumes s3://grail-marius/destination exists
 	"}
-
-

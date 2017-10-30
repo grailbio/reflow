@@ -188,6 +188,8 @@ func (m *Module) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error) {
 				flags.String(p.Ident, "", help)
 			case types.IntKind:
 				flags.Int(p.Ident, 0, help)
+			case types.FloatKind:
+				flags.Float64(p.Ident, 0.0, help)
 			case types.BoolKind:
 				flags.Bool(p.Ident, false, help)
 			default:
@@ -212,6 +214,9 @@ func (m *Module) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error) {
 					flags.String(id, w.(string), p.Comment)
 				case types.IntKind:
 					flags.Uint64(id, w.(*big.Int).Uint64(), p.Comment)
+				case types.FloatKind:
+					f, _ := w.(*big.Float).Float64()
+					flags.Float64(id, f, p.Comment)
 				case types.BoolKind:
 					flags.Bool(id, w.(bool), p.Comment)
 				}
@@ -243,6 +248,14 @@ func (m *Module) FlagEnv(flags *flag.FlagSet, env *values.Env) error {
 			if _, ok := v.SetString(f.Value.String(), 10); !ok {
 				errs = append(errs,
 					fmt.Sprintf("-%s: invalid integer %q", f.Name, f.Value.String()))
+				return
+			}
+			env.Bind(f.Name, v)
+		case types.FloatKind:
+			v := new(big.Float)
+			if _, ok := v.SetString(f.Value.String()); !ok {
+				errs = append(errs,
+					fmt.Sprintf("-%s: invalid float %q", f.Name, f.Value.String()))
 				return
 			}
 			env.Bind(f.Name, v)

@@ -12,6 +12,7 @@ A Reflow type is one of the following (where t1, t2, etc. are
 themselves types):
 
 	int                                // the type of arbitrary precision integers
+  float                              // the type of arbitrary precision floats
 	string                             // the type of (UTF-8 encoded) strings
 	bool                               // the type of booleans
 	file                               // the type of files
@@ -56,7 +57,9 @@ expressions, d1, d2, .. are declarations; t1, t2, .. are types):
 	if e1 { d1; d2; ..; e2 }
 	else { d3; d4; ..; e3 }            // conditional expression (with declaration blocks)
 	(e1)                               // parenthesized expression to control precedence
-	len(e1)                            // builtin length operator
+  int(e1)                            // builtin float to int type conversion
+  float(e1)                          // builtin int to float type conversion
+  len(e1)                            // builtin length operator
 	zip(e1, e2)                        // builtin zip operator
 	unzip(e1)                          // builtin unzip operator
 	map(e1)                            // convert e1 to a map

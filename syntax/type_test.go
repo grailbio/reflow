@@ -17,9 +17,15 @@ func TestSynth(t *testing.T) {
 		typ  string
 	}{
 		{
+
 			`{f1: 123, f2: "okay", f3: [1,2,3]}`,
 			`{f1 int, f2 string, f3 [int]}`,
 		},
+		{
+			`{f1: 123.2121, f2: "okay", f3: [1.2,2.2,3.1212]}`,
+			`{f1 float, f2 string, f3 [float]}`,
+		},
+
 		{
 			`[{f1: 123, f2: "blah"}, {f2: "ok", f3: 321}]`,
 			`[{f2 string}]`,
@@ -29,18 +35,23 @@ func TestSynth(t *testing.T) {
 			`int`,
 		},
 		{
+			`{foo := 123.121212121; bar := foo; bar}`,
+			`float`,
+		},
+		{
 			`{val foo string = 123; bar := foo; bar}`,
 			`error: identifier "foo" not defined`,
 		},
 		{
-			`{x := 1; y := "a"; {x, y}}`,
-			`{x int, y string}`,
+			`{x := 1; y := "a"; z:= 2.33; {x, y, z}}`,
+			`{x int, y string, z float}`,
 		},
 		{
 			`{x := 2; y := a; 123}`,
 			`error: identifier "a" not defined`,
 		},
 		{`1 == 2`, `bool`},
+		{`2.1 == 2.12121`, `bool`},
 		{`if 1 == 2 { "ok" } else { "not ok" }`, `string`},
 		{`if 1 == 2 { "ok" } else { 123 }`, `error: kind mismatch: string != int`},
 		{`"ok" == 2`, `error: cannot apply binary operator "==" to type string and int`},

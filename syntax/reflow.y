@@ -63,7 +63,7 @@ type typearg struct {
 	posidents posIdents
 }
 
-%token	<expr>	tokIdent tokExpr tokInt tokString tokBool 
+%token	<expr>	tokIdent tokExpr tokInt tokString tokBool tokFloat
 %token	<template>	tokTemplate
 %token	<pos>	tokFile tokDir tokStruct tokModule tokExec tokAs  tokAt
 %token	<pos>	tokVal tokFunc tokAssign tokArrow tokLeftArrow tokIf tokElse 
@@ -149,6 +149,7 @@ identSelector:
 
 type:
 	tokInt	{$$ =  types.Int}
+|	tokFloat	{$$ = types.Float}
 |	tokString	{$$ = types.String}
 |	tokBool	{$$ = types.Bool}
 |	tokFile	{$$ = types.File}
@@ -531,6 +532,10 @@ term:
 |	exprblock
 |	tokLen '(' expr ')'
 	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprBuiltin, Op: "len", Left: $3}}
+|       tokInt '(' expr ')'
+	{$$ = &Expr{Position: $1.Position, Comment: $1.Comment, Kind: ExprBuiltin, Op: "int", Left: $3}}
+|       tokFloat '(' expr ')'
+	{$$ = &Expr{Position: $1.Position, Comment: $1.Comment, Kind: ExprBuiltin, Op: "float", Left: $3}}
 |	tokZip '(' expr ',' expr ')'
 	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprBuiltin, Op: "zip", Left: $3, Right: $5}}
 |	tokUnzip '(' expr ')'

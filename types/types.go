@@ -90,6 +90,9 @@ const (
 	// RefKind is a pseudo-kind to carry type alias references.
 	RefKind
 
+	// FloatKind is the type of arbitrary precision floats.
+	FloatKind
+
 	typeMax
 )
 
@@ -97,6 +100,7 @@ var kindStrings = [typeMax]string{
 	ErrorKind:  "error",
 	BottomKind: "bottom",
 	IntKind:    "int",
+	FloatKind:  "float",
 	StringKind: "string",
 	BoolKind:   "bool",
 	FileKind:   "file",
@@ -189,6 +193,7 @@ type T struct {
 var (
 	Bottom = &T{Kind: BottomKind}
 	Int    = &T{Kind: IntKind}
+	Float  = &T{Kind: FloatKind}
 	String = &T{Kind: StringKind}
 	Bool   = &T{Kind: BoolKind}
 	File   = &T{Kind: FileKind}
@@ -298,6 +303,8 @@ func (t *T) String() string {
 		s = "error"
 	case IntKind:
 		s = "int"
+	case FloatKind:
+		s = "float"
 	case StringKind:
 		s = "string"
 	case BoolKind:
@@ -484,7 +491,7 @@ func (t *T) Unify(u *T) *T {
 	switch t.Kind {
 	default:
 		return Errorf("unknown kind %v", t.Kind)
-	case IntKind, StringKind, BoolKind, FileKind, DirKind:
+	case IntKind, FloatKind, StringKind, BoolKind, FileKind, DirKind:
 		if u.Flow {
 			return u
 		}
@@ -549,7 +556,7 @@ func (t *T) Sub(u *T) bool {
 	switch t.Kind {
 	default:
 		return false
-	case IntKind, StringKind, BoolKind, FileKind, DirKind, BottomKind:
+	case IntKind, FloatKind, StringKind, BoolKind, FileKind, DirKind, BottomKind:
 		return true
 	case ListKind:
 		return t.Elem.Sub(u.Elem)
