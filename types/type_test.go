@@ -47,7 +47,7 @@ func TestEnv(t *testing.T) {
 	e := NewEnv()
 	e.Bind("a", Int)
 	e.Bind("b", String)
-	e.Push()
+	e, save := e.Push(), e
 	e.Bind("a", String)
 	if got, want := e.Type("a"), String; got != want {
 		t.Errorf("got %v, want %v", got, want)
@@ -55,7 +55,7 @@ func TestEnv(t *testing.T) {
 	if got, want := e.Type("b"), String; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	e.Pop()
+	e = save
 	if got, want := e.Type("a"), Int; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}

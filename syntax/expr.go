@@ -254,8 +254,7 @@ func (e *Expr) err() error {
 func (e *Expr) init(sess *Session, env *types.Env) {
 	switch e.Kind {
 	case ExprBlock:
-		env.Push()
-		defer env.Pop()
+		env = env.Push()
 		for _, d := range e.Decls {
 			d.Init(sess, env)
 			if d.Type.Kind == types.ErrorKind {
@@ -265,8 +264,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			}
 		}
 	case ExprFunc:
-		env.Push()
-		defer env.Pop()
+		env = env.Push()
 		for i := range e.Args {
 			e.Args[i].T = expand(e.Args[i].T, env)
 		}
@@ -543,8 +541,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		}
 		e.Type = e.Left.Type.Elem.Assign(e.Left.Type.Index)
 	case ExprCompr:
-		env.Push()
-		defer env.Pop()
+		env = env.Push()
 		switch e.Left.Type.Kind {
 		case types.ListKind:
 			if err := e.Pat.BindTypes(env, e.Left.Type.Elem); err != nil {

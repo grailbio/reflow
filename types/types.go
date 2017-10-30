@@ -596,31 +596,31 @@ type Symtab map[string]*T
 // Env represents a type environment that binds
 // value and type identifiers to *Ts.
 type Env struct {
-	Values []Symtab
-	Types  []Symtab
+	Values, Types Symtab
+
+	next *Env
 }
 
 // NewEnv creates and initializes a new Env.
 func NewEnv() *Env {
-	e := new(Env)
-	e.Push()
-	return e
+	var e *Env
+	return e.Push()
 }
 
 // Bind binds the identifier id to type t.
 func (e *Env) Bind(id string, t *T) {
-	e.Values[len(e.Values)-1][id] = t
+	e.Values[id] = t
 }
 
 // BindAlias binds the type t to the type alias with the provided identifier.
 func (e *Env) BindAlias(id string, t *T) {
-	e.Types[len(e.Types)-1][id] = t
+	e.Types[id] = t
 }
 
 // Type returns the type bound to identifier id, if any.
 func (e *Env) Type(id string) *T {
-	for i := len(e.Values) - 1; i >= 0; i-- {
-		if t := e.Values[i][id]; t != nil {
+	for ; e != nil; e = e.next {
+		if t := e.Values[id]; t != nil {
 			return t
 		}
 	}
@@ -629,34 +629,28 @@ func (e *Env) Type(id string) *T {
 
 // Alias returns the type alias bound to identifier id, if any.
 func (e *Env) Alias(id string) *T {
-	for i := len(e.Types) - 1; i >= 0; i-- {
-		if t := e.Types[i][id]; t != nil {
+	for ; e != nil; e = e.next {
+		if t := e.Types[id]; t != nil {
 			return t
 		}
 	}
 	return nil
 }
 
-// Push pushes a new level on the environment.
-// New bindings shadow earlier ones.
-func (e *Env) Push() {
-	e.Values = append(e.Values, make(Symtab))
-	e.Types = append(e.Types, make(Symtab))
-
-}
-
-// Pop pops the latest level in the environment;
-// bindings made in the current level are discarded.
-func (e *Env) Pop() {
-	e.Values = e.Values[:len(e.Values)-1]
-	e.Types = e.Types[:len(e.Types)-1]
+// Push returns a new environment level linked to e.
+func (e *Env) Push() *Env {
+	return &Env{
+		Values: make(Symtab),
+		Types:  make(Symtab),
+		next:   e,
+	}
 }
 
 // Symbols returns the full value environment as a map.
 func (e *Env) Symbols() map[string]*T {
 	sym := map[string]*T{}
-	for i := len(e.Values) - 1; i >= 0; i-- {
-		for s, t := range e.Values[i] {
+	for ; e != nil; e = e.next {
+		for s, t := range e.Values {
 			if sym[s] == nil {
 				sym[s] = t
 			}

@@ -7,6 +7,7 @@ package syntax
 import (
 	"bytes"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -238,20 +239,25 @@ func TestEvalErr(t *testing.T) {
 func TestTypeErr(t *testing.T) {
 	sess := NewSession()
 	for _, c := range []struct {
-		file string
-		err  string
+		file   string
+		errpat string
 	}{
-		{"testdata/typerr1.rf", "testdata/typerr1.rf:2:16: expected tuple of size 3, got 2 ((int, int, int))"},
-		{"testdata/typerr2.rf", "testdata/typerr2.rf:5:3: expected list or map, got {a, b, c int}"},
-		{"testdata/typerr3.rf", "testdata/typerr3.rf:4:13: cannot use type file as type string in argument to F (type func(x, y, z string) string)"},
+		{"testdata/typerr1.rf", `testdata/typerr1.rf:2:16: expected tuple of size 3, got 2 \(\(int, int, int\)\)$`},
+		{"testdata/typerr2.rf", `testdata/typerr2.rf:5:3: expected list or map, got \{a, b, c int\}$`},
+		{"testdata/typerr3.rf", `testdata/typerr3.rf:4:13: cannot use type file as type string in argument to F \(type func\(x, y, z string\) string\)$`},
+		{"testdata/typerr4.rf", `typerr4.rf:5:16: failed to open module ./typerr4mod.rf: .*typerr4mod.rf:1:10: identifier "x" not defined$`},
 	} {
-		_, err := sess.Open(c.file)
-		if err == nil {
+		_, terr := sess.Open(c.file)
+		if terr == nil {
 			t.Errorf("%s: expected error", c.file)
 			continue
 		}
-		if got, want := err.Error(), c.err; !strings.HasSuffix(got, want) {
-			t.Errorf("got %v, want %v", got, want)
+		ok, err := regexp.MatchString(c.errpat, terr.Error())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok {
+			t.Errorf("error %s did not match %s", terr, c.errpat)
 		}
 	}
 }

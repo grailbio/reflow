@@ -1,0 +1,6 @@
+// Regression test for type environment leaking across recursive module
+// instantiations.
+
+val x = 123
+val Test = make("./typerr4mod.rf")
+

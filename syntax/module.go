@@ -39,8 +39,7 @@ type Module struct {
 // Init type checks this module and returns any type checking errors.
 func (m *Module) Init(sess *Session, env *types.Env) error {
 	var el errlist
-	env.Push()
-	defer env.Pop()
+	env = env.Push()
 	for _, p := range m.Params {
 		// TODO(marius): enforce no flow types here.
 		if err := p.Init(sess, env); err != nil {
