@@ -335,7 +335,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			}
 		case "==", "!=":
 			switch e.Left.Type.Kind {
-			case types.StringKind, types.IntKind, types.FileKind, types.DirKind:
+			case types.StringKind, types.IntKind, types.FileKind, types.DirKind, types.BoolKind:
 				e.Type = types.Bool
 			default:
 				e.Type = types.Errorf("cannot compare values of type %v", e.Left.Type)
