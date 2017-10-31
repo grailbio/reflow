@@ -60,6 +60,7 @@ bam=3.bam,sample=c.
 	retryFlag := flags.Bool("retry", false, "retry failed runs")
 	resetFlag := flags.Bool("reset", false, "reset failed runs")
 	gcFlag := flags.Bool("gc", false, "enable runtime garbage collection")
+	nocacheexternFlag := flags.Bool("nocacheextern", false, "don't cache extern ops")
 	c.Parse(flags, args, help, "runbatch [-retry] [-reset] [flags]")
 	if flags.NArg() != 0 {
 		flags.Usage()
@@ -89,7 +90,7 @@ bam=3.bam,sample=c.
 		Rundir:        c.rundir(),
 		User:          user,
 		Cache:         rcache,
-		NoCacheExtern: c.Flag.NoCacheExtern,
+		NoCacheExtern: *nocacheexternFlag,
 		GC:            *gcFlag,
 		Transferer:    transferer,
 		Cluster:       cluster,

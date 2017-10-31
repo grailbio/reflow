@@ -50,6 +50,7 @@ type runConfig struct {
 	resources     reflow.Resources
 	resourcesFlag string
 	cache         bool
+	nocacheextern bool
 }
 
 func (r *runConfig) Flags(flags *flag.FlagSet) {
@@ -61,6 +62,7 @@ func (r *runConfig) Flags(flags *flag.FlagSet) {
 	flags.BoolVar(&r.gc, "gc", false, "enable garbage collection during evaluation")
 	flags.BoolVar(&r.trace, "trace", false, "trace flow evaluation")
 	flags.StringVar(&r.resourcesFlag, "resources", "", "override offered resources in local mode (JSON formatted reflow.Resources)")
+	flags.BoolVar(&r.nocacheextern, "nocacheextern", false, "don't cache extern ops")
 }
 
 func (r *runConfig) Err() error {
@@ -213,7 +215,7 @@ retriable.`
 		Flow:          er.Flow,
 		Log:           execLogger,
 		Cache:         rcache,
-		NoCacheExtern: c.Flag.NoCacheExtern,
+		NoCacheExtern: config.nocacheextern,
 		GC:            config.gc,
 		Transferer:    transferer,
 		Type:          er.Type,
@@ -373,7 +375,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		Log:           execLogger,
 		GC:            config.gc,
 		Cache:         rcache,
-		NoCacheExtern: c.Flag.NoCacheExtern,
+		NoCacheExtern: config.nocacheextern,
 	}
 	if config.trace {
 		eval.Trace = c.Log
