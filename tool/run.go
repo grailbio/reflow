@@ -41,6 +41,7 @@ const maxConcurrentStreams = 2000
 
 type runConfig struct {
 	localDir      string
+	dir           string
 	local         bool
 	hybrid        string
 	alloc         string
@@ -55,6 +56,7 @@ func (r *runConfig) Flags(flags *flag.FlagSet) {
 	flags.BoolVar(&r.local, "local", false, "execute flow on the local Docker instance")
 	flags.StringVar(&r.hybrid, "hybrid", "", "execute flow in hybrid local mode; serve repository over the provided port")
 	flags.StringVar(&r.localDir, "localdir", "/tmp/flow", "directory where execution state is stored in local mode")
+	flags.StringVar(&r.dir, "dir", "", "directory where execution state is stored in local mode (alias for local dir for backwards compatibilty)")
 	flags.StringVar(&r.alloc, "alloc", "", "use this alloc to execute program (don't allocate a fresh one)")
 	flags.BoolVar(&r.gc, "gc", false, "enable garbage collection during evaluation")
 	flags.BoolVar(&r.trace, "trace", false, "trace flow evaluation")
@@ -125,6 +127,10 @@ retriable.`
 		flags.Usage()
 	}
 	er, err := c.eval(flags.Args())
+	if er.V1 && config.gc {
+		log.Errorf("garbage collection disabled for v1 reflows")
+		config.gc = false
+	}
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -304,9 +310,13 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		cache.Transferer = transferer
 	}
 	go transferer.Report(ctx, time.Minute)
+	dir := config.localDir
+	if config.dir != "" {
+		dir = config.dir
+	}
 	x := &local.Executor{
 		Client:        client,
-		Dir:           config.localDir,
+		Dir:           dir,
 		Authenticator: ec2authenticator.New(sess),
 		AWSImage:      awstool,
 		AWSCreds:      creds,

@@ -24,6 +24,7 @@ type evalResult struct {
 	Type    *types.T
 	Params  map[string]string
 	Args    []string
+	V1      bool
 }
 
 // eval evaluates a Reflow program to a Flow.
@@ -68,6 +69,7 @@ func (c *Cmd) eval(args []string) (evalResult, error) {
 		er.Flow = prog.Eval()
 		return er, nil
 	case ".rf":
+		er.V1 = true
 		sess := syntax.NewSession()
 		m, err := sess.Open(file)
 		if err != nil {
