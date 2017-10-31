@@ -703,6 +703,14 @@ func (f *Flow) WriteDigest(w io.Writer) {
 		io.WriteString(w, f.Repl)
 	case OpVal:
 		if f.Err != nil {
+			// Scramble the digest in the case of an error. While we don't
+			// cache errors, this is needed so that we can distinguish between
+			// empty OpVals and erroneous ones while canonicalizing flow
+			// nodes.
+			//
+			// If we do decide to cache errors, we'll need to digest the error
+			// itself.
+			digest.WriteDigest(w, Digester.Rand())
 			return
 		}
 		if v, ok := f.Value.(Fileset); ok {
