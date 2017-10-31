@@ -79,9 +79,9 @@ func (e *Expr) digest(w io.Writer, env *values.Env) {
 	case ExprConst:
 		digest.WriteDigest(w, values.Digest(e.Val, e.Type))
 	case ExprBlock:
-		env = env.Push()
 		for _, decl := range e.Decls {
 			d := decl.Expr.Digest(env)
+			env = env.Push()
 			for _, id := range decl.Pat.Idents(nil) {
 				env.Bind(id, d)
 			}

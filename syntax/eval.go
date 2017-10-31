@@ -148,12 +148,13 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 	case ExprAscribe:
 		return e.Left.eval(sess, env, ident)
 	case ExprBlock:
-		env = env.Push()
 		for _, d := range e.Decls {
+			env = env.Push()
 			v, err := d.Eval(sess, env, ident)
 			if err != nil {
 				return nil, err
 			}
+			env = env.Push()
 			for id, m := range d.Pat.Matchers() {
 				w, err := coerceMatch(v, d.Type, m.Path())
 				if err != nil {

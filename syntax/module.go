@@ -275,6 +275,7 @@ func (m *Module) Make(sess *Session, params *values.Env) (values.T, error) {
 			if err != nil {
 				return nil, err
 			}
+			env = env.Push()
 			for id, m := range p.Pat.Matchers() {
 				// Passed parameters override definitions.
 				if !params.Contains(id) {
@@ -295,6 +296,7 @@ func (m *Module) Make(sess *Session, params *values.Env) (values.T, error) {
 		if err != nil {
 			return nil, err
 		}
+		env = env.Push()
 		for id, m := range d.Pat.Matchers() {
 			w, err := coerceMatch(v, d.Type, m.Path())
 			if err != nil {
