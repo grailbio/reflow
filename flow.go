@@ -672,6 +672,11 @@ func (f *Flow) WriteDigest(w io.Writer) {
 		p.WriteDigest(w)
 		return
 	}
+	// TODO(marius): write these in a canonical order. Requires care to
+	// re-map the argmap, and account for legacy execs. This cannot be
+	// done for OpKs, since these rely on argument ordering; but even
+	// here it could be remapped if the mapping were carried as extra
+	// metadata.
 	for _, dep := range f.Deps {
 		if f.Config.HashV1 {
 			dep.WriteDigest(w)

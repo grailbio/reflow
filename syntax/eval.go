@@ -199,18 +199,17 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 		// We're forced to fully evaluate the maps keys before proceeding.
 		// This is an inherent limitation of using Go's map.
 		// TODO(marius): use a datastructure more amenable to laziness.
-		var keys []interface{}
-		var vals []*Expr
-		for k, v := range e.Map {
-			keys = append(keys, k)
-			vals = append(vals, v)
+		sortedKeys := e.sortedMapKeys(env)
+		keys := make([]interface{}, len(sortedKeys))
+		for i := range sortedKeys {
+			keys[i] = sortedKeys[i]
 		}
 		return e.k(sess, env, ident,
 			func(vs []values.T) (values.T, error) {
 				v := make(values.Map)
 				for i := range vs {
 					var err error
-					v[vs[i]], err = vals[i].eval(sess, env, ident)
+					v[vs[i]], err = e.Map[sortedKeys[i]].eval(sess, env, ident)
 					if err != nil {
 						return nil, err
 					}

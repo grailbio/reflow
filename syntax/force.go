@@ -6,6 +6,7 @@ package syntax
 
 import (
 	"log"
+	"sort"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
@@ -65,6 +66,15 @@ func Force(v values.T, t *types.T) values.T {
 			vv := Force(m[k], t.Elem)
 			kv := kpvp{&kk, &vv}
 			kvs = append(kvs, kv)
+		}
+		sort.Slice(kvs, func(i, j int) bool {
+			var (
+				di = values.Digest(*kvs[i].K, t.Index)
+				dj = values.Digest(*kvs[j].K, t.Index)
+			)
+			return di.Less(dj)
+		})
+		for _, kv := range kvs {
 			r.Add(kv.K, t.Index)
 			r.Add(kv.V, t.Elem)
 		}

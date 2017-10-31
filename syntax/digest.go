@@ -122,9 +122,9 @@ func (e *Expr) digest(w io.Writer, env *values.Env) {
 		}
 	case ExprMap:
 		writeN(w, len(e.Map))
-		for ke, ve := range e.Map {
+		for _, ke := range e.sortedMapKeys(env) {
 			ke.digest(w, env)
-			ve.digest(w, env)
+			e.Map[ke].digest(w, env)
 		}
 	case ExprExec:
 		for _, d := range e.Decls {
@@ -170,6 +170,7 @@ func (e *Expr) digest(w io.Writer, env *values.Env) {
 		e.Left.digest(w, e.Env)
 	case ExprMake:
 		// TODO(marius): Module path (e.Left) should probably be normalized somehow.
+		// TODO(marius): sort declarations
 		e.Left.digest(w, env)
 		for _, d := range e.Decls {
 			for _, id := range d.Pat.Idents(nil) {

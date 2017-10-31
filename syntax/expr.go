@@ -951,3 +951,19 @@ func (e *Expr) identOr(alt string) string {
 		return alt
 	}
 }
+
+// sortedMapKeys returns e.Map's keys, sorted by expression digest.
+func (e *Expr) sortedMapKeys(env *values.Env) []*Expr {
+	var keys []*Expr
+	for k := range e.Map {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		var (
+			di = keys[i].Digest(env)
+			dj = keys[j].Digest(env)
+		)
+		return di.Less(dj)
+	})
+	return keys
+}
