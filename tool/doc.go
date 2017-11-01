@@ -62,7 +62,7 @@ func (c *Cmd) printdoc(doc string, nl string) {
 		fmt.Printf("%s", nl)
 		return
 	}
-	pw := textutil.PrefixLineWriter(os.Stderr, "    ")
+	pw := textutil.PrefixLineWriter(os.Stdout, "    ")
 	ww := textutil.NewUTF8WrapWriter(pw, 80)
 	if _, err := io.WriteString(ww, doc); err != nil {
 		c.Fatal(err)
