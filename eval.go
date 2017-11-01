@@ -1164,6 +1164,8 @@ var statusPrinters = [maxOp]struct {
 			if f.Exec != nil {
 				fmt.Fprintln(w, f.Exec.URI())
 			}
+			fmt.Fprintln(w, f.Image)
+
 			fmt.Fprintln(w, "command:")
 			lines := strings.Split(cmd, "\n")
 			// Trim empty prefix and suffix lines.
