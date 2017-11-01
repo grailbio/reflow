@@ -81,7 +81,7 @@ The following is an overview of Reflow's syntactic features:
   <dt>directories (type <code>dir</code>)</dt>
   <dd>Directories are dictionaries mapping paths (string) to files; can be imported from external URLs: <code>dir("s3://grail-marius/testdir/")</code>; or from a local file: <code>dir("/path/to/dir/")</code>.</dd>
   <dt>tuples (type <code>(t1, t2, t3, ..)</code>)</dt>
-  <dd>Tuples are an ordered, fixed-size list of heterogeneously typed elements; examples: <code>(1, "foo", "bar")</code> (type <code><(int, string, string)/code>), </code>("foo", (1,2,3), 3)</code> (type <code>(string, (int, int, int), int)</code>).</dd>
+  <dd>Tuples are an ordered, fixed-size list of heterogeneously typed elements; examples: <code>(1, "foo", "bar")</code> (type <code><(int, string, string)</code>), </code>("foo", (1,2,3), 3)</code> (type <code>(string, (int, int, int), int)</code>).</dd>
   <dt>lists (type <code>[t]</code>)</dt>
   <dd>Lists are variable length collections of homogenously typed elemets; examples: <code>[1, 2, 3, 4]</code> (type <code>[int]</code>), <code>["a", "b", "c"]</code> (type <code>[string]</code>).</dd>
   <dt>maps (type <code>[k:v]</code>)</dt>
@@ -268,7 +268,7 @@ can be queried by `reflow run module -help`, for example:
 
 ## Evaluation semantics
 
-Reflow evaluates its programs similar ot dataflow languages:
+Reflow evaluates its programs similar to dataflow languages:
 evaluation is sequenced only where there exists a data dependency.
 This means that, for example, in a block like:
 
