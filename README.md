@@ -604,6 +604,11 @@ of instances for a given job. When instances become idle, they will
 terminate themselves if they are idle for more than 10 minutes; idle
 instances are reused when possible.
 
+## Documentation
+
+- [Language summary](LANGUAGE.md)
+- [Go package docs](https://godoc.org/github.com/grailbio/reflow)
+
 ## Support and community
 
 Please join us on on [Gitter](https://gitter.im/grailbio/reflow) or 
