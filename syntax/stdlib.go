@@ -114,8 +114,8 @@ func Stdlib() (*types.Env, *values.Env) {
 					if err != nil {
 						return nil, err
 					}
-					if len(b) > 10<<20 {
-						return nil, fmt.Errorf("file %s is too large (%dMB); local files may not exceed 10MB", rawurl, len(b)>>20)
+					if len(b) > 200<<20 {
+						return nil, fmt.Errorf("file %s is too large (%dMB); local files may not exceed 200MB", rawurl, len(b)>>20)
 					}
 					return &reflow.Flow{
 						Deps: []*reflow.Flow{{
