@@ -170,6 +170,7 @@ func TestEval(t *testing.T) {
 	sess := NewSession()
 	progs := []string{
 		"testdata/test1.rf",
+		"testdata/missingnewline.rf",
 		"testdata/strings.rf",
 		"testdata/path.rf",
 		"testdata/typealias.rf",

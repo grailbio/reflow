@@ -232,7 +232,7 @@ Scan:
 	}
 	switch tok {
 	case scanner.EOF:
-		if x.Mode == ParseDecls && prev != ';' {
+		if (x.Mode == ParseDecls || x.Mode == ParseModule) && (prev != ';' && prev != '\n') {
 			x.cur.tok = ';'
 			return ';'
 		}
