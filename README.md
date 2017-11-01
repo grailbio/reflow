@@ -176,7 +176,7 @@ Create a file called "hello.rf" with the following contents:
 
 	val Main = exec(image := "ubuntu", mem := GiB) (out file) {"
 		echo hello world >>{{out}}
-	"}
+	"};
 
 and run it:
 
