@@ -434,7 +434,7 @@ idents:
 // Expressions.
 
 expr: factor
-|	expr '(' applyargs ')'
+|	expr '(' applyargs commaOk ')'
 	{$$ = &Expr{Position: $1.Position, Kind: ExprApply, Left: $1, Fields: $3}}
 |	expr tokOrOr expr
 	{$$ = &Expr{Position: $1.Position, Kind: ExprBinop, Op: "||", Left: $1, Right: $3}}
@@ -496,11 +496,11 @@ term:
 		Position: $7.Position, Kind: ExprFunc, Args: $3, Left: $7}}}
 |	tokExec '(' commadefs ')' type tokTemplate
 	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprExec, Decls: $3, Type: $5, Template: $6}}
-|	tokMake '(' tokExpr ')'
+|	tokMake '(' tokExpr  ')'
 	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprMake, Left: $3}}
-|	tokMake '(' tokExpr ',' commadefs ')'
+|	tokMake '(' tokExpr ',' commadefs commaOk ')'
 	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprMake, Left: $3, Decls: $5}}
-|	'(' expr ',' tupleargs ')'
+|	'(' expr ',' tupleargs commaOk ')'
 	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprTuple, Fields: append([]*FieldExpr{{Expr: $2}}, $4...)}}
 |	 '{' structfieldargs commaOk '}'
 	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprStruct, Fields: $2}}

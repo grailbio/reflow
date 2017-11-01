@@ -116,3 +116,26 @@ val TestFlatten = {
 	val empty [int] = []
 	eq(flatten([[1,2,3], [4,5,6], [7, 8], empty]), [1,2,3,4,5,6,7,8])
 }
+
+// Just here for the syntax check.
+val TestCommaOks = {
+	val _ = { 
+		a: 1,
+		b: 2,
+	}
+	mul := make("./mul.rf", 
+		l := [10,20,30],
+	)
+	func x(a, b, c int) = a*b*c
+	val _ = x(
+		1,
+		2,
+		3,
+	)
+	val _ = (
+		1,
+		2,
+		"ok",
+	)
+	true
+}

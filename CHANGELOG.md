@@ -16,6 +16,7 @@
 - doc: add language overview docs
 - config: add "local" configuration provider for user
 - eval: print full image name in debug logs
+- syntax: add few missing cases for trailing commas
 
 ## [reflow0.5.1](https://github.com/grailbio/reflow/releases/tag/reflow0.5.1)
 
