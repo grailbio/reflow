@@ -16,6 +16,7 @@
 //	file                                      the type of files
 //	dir                                       the type of directories
 //	unit                                      the type of single-valued unit/void
+//	fileset                                   the type of filesets (legacy)
 //	<ident>                                   a type reference to ident
 //	[t]                                       the type of lists of element type t
 //	[t1:t2]                                   the type of maps of index type t1, element type t2
@@ -93,26 +94,30 @@ const (
 	// FloatKind is the type of arbitrary precision floats.
 	FloatKind
 
+	// FilesetKind is the type of filesets.
+	FilesetKind
+
 	typeMax
 )
 
 var kindStrings = [typeMax]string{
-	ErrorKind:  "error",
-	BottomKind: "bottom",
-	IntKind:    "int",
-	FloatKind:  "float",
-	StringKind: "string",
-	BoolKind:   "bool",
-	FileKind:   "file",
-	DirKind:    "dir",
-	UnitKind:   "unit",
-	RefKind:    "ident",
-	ListKind:   "list",
-	MapKind:    "map",
-	TupleKind:  "tuple",
-	FuncKind:   "func",
-	StructKind: "struct",
-	ModuleKind: "module",
+	ErrorKind:   "error",
+	BottomKind:  "bottom",
+	IntKind:     "int",
+	FloatKind:   "float",
+	StringKind:  "string",
+	BoolKind:    "bool",
+	FileKind:    "file",
+	DirKind:     "dir",
+	FilesetKind: "fileset",
+	UnitKind:    "unit",
+	RefKind:     "ident",
+	ListKind:    "list",
+	MapKind:     "map",
+	TupleKind:   "tuple",
+	FuncKind:    "func",
+	StructKind:  "struct",
+	ModuleKind:  "module",
 }
 
 func (k Kind) String() string {
@@ -191,14 +196,15 @@ type T struct {
 
 // Convenience vars for common types.
 var (
-	Bottom = &T{Kind: BottomKind}
-	Int    = &T{Kind: IntKind}
-	Float  = &T{Kind: FloatKind}
-	String = &T{Kind: StringKind}
-	Bool   = &T{Kind: BoolKind}
-	File   = &T{Kind: FileKind}
-	Dir    = &T{Kind: DirKind}
-	Unit   = &T{Kind: UnitKind}
+	Bottom  = &T{Kind: BottomKind}
+	Int     = &T{Kind: IntKind}
+	Float   = &T{Kind: FloatKind}
+	String  = &T{Kind: StringKind}
+	Bool    = &T{Kind: BoolKind}
+	File    = &T{Kind: FileKind}
+	Dir     = &T{Kind: DirKind}
+	Unit    = &T{Kind: UnitKind}
+	Fileset = &T{Kind: FilesetKind}
 )
 
 // Promote promotes errors and flow flags in the type t.
@@ -340,6 +346,8 @@ func (t *T) String() string {
 		s += "}"
 	case BottomKind:
 		s = "bottom"
+	case FilesetKind:
+		s = "fileset"
 	}
 	if t.Label != "" {
 		return "(" + t.Label + " " + s + ")"

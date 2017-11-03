@@ -62,7 +62,7 @@ type yySymType struct {
 	typearg  typearg
 	typeargs []typearg
 
-	module *Module
+	module *ModuleImpl
 
 	str string
 
@@ -1767,7 +1767,7 @@ yydefault:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		//line reflow.y:615
 		{
-			yyVAL.module = &Module{Keyspace: yyDollar[1].expr, Params: yyDollar[2].decllist, Decls: yyDollar[3].decllist}
+			yyVAL.module = &ModuleImpl{Keyspace: yyDollar[1].expr, ParamDecls: yyDollar[2].decllist, Decls: yyDollar[3].decllist}
 		}
 	case 141:
 		yyDollar = yyS[yypt-0 : yypt+1]

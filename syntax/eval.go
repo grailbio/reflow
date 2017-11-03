@@ -495,8 +495,15 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}
 		}, e.Left)
 	case ExprMake:
-		//penv := env.Push()
-		penv := sess.Values.Push()
+		var (
+			params   = make(map[string]Param)
+			vals     = make(map[string]values.T)
+			force    []interface{}
+			forceIds []string
+		)
+		for _, p := range e.Module.Params() {
+			params[p.Ident] = p
+		}
 		for _, d := range e.Decls {
 			v, err := d.Eval(sess, env, ident)
 			if err != nil {
@@ -507,10 +514,27 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				if err != nil {
 					return nil, err
 				}
-				penv.Bind(id, w)
+				if params[id].Force {
+					w = Force(w, params[id].Type)
+				}
+				if _, ok := w.(*reflow.Flow); ok {
+					force = append(force, w)
+					forceIds = append(forceIds, id)
+				} else {
+					vals[id] = w
+				}
 			}
 		}
-		return e.Module.Make(sess, penv)
+		return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+			penv := sess.Values.Push()
+			for id, v := range vals {
+				penv.Bind(id, v)
+			}
+			for i, id := range forceIds {
+				penv.Bind(id, vs[i])
+			}
+			return e.Module.Make(sess, penv)
+		}, force...)
 	case ExprBuiltin:
 		switch e.Op {
 		default:

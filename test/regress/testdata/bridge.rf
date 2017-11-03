@@ -1,0 +1,12 @@
+// Tests v0->v1 bridging.
+
+val test = make("$/test")
+
+@requires(cpu := 1)
+val Main = {
+	filesets := make("$/filesets")
+	files := make("$/files")
+	old := make("./oldmodule.reflow", f := "localfile://testdata/bridge.rf")
+	f := file("testdata/bridge.rf")
+	test.Assert([len(files.Fileset(old.X)) == len(f)])
+}

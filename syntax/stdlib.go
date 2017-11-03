@@ -255,7 +255,7 @@ func Stdlib() (*types.Env, *values.Env) {
 	return tenv, venv
 }
 
-var lib = map[string]*Module{}
+var lib = map[string]*ModuleImpl{}
 
 var testDecls = []*Decl{
 	systemFunc{
@@ -294,6 +294,17 @@ var testDecls = []*Decl{
 			return true, nil
 		},
 	}.Decl(),
+}
+
+var coerceFilesetToDirDigest = reflow.Digester.FromString("grail.com/reflow/syntax.coerceFilesetToDir")
+
+func coerceFilesetToDir(v values.T) (values.T, error) {
+	fs := v.(reflow.Fileset)
+	dir := make(values.Dir)
+	for key, file := range fs.Map {
+		dir[key] = values.File(file)
+	}
+	return dir, nil
 }
 
 var dirsDecls = []*Decl{
@@ -417,6 +428,34 @@ var dirsDecls = []*Decl{
 			}, nil
 		},
 	}.Decl(),
+	systemFunc{
+		Id:     "Fileset",
+		Module: "dirs",
+		Doc:    "Fileset coerces a fileset into a dir.",
+		Type:   types.Func(types.Dir, &types.Field{Name: "fileset", T: types.Fileset}),
+		Do: func(loc values.Location, args []values.T) (values.T, error) {
+			if f, ok := args[0].(*reflow.Flow); ok {
+				return &reflow.Flow{
+					Op:         reflow.OpCoerce,
+					Deps:       []*reflow.Flow{f},
+					FlowDigest: coerceFilesetToDirDigest,
+					Coerce:     coerceFilesetToDir,
+				}, nil
+			}
+			return coerceFilesetToDir(args[0])
+		},
+	}.Decl(),
+}
+
+var coerceFilesetToFileDigest = reflow.Digester.FromString("grail.com/reflow/syntax.coerceFilesetToFile")
+
+func coerceFilesetToFile(v values.T) (values.T, error) {
+	fs := v.(reflow.Fileset)
+	f, ok := fs.Map["."]
+	if !ok {
+		return nil, errors.Errorf("files.Fileset: invalid fileset %v", fs)
+	}
+	return values.File(f), nil
 }
 
 var filesDecls = []*Decl{
@@ -444,6 +483,23 @@ var filesDecls = []*Decl{
 				Deps:     []*reflow.Flow{{Op: reflow.OpVal, Value: fileToFileset(file)}},
 				URL:      u,
 			}, nil
+		},
+	}.Decl(),
+	systemFunc{
+		Id:     "Fileset",
+		Module: "files",
+		Doc:    "Fileset coerces a fileset into a file.",
+		Type:   types.Func(types.File, &types.Field{Name: "file", T: types.Fileset}),
+		Do: func(loc values.Location, args []values.T) (values.T, error) {
+			if f, ok := args[0].(*reflow.Flow); ok {
+				return &reflow.Flow{
+					Op:         reflow.OpCoerce,
+					Deps:       []*reflow.Flow{f},
+					FlowDigest: coerceFilesetToFileDigest,
+					Coerce:     coerceFilesetToFile,
+				}, nil
+			}
+			return coerceFilesetToFile(args[0])
 		},
 	}.Decl(),
 }
@@ -587,6 +643,35 @@ var pathDecls = []*Decl{
 	}.Decl(),
 }
 
+var filesetsDecls = []*Decl{
+	systemFunc{
+		Id:     "Dir",
+		Module: "filesets",
+		Doc:    "Dir returns a fileset from a directory.",
+		Type: types.Func(types.Fileset,
+			&types.Field{Name: "dir", T: types.Dir}),
+		Do: func(loc values.Location, args []values.T) (values.T, error) {
+			if flow, ok := args[0].(*reflow.Flow); ok {
+				return coerceFlowToFileset(types.Dir, flow), nil
+			}
+			return coerceToFileset(types.Dir, args[0]), nil
+		},
+	}.Decl(),
+	systemFunc{
+		Id:     "File",
+		Module: "filesets",
+		Doc:    "File returns a fileset from a file.",
+		Type: types.Func(types.Fileset,
+			&types.Field{Name: "file", T: types.File}),
+		Do: func(loc values.Location, args []values.T) (values.T, error) {
+			if flow, ok := args[0].(*reflow.Flow); ok {
+				return coerceFlowToFileset(types.File, flow), nil
+			}
+			return coerceToFileset(types.File, args[0]), nil
+		},
+	}.Decl(),
+}
+
 func init() {
 	for _, mod := range []struct {
 		name  string
@@ -598,8 +683,9 @@ func init() {
 		{"regexp", regexpDecls},
 		{"strings", stringsDecls},
 		{"path", pathDecls},
+		{"filesets", filesetsDecls},
 	} {
-		lib[mod.name] = &Module{Decls: mod.decls}
+		lib[mod.name] = &ModuleImpl{Decls: mod.decls}
 		lib[mod.name].Init(nil, types.NewEnv())
 	}
 }

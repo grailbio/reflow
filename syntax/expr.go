@@ -177,7 +177,7 @@ type Expr struct {
 	Pat *Pat
 
 	// Module stores the module as opened during type checking.
-	Module *Module
+	Module Module
 }
 
 // ExprValue stores the evaluated values associated with the dependencies
@@ -597,7 +597,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			e.Type = types.Error(err)
 			return
 		}
-		e.Type = e.Module.Type.Assign(nil)
+		e.Type = e.Module.Type().Assign(nil)
 	case ExprBuiltin:
 		switch e.Op {
 		default:
@@ -957,6 +957,12 @@ func (e *Expr) String() string {
 		}
 		fmt.Fprintf(b, "resources(%s, %s)",
 			e.Left, strings.Join(decls, ", "))
+	case ExprMake:
+		decls := make([]string, len(e.Decls))
+		for i := range e.Decls {
+			decls[i] = e.Decls[i].String()
+		}
+		fmt.Fprintf(b, "make(%s, %v)", e.Left, strings.Join(decls, ", "))
 	}
 	return b.String()
 }

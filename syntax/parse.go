@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/grailbio/reflow/internal/scanner"
 	"github.com/grailbio/reflow/types"
@@ -52,7 +53,7 @@ type Parser struct {
 	Mode ParserMode
 
 	// Module contains the parsed module (LexerModule).
-	Module *Module
+	Module *ModuleImpl
 	// Decls contains the parsed declarations (LexerDecls).
 	Decls []*Decl
 	// Expr contains the parsed expression (LexerExpr).
@@ -74,6 +75,24 @@ type Parser struct {
 	needUnscan bool
 }
 
+func isIdentRune(ch rune, i int) bool {
+	return unicode.IsLetter(ch) || (unicode.IsDigit(ch) || ch == '_') && i > 0
+}
+
+func isValidIdent(s string) bool {
+	for i, width := 0, 0; len(s) > 0; s, i = s[width:], i+1 {
+		r := rune(s[0])
+		width = 1
+		if r >= utf8.RuneSelf {
+			r, width = utf8.DecodeRuneInString(s)
+		}
+		if !isIdentRune(r, i) {
+			return false
+		}
+	}
+	return true
+}
+
 // Init initializes the lexer. It must be called before Lex.
 func (x *Parser) init() {
 	switch x.Mode {
@@ -92,9 +111,7 @@ func (x *Parser) init() {
 	x.scanner.Whitespace &= ^uint64(1 << '\n')
 	x.scanner.Mode = scanner.ScanIdents | scanner.ScanFloats | scanner.ScanChars |
 		scanner.ScanStrings | scanner.ScanRawStrings | scanner.ScanComments
-	x.scanner.IsIdentRune = func(ch rune, i int) bool {
-		return unicode.IsLetter(ch) || (unicode.IsDigit(ch) || ch == '_') && i > 0
-	}
+	x.scanner.IsIdentRune = isIdentRune
 }
 
 // Parse parses the parser's body and reports any parsing error.

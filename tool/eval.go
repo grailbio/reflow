@@ -76,7 +76,7 @@ func (c *Cmd) eval(args []string) (evalResult, error) {
 			return evalResult{}, err
 		}
 		var maintyp *types.T
-		for _, f := range m.Type.Fields {
+		for _, f := range m.Type().Fields {
 			if f.Name == "Main" {
 				maintyp = f.T
 				break

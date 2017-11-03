@@ -4,7 +4,7 @@ val dirs = make("$/dirs")
 val regexp = make("$/regexp")
 val strings = make("$/strings")
 
-val key = file("") ~> "ok"
+val key = file("/dev/null") ~> "ok"
 
 func x(m [string:int]) = m["a"]
 

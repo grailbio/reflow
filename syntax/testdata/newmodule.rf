@@ -1,0 +1,5 @@
+
+val old = make("./oldmodule.reflow", param1 := "world")
+
+val TestHello = old.S == "hello world"
+

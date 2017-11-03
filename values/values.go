@@ -146,6 +146,13 @@ func Sprint(v T, t *types.T) string {
 			entries[i] = fmt.Sprintf("%q: %s", k, Sprint(dir[k], types.File))
 		}
 		return fmt.Sprintf("dir(%s)", strings.Join(entries, ", "))
+	case types.FilesetKind:
+		// We can't access the FileSet struct here because it would introduce
+		// a circular dependency between reflow/ and reflow/values. We could
+		// move the fileset definition elsewhere, but since this is anyway just a
+		// backwards compatibility issue, we'll keep it opaque for now.
+		d := v.(digester)
+		return fmt.Sprintf("fileset(%s)", d.Digest().Short())
 	case types.UnitKind:
 		return "()"
 	case types.ListKind:
@@ -255,6 +262,7 @@ func WriteDigest(w io.Writer, v T, t *types.T) {
 			io.WriteString(w, k)
 			digest.WriteDigest(w, dir[k].ID)
 		}
+	// Filesets are digesters, so they don't need to be handled here.
 	case types.UnitKind:
 	case types.ListKind:
 		writeLength(w, len(v.(List)))

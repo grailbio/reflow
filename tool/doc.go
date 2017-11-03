@@ -28,32 +28,29 @@ func (c *Cmd) doc(ctx context.Context, args ...string) {
 	if err != nil {
 		c.Fatal(err)
 	}
-	if len(m.Params) > 0 {
+	if params := m.Params(); len(params) > 0 {
 		fmt.Println("Parameters")
 		fmt.Println()
-		for _, p := range m.Params {
-			switch p.Kind {
-			case syntax.DeclDeclare:
+		for _, p := range params {
+			if p.Required {
 				fmt.Printf("val %s %s\n", p.Ident, p.Type)
-				c.printdoc(p.Comment, "")
-			case syntax.DeclAssign:
-				// TODO: evaluate the parameter to show its value.
-				fmt.Printf("val %s %s = <default>\n", p.Pat, p.Type)
-				c.printdoc(p.Comment, "")
+			} else {
+				fmt.Printf("val %s %s = <default>\n", p.Ident, p.Type)
 			}
+			c.printdoc(p.Doc, "")
 		}
 		fmt.Println()
 	}
 
 	fmt.Println("Declarations")
 	fmt.Println()
-	for _, f := range m.Type.Aliases {
+	for _, f := range m.Type().Aliases {
 		fmt.Printf("type %s %s\n", f.Name, f.T)
-		c.printdoc(m.Docs[f.Name], "\n")
+		c.printdoc(m.Doc(f.Name), "\n")
 	}
-	for _, f := range m.Type.Fields {
+	for _, f := range m.Type().Fields {
 		fmt.Printf("val %s %s\n", f.Name, f.T)
-		c.printdoc(m.Docs[f.Name], "\n")
+		c.printdoc(m.Doc(f.Name), "\n")
 	}
 }
 

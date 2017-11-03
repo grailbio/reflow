@@ -175,6 +175,7 @@ func TestEval(t *testing.T) {
 		"testdata/path.rf",
 		"testdata/typealias.rf",
 		"testdata/typealias2.rf",
+		"testdata/newmodule.rf",
 	}
 Prog:
 	for _, prog := range progs {
@@ -185,7 +186,7 @@ Prog:
 			continue
 		}
 		var tests []string
-		for _, f := range m.Type.Fields {
+		for _, f := range m.Type().Fields {
 			if strings.HasPrefix(f.Name, "Test") {
 				tests = append(tests, f.Name)
 				if f.T.Kind != types.BoolKind {
@@ -247,6 +248,7 @@ func TestTypeErr(t *testing.T) {
 		{"testdata/typerr2.rf", `testdata/typerr2.rf:5:3: expected list or map, got \{a, b, c int\}$`},
 		{"testdata/typerr3.rf", `testdata/typerr3.rf:4:13: cannot use type file as type string in argument to F \(type func\(x, y, z string\) string\)$`},
 		{"testdata/typerr4.rf", `typerr4.rf:5:16: failed to open module ./typerr4mod.rf: .*typerr4mod.rf:1:10: identifier "x" not defined$`},
+		{"testdata/typerr5.rf", `typerr5.rf:1:16: failed to open module ./typerr5.reflow: param "invalid-parameter-name" is not a valid Reflow identifier`},
 	} {
 		_, terr := sess.Open(c.file)
 		if terr == nil {

@@ -10,8 +10,12 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/types"
+	"github.com/grailbio/reflow/values"
 )
 
 // Program represents a reflow program. It parses, typechecks, and
@@ -30,6 +34,7 @@ type Program struct {
 	config  reflow.Config
 	params  map[string]*string
 	def     map[string]*Expr
+	types   map[string]Type
 	externs []*Stmt
 	flags   *flag.FlagSet
 }
@@ -83,8 +88,10 @@ func (p *Program) ParseAndTypecheck(r io.Reader) error {
 			p.externs = append(p.externs, s)
 		}
 	}
-	if len(p.externs) == 0 {
-		return errors.New("no externs")
+	// Compute the types for each toplevel def.
+	p.types = map[string]Type{}
+	for id, e := range p.def {
+		p.types[id] = e.Type(env)
 	}
 	p.flags = &flag.FlagSet{}
 	p.params = map[string]*string{}
@@ -104,6 +111,10 @@ func (p *Program) Flags() *flag.FlagSet {
 // Eval evaluates the program and returns a flow. All toplevel extern
 // statements are merged into a single reflow.OpMerge node.
 func (p *Program) Eval() *reflow.Flow {
+	if len(p.externs) == 0 {
+		// Nothing to do. Return empty value.
+		return &reflow.Flow{Op: reflow.OpVal}
+	}
 	env := EvalEnv{
 		Error: &Error{W: p.Errors},
 		Def:   p.def,
@@ -128,6 +139,7 @@ func (p *Program) Eval() *reflow.Flow {
 		// TODO(marius): can we get rid of errors in the eval environment?
 		panic("unexpected errors during evaluation")
 	}
+
 	flows := make([]*reflow.Flow, len(p.externs))
 	for i, s := range p.externs {
 		dep := s.list[0].Eval(env).flow
@@ -143,4 +155,98 @@ func (p *Program) Eval() *reflow.Flow {
 		return root
 	}
 	return root.Canonicalize(p.config)
+}
+
+// ModuleType computes and returns the Reflow module type for this
+// program. This is used for briding "v0" scripts into "v1" modules.
+// This should be called only after type checking has completed.
+//
+// For simplicity we only export non-function values, since they
+// always evaluate to either immediate values.T or else to Flows,
+// both of which have defined digests. We don't let functions escape.
+func (p *Program) ModuleType() *types.T {
+	var fields []*types.Field
+	for id, t := range p.types {
+		first, _ := utf8.DecodeRuneInString(id)
+		if first == utf8.RuneError || !unicode.IsUpper(first) {
+			continue
+		}
+		typ := t.ReflowType()
+		if typ != nil {
+			fields = append(fields, &types.Field{Name: id, T: typ})
+		}
+	}
+	return types.Module(fields, nil)
+}
+
+// ModuleValue computes the Reflow module value given the set of
+// defined parameters.
+func (p *Program) ModuleValue() (values.T, error) {
+	env := EvalEnv{
+		Error: &Error{W: p.Errors},
+		Def:   p.def,
+		Param: func(id, help string) (string, bool) {
+			vp, ok := p.params[id]
+			v := ""
+			if vp != nil {
+				v = *vp
+			}
+			return v, ok
+		},
+	}
+	var args Val
+	args.typ = typeStringList
+	args.list = make([]Val, len(p.Args))
+	for i, arg := range p.Args {
+		args.list[i] = Val{typ: typeString, str: arg}
+	}
+	env.Push()
+	env.Bind("args", args)
+
+	mval := make(values.Module)
+	for _, f := range p.ModuleType().Fields {
+		expr := p.def[f.Name]
+		mval[f.Name] = v02v1(expr.Eval(env), f.T)
+	}
+	if !p.config.IsZero() {
+		for id, v := range mval {
+			f, ok := v.(*reflow.Flow)
+			if !ok {
+				continue
+			}
+			mval[id] = f.Canonicalize(p.config)
+		}
+	}
+	return mval, nil
+}
+
+func v02v1(v0 Val, t *types.T) (v1 values.T) {
+	switch t.Kind {
+	case types.StringKind:
+		v1 = v0.str
+	case types.IntKind:
+		v1 = values.NewInt(int64(v0.num))
+	case types.UnitKind:
+		v1 = values.Unit
+	case types.ListKind:
+		l := make(values.List, len(v0.list))
+		switch t.Elem.Kind {
+		default:
+			panic("invalid type")
+		case types.StringKind:
+			for i := range l {
+				l[i] = v0.list[i].str
+			}
+		case types.FilesetKind:
+			for i := range l {
+				l[i] = v0.list[i].flow
+			}
+		}
+		v1 = l
+	case types.FilesetKind:
+		v1 = v0.flow
+	default:
+		panic("bad type")
+	}
+	return v1
 }

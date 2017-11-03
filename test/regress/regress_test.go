@@ -27,6 +27,9 @@ func TestRegress(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, info := range infos {
+		if filepath.Ext(info.Name()) != ".rf" {
+			continue
+		}
 		cmd := exec.Command(reflow, "run", "-local", filepath.Join("testdata", info.Name()))
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Errorf("%s: %s\n%s", info.Name(), err, string(out))

@@ -55,7 +55,7 @@ type typearg struct {
 	typearg typearg
 	typeargs []typearg
 	
-	module *Module
+	module *ModuleImpl
 	
 	str string
 	
@@ -612,7 +612,7 @@ module:
 	keyspace
 	params
 	defs
-	{$$ = &Module{Keyspace: $1, Params: $2, Decls: $3}}
+	{$$ = &ModuleImpl{Keyspace: $1, ParamDecls: $2, Decls: $3}}
 
 keyspace:
 	{$$ = nil}

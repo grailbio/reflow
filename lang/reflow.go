@@ -329,7 +329,7 @@ func (e *Expr) Eval(env EvalEnv) Val {
 		}
 		ee, ok := env.Def[e.ident]
 		if !ok {
-			panic("bug")
+			panic(fmt.Sprintf("missing identifier %s", e.ident))
 		}
 		env.SetIdent(e.ident)
 		return ee.Eval(env)

@@ -17,30 +17,60 @@ import (
 	"github.com/grailbio/reflow/values"
 )
 
-// Module defines a Reflow module comprising: a keyspace, a set of
+// Param holds module parameter metadata.
+type Param struct {
+	Ident    string
+	Type     *types.T
+	Doc      string
+	Required bool
+	Force    bool
+}
+
+// Module abstracts a Reflow module, having the ability to type check
+// parameters, inspect its type, and mint new instances.
+type Module interface {
+	// Make creates a new module instance in the provided session
+	// with the provided parameters.
+	Make(sess *Session, params *values.Env) (values.T, error)
+	// ParamErr type-checks parameter types, returning an error on failure.
+	ParamErr(env *types.Env) error
+	// Flags returns the set of flags provided by this module.
+	Flags(sess *Session, env *values.Env) (*flag.FlagSet, error)
+	// FlagEnv adds flags from the FlagSet to value environment env.
+	// The FlagSet should be produced by Module.Flags.
+	FlagEnv(flags *flag.FlagSet, env *values.Env) error
+	// Params returns the parameter descriptors for this module.
+	Params() []Param
+	// Doc returns the docstring for a toplevel identifier.
+	Doc(string) string
+	// Type returns the type of the module.
+	Type() *types.T
+}
+
+// ModuleImpl defines a Reflow module comprising: a keyspace, a set of
 // parameters, and a set of declarations.
-type Module struct {
+type ModuleImpl struct {
 	// Keyspace is the (optional) key space of this module.
 	Keyspace *Expr
 	// Reservation is the set of reservation declarations.
 	Reservation []*Decl
-	// Params is the set of declared parameters for this module.
-	Params []*Decl
+	// ParamDecls is the set of declared parameters for this module.
+	ParamDecls []*Decl
 	// Decls is the set of declarations in this module.
 	Decls []*Decl
 
 	Docs map[string]string
 
-	Type *types.T
+	typ *types.T
 
 	tenv *types.Env
 }
 
 // Init type checks this module and returns any type checking errors.
-func (m *Module) Init(sess *Session, env *types.Env) error {
+func (m *ModuleImpl) Init(sess *Session, env *types.Env) error {
 	var el errlist
 	env = env.Push()
-	for _, p := range m.Params {
+	for _, p := range m.ParamDecls {
 		// TODO(marius): enforce no flow types here.
 		if err := p.Init(sess, env); err != nil {
 			el = el.Append(err)
@@ -108,15 +138,15 @@ func (m *Module) Init(sess *Session, env *types.Env) error {
 			}
 		}
 	}
-	m.Type = types.Module(fields, aliases)
+	m.typ = types.Module(fields, aliases)
 	return el.Make()
 }
 
 // Param returns the type  of the module parameter with identifier id,
 // and whether it is mandatory.
-func (m *Module) Param(id string) (*types.T, bool) {
+func (m *ModuleImpl) Param(id string) (*types.T, bool) {
 	env := types.NewEnv()
-	for _, p := range m.Params {
+	for _, p := range m.ParamDecls {
 		switch p.Kind {
 		case DeclError:
 		case DeclDeclare:
@@ -133,9 +163,9 @@ func (m *Module) Param(id string) (*types.T, bool) {
 // ParamErr type checks the type environment env against the
 // parameters of this module. It returns any type checking errors
 // (e.g., badly typed parameters, or missing ones).
-func (m *Module) ParamErr(env *types.Env) error {
+func (m *ModuleImpl) ParamErr(env *types.Env) error {
 	required := make(map[string]bool)
-	for _, p := range m.Params {
+	for _, p := range m.ParamDecls {
 		if p.Kind != DeclDeclare {
 			continue
 		}
@@ -168,10 +198,10 @@ func (m *Module) ParamErr(env *types.Env) error {
 // module. This can be used to parameterize a module from the command
 // line. The returned FlagSet uses parameter documentation as the
 // help text.
-func (m *Module) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error) {
+func (m *ModuleImpl) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error) {
 	env = env.Push()
 	flags := new(flag.FlagSet)
-	for _, p := range m.Params {
+	for _, p := range m.ParamDecls {
 		switch p.Kind {
 		case DeclError:
 			panic("bad param")
@@ -228,7 +258,7 @@ func (m *Module) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error) {
 
 // FlagEnv adds flags from the FlagSet to value environment env.
 // The FlagSet should be produced by (*Module).Flags.
-func (m *Module) FlagEnv(flags *flag.FlagSet, env *values.Env) error {
+func (m *ModuleImpl) FlagEnv(flags *flag.FlagSet, env *values.Env) error {
 	var errs []string
 	flags.VisitAll(func(f *flag.Flag) {
 		t, mandatory := m.Param(f.Name)
@@ -273,11 +303,11 @@ func (m *Module) FlagEnv(flags *flag.FlagSet, env *values.Env) error {
 	}
 }
 
-// Make creates a new instance of this module. Params contains
+// Make creates a new instance of this module. ParamDecls contains
 // the value environment storing parameter values.
-func (m *Module) Make(sess *Session, params *values.Env) (values.T, error) {
+func (m *ModuleImpl) Make(sess *Session, params *values.Env) (values.T, error) {
 	env := params.Push()
-	for _, p := range m.Params {
+	for _, p := range m.ParamDecls {
 		switch p.Kind {
 		case DeclError:
 			panic("invalid decl")
@@ -319,16 +349,16 @@ func (m *Module) Make(sess *Session, params *values.Env) (values.T, error) {
 		}
 	}
 	v := make(values.Module)
-	for _, f := range m.Type.Fields {
+	for _, f := range m.typ.Fields {
 		v[f.Name] = env.Value(f.Name)
 	}
 	return v, nil
 }
 
 // String renders a tree-formatted version of m.
-func (m *Module) String() string {
-	params := make([]string, len(m.Params))
-	for i, d := range m.Params {
+func (m *ModuleImpl) String() string {
+	params := make([]string, len(m.ParamDecls))
+	for i, d := range m.ParamDecls {
 		params[i] = d.String()
 	}
 	decls := make([]string, len(m.Decls))
@@ -337,4 +367,31 @@ func (m *Module) String() string {
 	}
 	return fmt.Sprintf("module(keyspace(%v), params(%v), decls(%v))",
 		m.Keyspace, strings.Join(params, ", "), strings.Join(decls, ", "))
+}
+
+// Params returns the parameter metadata for this module.
+func (m *ModuleImpl) Params() []Param {
+	params := make([]Param, len(m.ParamDecls))
+	for i, p := range m.ParamDecls {
+		params[i].Type = p.Type
+		params[i].Doc = p.Comment
+		switch p.Kind {
+		case DeclDeclare:
+			params[i].Ident = p.Ident
+			params[i].Required = true
+		case DeclAssign:
+			params[i].Ident = fmt.Sprint(p.Pat)
+		}
+	}
+	return params
+}
+
+// Doc returns the documentation for the provided identifier.
+func (m *ModuleImpl) Doc(ident string) string {
+	return m.Docs[ident]
+}
+
+// Type returns the module type of m.
+func (m *ModuleImpl) Type() *types.T {
+	return m.typ
 }

@@ -4,7 +4,11 @@
 
 package lang
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/grailbio/reflow/types"
+)
 
 // Type is the type of types in the reflow language.
 type Type int
@@ -73,6 +77,36 @@ func funcType(t Type) (int, Type) {
 	}
 	n := tt / 10
 	return int(n), Type(tt - 10*n)
+}
+
+// ReflowType converts a "v0" type to a Reflow type.
+// A nil is returned if the type is not supported as a
+// a Reflow type.
+func (t Type) ReflowType() *types.T {
+	switch t {
+	case typeError:
+		return types.Errorf("unknown type error")
+	case typeString:
+		return types.String
+	case typeTemplate:
+		// Not supported.
+		return nil
+	case typeVoid:
+		return types.Unit
+	case typeNum:
+		return types.Int
+	case typeFlow:
+		return types.Fileset
+	case typeFlowList:
+		return types.List(types.Fileset)
+	case typeImage:
+		// Not Supported.
+		return nil
+	case typeStringList:
+		return types.List(types.String)
+	}
+	// Functions not supported:
+	return nil
 }
 
 // TypeEnv is a type environment used during typechecking and
