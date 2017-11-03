@@ -47,6 +47,9 @@ func (c *Cache) Cache() (reflow.Cache, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Set the default client for dialing here.
+	// TODO(marius): this should be done outside of the specific configs.
+	reflows3.SetClient(s3.New(sess))
 	repo := reflows3.Repository{
 		Bucket: c.Bucket,
 		Client: s3.New(sess),
