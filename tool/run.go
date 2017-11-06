@@ -40,17 +40,18 @@ import (
 const maxConcurrentStreams = 2000
 
 type runConfig struct {
-	localDir      string
-	dir           string
-	local         bool
-	hybrid        string
-	alloc         string
-	gc            bool
-	trace         bool
-	resources     reflow.Resources
-	resourcesFlag string
-	cache         bool
-	nocacheextern bool
+	localDir       string
+	dir            string
+	local          bool
+	hybrid         string
+	alloc          string
+	gc             bool
+	trace          bool
+	resources      reflow.Resources
+	resourcesFlag  string
+	cache          bool
+	nocacheextern  bool
+	recomputeempty bool
 }
 
 func (r *runConfig) Flags(flags *flag.FlagSet) {
@@ -63,6 +64,7 @@ func (r *runConfig) Flags(flags *flag.FlagSet) {
 	flags.BoolVar(&r.trace, "trace", false, "trace flow evaluation")
 	flags.StringVar(&r.resourcesFlag, "resources", "", "override offered resources in local mode (JSON formatted reflow.Resources)")
 	flags.BoolVar(&r.nocacheextern, "nocacheextern", false, "don't cache extern ops")
+	flags.BoolVar(&r.recomputeempty, "recomputeempty", false, "recompute empty cache values")
 }
 
 func (r *runConfig) Err() error {
@@ -212,15 +214,18 @@ retriable.`
 		go transferer.Report(ctx, time.Minute)
 	}
 	run := runner.Runner{
-		Flow:          er.Flow,
-		Log:           execLogger,
-		Cache:         rcache,
-		NoCacheExtern: config.nocacheextern,
-		GC:            config.gc,
-		Transferer:    transferer,
-		Type:          er.Type,
-		Labels:        make(pool.Labels),
-		Cluster:       cluster,
+		Flow: er.Flow,
+		EvalConfig: reflow.EvalConfig{
+			Log:            execLogger,
+			Cache:          rcache,
+			NoCacheExtern:  config.nocacheextern,
+			GC:             config.gc,
+			Transferer:     transferer,
+			RecomputeEmpty: config.recomputeempty,
+		},
+		Type:    er.Type,
+		Labels:  make(pool.Labels),
+		Cluster: cluster,
 	}
 	run.Name = runName
 	run.Program = er.Program
@@ -369,7 +374,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	if err := x.Start(); err != nil {
 		log.Fatal(err)
 	}
-	eval := reflow.Eval{
+	evalConfig := reflow.EvalConfig{
 		Executor:      x,
 		Transferer:    transferer,
 		Log:           execLogger,
@@ -378,9 +383,9 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		NoCacheExtern: config.nocacheextern,
 	}
 	if config.trace {
-		eval.Trace = c.Log
+		evalConfig.Trace = c.Log
 	}
-	eval.Init(flow)
+	eval := reflow.NewEval(flow, evalConfig)
 	var wg ctxwg.WaitGroup
 	ctx, bgcancel := reflow.WithBackground(ctx, &wg)
 	if config.hybrid != "" {
@@ -396,7 +401,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 				"Name": runName.String(),
 			},
 		}
-		go stealer.Go(ctx, &eval)
+		go stealer.Go(ctx, eval)
 	}
 	if err = eval.Do(ctx); err != nil {
 		c.Errorln(err)

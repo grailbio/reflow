@@ -61,6 +61,8 @@ bam=3.bam,sample=c.
 	resetFlag := flags.Bool("reset", false, "reset failed runs")
 	gcFlag := flags.Bool("gc", false, "enable runtime garbage collection")
 	nocacheexternFlag := flags.Bool("nocacheextern", false, "don't cache extern ops")
+	recomputeemptyFlag := flags.Bool("recomputeempty", false, "recompute empty cache values")
+
 	c.Parse(flags, args, help, "runbatch [-retry] [-reset] [flags]")
 	if flags.NArg() != 0 {
 		flags.Usage()
@@ -85,15 +87,19 @@ bam=3.bam,sample=c.
 		cache.Transferer = transferer
 	}
 	go transferer.Report(ctx, time.Minute)
+
 	b := &batch.Batch{
-		Log:           c.Log,
-		Rundir:        c.rundir(),
-		User:          user,
-		Cache:         rcache,
-		NoCacheExtern: *nocacheexternFlag,
-		GC:            *gcFlag,
-		Transferer:    transferer,
-		Cluster:       cluster,
+		EvalConfig: reflow.EvalConfig{
+			Log:            c.Log,
+			Cache:          rcache,
+			NoCacheExtern:  *nocacheexternFlag,
+			RecomputeEmpty: *recomputeemptyFlag,
+			Transferer:     transferer,
+			GC:             *gcFlag,
+		},
+		Rundir:  c.rundir(),
+		User:    user,
+		Cluster: cluster,
 	}
 	b.Dir, err = os.Getwd()
 	if err != nil {

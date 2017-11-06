@@ -47,8 +47,8 @@ var stateStatusOrder = []FlowState{
 	FlowNeedLookup, FlowLookup, FlowNeedTransfer, FlowTODO,
 }
 
-// Eval is an evaluator for Flows.
-type Eval struct {
+// EvalConfig provides runtime configuration for evaluation instances.
+type EvalConfig struct {
 	// The executor to which execs are submitted.
 	Executor Executor
 
@@ -73,8 +73,19 @@ type Eval struct {
 	// after each exec has completed.
 	GC bool
 
+	// RecomputeEmpty determines whether cached empty values
+	// are recomputed.
+	RecomputeEmpty bool
+
 	// Config stores the flow config to be used.
 	Config Config
+}
+
+// Eval is an evaluator for Flows.
+type Eval struct {
+	// EvalConfig is the evaluation configuration used in this
+	// evaluation.
+	EvalConfig
 
 	root *Flow
 
@@ -121,22 +132,25 @@ type Eval struct {
 	writersMu               sync.Mutex
 }
 
-// Init initializes the Eval with a FLow to be evaluated. Evals must
-// be initialized before work stealing commences, and before
-// (*Eval).Do is called.
-func (e *Eval) Init(root *Flow) {
-	e.root = root.Canonicalize(e.Config)
-	e.needch = make(chan Requirements)
-	e.errors = make(chan error)
-	e.returnch = make(chan *Flow, 1024)
-	e.newStealer = make(chan *Stealer)
-	e.wakeupch = make(chan bool, 1)
-	e.pending = map[*Flow]bool{} // TODO: name e.ready; but really we should just traverse the tree
-	e.total = e.Executor.Resources()
+// NewEval creates and initializes a new evaluator using the provided
+// evaluation configuration and root flow.
+func NewEval(root *Flow, config EvalConfig) *Eval {
+	e := &Eval{
+		EvalConfig: config,
+		root:       root.Canonicalize(config.Config),
+		needch:     make(chan Requirements),
+		errors:     make(chan error),
+		returnch:   make(chan *Flow, 1024),
+		newStealer: make(chan *Stealer),
+		wakeupch:   make(chan bool, 1),
+		pending:    map[*Flow]bool{}, // TODO: name e.ready; but really we should just traverse the tree
+		total:      config.Executor.Resources(),
+	}
 	e.available = e.total
 	if e.Log == nil && printAllTasks {
 		e.Log = log.Std
 	}
+	return e
 }
 
 // Requirements returns the minimum and maximum resource
@@ -887,6 +901,9 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 	}
 	fs, err := e.Cache.Lookup(ctx, f.Digest())
 	switch {
+	case err == nil && e.RecomputeEmpty && fs.Empty():
+		e.Log.Debugf("recomputing empty value for %v", f)
+		e.Mutate(f, FlowTODO)
 	case err == nil:
 		e.Mutate(f, fs, FlowNeedTransfer)
 	case errors.Match(errors.NotExist, err):

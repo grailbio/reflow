@@ -27,9 +27,8 @@ func TestSimpleEval(t *testing.T) {
 
 	e := Executor{Have: Resources}
 	e.Init()
-	eval := reflow.Eval{Executor: &e}
-	eval.Init(extern)
-	rc := EvalAsync(context.Background(), &eval)
+	eval := reflow.NewEval(extern, reflow.EvalConfig{Executor: &e})
+	rc := EvalAsync(context.Background(), eval)
 	e.Ok(intern, Files("a/b/c", "a/b/d", "x/y/z"))
 	e.Ok(exec, Files("execout"))
 	e.Ok(extern, reflow.Fileset{})
@@ -51,9 +50,8 @@ func TestGroupbyMapCollect(t *testing.T) {
 
 	e := Executor{Have: Resources}
 	e.Init()
-	eval := reflow.Eval{Executor: &e}
-	eval.Init(mapCollect)
-	rc := EvalAsync(context.Background(), &eval)
+	eval := reflow.NewEval(mapCollect, reflow.EvalConfig{Executor: &e})
+	rc := EvalAsync(context.Background(), eval)
 	e.Ok(intern, Files("a/one:one", "a/two:two", "a/three:three", "b/1:four", "b/2:five", "c/xxx:six"))
 	r := <-rc
 	if r.Err != nil {
@@ -70,9 +68,8 @@ func TestExecRetry(t *testing.T) {
 	e := Executor{Have: Resources}
 	e.Init()
 
-	eval := reflow.Eval{Executor: &e}
-	eval.Init(exec)
-	rc := EvalAsync(context.Background(), &eval)
+	eval := reflow.NewEval(exec, reflow.EvalConfig{Executor: &e})
+	rc := EvalAsync(context.Background(), eval)
 	e.Error(exec, errors.New("failed"))
 	e.Ok(exec, Files("execout"))
 	r := <-rc
@@ -94,9 +91,8 @@ func TestSteal(t *testing.T) {
 
 	e := Executor{Have: Resources}
 	e.Init()
-	eval := reflow.Eval{Executor: &e}
-	eval.Init(merge)
-	rc := EvalAsync(context.Background(), &eval)
+	eval := reflow.NewEval(merge, reflow.EvalConfig{Executor: &e})
+	rc := EvalAsync(context.Background(), eval)
 	for i := 0; i < N; i++ {
 		e.Wait(execs[i])
 		s := eval.Stealer()
@@ -132,9 +128,8 @@ func TestCacheWrite(t *testing.T) {
 	cache.Init()
 	e := Executor{Have: Resources}
 	e.Init()
-	eval := reflow.Eval{Executor: &e, Cache: &cache}
-	eval.Init(pullup)
-	rc := EvalAsync(context.Background(), &eval)
+	eval := reflow.NewEval(pullup, reflow.EvalConfig{Executor: &e, Cache: &cache})
+	rc := EvalAsync(context.Background(), eval)
 	var (
 		internValue = Files("ignored")
 		execValue   = Files("a", "b", "c", "d")
@@ -173,9 +168,8 @@ func TestCacheLookup(t *testing.T) {
 	e.Init()
 	var cache WaitCache
 	cache.Init()
-	eval := reflow.Eval{Executor: &e, Cache: &cache}
-	eval.Init(extern)
-	rc := EvalAsync(context.Background(), &eval)
+	eval := reflow.NewEval(extern, reflow.EvalConfig{Executor: &e, Cache: &cache})
+	rc := EvalAsync(context.Background(), eval)
 	cache.Hit(extern, reflow.Fileset{})
 	r := <-rc
 	if r.Err != nil {
@@ -187,9 +181,8 @@ func TestCacheLookup(t *testing.T) {
 
 	e.Init()
 	cache.Init()
-	eval = reflow.Eval{Executor: &e, Cache: &cache}
-	eval.Init(extern)
-	rc = EvalAsync(context.Background(), &eval)
+	eval = reflow.NewEval(extern, reflow.EvalConfig{Executor: &e, Cache: &cache})
+	rc = EvalAsync(context.Background(), eval)
 	cache.Miss(extern)
 	cache.Miss(pullup)
 	cache.Miss(mapCollect)
@@ -230,9 +223,8 @@ func TestGC(t *testing.T) {
 	defer cleanup()
 	repo := file.Repository{Root: objects}
 	e.repo = &repo
-	eval := reflow.Eval{Executor: &e, GC: true}
-	eval.Init(pullup)
-	rc := EvalAsync(context.Background(), &eval)
+	eval := reflow.NewEval(pullup, reflow.EvalConfig{Executor: &e, GC: true})
+	rc := EvalAsync(context.Background(), eval)
 	files := []string{
 		"a/x:x", "a/y:y", "a/z:z", "b/1:1", "b/2:2", "c/xxx:xxx",
 		"orphan:orphan", "unrooted:unrooted"}
@@ -278,9 +270,8 @@ func TestData(t *testing.T) {
 	e := Executor{Have: Resources}
 	e.Init()
 	e.repo = repotest.NewInmemory()
-	eval := reflow.Eval{Executor: &e}
-	eval.Init(flow.Data(hello))
-	r := <-EvalAsync(context.Background(), &eval)
+	eval := reflow.NewEval(flow.Data(hello), reflow.EvalConfig{Executor: &e})
+	r := <-EvalAsync(context.Background(), eval)
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}

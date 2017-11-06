@@ -121,17 +121,13 @@ func (r *Run) Go(ctx context.Context, initWG *sync.WaitGroup) error {
 	defer f.Close()
 	r.log = log.New(golog.New(f, "", golog.LstdFlags), log.InfoLevel)
 	run := &runner.Runner{
-		State:         r.State,
-		Cluster:       r.batch.Cluster,
-		ClusterAux:    r.batch.ClusterAux,
-		Flow:          flow,
-		Cache:         r.batch.Cache,
-		NoCacheExtern: r.batch.NoCacheExtern,
-		GC:            r.batch.GC,
-		Transferer:    r.batch.Transferer,
-		Log:           r.log,
-		Type:          typ,
-		Labels:        pool.Labels{"program": r.Program},
+		State:      r.State,
+		Cluster:    r.batch.Cluster,
+		ClusterAux: r.batch.ClusterAux,
+		Flow:       flow,
+		EvalConfig: r.batch.EvalConfig,
+		Type:       typ,
+		Labels:     pool.Labels{"program": r.Program},
 	}
 	run.Program = r.Program
 	run.Params = r.Args
@@ -269,21 +265,9 @@ type Batch struct {
 	// work-stealing works are allocated from this cluster, while
 	// primary workers are allocated from Cluster.
 	ClusterAux runner.Cluster
-	// Log receives log messages that pertain to batch management.
-	// Individual run logs are stored in their own files in the batch
-	// directory.
-	Log *log.Logger
-	// Cache is used to store the results of every reflow subexpression.
-	// If nil, no results are stored.
-	Cache reflow.Cache
-	// NoCacheExtern should be set to true if externs should not be cached.
-	NoCacheExtern bool
-	// GC specifies whether the underlying Eval peforms garbage collection
-	// after each exec has completed.
-	GC bool
-	// Transferer is the reflow transfer manager used for the whole batch.
-	// (Across all runs.)
-	Transferer reflow.Transferer
+
+	reflow.EvalConfig
+
 	// Runs is the set of runs managed by this batch.
 	Runs map[string]*Run
 	// Admitter is a rate limiter to control the rate of new evaluations.

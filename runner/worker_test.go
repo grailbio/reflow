@@ -33,8 +33,10 @@ func TestWorker(t *testing.T) {
 	cache.Init()
 	e := &test.Executor{Have: test.Resources}
 	e.Init()
-	eval := &reflow.Eval{Executor: e, Transferer: &tf}
-	eval.Init(merge)
+	eval := reflow.NewEval(merge, reflow.EvalConfig{
+		Executor:   e,
+		Transferer: &tf,
+	})
 	e2 := &test.Executor{Have: test.Resources.Scale(2)}
 	e2.Init()
 	const idleTime = 2 * time.Second

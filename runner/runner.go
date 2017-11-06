@@ -14,7 +14,6 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
@@ -157,6 +156,8 @@ type Runner struct {
 	// this in order to resume runs.
 	State
 
+	reflow.EvalConfig
+
 	// Cluster is the main cluster from which Allocs are allocated.
 	Cluster Cluster
 
@@ -176,28 +177,12 @@ type Runner struct {
 	// transfers.
 	Transferer reflow.Transferer
 
-	// Log is used for reporting status and errors.
-	Log *log.Logger
-
-	// Trace is used for evaluation tracing.
-	Trace *log.Logger
-
 	// Retain is the amount of time the primary alloc should be retained
 	// after failure.
 	Retain time.Duration
 
 	// Alloc is the primary alloc in which the flow is evaluated.
 	Alloc pool.Alloc
-
-	// Cache is the cache to which successful evaluation steps are written.
-	Cache reflow.Cache
-
-	// NoCacheExtern should be true
-	NoCacheExtern bool
-
-	// GC specifies whether the underlying Eval peforms garbage collection
-	// after each exec has completed.
-	GC bool
 
 	// Labels are the set of labels affiliated with this run.
 	Labels pool.Labels
@@ -306,16 +291,9 @@ func (r *Runner) Eval(ctx context.Context) (string, error) {
 		wg.Done()
 	}()
 
-	eval := &reflow.Eval{
-		Executor:      r.Alloc,
-		Log:           r.Log,
-		Trace:         r.Trace,
-		Cache:         r.Cache,
-		NoCacheExtern: r.NoCacheExtern,
-		GC:            r.GC,
-		Transferer:    r.Transferer,
-	}
-	eval.Init(r.Flow)
+	config := r.EvalConfig
+	config.Executor = r.Alloc
+	eval := reflow.NewEval(r.Flow, config)
 	stealer := &Stealer{
 		Cache:   r.Cache,
 		Cluster: r.ClusterAux,
