@@ -511,6 +511,19 @@ var stringsDecls = []*Decl{
 			return sorted, nil
 		},
 	}.Decl(),
+	systemFunc{
+		Id:     "FromInt",
+		Module: "strings",
+		Force:  true,
+		Doc:    "FromInt parses an integer into a string.",
+		Type: types.Func(types.String,
+			&types.Field{Name: "intVal", T: types.Int}),
+		Do: func(loc values.Location, args []values.T) (values.T, error) {
+			intVal := args[0].(*big.Int)
+			stringVal := intVal.String()
+			return stringVal, nil
+		},
+	}.Decl(),
 }
 
 var pathDecls = []*Decl{
