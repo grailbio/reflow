@@ -68,7 +68,7 @@ type Cmd struct {
 var commands = map[string]Func{
 	"list":         (*Cmd).list,
 	"ps":           (*Cmd).ps,
-	"version":      (*Cmd).version,
+	"version":      (*Cmd).versionCmd,
 	"run":          (*Cmd).run,
 	"doc":          (*Cmd).doc,
 	"info":         (*Cmd).info,
@@ -238,6 +238,8 @@ func (c *Cmd) Main() {
 			fn()
 		}
 	}()
+
+	c.Log.Debug("reflow version ", c.version())
 
 	ctx := context.Background()
 	// Note that the flag package stops parsing flags after the first
