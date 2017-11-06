@@ -110,3 +110,16 @@ func TestValueN(t *testing.T) {
 		t.Errorf("got %v, want %v")
 	}
 }
+
+func TestEmpty(t *testing.T) {
+	empty := []Fileset{
+		{},
+		{List: make([]Fileset, 1)},
+		{List: []Fileset{{}, {Map: map[string]File{}}, {List: make([]Fileset, 100)}}},
+	}
+	for i, fs := range empty {
+		if !fs.Empty() {
+			t.Errorf("expected empty %d %v", i, fs)
+		}
+	}
+}

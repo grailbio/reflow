@@ -43,10 +43,15 @@ func (v Fileset) Equal(w Fileset) bool {
 	return v.Digest() == w.Digest()
 }
 
-// Empty tells whether this value is empty.
-// (Its digest would be equivalent to that of Value{}).
+// Empty tells whether this value is empty, that is, it contains
+// no files.
 func (v Fileset) Empty() bool {
-	return len(v.List) == 0 && len(v.Map) == 0
+	for _, fs := range v.List {
+		if !fs.Empty() {
+			return false
+		}
+	}
+	return len(v.Map) == 0
 }
 
 // Flatten is a convenience function to flatten (shallowly) the value
