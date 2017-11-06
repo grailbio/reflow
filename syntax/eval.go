@@ -536,19 +536,15 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}, e.Left)
 		case "int":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
-				if e.Left.Type.Kind == types.FloatKind {
-					f := vs[0].(*big.Float)
-					i, _ := f.Int64()
-					return values.NewInt(i), nil
-				}
+				f := vs[0].(*big.Float)
+				i, _ := f.Int64()
+				return values.NewInt(i), nil
 			}, e.Left)
 		case "float":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
-				if e.Left.Type.Kind == types.IntKind {
-					i := vs[0].(*big.Int)
-					f := float64(i.Int64())
-					return values.NewFloat(f), nil
-				}
+				i := vs[0].(*big.Int)
+				f := float64(i.Int64())
+				return values.NewFloat(f), nil
 			}, e.Left)
 		case "zip":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
