@@ -347,6 +347,12 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 	if err != nil {
 		return execInit, errors.E("ContainerInspect", e.containerName(), kind(err), err)
 	}
+	// Docker can return inconsistent return codes between a ContainerWait and
+	// a ContainerInspect call. If either of these calls return a non zero exit code,
+	// we use that as the exit status.
+	if code == 0 && e.Docker.State.ExitCode != 0 {
+		code = e.Docker.State.ExitCode
+	}
 
 	// Retrieve the profile before we clean up the results.
 	cancelprof()
