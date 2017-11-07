@@ -518,7 +518,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 					w = Force(w, params[id].Type)
 				}
 				if _, ok := w.(*reflow.Flow); ok {
-					force = append(force, w)
+					force = append(force, tval{d.Type, w})
 					forceIds = append(forceIds, id)
 				} else {
 					vals[id] = w

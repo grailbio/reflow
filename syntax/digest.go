@@ -226,7 +226,7 @@ func (e *Expr) digest1(w io.Writer) {
 	case ExprIndex, ExprCompr:
 	case ExprThunk:
 	case ExprMake:
-		panic("ExprMake invalid for digest1")
+		io.WriteString(w, e.Left.Val.(string))
 	case ExprBuiltin:
 		io.WriteString(w, e.Op)
 	default:
