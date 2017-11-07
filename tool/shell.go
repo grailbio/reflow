@@ -52,6 +52,9 @@ The user may exit the terminal by typing 'exit'/'quit'`
 	}()
 
 	rwc, err := e.Shell(ctx)
+	if err != nil {
+		c.Fatalf("%s: %s", u.ExecID, err)
+	}
 	go func() {
 		io.Copy(rwc, sr)
 	}()
