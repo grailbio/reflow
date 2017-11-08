@@ -169,7 +169,7 @@ func Stdlib() (*types.Env, *values.Env) {
 				if u.Scheme == "" {
 					// Take this to be a local directory of (small) files.
 					var total int64
-					const maxTotal = 100 << 20
+					const maxTotal = 200 << 20
 					var w walker.Walker
 					w.Init(rawurl)
 					var paths []string
@@ -179,7 +179,7 @@ func Stdlib() (*types.Env, *values.Env) {
 						if !info.IsDir() {
 							total += info.Size()
 							if total > maxTotal {
-								return nil, fmt.Errorf("directory %s exceeds maximum size of 100MB", rawurl)
+								return nil, fmt.Errorf("directory %s exceeds maximum size of 200MB", rawurl)
 							}
 						} else {
 							continue
