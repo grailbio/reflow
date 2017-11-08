@@ -87,6 +87,10 @@ func main() {
 	g.Printf("	Price map[string]float64\n")
 	g.Printf("	// Generation stores the generation name for this instance (\"current\" or \"previous\").\n")
 	g.Printf("	Generation string\n")
+	g.Printf("	// Virt stores the virtualization type used by this instance type.\n")
+	g.Printf("	Virt string\n")
+	g.Printf("	// NVMe specifies whether EBS block devices are exposed as NVMe volumes.\n")
+	g.Printf("	NVMe bool\n")
 	g.Printf("}\n")
 
 	g.Printf("// Types stores known EC2 instance types.\n")
@@ -105,14 +109,23 @@ func main() {
 			continue
 		}
 		ok = false
-		for _, virt := range e.LinuxVirtType {
-			if virt == "HVM" {
-				ok = true
-				break
+		// TODO(marius): should we prefer a particular virtualization type?
+		var virt string
+		// ec2instances doesn't seem to correctly classify the virtualization type of c5,
+		// so we override this for now.
+		if strings.HasPrefix(e.Type, "c5.") {
+			virt = "HVM"
+			ok = true
+		} else {
+			for _, virt = range e.LinuxVirtType {
+				if virt == "HVM" {
+					ok = true
+					break
+				}
 			}
 		}
 		if !ok {
-			log.Printf("excluding instance type %s because it does not support Linux HVM", e.Type)
+			log.Printf("excluding instance type %s because it does not support Linux HVM or PV (supported: %s)", e.Type, strings.Join(e.LinuxVirtType, ", "))
 			continue
 		}
 		g.Printf("{\n")
@@ -137,6 +150,8 @@ func main() {
 
 		g.Printf("	},\n")
 		g.Printf("	Generation: %q,\n", e.Generation)
+		g.Printf("	Virt: %q,\n", virt)
+		g.Printf("	NVMe: %v,\n", strings.HasPrefix(e.Type, "c5."))
 		g.Printf("},\n")
 	}
 	g.Printf("}\n")

@@ -83,7 +83,7 @@ The resulting configuration can be examined with "reflow config".`
 		cfg.DiskSpace = 250
 	}
 	if cfg.AMI == "" {
-		cfg.AMI = "ami-d0e54eb0"
+		cfg.AMI = "ami-7c488704"
 	}
 	if cfg.MaxInstances == 0 {
 		cfg.MaxInstances = 10
@@ -102,6 +102,12 @@ The resulting configuration can be examined with "reflow config".`
 			"c4.8xlarge",
 			"c4.large",
 			"c4.xlarge",
+			"c5.large",
+			"c5.xlarge",
+			"c5.2xlarge",
+			"c5.4xlarge",
+			"c5.9xlarge",
+			"c5.18xlarge",
 			"cc2.8xlarge",
 			"m1.large",
 			"m1.medium",

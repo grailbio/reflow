@@ -66,24 +66,24 @@ coreos:
   - name: locksmithd.service
     command: stop
 
-  - name: format-xvdb.service
+  - name: format-{{.DeviceName}}.service
     command: start
     content: |
       [Unit]
-      Description=Format /dev/xvdb
-      After=dev-xvdb.device
-      Requires=dev-xvdb.device
+      Description=Format /dev/{{.DeviceName}}
+      After=dev-{{.DeviceName}}.device
+      Requires=dev-{{.DeviceName}}.device
       [Service]
       Type=oneshot
       RemainAfterExit=yes
-      ExecStart=/usr/sbin/wipefs -f /dev/xvdb
-      ExecStart=/usr/sbin/mkfs.ext4 -F /dev/xvdb
+      ExecStart=/usr/sbin/wipefs -f /dev/{{.DeviceName}}
+      ExecStart=/usr/sbin/mkfs.ext4 -F /dev/{{.DeviceName}}
 
   - name: mnt-data.mount
     command: start
     content: |
       [Mount]
-      What=/dev/xvdb
+      What=/dev/{{.DeviceName}}
       Where=/mnt/data
       Type=ext4
       Options=data=writeback
@@ -156,6 +156,8 @@ type instanceConfig struct {
 	Price map[string]float64
 	// SpotOk tells whether spot is supported for this instance type.
 	SpotOk bool
+	// NVMe specifies whether EBS is exposed as NVMe devices.
+	NVMe bool
 }
 
 var (
@@ -176,6 +178,7 @@ func init() {
 			// According to Amazon, "t2" instances are the only current-generation
 			// instances not supported by spot.
 			SpotOk: typ.Generation == "current" && !strings.HasPrefix(typ.Name, "t2."),
+			NVMe:   typ.NVMe,
 		}
 	}
 }
@@ -464,6 +467,7 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 		ReflowConfig   string
 		ReflowletImage string
 		SshKey         string
+		DeviceName     string
 	}{}
 	args.Count = 1
 	args.Mortal = true
@@ -490,6 +494,10 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 	args.SshKey = i.SshKey
 	if args.SshKey == "" {
 		i.Log.Debugf("instance launch: missing public SSH key")
+	}
+	args.DeviceName = "xvdb"
+	if i.Config.NVMe {
+		args.DeviceName = "nvme1n1"
 	}
 
 	var userdataBuf bytes.Buffer
@@ -646,7 +654,10 @@ func (i *instance) ec2HasCapacity(ctx context.Context, n int) (bool, error) {
 	if err == nil {
 		return false, errors.New("did not expect succesful response")
 	} else if awserr, ok := err.(awserr.Error); ok {
-		return awserr.Code() == "DryRunOperation", nil
+		if awserr.Code() == "DryRunOperation" {
+			return true, nil
+		}
+		return false, awserr
 	} else if err == context.DeadlineExceeded {
 		// We'll take an API timeout as a negative answer: this seems to
 		// the case empirically.

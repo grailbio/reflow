@@ -1,5 +1,7 @@
 ## HEAD
 
+- ec2cluster: support for the new c5 instance types
+
 ## [reflow0.5.2](https://github.com/grailbio/reflow/releases/tag/reflow0.5.2)
 
 - reflowlet: terminate on 10-minute idle time (since AWS does secondly billing)
