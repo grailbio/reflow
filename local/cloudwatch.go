@@ -109,8 +109,9 @@ func (c *cloudWatchLogs) loop() {
 			})
 			if err != nil {
 				log.Errorf("cloudWatchLogs.PutLogEvent: %v", err)
+			} else {
+				sequenceToken[entry.stream] = response.NextSequenceToken
 			}
-			sequenceToken[entry.stream] = response.NextSequenceToken
 		}
 	}()
 }
