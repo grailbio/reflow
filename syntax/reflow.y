@@ -67,7 +67,7 @@ type typearg struct {
 %token	<template>	tokTemplate
 %token	<pos>	tokFile tokDir tokStruct tokModule tokExec tokAs  tokAt
 %token	<pos>	tokVal tokFunc tokAssign tokArrow tokLeftArrow tokIf tokElse 
-%token	<pos>	tokMake tokLen  tokPanic tokMap tokList tokZip tokUnzip tokFlatten
+%token	<pos>	tokMake tokLen  tokPanic tokDelay tokMap tokList tokZip tokUnzip tokFlatten
 %token	<pos>	tokStartModule tokStartDecls tokStartExpr tokStartType
 %token	<pos>	tokKeyspace tokParam tokEllipsis  tokReserved  tokRequires
 %token	<pos>	tokType
@@ -546,6 +546,8 @@ term:
 	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprBuiltin, Op: "map", Left: $3}}
 |	tokList '(' expr ')'
 	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprBuiltin, Op: "list", Left: $3}}
+|	tokDelay '(' expr ')'
+	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprBuiltin, Op: "delay", Left: $3}}
 |	tokPanic '(' expr ')'
 	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprBuiltin, Op: "panic", Left: $3}}
 

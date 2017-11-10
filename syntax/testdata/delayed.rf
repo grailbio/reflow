@@ -1,0 +1,6 @@
+// This test module tests that the Reflow evaluator handles
+// delayed computation properly.
+
+val TestMap1 = map([(delay("a"), 1), (delay("b"), 2)])["a"] == 1
+
+val TestMap2 = map([delay(("a", 1)), delay((delay("b"), 2))])["b"] == 2

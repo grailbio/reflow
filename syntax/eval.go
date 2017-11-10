@@ -618,24 +618,39 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}, e.Left)
 		case "map":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
-				m := make(values.Map)
 				switch e.Left.Type.Kind {
 				case types.ListKind:
+					// We have to unpack both the tuples and the key of the tuples
+					// here.
 					list := vs[0].(values.List)
-					for _, v := range list {
-						tup := v.(values.Tuple)
-						k, v := tup[0], tup[1]
-						m[k] = v
+					tuples := make([]interface{}, len(list))
+					for i, v := range list {
+						tuples[i] = tval{e.Left.Type.Elem, v}
 					}
+					return e.k(sess, env, ident, func(tuples []values.T) (values.T, error) {
+						keys := make([]interface{}, len(tuples))
+						for i, v := range tuples {
+							k := tval{e.Left.Type.Elem.Fields[0].T, v.(values.Tuple)[0]}
+							keys[i] = k
+						}
+						return e.k(sess, env, ident, func(keys []values.T) (values.T, error) {
+							m := make(values.Map)
+							for i, v := range tuples {
+								m[keys[i]] = v.(values.Tuple)[1]
+							}
+							return m, nil
+						}, keys...)
+					}, tuples...)
 				case types.DirKind:
+					m := make(values.Map)
 					d := vs[0].(values.Dir)
 					for k, v := range d {
 						m[k] = v
 					}
+					return m, nil
 				default:
 					panic("bug")
 				}
-				return m, nil
 			}, e.Left)
 		case "list":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
@@ -657,6 +672,14 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 		case "panic":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 				return nil, fmt.Errorf("panic: %s", vs[0].(string))
+			}, e.Left)
+		case "delay":
+			// Delay deliberately introduces delayed evaluation, which is
+			// useful for testing and debugging. It is handled specially in
+			// (*Expr).k so that it does not return immediately if the value
+			// is already resolved.
+			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+				return vs[0], nil
 			}, e.Left)
 		}
 	case ExprRequires:
@@ -857,6 +880,7 @@ func (e *Expr) k(sess *Session, env *values.Env, ident string, k func(vs []value
 		vs    = make([]values.T, len(subs))
 		dw    = reflow.Digester.NewWriter()
 	)
+	// TODO(marius): push down sorting of dependencies here?
 	for i, sub := range subs {
 		var T *types.T
 		switch sub := sub.(type) {
@@ -882,8 +906,9 @@ func (e *Expr) k(sess *Session, env *values.Env, ident string, k func(vs []value
 		depsi = append(depsi, i)
 	}
 
-	// If all dependencies are resolved, we evaluate directly.
-	if len(deps) == 0 {
+	// If all dependencies are resolved, we evaluate directly,
+	// except if we're evaluating a delay operation.
+	if len(deps) == 0 && (e.Kind != ExprBuiltin || e.Op != "delay") {
 		return k(vs)
 	}
 

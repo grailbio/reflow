@@ -6,11 +6,14 @@ package syntax
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"reflect"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
@@ -176,6 +179,7 @@ func TestEval(t *testing.T) {
 		"testdata/typealias.rf",
 		"testdata/typealias2.rf",
 		"testdata/newmodule.rf",
+		"testdata/delayed.rf",
 	}
 Prog:
 	for _, prog := range progs {
@@ -205,10 +209,27 @@ Prog:
 			t.Errorf("make %s: %s", prog, err)
 			continue
 		}
+	tests:
 		for _, test := range tests {
-			if !v.(values.Module)[test].(bool) {
-				t.Errorf("%s.%s failed", prog, test)
+			switch v := v.(values.Module)[test].(type) {
+			case *reflow.Flow:
+				// We have to evaluate the flow. We do so through a no-op executor.
+				eval := reflow.NewEval(v, reflow.EvalConfig{
+					Executor: nopexecutor{},
+				})
+				if err := eval.Do(context.Background()); err != nil {
+					t.Errorf("%s.%s: %v", prog, test, err)
+					continue tests
+				}
+				if !eval.Value().(bool) {
+					t.Errorf("%s.%s failed", prog, test)
+				}
+			case bool:
+				if !v {
+					t.Errorf("%s.%s failed", prog, test)
+				}
 			}
+
 		}
 	}
 }
@@ -263,4 +284,30 @@ func TestTypeErr(t *testing.T) {
 			t.Errorf("error %s did not match %s", terr, c.errpat)
 		}
 	}
+}
+
+type nopexecutor struct{}
+
+func (nopexecutor) Put(ctx context.Context, id digest.Digest, exec reflow.ExecConfig) (reflow.Exec, error) {
+	return nil, errors.New("put not implemented")
+}
+
+func (nopexecutor) Get(ctx context.Context, id digest.Digest) (reflow.Exec, error) {
+	return nil, errors.New("get not implemented")
+}
+
+func (nopexecutor) Remove(ctx context.Context, id digest.Digest) error {
+	return errors.New("remove not implemented")
+}
+
+func (nopexecutor) Execs(ctx context.Context) ([]reflow.Exec, error) {
+	return nil, errors.New("execs not implemented")
+}
+
+func (nopexecutor) Resources() reflow.Resources {
+	return reflow.MaxResources
+}
+
+func (nopexecutor) Repository() reflow.Repository {
+	return nil
 }

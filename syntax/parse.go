@@ -170,6 +170,7 @@ var identTokens = map[string]int{
 	"list": tokList,
 
 	"panic": tokPanic,
+	"delay": tokDelay,
 
 	"requires": tokRequires,
 

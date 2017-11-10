@@ -688,6 +688,8 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			} else {
 				e.Type = types.Bottom
 			}
+		case "delay":
+			e.Type = e.Left.Type.Assign(nil)
 		}
 	case ExprRequires:
 		if err := e.initResources(sess, env); err != nil {
@@ -982,12 +984,27 @@ func (e *Expr) sortedMapKeys(env *values.Env) []*Expr {
 	for k := range e.Map {
 		keys = append(keys, k)
 	}
-	sort.Slice(keys, func(i, j int) bool {
-		var (
-			di = keys[i].Digest(env)
-			dj = keys[j].Digest(env)
-		)
-		return di.Less(dj)
-	})
+	sortExprs(env, keys)
 	return keys
+}
+
+type sortedExpr struct {
+	exprs []*Expr
+	env   *values.Env
+}
+
+func sortExprs(env *values.Env, exprs []*Expr) {
+	sort.Sort(sortedExpr{exprs: exprs, env: env})
+}
+
+func (s sortedExpr) Len() int { return len(s.exprs) }
+func (s sortedExpr) Less(i, j int) bool {
+	var (
+		di = s.exprs[i].Digest(s.env)
+		dj = s.exprs[j].Digest(s.env)
+	)
+	return di.Less(dj)
+}
+func (s sortedExpr) Swap(i, j int) {
+	s.exprs[i], s.exprs[j] = s.exprs[j], s.exprs[i]
 }
