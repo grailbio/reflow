@@ -438,7 +438,6 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			default:
 				panic("bug")
 			}
-
 		}, e.Left)
 	case ExprIndex:
 		return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
@@ -579,16 +578,22 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}, e.Left, e.Right)
 		case "unzip":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
-				var (
-					list  = vs[0].(values.List)
-					left  = make(values.List, len(list))
-					right = make(values.List, len(list))
-				)
-				for i := range list {
-					tup := list[i].(values.Tuple)
-					left[i], right[i] = tup[0], tup[1]
+				list := vs[0].(values.List)
+				tuples := make([]interface{}, len(list))
+				for i, v := range list {
+					tuples[i] = tval{e.Left.Type.Elem, v}
 				}
-				return values.Tuple{left, right}, nil
+				return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+					var (
+						left  = make(values.List, len(vs))
+						right = make(values.List, len(vs))
+					)
+					for i := range vs {
+						tup := vs[i].(values.Tuple)
+						left[i], right[i] = tup[0], tup[1]
+					}
+					return values.Tuple{left, right}, nil
+				}, tuples...)
 			}, e.Left)
 		case "flatten":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
@@ -920,7 +925,11 @@ func (e *Expr) k(sess *Session, env *values.Env, ident string, k func(vs []value
 		e.Left.digest(dw, env)
 		e.Right.digest(dw, env)
 	case ExprBinop:
-		e.Right.digest(dw, env)
+		// These are short-circuit operations, and so their dependencies
+		// aren't captured by the evaluator directly.
+		if e.Op == "||" || e.Op == "&&" {
+			e.Right.digest(dw, env)
+		}
 	case ExprApply:
 		for _, f := range e.Fields {
 			f.Expr.digest(dw, env)

@@ -33,27 +33,23 @@ func coerceMatchFlow(f *reflow.Flow, t *types.T, p Path) *reflow.Flow {
 		Deps:       []*reflow.Flow{f},
 		FlowDigest: p.Digest(),
 		K: func(vs []values.T) *reflow.Flow {
-			v, t, ok, p := p.Match(vs[0], t)
-			if !ok {
-				return &reflow.Flow{
-					Op:  reflow.OpVal,
-					Err: errors.Recover(errMatch),
+			v := vs[0]
+			for {
+				var ok bool
+				v, t, ok, p = p.Match(v, t)
+				if !ok {
+					return &reflow.Flow{
+						Op:  reflow.OpVal,
+						Err: errors.Recover(errMatch),
+					}
+				}
+				if p.Done() {
+					return flow(v, t)
+				}
+				if f, ok := v.(*reflow.Flow); ok {
+					return coerceMatchFlow(f, t, p)
 				}
 			}
-			if p.Done() {
-				return flow(v, t)
-			}
-			if f, ok := v.(*reflow.Flow); ok {
-				return coerceMatchFlow(f, t, p)
-			}
-			v, err := coerceMatch(v, t, p)
-			if err != nil {
-				return &reflow.Flow{
-					Op:  reflow.OpVal,
-					Err: errors.Recover(err),
-				}
-			}
-			return flow(v, t)
 		},
 	}
 }

@@ -18,3 +18,8 @@ val TestModule = {
 	val b = delay(mul100.Mul)(10)
 	a == 200 && b == 1000
 }
+
+val TestUnzip = {
+	val ([a], [b]) = unzip([delay((1, "ok"))])
+	a == 1 && b == "ok"
+}
