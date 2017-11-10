@@ -16,6 +16,7 @@ type Symtab map[string]T
 type Env struct {
 	// Symtab is the symbol table for this level.
 	Symtab Symtab
+	debug  bool
 	next   *Env
 }
 
@@ -97,4 +98,23 @@ func (e *Env) Push() *Env {
 		Symtab: make(Symtab),
 		next:   e,
 	}
+}
+
+// Debug sets the debug flag on this environment.
+// This causes IsDebug to return true.
+func (e *Env) Debug() {
+	e.debug = true
+}
+
+// IsDebug returns true if the debug flag is set in this environment.
+func (e *Env) IsDebug() bool {
+	if e == nil {
+		return false
+	}
+	for ; e != nil; e = e.next {
+		if e.debug {
+			return true
+		}
+	}
+	return false
 }

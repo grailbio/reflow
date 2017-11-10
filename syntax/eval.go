@@ -496,10 +496,9 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 		}, e.Left)
 	case ExprMake:
 		var (
-			params   = make(map[string]Param)
-			vals     = make(map[string]values.T)
-			force    []interface{}
-			forceIds []string
+			params = make(map[string]Param)
+			args   []interface{}
+			argIds []string
 		)
 		for _, p := range e.Module.Params() {
 			params[p.Ident] = p
@@ -517,24 +516,17 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				if params[id].Force {
 					w = Force(w, params[id].Type)
 				}
-				if _, ok := w.(*reflow.Flow); ok {
-					force = append(force, tval{d.Type, w})
-					forceIds = append(forceIds, id)
-				} else {
-					vals[id] = w
-				}
+				args = append(args, tval{d.Type, w})
+				argIds = append(argIds, id)
 			}
 		}
 		return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 			penv := sess.Values.Push()
-			for id, v := range vals {
-				penv.Bind(id, v)
-			}
-			for i, id := range forceIds {
+			for i, id := range argIds {
 				penv.Bind(id, vs[i])
 			}
 			return e.Module.Make(sess, penv)
-		}, force...)
+		}, args...)
 	case ExprBuiltin:
 		switch e.Op {
 		default:
@@ -924,8 +916,15 @@ func (e *Expr) k(sess *Session, env *values.Env, ident string, k func(vs []value
 	// dependencies are captured independently.
 	e.digest1(dw)
 	switch e.Kind {
+	case ExprCond:
+		e.Left.digest(dw, env)
+		e.Right.digest(dw, env)
 	case ExprBinop:
 		e.Right.digest(dw, env)
+	case ExprApply:
+		for _, f := range e.Fields {
+			f.Expr.digest(dw, env)
+		}
 	case ExprCompr:
 		env2 := env.Push()
 		for i, id := range e.Pat.Idents(nil) {

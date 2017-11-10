@@ -4,3 +4,17 @@
 val TestMap1 = map([(delay("a"), 1), (delay("b"), 2)])["a"] == 1
 
 val TestMap2 = map([delay(("a", 1)), delay((delay("b"), 2))])["b"] == 2
+
+val TestApply = {
+	mul := delay(func(x, y int) => x*y)
+	val [a, b] = [mul(1, 2), mul(2, 3)]
+	a == 2 && b == 6
+}
+
+val TestModule = {
+	mul20 := delay(make("./mul.rf", m := 20))
+	mul100 := delay(make("./mul.rf", m := 100))
+	val a = delay(mul20.Mul)(10)
+	val b = delay(mul100.Mul)(10)
+	a == 200 && b == 1000
+}

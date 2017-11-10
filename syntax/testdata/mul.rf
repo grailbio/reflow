@@ -1,6 +1,9 @@
 param (
 	l = [1,2,3]
+	m = 10
 )
 
 
 func Do(op int) = [op*x | x <- l]
+
+func Mul(op int) = m*op
