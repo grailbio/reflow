@@ -23,7 +23,6 @@ type Param struct {
 	Type     *types.T
 	Doc      string
 	Required bool
-	Force    bool
 }
 
 // Module abstracts a Reflow module, having the ability to type check
@@ -45,6 +44,10 @@ type Module interface {
 	Doc(string) string
 	// Type returns the type of the module.
 	Type() *types.T
+	// Eager tells whether the module requires eager parameters.
+	// When it does, all parameters are forced and fully evaluated
+	// before instantiating a new module instance.
+	Eager() bool
 }
 
 // ModuleImpl defines a Reflow module comprising: a keyspace, a set of
@@ -65,6 +68,9 @@ type ModuleImpl struct {
 
 	tenv *types.Env
 }
+
+// Eager returns false.
+func (m *ModuleImpl) Eager() bool { return false }
 
 // Init type checks this module and returns any type checking errors.
 func (m *ModuleImpl) Init(sess *Session, env *types.Env) error {

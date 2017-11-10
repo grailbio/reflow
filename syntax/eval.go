@@ -512,20 +512,28 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				if err != nil {
 					return nil, err
 				}
-				if params[id].Force {
+				if e.Module.Eager() {
 					w = Force(w, params[id].Type)
 				}
 				args = append(args, tval{d.Type, w})
 				argIds = append(argIds, id)
 			}
 		}
-		return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+		if e.Module.Eager() {
+			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+				penv := sess.Values.Push()
+				for i, id := range argIds {
+					penv.Bind(id, vs[i])
+				}
+				return e.Module.Make(sess, penv)
+			}, args...)
+		} else {
 			penv := sess.Values.Push()
 			for i, id := range argIds {
-				penv.Bind(id, vs[i])
+				penv.Bind(id, args[i].(tval).V)
 			}
 			return e.Module.Make(sess, penv)
-		}, args...)
+		}
 	case ExprBuiltin:
 		switch e.Op {
 		default:

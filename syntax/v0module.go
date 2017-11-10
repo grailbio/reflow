@@ -26,6 +26,9 @@ type v0module struct {
 	typ    *types.T
 }
 
+// Eager returns true.
+func (m *v0module) Eager() bool { return true }
+
 func (m *v0module) new(args []string) *lang.Program {
 	prog := &lang.Program{
 		File: m.path,
@@ -117,7 +120,6 @@ func (m *v0module) Params() []Param {
 			Ident:    ident,
 			Doc:      doc,
 			Required: true,
-			Force:    true,
 			Type:     types.String,
 		}
 		params = append(params, p)
@@ -126,7 +128,6 @@ func (m *v0module) Params() []Param {
 		Ident:    "args",
 		Doc:      "Reflow v0 arguments",
 		Required: false,
-		Force:    true,
 		Type:     types.List(types.String),
 	})
 }
