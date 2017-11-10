@@ -160,7 +160,6 @@ type s3Exec struct {
 
 	mu      sync.Mutex
 	cond    *sync.Cond
-	state   execState
 	logfile *os.File
 	log     *log.Logger
 
@@ -269,7 +268,7 @@ func (e *s3Exec) path(elems ...string) string {
 // on the exec's condition variable to wake up all waiters.
 func (e *s3Exec) setState(state execState, err error) {
 	e.mu.Lock()
-	e.state = state
+	e.State = state
 	e.err = err
 	e.cond.Broadcast()
 	e.mu.Unlock()
@@ -279,7 +278,7 @@ func (e *s3Exec) setState(state execState, err error) {
 func (e *s3Exec) getState() (execState, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.state, e.err
+	return e.State, e.err
 }
 
 func (e *s3Exec) init(ctx context.Context) (execState, error) {
@@ -486,7 +485,7 @@ func (e *s3Exec) Kill(ctx context.Context) error {
 
 func (e *s3Exec) WaitUntil(min execState) error {
 	e.mu.Lock()
-	for e.state < min && e.err == nil {
+	for e.State < min && e.err == nil {
 		e.cond.Wait()
 	}
 	e.mu.Unlock()

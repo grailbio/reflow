@@ -183,8 +183,8 @@ func (e *Executor) Start() error {
 		case execS3:
 			_, stderr := e.getRemoteStreams(id, false, true)
 			s3x := &s3Exec{ExecID: id, FileLimiter: e.S3FileLimiter, log: e.Log.Tee(stderr, "")}
-			s3x.Manifest = m
 			s3x.Init(e)
+			s3x.Manifest = m
 			x = s3x
 		default:
 			e.Log.Errorf("unknown exec type %v", m.Type)
