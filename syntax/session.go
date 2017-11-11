@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/grailbio/reflow/lang"
 	"github.com/grailbio/reflow/types"
@@ -25,6 +26,8 @@ type Session struct {
 
 	path    string
 	modules map[string]Module
+
+	mu sync.Mutex
 
 	// images is a collection of Docker image names from exec expressions.
 	// It's populated during expression evaluation. Values are all true.
@@ -141,11 +144,15 @@ func (s *Session) Open(path string) (Module, error) {
 
 // SeeImage records an image name. Call during expression evaluation.
 func (s *Session) SeeImage(image string) {
+	s.mu.Lock()
 	s.images[image] = true
+	s.mu.Unlock()
 }
 
 // Images returns images encountered so far during expression evaluation.
 func (s *Session) Images() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var images []string
 	for imageName := range s.images {
 		images = append(images, imageName)
