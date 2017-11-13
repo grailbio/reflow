@@ -120,12 +120,14 @@ func (r *Run) Go(ctx context.Context, initWG *sync.WaitGroup) error {
 	}
 	defer f.Close()
 	r.log = log.New(golog.New(f, "", golog.LstdFlags), log.InfoLevel)
+	evalConfig := r.batch.EvalConfig
+	evalConfig.Log = r.log
 	run := &runner.Runner{
 		State:      r.State,
 		Cluster:    r.batch.Cluster,
 		ClusterAux: r.batch.ClusterAux,
 		Flow:       flow,
-		EvalConfig: r.batch.EvalConfig,
+		EvalConfig: evalConfig,
 		Type:       typ,
 		Labels:     pool.Labels{"program": r.Program},
 	}
