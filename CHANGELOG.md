@@ -1,6 +1,16 @@
 ## HEAD
 
+
+## [reflow0.5.3](https://github.com/grailbio/reflow/releases/tag/reflow0.5.3)
+
 - ec2cluster: support for the new c5 instance types
+- local/s3: remove digest.WriterAt until we have the new S3 downloader
+- syntax: fix miscellaneous delayed evaluation bugs
+- tool: check if shell returns an error
+- local: use the return code from Docker's ContainerInspect call
+- syntax: increase local file limit from 100MB to 200MB
+- local: fix invalid sequence token assignment in cloudwatchlogs
+- local: restore s3 state across restarts
 
 ## [reflow0.5.2](https://github.com/grailbio/reflow/releases/tag/reflow0.5.2)
 
