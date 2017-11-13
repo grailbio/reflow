@@ -51,6 +51,7 @@ var (
 	waitingFiles     = expvar.NewInt("s3waiting")
 	fetchingFiles    = expvar.NewInt("s3fetching")
 	downloadingFiles = expvar.NewInt("s3downloading")
+	digestingFiles   = expvar.NewInt("s3digesting")
 )
 
 // s3Client defines an abstract constructor for S3 clients.
@@ -149,6 +150,9 @@ type s3Exec struct {
 	// FileLimiter limits the number of files that may be concurrently
 	// downloaded.
 	FileLimiter *limiter.Limiter
+
+	// DigestLimiter limits the number of outstanding file digest operations.
+	DigestLimiter *limiter.Limiter
 
 	// downloadedSize stores the total amount of downloaded and installed
 	// data.
@@ -384,7 +388,6 @@ func (e *s3Exec) do(ctx context.Context) error {
 			return err
 		}
 		file, err := e.download(ctx, dl, bucket, prefix, size)
-		e.FileLimiter.Release(1)
 		if err != nil {
 			return err
 		}
@@ -412,7 +415,6 @@ func (e *s3Exec) do(ctx context.Context) error {
 		waitingFiles.Add(-1)
 		g.Go(func() error {
 			file, err := e.download(ctx, dl, bucket, key, size)
-			e.FileLimiter.Release(1)
 			if err != nil {
 				return err
 			}
@@ -440,6 +442,7 @@ func (e *s3Exec) download(ctx context.Context, dl *s3manager.Downloader, bucket,
 	defer fetchingFiles.Add(-1)
 	f, err := ioutil.TempFile(e.path("download"), "")
 	if err != nil {
+		e.FileLimiter.Release(1)
 		return reflow.File{}, err
 	}
 	defer func() {
@@ -452,28 +455,40 @@ func (e *s3Exec) download(ctx context.Context, dl *s3manager.Downloader, bucket,
 	w.Reset()
 	e.log.Printf("download s3://%s/%s (%s) to %s", bucket, key, data.Size(size), f.Name())
 	downloadingFiles.Add(1)
-	dwa := reflow.Digester.NewWriterAt(f)
-	_, err = dl.Download(dwa, &s3.GetObjectInput{
+	_, err = dl.Download(f, &s3.GetObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	})
 	downloadingFiles.Add(-1)
 	if err != nil {
+		e.FileLimiter.Release(1)
 		e.log.Printf("download s3://%s/%s: %v", bucket, key, err)
 		return reflow.File{}, err
 	}
 	dur, bps := w.Lap(size)
 	e.log.Printf("done s3://%s/%s in %s (%s/s)", bucket, key, dur, data.Size(bps))
-	file := reflow.File{
-		ID:   dwa.Digest(),
-		Size: size,
+
+	// We only admit the next file upload once we have secured
+	// a spot for digesting. This way backpressure propagates
+	// and the bottleneck limits total throughput.
+	if err := e.DigestLimiter.Acquire(ctx, 1); err != nil {
+		e.FileLimiter.Release(1)
+		return reflow.File{}, err
 	}
-	err = e.staging.InstallDigest(file.ID, f.Name())
+	e.FileLimiter.Release(1)
+	defer e.DigestLimiter.Release(1)
 	atomic.AddUint64(&e.downloadedSize, uint64(size))
+	w.Reset()
+	// TODO(pgopal): this is a temporary workaround until we have our
+	// own S3 download manager.
+	digestingFiles.Add(1)
+	file, err := e.staging.Install(f.Name())
+	digestingFiles.Add(-1)
 	if err != nil {
 		e.log.Errorf("install s3://%s/%s: %v", bucket, key, err)
 	} else {
-		e.log.Printf("installed s3://%s/%s to %v", bucket, key, file)
+		dur, bps := w.Lap(size)
+		e.log.Printf("installed s3://%s/%s to %v in %s (%s/s)", bucket, key, f, dur, data.Size(bps))
 	}
 	return file, err
 }

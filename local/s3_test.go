@@ -33,14 +33,16 @@ func newS3Test(t *testing.T, bucket, prefix string) (s3 *s3Exec, client *s3test.
 	client = s3test.NewClient(t, bucket)
 	client.Region = "us-west-2"
 	s3 = &s3Exec{
-		S3Client:    &staticS3client{client},
-		Repository:  repo,
-		Root:        filepath.Join(dir, "exec"),
-		FileLimiter: limiter.New(),
-		ExecID:      reflow.Digester.FromString("s3test"),
+		S3Client:      &staticS3client{client},
+		Repository:    repo,
+		Root:          filepath.Join(dir, "exec"),
+		FileLimiter:   limiter.New(),
+		DigestLimiter: limiter.New(),
+		ExecID:        reflow.Digester.FromString("s3test"),
 	}
 	s3.staging.Root = filepath.Join(dir, "staging")
 	s3.FileLimiter.Release(10)
+	s3.DigestLimiter.Release(10)
 	s3.Config = reflow.ExecConfig{
 		Type: "intern",
 		URL:  "s3://" + bucket + "/" + prefix,

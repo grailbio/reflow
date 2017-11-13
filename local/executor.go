@@ -182,7 +182,12 @@ func (e *Executor) Start() error {
 			x = dx
 		case execS3:
 			_, stderr := e.getRemoteStreams(id, false, true)
-			s3x := &s3Exec{ExecID: id, FileLimiter: e.S3FileLimiter, log: e.Log.Tee(stderr, "")}
+			s3x := &s3Exec{
+				ExecID:        id,
+				FileLimiter:   e.S3FileLimiter,
+				DigestLimiter: e.DigestLimiter,
+				log:           e.Log.Tee(stderr, ""),
+			}
 			s3x.Init(e)
 			s3x.Manifest = m
 			x = s3x
@@ -267,7 +272,12 @@ func (e *Executor) Put(ctx context.Context, id digest.Digest, cfg reflow.ExecCon
 			exec = newLocalfileExec(id, e, cfg)
 		case "s3":
 			_, stderr := e.getRemoteStreams(id, false, true)
-			s3 := &s3Exec{ExecID: id, FileLimiter: e.S3FileLimiter, log: e.Log.Tee(stderr, "")}
+			s3 := &s3Exec{
+				ExecID:        id,
+				FileLimiter:   e.S3FileLimiter,
+				DigestLimiter: e.DigestLimiter,
+				log:           e.Log.Tee(stderr, ""),
+			}
 			s3.Config = cfg
 			s3.Init(e)
 			exec = s3

@@ -91,18 +91,10 @@ func (r *Repository) GetFile(ctx context.Context, id digest.Digest, w io.WriterA
 	d := s3manager.NewDownloaderWithClient(r.Client, func(d *s3manager.Downloader) {
 		d.Concurrency = s3concurrency
 	})
-	dwa := reflow.Digester.NewWriterAt(w)
-	n, err := d.Download(dwa, &s3.GetObjectInput{
+	return d.Download(w, &s3.GetObjectInput{
 		Bucket: aws.String(r.Bucket),
 		Key:    aws.String(path.Join(r.Prefix, objectsPath, id.String())),
 	})
-	if err != nil {
-		return n, err
-	}
-	if id2 := dwa.Digest(); id != id2 {
-		return 0, errors.E("getfile", errors.Integrity, errors.Errorf("expected digest %v but got %v", id, id2))
-	}
-	return n, nil
 }
 
 // Put installs an object into the repository; its digest ID is returned.
