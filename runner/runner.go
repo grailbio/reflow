@@ -125,6 +125,18 @@ type State struct {
 	Created time.Time
 }
 
+// Reset resets the state so that it will reinitialize if run.
+// Run metadata (including its name) are preserved.
+func (s *State) Reset() {
+	s.Phase = Init
+	s.AllocID = ""
+	s.Result = ""
+	s.Err = nil
+	s.NumTries = 0
+	s.LastTry = time.Time{}
+	s.Created = time.Time{}
+}
+
 // String returns a string representation of the state.
 func (s State) String() string {
 	switch s.Phase {

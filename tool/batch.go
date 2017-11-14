@@ -122,7 +122,7 @@ bam=3.bam,sample=c.
 				continue
 			}
 			c.Errorf("retrying run %v\n", id)
-			run.State = runner.State{}
+			run.State.Reset()
 		}
 	}
 	var wg ctxwg.WaitGroup
