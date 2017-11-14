@@ -447,7 +447,22 @@ func (i *instance) Go(ctx context.Context) {
 			// them by selecting a different instance type.
 			return
 		case !errors.Recover(i.err).Timeout() && !errors.Recover(i.err).Temporary():
-			i.Log.Errorf("instance error: %v", i.err)
+			var what string
+			switch state {
+			case stateCapacity:
+				what = "checking capacity"
+			case stateLaunch:
+				what = "launching instance"
+			case stateTag:
+				what = "tagging instance"
+			case stateWait:
+				what = "waiting for instance"
+			case stateDescribe:
+				what = "describing instance"
+			case stateOffers:
+				what = "waiting for offers"
+			}
+			i.Log.Errorf("error while %s: %v", what, i.err)
 		}
 		time.Sleep(d)
 		n++
