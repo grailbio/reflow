@@ -33,7 +33,7 @@ func coerceMatchFlow(f *reflow.Flow, t *types.T, p Path) *reflow.Flow {
 		Deps:       []*reflow.Flow{f},
 		FlowDigest: p.Digest(),
 		K: func(vs []values.T) *reflow.Flow {
-			v := vs[0]
+			v, t, p := vs[0], t, p
 			for {
 				var ok bool
 				v, t, ok, p = p.Match(v, t)
