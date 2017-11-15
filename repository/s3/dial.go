@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"sync"
 
-	amzs3 "github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/repository"
@@ -16,8 +16,8 @@ import (
 
 var (
 	mu            sync.Mutex
-	clients       = map[string]*amzs3.S3{}
-	defaultClient *amzs3.S3
+	clients       = map[string]s3iface.S3API{}
+	defaultClient s3iface.S3API
 )
 
 func init() {
@@ -26,7 +26,7 @@ func init() {
 
 // SetClient sets the default s3 client to use for dialling repositories.
 // If non-nil, it is used when there is not a more specific per-bucket client.
-func SetClient(client *amzs3.S3) {
+func SetClient(client s3iface.S3API) {
 	defaultClient = client
 }
 
