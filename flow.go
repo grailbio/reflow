@@ -52,6 +52,14 @@ func (c Config) IsZero() bool {
 	return c == Config{}
 }
 
+// String returns a summary of the configuration c.
+func (c Config) String() string {
+	if c.HashV1 {
+		return "hashv1"
+	}
+	return "hashv2"
+}
+
 // Op is an enum representing operations that may be
 // performed in a Flow.
 type Op int

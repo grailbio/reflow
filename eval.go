@@ -81,6 +81,31 @@ type EvalConfig struct {
 	Config Config
 }
 
+// String returns a human-readable form of the evaluation configuration.
+func (e EvalConfig) String() string {
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "executor %T transferer %T cache %T", e.Executor, e.Transferer, e.Cache)
+	var flags []string
+	if e.NoCacheExtern {
+		flags = append(flags, "nocacheextern")
+	} else {
+		flags = append(flags, "cacheextern")
+	}
+	if e.GC {
+		flags = append(flags, "gc")
+	} else {
+		flags = append(flags, "nogc")
+	}
+	if e.RecomputeEmpty {
+		flags = append(flags, "recomputeempty")
+	} else {
+		flags = append(flags, "norecomputeempty")
+	}
+	fmt.Fprintf(&b, " flags %s", strings.Join(flags, ","))
+	fmt.Fprintf(&b, " flowconfig %s", e.Config)
+	return b.String()
+}
+
 // Eval is an evaluator for Flows.
 type Eval struct {
 	// EvalConfig is the evaluation configuration used in this
@@ -220,6 +245,7 @@ func (e *Eval) Err() error {
 // this setup is that the parent must contain some sort of global
 // repository (e.g., S3).
 func (e *Eval) Do(ctx context.Context) error {
+	e.Log.Debugf("evaluating with configuration: %s", e.EvalConfig)
 	begin := time.Now()
 	defer func() {
 		e.totalTime = time.Since(begin)

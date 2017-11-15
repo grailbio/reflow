@@ -375,12 +375,13 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		log.Fatal(err)
 	}
 	evalConfig := reflow.EvalConfig{
-		Executor:      x,
-		Transferer:    transferer,
-		Log:           execLogger,
-		GC:            config.gc,
-		Cache:         rcache,
-		NoCacheExtern: config.nocacheextern,
+		Executor:       x,
+		Transferer:     transferer,
+		Log:            execLogger,
+		GC:             config.gc,
+		Cache:          rcache,
+		NoCacheExtern:  config.nocacheextern,
+		RecomputeEmpty: config.recomputeempty,
 	}
 	if config.trace {
 		evalConfig.Trace = c.Log
