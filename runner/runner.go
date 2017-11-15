@@ -294,7 +294,7 @@ func (r *Runner) Eval(ctx context.Context) (string, error) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
-		err := pool.Keepalive(ctx, r.Alloc)
+		err := pool.Keepalive(ctx, r.Log, r.Alloc)
 		if err != ctx.Err() {
 			r.Log.Errorf("keepalive: %v", err)
 			r.Alloc = nil

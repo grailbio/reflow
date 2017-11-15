@@ -56,7 +56,7 @@ poll:
 			}
 			wctx, wcancel := context.WithCancel(ctx)
 			go func() {
-				err := pool.Keepalive(wctx, alloc)
+				err := pool.Keepalive(wctx, s.Log, alloc)
 				if err != wctx.Err() {
 					s.Log.Errorf("worker %s died: %v", alloc.ID(), err)
 				}

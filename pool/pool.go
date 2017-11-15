@@ -21,6 +21,7 @@ import (
 	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/log"
 )
 
 const (
@@ -106,14 +107,18 @@ func keepalive(ctx context.Context, alloc Alloc) (time.Duration, error) {
 // calling Free), or until the passed-in context is cancelled.
 // Keepalive retries errors by exponential backoffs with a fixed
 // configuration.
-func Keepalive(ctx context.Context, alloc Alloc) error {
+func Keepalive(ctx context.Context, log *log.Logger, alloc Alloc) error {
 	for {
 		var (
 			iv   time.Duration
 			err  error
 			wait = 2 * time.Second
+			last time.Time
 		)
 		for i := 0; i < keepaliveTries; i++ {
+			if !last.IsZero() && time.Since(last) > iv {
+				log.Errorf("failed to maintain keepalive within interval %s", iv)
+			}
 			iv, err = keepalive(ctx, alloc)
 			if err == nil {
 				break
@@ -129,7 +134,7 @@ func Keepalive(ctx context.Context, alloc Alloc) error {
 		if err != nil {
 			return err
 		}
-
+		last = time.Now()
 		// Add some wiggle room.
 		iv -= 30 * time.Second
 		if iv < 0*time.Second {
