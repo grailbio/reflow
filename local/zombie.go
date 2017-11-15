@@ -142,6 +142,10 @@ func (z *zombieExec) Inspect(ctx context.Context) (reflow.ExecInspect, error) {
 		Status:  "zombie",
 		Profile: manifest.Stats.Profile(),
 	}
+	// S3 execs don't have Docker manifests.
+	if manifest.Docker.ContainerJSONBase == nil {
+		return inspect, nil
+	}
 	if state := manifest.Docker.State; state != nil && state.ExitCode != 0 {
 		inspect.Error = errors.Recover(errors.E("exec", z.URI(), errors.Errorf("process exited with status %d", state.ExitCode)))
 	}
