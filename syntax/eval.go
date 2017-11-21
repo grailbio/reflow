@@ -866,8 +866,16 @@ func (e *Expr) evalUnop(vs []values.T) (values.T, error) {
 	case "!":
 		return !oper.(bool), nil
 	case "-":
-		neg := new(big.Int)
-		return neg.Neg(oper.(*big.Int)), nil
+		switch e.Left.Type.Kind {
+		case types.IntKind:
+			neg := new(big.Int)
+			return neg.Neg(oper.(*big.Int)), nil
+		case types.FloatKind:
+			neg := new(big.Float)
+			return neg.Neg(oper.(*big.Float)), nil
+		default:
+			panic("invalid unop")
+		}
 	default:
 		panic("invalid unop")
 	}

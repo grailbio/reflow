@@ -1,0 +1,15 @@
+val test = make("$/test")
+
+val f = 1.232323
+
+val nf = -f
+
+val i = int(f)
+
+val ni = int(nf)
+
+val TestNegativeUnopFloat = nf == -1.232323
+
+val TestFloatToIntConv = i == 1
+
+val TestFloatToIntConvNeg = ni == -1

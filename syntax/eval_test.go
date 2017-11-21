@@ -180,6 +180,7 @@ func TestEval(t *testing.T) {
 		"testdata/typealias2.rf",
 		"testdata/newmodule.rf",
 		"testdata/delayed.rf",
+		"testdata/float.rf",
 	}
 Prog:
 	for _, prog := range progs {
