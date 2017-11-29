@@ -54,16 +54,17 @@ and disk utilization in place of live utilization.`
 		flags.Usage()
 	}
 	cluster := c.cluster()
-	allocs, err := cluster.Allocs(ctx)
-	if err != nil {
-		c.Fatal(err)
-	}
+	allocsCtx, allocsCancel := context.WithTimeout(ctx, 5*time.Second)
+	allocs := pool.Allocs(allocsCtx, cluster, c.Log)
+	allocsCancel()
 	g, ctx := errgroup.WithContext(ctx)
 	allocInfos := make([]pool.AllocInspect, len(allocs))
 	execInfos := make([][]execInfo, len(allocs))
 	for i := range allocs {
 		i, alloc := i, allocs[i]
 		g.Go(func() error {
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
 			execs, err := alloc.Execs(ctx)
 			if err != nil {
 				c.Log.Errorf("execs %s: %v", alloc.ID(), err)
@@ -73,6 +74,8 @@ and disk utilization in place of live utilization.`
 			return nil
 		})
 		g.Go(func() error {
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
 			var err error
 			allocInfos[i], err = alloc.Inspect(ctx)
 			if err != nil {
@@ -85,6 +88,9 @@ and disk utilization in place of live utilization.`
 
 	var infos []execInfo
 	for i, alloc := range allocInfos {
+		if alloc.ID == "" || execInfos[i] == nil {
+			continue // e.g., because it timed out
+		}
 		for _, info := range execInfos[i] {
 			if *allFlag || info.State == "running" || info.State == "initializing" {
 				info.Alloc = alloc

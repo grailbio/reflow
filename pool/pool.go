@@ -22,6 +22,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -386,6 +387,43 @@ func (m *Mux) Offers(ctx context.Context) ([]Offer, error) {
 		offers = append(offers, o...)
 	}
 	return offers, nil
+}
+
+// Allocs fetches all of the allocs from the provided pool. If it
+// encounters any failure (e.g., due to a context timeout), they are
+// logged, but ignored. The returned slice contains all the
+// successfuly fetched allocs.
+func Allocs(ctx context.Context, pool Pool, log *log.Logger) []Alloc {
+	p, ok := pool.(interface {
+		Pools() []Pool
+	})
+	if !ok {
+		allocs, err := pool.Allocs(ctx)
+		if err != nil {
+			log.Errorf("allocs %v: %v", pool, err)
+		}
+		return allocs
+	}
+	pools := p.Pools()
+	allocss := make([][]Alloc, len(pools))
+	g, ctx := errgroup.WithContext(ctx)
+	for i := range pools {
+		i := i
+		g.Go(func() error {
+			var err error
+			allocss[i], err = pools[i].Allocs(ctx)
+			if err != nil {
+				log.Errorf("allocs %v: %v", pools[i], err)
+			}
+			return nil
+		})
+	}
+	g.Wait()
+	var allocs []Alloc
+	for _, a := range allocss {
+		allocs = append(allocs, a...)
+	}
+	return allocs
 }
 
 func sleep(ctx context.Context, d time.Duration) error {
