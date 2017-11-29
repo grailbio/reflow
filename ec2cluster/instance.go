@@ -663,14 +663,20 @@ func (i *instance) ec2HasCapacity(ctx context.Context, n int) (bool, error) {
 		ImageId:      aws.String(i.AMI),
 		InstanceType: aws.String(i.Config.Type),
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	_, err := i.EC2.RunInstancesWithContext(ctx, params)
 	if err == nil {
-		return false, errors.New("did not expect succesful response")
+		return false, errors.New("did not expect successful response")
 	} else if awserr, ok := err.(awserr.Error); ok {
-		if awserr.Code() == "DryRunOperation" {
+		switch awserr.Code() {
+		case "DryRunOperation":
 			return true, nil
+		case "RequestCanceled":
+			// Apparently AWS's Go SDK will return an AWS error even for
+			// context errors. In this case, we treat a timeout as a negative
+			// answer.
+			return false, nil
 		}
 		return false, awserr
 	} else if err == context.DeadlineExceeded {
