@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
@@ -75,6 +76,16 @@ func (r *Repository) InstallDigest(d digest.Digest, file string) error {
 	err = os.Link(file, path)
 	if os.IsExist(err) {
 		err = nil
+	}
+	if err != nil {
+		// Copy if file was reported to be on a different device.
+		if linkErr, ok := err.(*os.LinkError); ok && linkErr.Err == syscall.EXDEV {
+			f, ferr := os.Open(file)
+			if ferr != nil {
+				return ferr
+			}
+			_, err = r.Put(context.Background(), f)
+		}
 	}
 	return err
 }

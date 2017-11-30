@@ -21,13 +21,9 @@ import (
 )
 
 // localfileExec implements an exec for interning and externing
-// localfiles, under the localfile:// scheme. Localfile assumes that
-// the files to be interned are on the same filesystem as the
-// executor's run directory so that they may be hardlinked without
-// copying.
-//
-// TODO(marius): automatically detect this and copy files if
-// necessary.
+// localfiles, under the localfile:// scheme. If the files to be
+// interned are on the same filesystem as the executor's run directory,
+// they are hardlinked, else copied into the executor's repository.
 type localfileExec struct {
 	// The Executor that owns this exec.
 	Executor *Executor
