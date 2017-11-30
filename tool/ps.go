@@ -48,7 +48,11 @@ The columns displayed by ps are:
 
 Ps lists only running execs; flag -a lists all known execs in any
 state. Completed execs display profile information for memory, cpu,
-and disk utilization in place of live utilization.`
+and disk utilization in place of live utilization.
+
+Ps must contact each node in the cluster to gather exec data. If a node 
+does not respond within a predefined timeout, it is skipped, and an error is
+printed on the console.`
 	c.Parse(flags, args, help, "ps [-a] [-l]")
 	if flags.NArg() != 0 {
 		flags.Usage()
