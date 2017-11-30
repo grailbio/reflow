@@ -108,12 +108,19 @@ func main() {
 			log.Printf("excluding instance type %s because it does not support arch x86_64", e.Type)
 			continue
 		}
+		if strings.HasSuffix(e.Type, ".metal") {
+			log.Printf("excluding bare-metal instance type %s", e.Type)
+			continue
+		}
 		ok = false
 		// TODO(marius): should we prefer a particular virtualization type?
 		var virt string
 		// ec2instances doesn't seem to correctly classify the virtualization type of c5,
 		// so we override this for now.
 		if strings.HasPrefix(e.Type, "c5.") {
+			virt = "HVM"
+			ok = true
+		} else if len(e.LinuxVirtType) == 0 {
 			virt = "HVM"
 			ok = true
 		} else {
@@ -125,13 +132,13 @@ func main() {
 			}
 		}
 		if !ok {
-			log.Printf("excluding instance type %s because it does not support Linux HVM or PV (supported: %s)", e.Type, strings.Join(e.LinuxVirtType, ", "))
+			log.Printf("excluding instance type %s because it does not support Linux HVM (supported: %s)", e.Type, strings.Join(e.LinuxVirtType, ", "))
 			continue
 		}
 		g.Printf("{\n")
 		g.Printf("	Name: %q,\n", e.Type)
 		g.Printf("	EBSOptimized: %v,\n", e.EBSOptimized)
-		g.Printf("	VCPU: %d,\n", e.VCPU)
+		g.Printf("	VCPU: %v,\n", e.VCPU)
 		g.Printf("	Memory: %f,\n", e.Memory)
 		g.Printf("	Price: map[string]float64{\n")
 		var regions []string
@@ -168,11 +175,13 @@ func main() {
 }
 
 type entry struct {
-	Arch          []string                          `json:"arch"`
-	Type          string                            `json:"instance_type"`
-	EBSOptimized  bool                              `json:"ebs_optimized"`
-	Memory        float64                           `json:"memory"`
-	VCPU          uint                              `json:"vCPU"`
+	Arch         []string `json:"arch"`
+	Type         string   `json:"instance_type"`
+	EBSOptimized bool     `json:"ebs_optimized"`
+	Memory       float64  `json:"memory"`
+	// VCPU must be an abstract, because "N/A" is returned
+	// for the "i3.metal" instance type.
+	VCPU          interface{}                       `json:"vCPU"`
 	Pricing       map[string]map[string]interface{} `json:"pricing"`
 	Network       string                            `json:"network_performance"`
 	Generation    string                            `json:"generation"`
