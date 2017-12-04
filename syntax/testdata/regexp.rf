@@ -1,0 +1,9 @@
+val test = make("$/test")
+val regexp = make("$/regexp")
+
+val TestGroups = {
+	func eq(x, y [string]) = test.All([x == y | (x, y) <- zip(x, y)])
+	eq(regexp.Groups("foo bar", "([[:alpha:]]*) ([[:alpha:]]*)"), ["foo", "bar"])
+}
+
+val TestReplace = regexp.Replace("foo bar", " (.*)", " baz") == "foo baz"

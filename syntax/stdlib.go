@@ -531,6 +531,25 @@ var regexpDecls = []*Decl{
 			return list, nil
 		},
 	}.Decl(),
+	systemFunc{
+		Id:     "Replace",
+		Module: "regexp",
+		Doc: "Replace returns a copy of src, replacing matches of the regular " +
+			"expression (if any) with the replacement string. Semantics are same " +
+			"as Go's regexp.ReplaceAllString.",
+		Type: types.Func(types.String,
+			&types.Field{Name: "src", T: types.String},
+			&types.Field{Name: "regexp", T: types.String},
+			&types.Field{Name: "repl", T: types.String}),
+		Do: func(loc values.Location, args []values.T) (values.T, error) {
+			src, raw, repl := args[0].(string), args[1].(string), args[2].(string)
+			re, err := regexp.Compile(raw)
+			if err != nil {
+				return nil, err
+			}
+			return re.ReplaceAllString(src, repl), nil
+		},
+	}.Decl(),
 }
 
 var stringsDecls = []*Decl{
