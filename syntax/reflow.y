@@ -455,6 +455,8 @@ expr: factor
 	{$$ = &Expr{Position: $1.Position, Kind: ExprBinop, Op: "==", Left: $1, Right: $3}}
 |	expr '+' expr
 	{$$ = &Expr{Position: $1.Position, Kind: ExprBinop, Op: "+", Left: $1, Right: $3}}
+|	expr '-' expr
+	{$$ = &Expr{Position: $1.Position, Kind: ExprBinop, Op: "-", Left: $1, Right: $3}}
 |	expr '*' expr
 	{$$ = &Expr{Position: $1.Position, Kind: ExprBinop, Op: "*", Left: $1, Right: $3}}
 |	expr '/' expr

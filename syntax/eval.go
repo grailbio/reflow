@@ -741,21 +741,45 @@ func (e *Expr) evalRequirements(sess *Session, env *values.Env, ident string) (m
 	return min, max, nil
 }
 
+var intOps = map[string]func(*big.Int, *big.Int, *big.Int) *big.Int{
+	"+":  (*big.Int).Add,
+	"*":  (*big.Int).Mul,
+	"-":  (*big.Int).Sub,
+	"/":  (*big.Int).Div,
+	"%":  (*big.Int).Mod,
+	"<<": func(z, x, y *big.Int) *big.Int { return z.Lsh(x, uint(y.Uint64())) },
+	">>": func(z, x, y *big.Int) *big.Int { return z.Rsh(x, uint(y.Uint64())) },
+}
+
+var floatOps = map[string]func(*big.Float, *big.Float, *big.Float) *big.Float{
+	"+": (*big.Float).Add,
+	"*": (*big.Float).Mul,
+	"-": (*big.Float).Sub,
+	"/": (*big.Float).Quo,
+}
+
 func (e *Expr) evalBinop(vs []values.T) (values.T, error) {
 	left, right := vs[0], vs[1]
+	switch e.Left.Type.Kind {
+	case types.IntKind:
+		if op := intOps[e.Op]; op != nil {
+			v := new(big.Int)
+			op(v, left.(*big.Int), right.(*big.Int))
+			return values.T(v), nil
+		}
+	case types.FloatKind:
+		if op := floatOps[e.Op]; op != nil {
+			v := new(big.Float)
+			op(v, left.(*big.Float), right.(*big.Float))
+			return values.T(v), nil
+		}
+	}
+
 	switch e.Op {
 	case "+":
 		switch e.Left.Type.Kind {
 		case types.StringKind:
 			return left.(string) + right.(string), nil
-		case types.IntKind:
-			v := new(big.Int)
-			v.Add(left.(*big.Int), right.(*big.Int))
-			return v, nil
-		case types.FloatKind:
-			v := new(big.Float)
-			v.Add(left.(*big.Float), right.(*big.Float))
-			return v, nil
 		case types.ListKind:
 			var (
 				left  = left.(values.List)
@@ -771,19 +795,6 @@ func (e *Expr) evalBinop(vs []values.T) (values.T, error) {
 				m[k] = v
 			}
 			return m, nil
-		default:
-			panic("bug")
-		}
-	case "*":
-		switch e.Left.Type.Kind {
-		case types.IntKind:
-			v := new(big.Int)
-			v.Mul(left.(*big.Int), right.(*big.Int))
-			return values.T(v), nil
-		case types.FloatKind:
-			v := new(big.Float)
-			v.Mul(left.(*big.Float), right.(*big.Float))
-			return values.T(v), nil
 		default:
 			panic("bug")
 		}

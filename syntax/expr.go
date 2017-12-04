@@ -319,7 +319,14 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			default:
 				e.Type = types.Errorf("binary operator %s not allowed for type %v", e.Op, e.Left.Type)
 			}
-		case "*":
+		case "%", "<<", ">>":
+			switch e.Left.Type.Kind {
+			case types.IntKind:
+				e.Type = e.Left.Type.Assign(nil)
+			default:
+				e.Type = types.Errorf("binary operator \"%s\" not allowed for type %v", e.Op, e.Left.Type)
+			}
+		case "*", "-", "/":
 			switch e.Left.Type.Kind {
 			case types.IntKind, types.FloatKind:
 				e.Type = e.Left.Type.Assign(nil)

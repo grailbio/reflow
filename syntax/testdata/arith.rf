@@ -1,0 +1,32 @@
+
+val test = make("$/test")
+
+val TestAdd = test.All([
+	1+2 == 3,
+	1.0 + 2.0 == 3.0,
+])
+
+val TestSub = test.All([
+	10 - 5 == 5,
+	10.0 - 5.0 == 5.0,
+])
+
+val TestMul = test.All([
+	2*3 == 6,
+	2.0*3.0 == 6.0,
+])
+
+val TestDiv = test.All([
+	10/2 == 5,
+	10.0/2.0 == 5.0,
+	11.0/2.0 == 5.5,
+])
+
+val TestMod = test.All([
+	10%6 == 4,
+])
+
+val TestShift = test.All([
+	1 << 20 == 1048576,
+	1048576 >> 20 == 1,
+])
