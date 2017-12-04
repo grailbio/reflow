@@ -30,16 +30,23 @@ func TestPullImage(t *testing.T) {
 	ctx := context.Background()
 	// TODO(marius): test ECR authentication too.
 	client := newDockerClientOrSkip(t)
-	const image = "grailbio/awstool"
-	err := pullImage(ctx, client, nil, image)
+	// Multiple representations of the same image.
+	images := []string{
+		"grailbio/awstool",
+		"grailbio/awstool:latest",
+		"grailbio/awstool@sha256:b9a5e983e2de3f5319bca2fc015d279665096af20a27013c90583ac899c8b35a",
+	}
+	err := pullImage(ctx, client, nil, images[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	ok, err := imageExists(ctx, client, image)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Fatal("image was not pulled")
+	for _, image := range images {
+		ok, err := imageExists(ctx, client, image)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok {
+			t.Fatalf("image %s was not pulled", image)
+		}
 	}
 }

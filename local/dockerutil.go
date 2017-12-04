@@ -9,9 +9,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
-	"strings"
 	"sync"
 
+	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/engine-api/client"
 	"github.com/docker/engine-api/types"
@@ -20,18 +20,42 @@ import (
 
 // imageExists checks whether an image exists at a Docker client.
 func imageExists(ctx context.Context, client *client.Client, id string) (bool, error) {
+	ref, err := reference.Parse(id)
+	if err != nil {
+		return false, err
+	}
 	images, err := client.ImageList(ctx, types.ImageListOptions{})
 	if err != nil {
 		return false, err
 	}
+
+	var useDigest bool
+	switch r := ref.(type) {
+	case reference.Digested:
+		useDigest = true
+	case reference.Tagged:
+		// Do nothing; needed for excluding tagged images in below case.
+	case reference.Named:
+		// Does not have digest or tag.
+		ref, err = reference.WithTag(r, "latest")
+		if err != nil {
+			return false, err
+		}
+	}
+
+	refStr := ref.String()
 	for _, image := range images {
-		for _, tag := range image.RepoTags {
-			i := strings.LastIndex(tag, ":")
-			if i > 0 {
-				tag = tag[0:i]
+		if useDigest {
+			for _, digest := range image.RepoDigests {
+				if digest == refStr {
+					return true, nil
+				}
 			}
-			if tag == id {
-				return true, nil
+		} else {
+			for _, tag := range image.RepoTags {
+				if tag == refStr {
+					return true, nil
+				}
 			}
 		}
 	}
