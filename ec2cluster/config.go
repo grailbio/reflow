@@ -72,6 +72,8 @@ type Config struct {
 	// KeyName is the AWS SSH key with which to launch new instances.
 	// If unspecified, instances are launched without keys.
 	KeyName string
+	// Immortal determines whether instances should be made immortal.
+	Immortal bool `yaml:"immortal,omitempty"`
 }
 
 // Init initializes this EC2 configuration from the underlying configuration
@@ -163,6 +165,7 @@ func (c *Config) Cluster() (runner.Cluster, error) {
 		AMI:            c.AMI,
 		SshKey:         c.SshKey,
 		KeyName:        c.KeyName,
+		Immortal:       c.Immortal,
 	}
 	if cluster.MaxInstances == 0 {
 		cluster.MaxInstances = defaultMaxInstances

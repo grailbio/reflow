@@ -100,6 +100,8 @@ type Cluster struct {
 	SshKey string
 	// AWS key name for launching instances.
 	KeyName string
+	// Immortal determines whether instances should be made immortal.
+	Immortal bool
 
 	instanceState *instanceState
 	pools         map[string]pool.Pool
@@ -251,6 +253,7 @@ func (c *Cluster) loop() {
 			AMI:            c.AMI,
 			SshKey:         c.SshKey,
 			KeyName:        c.KeyName,
+			Immortal:       c.Immortal,
 		}
 		i.Go(context.Background())
 		done <- i

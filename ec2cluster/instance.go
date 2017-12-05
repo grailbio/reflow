@@ -299,6 +299,7 @@ type instance struct {
 	AMI             string
 	KeyName         string
 	SshKey          string
+	Immortal        bool
 
 	userData string
 	err      error
@@ -485,7 +486,7 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 		DeviceName     string
 	}{}
 	args.Count = 1
-	args.Mortal = true
+	args.Mortal = !i.Immortal
 
 	keys := make(config.Keys)
 	if err := i.ReflowConfig.Marshal(keys); err != nil {
