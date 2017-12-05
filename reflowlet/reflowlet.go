@@ -84,10 +84,6 @@ func (s *Server) ListenAndServe() error {
 	if err != nil {
 		return err
 	}
-
-	startupTime := time.Now().Add(-uptime())
-	startupTime = startupTime.Add(-5 * time.Minute) // give us another safety margin
-
 	client, err := dockerclient.NewClient(
 		"unix:///var/run/docker.sock", dockerclient.DefaultVersion,
 		nil, map[string]string{"user-agent": "reflow"})
@@ -141,11 +137,15 @@ func (s *Server) ListenAndServe() error {
 				period = time.Minute
 				expiry = 10 * time.Minute
 			)
+			// Always give the instance an expiry period to receive work,
+			// then check periodically if the instance has been idle for more
+			// than the expiry time.
+			time.Sleep(expiry)
 			for {
-				time.Sleep(period - time.Since(startupTime)%period)
 				if p.StopIfIdleFor(expiry) {
 					log.Fatalf("reflowlet idle for %s; shutting down", expiry)
 				}
+				time.Sleep(period)
 			}
 		}()
 	}
