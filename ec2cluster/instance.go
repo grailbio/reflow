@@ -35,9 +35,15 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
-// memoryDiscount is the amount of memory that's reserved
-// by the reflowlet.
-const memoryDiscount = 0.05
+// memoryDiscount is the amount of memory that's reserved by the
+// reflowlet and EC2 together. Ideally we'd be able to be more
+// precise about this (e.g., extract actual guarantees about
+// available memory from AWS), but this doesn't seem possible at this
+// time.
+//
+// We reserve 5% for the Reflowlet, and the EC2 overhead appears to
+// be a little shy of 2%.
+const memoryDiscount = 0.05 + 0.02
 
 var ec2UserDataTmpl = template.Must(template.New("ec2userdata").Parse(ec2UserData))
 

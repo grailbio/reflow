@@ -201,6 +201,7 @@ func (c *Cluster) Allocate(ctx context.Context, min, max reflow.Resources, label
 			if err == nil {
 				return alloc, nil
 			}
+			c.Log.Errorf("failed to allocate from pool: %v; provisioning new instances", err)
 			// We didn't get it--try again!
 			needch = c.need(ctx, min, max)
 		case <-ticker.C:
