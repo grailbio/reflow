@@ -5,12 +5,15 @@
 package dynamodbassoc
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
-
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/log"
 )
 
 // Assoc implements a DynamoDB-backed Assoc for use in caches.
@@ -34,6 +37,9 @@ func (a *Assoc) Map(k, v digest.Digest) error {
 			"Value": {
 				S: aws.String(v.String()),
 			},
+			"LastAccessTime": {
+				N: aws.String(fmt.Sprint(time.Now().Unix())),
+			},
 		},
 		TableName: aws.String(a.TableName),
 	})
@@ -55,7 +61,8 @@ func (a *Assoc) Unmap(k digest.Digest) error {
 
 // Lookup returns the digest associated with key digest k. Lookup
 // returns an error flagged errors.NotExist when no such mapping
-// exists.
+// exists. Lookup also modifies the item's last-accessed time, which
+// can be used for LRU object garbage collection.
 func (a *Assoc) Lookup(k digest.Digest) (digest.Digest, error) {
 	resp, err := a.DB.GetItem(&dynamodb.GetItemInput{
 		Key: map[string]*dynamodb.AttributeValue{
@@ -75,6 +82,21 @@ func (a *Assoc) Lookup(k digest.Digest) (digest.Digest, error) {
 	v, err := reflow.Digester.Parse(*item.S)
 	if err != nil {
 		return digest.Digest{}, errors.E("lookup", k, err)
+	}
+	_, err = a.DB.UpdateItem(&dynamodb.UpdateItemInput{
+		Key: map[string]*dynamodb.AttributeValue{
+			"ID": {
+				S: aws.String(k.String()),
+			},
+		},
+		TableName:        aws.String(a.TableName),
+		UpdateExpression: aws.String("SET LastAccessTime = :time"),
+		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+			":time": {N: aws.String(fmt.Sprint(time.Now().Unix()))},
+		},
+	})
+	if err != nil {
+		log.Errorf("dynamodb: update %v: %v", k, err)
 	}
 	return v, nil
 }
