@@ -42,6 +42,10 @@ func init() {
 type Config struct {
 	config.Config `yaml:"-"`
 
+	// InstanceProfile defines the EC2 instance profile with which to launch
+	// new instances.
+	InstanceProfile string `yaml:"instanceprofile,omitempty"`
+
 	// SecurityGroup defines the EC2 security group with which to launch
 	// new instances.
 	SecurityGroup string `yaml:"securitygroup,omitempty"`
@@ -160,18 +164,19 @@ func (c *Config) Cluster() (runner.Cluster, error) {
 			"grail:project": c.Flag.Project,
 		},
 		*/
-		Spot:           c.Spot,
-		SecurityGroup:  c.SecurityGroup,
-		Region:         c.Region,
-		ReflowletImage: reflowlet,
-		MaxInstances:   c.MaxInstances,
-		DiskType:       c.DiskType,
-		DiskSpace:      c.DiskSpace,
-		AMI:            c.AMI,
-		SshKey:         c.SshKey,
-		KeyName:        c.KeyName,
-		Immortal:       c.Immortal,
-		CloudConfig:    c.CloudConfig,
+		Spot:            c.Spot,
+		InstanceProfile: c.InstanceProfile,
+		SecurityGroup:   c.SecurityGroup,
+		Region:          c.Region,
+		ReflowletImage:  reflowlet,
+		MaxInstances:    c.MaxInstances,
+		DiskType:        c.DiskType,
+		DiskSpace:       c.DiskSpace,
+		AMI:             c.AMI,
+		SshKey:          c.SshKey,
+		KeyName:         c.KeyName,
+		Immortal:        c.Immortal,
+		CloudConfig:     c.CloudConfig,
 	}
 	if cluster.MaxInstances == 0 {
 		cluster.MaxInstances = defaultMaxInstances

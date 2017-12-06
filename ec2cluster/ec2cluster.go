@@ -76,6 +76,8 @@ type Cluster struct {
 	Labels pool.Labels
 	// Spot is set to true when a spot instance is desired.
 	Spot bool
+	// InstanceProfile is the EC2 instance profile to use for the cluster instances.
+	InstanceProfile string
 	// SecurityGroup is the EC2 security group to use for cluster instances.
 	SecurityGroup string
 	// Region is the AWS availability region to use for launching new EC2 instances.
@@ -240,25 +242,26 @@ func (c *Cluster) loop() {
 	)
 	launch := func(config instanceConfig, price float64) {
 		i := &instance{
-			HTTPClient:     c.HTTPClient,
-			ReflowConfig:   c.Config,
-			Config:         config,
-			Log:            c.Log,
-			Authenticator:  c.Authenticator,
-			EC2:            c.EC2,
-			Tag:            c.Tag,
-			Labels:         c.Labels,
-			Spot:           c.Spot,
-			SecurityGroup:  c.SecurityGroup,
-			ReflowletImage: c.ReflowletImage,
-			Price:          price,
-			EBSType:        c.DiskType,
-			EBSSize:        config.Resources.Disk >> 30,
-			AMI:            c.AMI,
-			SshKey:         c.SshKey,
-			KeyName:        c.KeyName,
-			Immortal:       c.Immortal,
-			CloudConfig:    c.CloudConfig,
+			HTTPClient:      c.HTTPClient,
+			ReflowConfig:    c.Config,
+			Config:          config,
+			Log:             c.Log,
+			Authenticator:   c.Authenticator,
+			EC2:             c.EC2,
+			Tag:             c.Tag,
+			Labels:          c.Labels,
+			Spot:            c.Spot,
+			InstanceProfile: c.InstanceProfile,
+			SecurityGroup:   c.SecurityGroup,
+			ReflowletImage:  c.ReflowletImage,
+			Price:           price,
+			EBSType:         c.DiskType,
+			EBSSize:         config.Resources.Disk >> 30,
+			AMI:             c.AMI,
+			SshKey:          c.SshKey,
+			KeyName:         c.KeyName,
+			Immortal:        c.Immortal,
+			CloudConfig:     c.CloudConfig,
 		}
 		i.Go(context.Background())
 		done <- i

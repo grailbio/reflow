@@ -539,6 +539,9 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 			KeyName:  nonemptyString(i.KeyName),
 			UserData: aws.String(i.userData),
 
+			IamInstanceProfile: &ec2.IamInstanceProfileSpecification{
+				Arn: aws.String(i.InstanceProfile),
+			},
 			SecurityGroupIds: []*string{aws.String(i.SecurityGroup)},
 		},
 	}
