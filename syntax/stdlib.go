@@ -379,7 +379,7 @@ var dirsDecls = []*Decl{
 					return values.Tuple{file, key}, nil
 				}
 			}
-			return nil, errors.New("no files matched")
+			return nil, errors.Errorf("dirs.Pick: no files matched %s", pat)
 		},
 	}.Decl(),
 	systemFunc{
