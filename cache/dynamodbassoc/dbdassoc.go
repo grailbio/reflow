@@ -90,9 +90,10 @@ func (a *Assoc) Lookup(k digest.Digest) (digest.Digest, error) {
 			},
 		},
 		TableName:        aws.String(a.TableName),
-		UpdateExpression: aws.String("SET LastAccessTime = :time"),
+		UpdateExpression: aws.String("SET LastAccessTime = :time ADD AccessCount :one"),
 		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
 			":time": {N: aws.String(fmt.Sprint(time.Now().Unix()))},
+			":one":  {N: aws.String("1")},
 		},
 	})
 	if err != nil {
