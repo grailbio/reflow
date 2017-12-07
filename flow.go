@@ -122,6 +122,12 @@ func (o Op) String() string {
 // evaluation.
 type FlowState int64
 
+// FlowState denotes a Flow node's state during evaluation. Flows
+// begin their life in FlowInit, where they remain until they are
+// examined by the evaluator. The precise state transitions depend on
+// the evaluation mode (whether it is evaluating bottom-up or
+// top-down, and whether a cache is used), but generally follow the
+// order in which they are laid out here.
 const (
 	// FlowInit indicates that the flow is initialized but not evaluated
 	FlowInit FlowState = iota
@@ -129,22 +135,27 @@ const (
 	// FlowNeedLookup indicates that the evaluator should perform a
 	// cache lookup on the flow node.
 	FlowNeedLookup
-	// FlowLookup indicates that the evaluator is currently performing
-	// a cache lookup of the flow node.
+	// FlowLookup indicates that the evaluator is currently performing a
+	// cache lookup of the flow node. After a successful cache lookup,
+	// the node is transfered to FlowDone, and the (cached) value is
+	// attached to the flow node. The objects may not be transfered into
+	// the evaluator's repository.
 	FlowLookup
-
-	// FlowNeedTransfer indicates that the evaluator should transfer the
-	// flow's objects from cache.
-	FlowNeedTransfer
-	// FlowTransfer indicates that the evalutor is currently
-	// transferring the flow's objects from cache.
-	FlowTransfer
 
 	// FlowTODO indicates that the evaluator should consider the node
 	// for evaluation once its dependencies are completed.
 	FlowTODO
+
+	// FlowNeedTransfer indicates that the evaluator should transfer all
+	// objects needed for execution into the evaluator's repository.
+	FlowNeedTransfer
+	// FlowTransfer indicates that the evalutor is currently
+	// transferring the flow's dependent objects from cache.
+	FlowTransfer
+
 	// FlowReady indicates that the node is ready for evaluation and should
-	// be scheduled by the evaluator.
+	// be scheduled by the evaluator. A node is ready only once all of its
+	// dependent objects are available in the evaluator's repository.
 	FlowReady
 	// FlowRunning indicates that the node is currently being evaluated by
 	// the evaluator.
@@ -202,7 +213,7 @@ type Flow struct {
 	// Parent is set when a node is Forked.
 	Parent *Flow
 
-	// Deps holds this Flow's dependencies.
+	// Deps holds this Flow's data dependencies.
 	Deps []*Flow
 
 	// Config stores this Flow's config.
@@ -272,6 +283,9 @@ type Flow struct {
 	// Cached stores whether the flow was retrieved from cache.
 	Cached bool
 
+	// The amount of data to be transferred.
+	TransferSize data.Size
+
 	// Inspect stores an exec's inspect output.
 	Inspect ExecInspect
 
@@ -297,18 +311,6 @@ func (f *Flow) Copy() *Flow {
 // MapInit initializes Flow.MapFlow from the supplied MapFunc.
 func (f *Flow) MapInit() {
 	f.MapFlow = f.MapFunc(&Flow{Op: OpVal, Value: values.T(Fileset{})})
-}
-
-// DeepCopy performs a deep copy of a Flow.
-func (f *Flow) DeepCopy() *Flow {
-	f = f.Copy()
-	for i := range f.Deps {
-		f.Deps[i] = f.Deps[i].DeepCopy()
-	}
-	if f.MapFlow != nil {
-		f.MapFlow = f.MapFlow.DeepCopy()
-	}
-	return f
 }
 
 // Label labels this flow with ident. It then recursively
@@ -801,7 +803,8 @@ func (v *FlowVisitor) Push(f *Flow) {
 	v.q = append([]*Flow{f}, v.q...)
 }
 
-// Visit pushes the current node's children on to the visitor stack.
+// Visit pushes the current node's children on to the visitor stack,
+// including both data and control dependencies.
 func (v *FlowVisitor) Visit() {
 	v.q = append(v.q, v.Flow.Deps...)
 }

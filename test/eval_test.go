@@ -119,38 +119,41 @@ func TestSteal(t *testing.T) {
 }
 
 func TestCacheWrite(t *testing.T) {
-	intern := flow.Intern("internurl")
-	exec := flow.Exec("image", "command", Resources, intern)
-	groupby := flow.Groupby("(.*)", exec)
-	pullup := flow.Pullup(groupby)
+	for _, bottomup := range []bool{false, true} {
+		intern := flow.Intern("internurl")
+		exec := flow.Exec("image", "command", Resources, intern)
+		groupby := flow.Groupby("(.*)", exec)
+		pullup := flow.Pullup(groupby)
 
-	var cache Cache
-	cache.Init()
-	e := Executor{Have: Resources}
-	e.Init()
-	eval := reflow.NewEval(pullup, reflow.EvalConfig{Executor: &e, Cache: &cache})
-	rc := EvalAsync(context.Background(), eval)
-	var (
-		internValue = Files("ignored")
-		execValue   = Files("a", "b", "c", "d")
-	)
-	e.Ok(intern, internValue)
-	e.Ok(exec, execValue)
-	r := <-rc
-	if r.Err != nil {
-		t.Fatal(r.Err)
-	}
-	if got, want := r.Val, execValue; !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	if cache.Exists(intern) {
-		t.Error("did not expected cache intern result")
-	}
-	if got, want := cache.Value(exec), execValue; !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	if got, want := cache.Value(pullup), execValue; !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
+		var cache Cache
+		cache.Init()
+		e := Executor{Have: Resources}
+		e.Init()
+		e.repo = repotest.NewInmemory()
+		eval := reflow.NewEval(pullup, reflow.EvalConfig{Executor: &e, Cache: &cache, BottomUp: bottomup})
+		rc := EvalAsync(context.Background(), eval)
+		var (
+			internValue = WriteFiles(e.repo, "ignored")
+			execValue   = WriteFiles(e.repo, "a", "b", "c", "d")
+		)
+		e.Ok(intern, internValue)
+		e.Ok(exec, execValue)
+		r := <-rc
+		if r.Err != nil {
+			t.Fatal(r.Err)
+		}
+		if got, want := r.Val, execValue; !got.Equal(want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		if got, want := cache.Exists(intern), bottomup; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		if got, want := cache.Value(exec), execValue; !got.Equal(want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		if got, want := cache.Value(pullup), execValue; !got.Equal(want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
 	}
 }
 
@@ -166,6 +169,7 @@ func TestCacheLookup(t *testing.T) {
 
 	e := Executor{Have: Resources}
 	e.Init()
+	e.repo = repotest.NewInmemory()
 	var cache WaitCache
 	cache.Init()
 	eval := reflow.NewEval(extern, reflow.EvalConfig{Executor: &e, Cache: &cache})
@@ -180,13 +184,11 @@ func TestCacheLookup(t *testing.T) {
 	}
 
 	e.Init()
+	e.repo = repotest.NewInmemory()
 	cache.Init()
 	eval = reflow.NewEval(extern, reflow.EvalConfig{Executor: &e, Cache: &cache})
 	rc = EvalAsync(context.Background(), eval)
 	cache.Miss(extern)
-	cache.Miss(pullup)
-	cache.Miss(mapCollect)
-	cache.Miss(groupby)
 	cache.Hit(intern, Files("a", "b"))
 	for _, v := range []reflow.Fileset{Files("a"), Files("b")} {
 		v := v
@@ -194,7 +196,6 @@ func TestCacheLookup(t *testing.T) {
 		go cache.Miss(f)
 		go e.Ok(f, v) // identity
 	}
-	//	cache.Miss(mapCollect)
 
 	e.Ok(extern, reflow.Fileset{})
 	r = <-rc
@@ -202,6 +203,48 @@ func TestCacheLookup(t *testing.T) {
 		t.Fatal(r.Err)
 	}
 	if !e.Equiv(extern, mapFunc(Files("a").Flow()), mapFunc(Files("b").Flow())) {
+		t.Error("wrong set of expected flows")
+	}
+}
+
+func TestCacheLookupBottomup(t *testing.T) {
+	intern := flow.Intern("internurl")
+	groupby := flow.Groupby("(.*)", intern)
+	mapFunc := func(f *reflow.Flow) *reflow.Flow {
+		return flow.Exec("image", "command", Resources, f)
+	}
+	mapCollect := flow.Map(mapFunc, groupby)
+	pullup := flow.Pullup(mapCollect)
+	extern := flow.Extern("externurl", pullup)
+
+	e := Executor{Have: Resources}
+	e.Init()
+	e.repo = repotest.NewInmemory()
+	var cache WaitCache
+	cache.Init()
+	eval := reflow.NewEval(extern, reflow.EvalConfig{Executor: &e, Cache: &cache, BottomUp: true})
+	rc := EvalAsync(context.Background(), eval)
+
+	cache.Hit(intern, Files("a", "b"))
+	for i, v := range []reflow.Fileset{Files("a"), Files("b")} {
+		v := v
+		f := mapFunc(v.Flow())
+		switch i {
+		case 0:
+			go cache.Hit(f, v)
+		default:
+			go cache.Miss(f)
+			go e.Ok(f, v) // identity
+		}
+	}
+
+	cache.Miss(extern)
+	e.Ok(extern, reflow.Fileset{})
+	r := <-rc
+	if r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if !e.Equiv(extern, mapFunc(Files("b").Flow())) {
 		t.Error("wrong set of expected flows")
 	}
 }

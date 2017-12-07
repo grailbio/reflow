@@ -5,6 +5,9 @@
 package test
 
 import (
+	"bytes"
+	"context"
+	"fmt"
 	"strings"
 
 	"github.com/grailbio/reflow"
@@ -34,6 +37,18 @@ func Files(files ...string) reflow.Fileset {
 		}
 	}
 	return v
+}
+
+// WriteFiles writes the provided files into the repository r and
+// returns a Fileset as in Files.
+func WriteFiles(r reflow.Repository, files ...string) reflow.Fileset {
+	for _, file := range files {
+		_, err := r.Put(context.Background(), bytes.NewReader([]byte(file)))
+		if err != nil {
+			panic(fmt.Sprintf("unexpected error writing to repository: %v", err))
+		}
+	}
+	return Files(files...)
 }
 
 // List constructs a list value.

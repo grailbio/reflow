@@ -77,6 +77,10 @@ type EvalConfig struct {
 	// are recomputed.
 	RecomputeEmpty bool
 
+	// BottomUp determines whether we perform bottom-up only
+	// evaluation, skipping the top-down phase.
+	BottomUp bool
+
 	// Config stores the flow config to be used.
 	Config Config
 }
@@ -100,6 +104,11 @@ func (e EvalConfig) String() string {
 		flags = append(flags, "recomputeempty")
 	} else {
 		flags = append(flags, "norecomputeempty")
+	}
+	if e.BottomUp {
+		flags = append(flags, "bottomup")
+	} else {
+		flags = append(flags, "topdown")
 	}
 	fmt.Fprintf(&b, " flags %s", strings.Join(flags, ","))
 	fmt.Fprintf(&b, " flowconfig %s", e.Config)
@@ -202,19 +211,38 @@ func (e *Eval) Err() error {
 	return e.root.Err
 }
 
-// Do evaluates a flow (as provided in Init) and returns its value, or error.
+// Do evaluates a flow (as provided in Init) and returns its value,
+// or error.
 //
-// Evaluation is top-down, and then bottom-up. In the top-down
-// phase, the evaluator queries the (optional) cache for results
-// of past (identical) computations. When that fails, the Flow
-// is evaluated bottom-up, in the manner of an AST. This applies
-// recursively so that a full evaluation is usually a combination of
-// top-down (cache hits) and bottom-up (cache miss) computations.
+// There are two evaluation modes, configured by EvalConfig.BottomUp.
 //
-// Bottom-up evaluation is performed by simplification: ready nodes
-// are added to a todo list. Single-step evaluation yields either a
-// fully evaluated node (where (*Flow).Value is set to its result) or
-// by a new Flow node (whose (*Flow).Parent is always set to its
+// When BottomUp is true, the Flow is evaluated in bottom-up mode.
+// Each node's dependencies are evaluated (recursively); a node is
+// evaluated when all of its dependencies are complete (and error
+// free). Before a node is run, its result is first looked up in the
+// configured cache. If there is a cache hit, evaluation without any
+// work done. Only the node's value is downloaded; its objects are
+// fetched lazily. When a node is ready to be evaluated, we check
+// that all of the objects that it depends on are present in the
+// executor's repository; missing objects are retrieved from cache.
+// If these objects are not present in the cache (this can happen if
+// the object is removed from the cache's repository after the cache
+// lookup was done but before the transfer began), evaluation fails
+// with a restartable error.
+//
+// When BottomUp is false, the flow is evaluated first top-down, and
+// then bottom up. In this mode, objects are looked up first in the
+// top-down phase; a nodes dependencies are explored only on cache
+// miss. Once this phase is complete, evaluation proceeds in
+// bottom-up mode. Object retrievial is as in bottom-up mode.
+//
+// Eval keeps track of the evaluation state of each node; these are
+// described in the documentation for FlowState.
+//
+// Evaluation is performed by simplification: ready nodes are added
+// to a todo list. Single-step evaluation yields either a fully
+// evaluated node (where (*Flow).Value is set to its result) or by a
+// new Flow node (whose (*Flow).Parent is always set to its
 // ancestor). Evaluations are restartable.
 //
 // Eval permits supplementary workers to steal nodes to evaluate.
@@ -298,13 +326,35 @@ func (e *Eval) Do(ctx context.Context) error {
 					e.returnch <- f
 				}(f)
 			case FlowNeedTransfer:
-				e.Mutate(f, FlowTransfer, Incr)
+				e.Mutate(f, FlowTransfer)
 				e.pending[f] = true
 				go func(f *Flow) {
+					files, err := e.needTransfer(ctx, f)
+					if err != nil {
+						e.Log.Errorf("need transfer: %v", err)
+					} else if len(files) == 0 {
+						// No transfer needed; we're ready to go.
+						e.Mutate(f, FlowReady)
+						e.returnch <- f
+						return
+					}
+					// Compute the transfer size, so that we can log it. Note that
+					// this is of course subject to race conditions: when multiple
+					// execs concurrently require the same objects, these may be
+					// reported multiple times in aggregate transfer size.
+					seen := make(map[File]bool)
+					for _, file := range files {
+						if seen[file] {
+							continue
+						}
+						f.TransferSize += data.Size(file.Size)
+						seen[file] = true
+					}
 					e.LogFlow(ctx, f)
 					e.transfer(ctx, f)
 					e.returnch <- f
 				}(f)
+
 			case FlowReady:
 				if !e.total.Available(f.Resources) {
 					// TODO(marius): we could also attach this error to the node.
@@ -374,6 +424,7 @@ func (e *Eval) LogSummary(log *log.Logger) {
 		N, Ncache               int
 		Runtime                 stats
 		CPU, Memory, Disk, Temp stats
+		Transfer                data.Size
 	}
 	stats := map[string]aggregate{}
 
@@ -400,6 +451,7 @@ func (e *Eval) LogSummary(log *log.Logger) {
 		if v.Cached {
 			a.Ncache++
 		}
+		a.Transfer += v.TransferSize
 		if len(v.Inspect.Profile) == 0 {
 			n++
 			stats[ident] = a
@@ -424,9 +476,9 @@ func (e *Eval) LogSummary(log *log.Logger) {
 	fmt.Fprintf(&b, "total n=%d time=%s\n", n, round(e.totalTime))
 	var tw tabwriter.Writer
 	tw.Init(newPrefixWriter(&b, "\t"), 4, 4, 1, ' ', 0)
-	fmt.Fprintln(&tw, "ident\tn\tncache\truntime(m)\tcpu\tmem(GiB)\tdisk(GiB)\ttmp(GiB)")
+	fmt.Fprintln(&tw, "ident\tn\tncache\ttransfer\truntime(m)\tcpu\tmem(GiB)\tdisk(GiB)\ttmp(GiB)")
 	for ident, stats := range stats {
-		fmt.Fprintf(&tw, "%s\t%d\t%d", ident, stats.N, stats.Ncache)
+		fmt.Fprintf(&tw, "%s\t%d\t%d\t%s", ident, stats.N, stats.Ncache, stats.Transfer)
 		if stats.CPU.N() > 0 {
 			fmt.Fprintf(&tw, "\t%s\t%s\t%s\t%s\t%s",
 				stats.Runtime.Summary("%.0f"),
@@ -601,7 +653,7 @@ func (e *Eval) returnFlow(f *Flow) {
 		e.available = e.available.Add(f.Reserved)
 		e.Mutate(f, Unreserve(f.Reserved))
 	}
-	if f.Tracked {
+	if f.Tracked && f.State == FlowDone {
 		e.needLog = append(e.needLog, f)
 	}
 }
@@ -732,15 +784,27 @@ func (e *Eval) todo(f *Flow) {
 	}
 	switch f.State {
 	case FlowInit:
-		if e.Cache != nil && !e.dirty(f) {
-			e.Mutate(f, FlowNeedLookup)
-			return
+		switch f.Op {
+		case OpIntern, OpExec, OpExtern:
+			if !e.BottomUp && e.Cache != nil && !e.dirty(f) {
+				e.Mutate(f, FlowNeedLookup)
+				return
+			}
 		}
 		e.Mutate(f, FlowTODO)
 		fallthrough
 	case FlowTODO:
 		if len(f.Deps) == 0 {
-			e.Mutate(f, FlowReady)
+			switch f.Op {
+			case OpIntern, OpExtern, OpExec:
+				if e.BottomUp {
+					e.Mutate(f, FlowNeedLookup)
+				} else {
+					e.Mutate(f, FlowReady)
+				}
+			default:
+				e.Mutate(f, FlowReady)
+			}
 			return
 		}
 		for _, dep := range f.Deps {
@@ -760,7 +824,25 @@ func (e *Eval) todo(f *Flow) {
 				return
 			}
 		}
-		e.Mutate(f, FlowReady)
+		// The node is ready to run. This is done according to the evaluator's mode.
+		switch f.Op {
+		case OpIntern, OpExec, OpExtern:
+			// We're ready to run. If we're in bottom up mode, this means we're ready
+			// for our cache lookup.
+			if e.BottomUp {
+				e.Mutate(f, FlowNeedLookup)
+			} else {
+				if e.Cache != nil {
+					e.Mutate(f, FlowNeedTransfer)
+				} else {
+					e.Mutate(f, FlowReady)
+				}
+			}
+		default:
+			// Other nodes can be computed immediately,
+			// and do not need access to the objects.
+			e.Mutate(f, FlowReady)
+		}
 	}
 }
 
@@ -903,7 +985,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 	// also extra protection for reproducibility, though ideally this will
 	// be tackled by filesets.
 	fs, ok := f.Value.(Fileset)
-	if ok && f.Err == nil && e.Cache != nil && f.State == FlowDone && f.Op != OpData && f.Op != OpIntern && (!e.NoCacheExtern || f.Op != OpExtern) {
+	if ok && f.Err == nil && e.Cache != nil && f.State == FlowDone && f.Op != OpData && (e.BottomUp || f.Op != OpIntern) && (!e.NoCacheExtern || f.Op != OpExtern) {
 		bgctx := Background(ctx)
 		go func() {
 			err := e.Cache.Write(bgctx, f.Digest(), fs, e.Executor.Repository())
@@ -926,41 +1008,58 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 		return
 	}
 	fs, err := e.Cache.Lookup(ctx, f.Digest())
-	switch {
-	case err == nil && e.RecomputeEmpty && fs.Empty():
+	if err == nil && e.RecomputeEmpty && fs.Empty() {
 		e.Log.Debugf("recomputing empty value for %v", f)
-		e.Mutate(f, FlowTODO)
-	case err == nil:
-		e.Mutate(f, fs, FlowNeedTransfer)
-	case errors.Match(errors.NotExist, err):
-		e.Mutate(f, FlowTODO)
-	case err != nil:
+	} else if err == nil {
+		// The node is marked done. If the needed objects are not later
+		// found in the cache's repository, the node will be marked for
+		// recomputation.
+		e.Mutate(f, fs, Cached, FlowDone)
+		if e.BottomUp {
+			e.LogFlow(ctx, f)
+		}
+		return
+	}
+	if !errors.Match(errors.NotExist, err) {
 		e.Log.Errorf("assoc %v: %v", f, err)
+	}
+	if e.BottomUp {
+		// In bottom-up mode, we're only looked up if our dependencies are
+		// met, and we always compute on a cache miss, thus we now need to
+		// make sure our dependencies are available.
+		e.Mutate(f, FlowNeedTransfer)
+	} else {
 		e.Mutate(f, FlowTODO)
 	}
 }
 
-// transfer performs data transfer for node f, whose (Flow).Value
-// must be set.
+// needTransfer returns the file objects that require transfer from flow f.
+// It should be called only when caching is enabled.
+func (e *Eval) needTransfer(ctx context.Context, f *Flow) ([]File, error) {
+	fs := Fileset{List: make([]Fileset, len(f.Deps))}
+	for i := range f.Deps {
+		fs.List[i] = f.Deps[i].Value.(Fileset)
+	}
+	return e.Cache.NeedTransfer(ctx, e.Executor.Repository(), fs)
+}
+
+// transfer performs data transfers a node's dependent values. this
+// is only done for execs and externs, thus its dependencies are
+// guaranteed to contain Fileset dependencies directly.
 func (e *Eval) transfer(ctx context.Context, f *Flow) {
-	fs, ok := f.Value.(Fileset)
-	if !ok {
-		e.Mutate(f, Decr, FlowTODO)
+	fs := Fileset{List: make([]Fileset, len(f.Deps))}
+	for i := range f.Deps {
+		fs.List[i] = f.Deps[i].Value.(Fileset)
+	}
+	err := e.Cache.Transfer(ctx, e.Executor.Repository(), fs)
+	if err == nil {
+		e.Mutate(f, FlowReady)
 		return
 	}
-
-	begin := time.Now()
-	err := e.Cache.Transfer(ctx, e.Executor.Repository(), fs)
-	f.Runtime = time.Since(begin)
-	switch {
-	case err == nil:
-		e.Mutate(f, Cached, Decr, FlowDone)
-	case errors.Match(errors.NotExist, err):
-		e.Mutate(f, Decr, FlowTODO)
-	default:
-		e.Log.Errorf("cache transfer %v error: %v", f, err)
-		e.Mutate(f, Decr, FlowTODO)
-	}
+	e.Log.Errorf("cache transfer %v error: %v", f, err)
+	// We mark the node failed. Errors.Unavailable is considered a transient error,
+	// so the underlying runner should restart evaluation.
+	e.Mutate(f, FlowDone, errors.E(errors.Unavailable, "cache.Transfer", err))
 }
 
 // exec performs and waits for an exec with the given config.
@@ -1351,12 +1450,16 @@ var statusPrinters = [maxOp]struct {
 
 // LogFlow logs flow f's state, and then tracks it for future logging.
 func (e *Eval) LogFlow(ctx context.Context, f *Flow) {
-	f.Tracked = true
+	f.Tracked = f.State != FlowDone
 	var b bytes.Buffer
 	if f.State == FlowDone {
-		b.WriteString("<- ")
+		if f.Cached {
+			b.WriteString("(<-) ")
+		} else {
+			b.WriteString(" <-  ")
+		}
 	} else {
-		b.WriteString("-> ")
+		b.WriteString(" ->  ")
 	}
 	state := f.State.String()
 	switch f.State {
@@ -1374,10 +1477,12 @@ func (e *Eval) LogFlow(ctx context.Context, f *Flow) {
 	fmt.Fprintf(&b, "%-12s %s %-4s %6s ", f.Ident, f.Digest().Short(), state, f.Op.String())
 	pr := statusPrinters[f.Op]
 	switch f.State {
-	case FlowRunning, FlowTransfer:
+	case FlowRunning:
 		if pr.run != nil {
 			pr.run(&b, f)
 		}
+	case FlowTransfer:
+		b.WriteString(f.TransferSize.String())
 	case FlowDone:
 		printRuntimeStats(&b, f)
 	}

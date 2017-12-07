@@ -66,4 +66,6 @@ type Transferer interface {
 	// repository. A transfer manager may apply policies (e.g., rate
 	// limits and concurrency limits) to these transfers.
 	Transfer(ctx context.Context, dst, src Repository, files ...File) error
+
+	NeedTransfer(ctx context.Context, dst Repository, files ...File) ([]File, error)
 }

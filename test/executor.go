@@ -87,6 +87,7 @@ func (e *Exec) Ok(res reflow.Result) {
 		panic("error defined")
 	default:
 	}
+
 	select {
 	case e.resultc <- ExecResult{Result: res}:
 	default:

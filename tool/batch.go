@@ -62,10 +62,16 @@ bam=3.bam,sample=c.
 	gcFlag := flags.Bool("gc", false, "enable runtime garbage collection")
 	nocacheexternFlag := flags.Bool("nocacheextern", false, "don't cache extern ops")
 	recomputeemptyFlag := flags.Bool("recomputeempty", false, "recompute empty cache values")
+	evalStrategy := flags.String("eval", "topdown", "evaluation strategy")
 
 	c.Parse(flags, args, help, "runbatch [-retry] [-reset] [flags]")
 	if flags.NArg() != 0 {
 		flags.Usage()
+	}
+	switch *evalStrategy {
+	case "topdown", "bottomup":
+	default:
+		c.Fatalf("invalid evaluation strategy %s", *evalStrategy)
 	}
 	user, err := c.Config.User()
 	if err != nil {
@@ -96,6 +102,7 @@ bam=3.bam,sample=c.
 			RecomputeEmpty: *recomputeemptyFlag,
 			Transferer:     transferer,
 			GC:             *gcFlag,
+			BottomUp:       *evalStrategy == "bottomup",
 		},
 		Rundir:  c.rundir(),
 		User:    user,

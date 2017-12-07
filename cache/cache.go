@@ -9,9 +9,12 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/repository"
 )
 
 // An Assoc is an associative array mapping digests to other digests.
@@ -79,7 +82,9 @@ func (c *Cache) Write(ctx context.Context, id digest.Digest, v reflow.Fileset, r
 
 // Lookup returns the value associated with a (digest) key. Lookup
 // returns an error flagged errors.NotExist when there is no such
-// value.
+// value. Lookup also checks that the objects are available in the
+// cache's repository; an errors.NotExist error is returned if any
+// object is missing.
 func (c *Cache) Lookup(ctx context.Context, id digest.Digest) (reflow.Fileset, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -100,6 +105,23 @@ func (c *Cache) Lookup(ctx context.Context, id digest.Digest) (reflow.Fileset, e
 	var v reflow.Fileset
 	err = json.NewDecoder(rc).Decode(&v)
 	rc.Close()
+	if err != nil {
+		return reflow.Fileset{}, err
+	}
+	// Also check that the objects exist.
+	missing, err := repository.Missing(ctx, c.Repository, v.Files()...)
+	if err != nil {
+		return reflow.Fileset{}, err
+	}
+	if len(missing) > 0 {
+		var total int64
+		for _, file := range missing {
+			total += file.Size
+		}
+		return reflow.Fileset{}, errors.E(
+			errors.NotExist, "cache.Lookup",
+			errors.Errorf("missing %d files (%s)", len(missing), data.Size(total)))
+	}
 	return v, err
 }
 
@@ -112,4 +134,9 @@ func (c *Cache) Delete(ctx context.Context, id digest.Digest) error {
 // (usually retrieved by Lookup) to the repository dst.
 func (c *Cache) Transfer(ctx context.Context, dst reflow.Repository, v reflow.Fileset) error {
 	return c.Transferer.Transfer(ctx, dst, c.Repository, v.Files()...)
+}
+
+// NeedTransfer returns the file objects in v that are missing from repository dst.
+func (c *Cache) NeedTransfer(ctx context.Context, dst reflow.Repository, v reflow.Fileset) ([]reflow.File, error) {
+	return c.Transferer.NeedTransfer(ctx, dst, v.Files()...)
 }

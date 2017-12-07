@@ -17,11 +17,26 @@ type Cache interface {
 	// Lookup returns the value associated with a (digest) key.
 	// Lookup returns an error flagged errors.NotExist when there
 	// is no such value.
+	//
+	// Lookup should also check to make sure that the objects
+	// actually exist, and provide a reasonable guarantee that they'll
+	// be available for transfer.
+	//
+	// TODO(marius): allow the caller to maintain a lease on the desired
+	// objects so that garbage collection can (safely) be run
+	// concurrently with flows. This isn't a correctness concern (the
+	// flows may be restarted), but rather one of efficiency.
 	Lookup(context.Context, digest.Digest) (Fileset, error)
 
 	// Transfer transmits the file objects associated with value v
-	// (usually retrieved by Lookup) to the repository dst.
+	// (usually retrieved by Lookup) to the repository dst. Transfer
+	// should be used in place of direct (cache) repository access since
+	// it may apply additional policies (e.g., rate limiting, etc.)
 	Transfer(ctx context.Context, dst Repository, v Fileset) error
+
+	// NeedTransfer returns the set of files in the Fileset v that are absent
+	// in the provided repository.
+	NeedTransfer(ctx context.Context, dst Repository, v Fileset) ([]File, error)
 
 	// Write stores the Value v, whose file objects exist in Repository repo,
 	// under the key id.

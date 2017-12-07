@@ -11,6 +11,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/repository"
 )
 
 // Cache is a implementation of reflow.Cache that stores values
@@ -62,6 +63,11 @@ func (c *Cache) Delete(ctx context.Context, id digest.Digest) error {
 // Transfer is not implemented in Cache.
 func (c *Cache) Transfer(ctx context.Context, dst reflow.Repository, v reflow.Fileset) error {
 	return errors.E("transfer", errors.NotSupported)
+}
+
+// NeedTransfer returns the file objects in v that are missing from repository dst.
+func (c *Cache) NeedTransfer(ctx context.Context, dst reflow.Repository, v reflow.Fileset) ([]reflow.File, error) {
+	return repository.Missing(ctx, dst, v.Files()...)
 }
 
 // Write stores the value v at key id.
@@ -134,6 +140,11 @@ func (c *WaitCache) Delete(ctx context.Context, id digest.Digest) error {
 // Transfer always returns (immediate) success.
 func (c *WaitCache) Transfer(ctx context.Context, dst reflow.Repository, v reflow.Fileset) error {
 	return nil
+}
+
+// NeedTransfer returns the file objects in v that are missing from repository dst.
+func (c *WaitCache) NeedTransfer(ctx context.Context, dst reflow.Repository, v reflow.Fileset) ([]reflow.File, error) {
+	return repository.Missing(ctx, dst, v.Files()...)
 }
 
 // Write always returns (immediate) success.

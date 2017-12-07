@@ -14,6 +14,7 @@ import (
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/repository"
 )
 
 // panicRepository is an unimplemented Repository.
@@ -95,4 +96,10 @@ func (t *Transferer) Transfer(ctx context.Context, dst, src reflow.Repository, f
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// NeedTransfer returns all the missing objects in the destination repository.
+// The test transferer assumes they are all missing.
+func (t *Transferer) NeedTransfer(ctx context.Context, dst reflow.Repository, files ...reflow.File) ([]reflow.File, error) {
+	return repository.Missing(ctx, dst, files...)
 }

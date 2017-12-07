@@ -118,13 +118,27 @@ func (m *Manager) Report(ctx context.Context, interval time.Duration) {
 // Transfer transmits a set of files between two repositories,
 // subject to policies. Files that already exist in the destination
 // repository are skipped.
+//
+// TODO(marius): we may want to consider single-flighting download
+// requests by sha. At least for large objects.
 func (m *Manager) Transfer(ctx context.Context, dst, src reflow.Repository, files ...reflow.File) error {
+	var err error
+	files, err = m.NeedTransfer(ctx, dst, files...)
+	if err != nil {
+		return err
+	}
+	return m.transfer(ctx, dst, src, files...)
+}
+
+// NeedTransfer determines which of the provided files are missing from
+// the destination repository and must therefore be transfered.
+func (m *Manager) NeedTransfer(ctx context.Context, dst reflow.Repository, files ...reflow.File) ([]reflow.File, error) {
 	exists := make([]bool, len(files))
 	lstat := m.limiter(dst, &m.stat, m.Stat)
 	g, gctx := errgroup.WithContext(ctx)
 	for i, file := range files {
 		if err := lstat.Acquire(gctx, 1); err != nil {
-			return err
+			return nil, err
 		}
 		i, file := i, file
 		// TODO(marius): implement a batch stat call.
@@ -139,10 +153,10 @@ func (m *Manager) Transfer(ctx context.Context, dst, src reflow.Repository, file
 		})
 	}
 	if err := g.Wait(); err != nil {
-		return err
+		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return nil, err
 	}
 	all := files
 	files = nil
@@ -151,10 +165,7 @@ func (m *Manager) Transfer(ctx context.Context, dst, src reflow.Repository, file
 			files = append(files, all[i])
 		}
 	}
-	if len(files) == 0 {
-		return nil
-	}
-	return m.transfer(ctx, dst, src, files...)
+	return files, nil
 }
 
 func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, files ...reflow.File) error {

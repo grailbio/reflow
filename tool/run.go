@@ -52,6 +52,7 @@ type runConfig struct {
 	cache          bool
 	nocacheextern  bool
 	recomputeempty bool
+	eval           string
 }
 
 func (r *runConfig) Flags(flags *flag.FlagSet) {
@@ -65,9 +66,15 @@ func (r *runConfig) Flags(flags *flag.FlagSet) {
 	flags.StringVar(&r.resourcesFlag, "resources", "", "override offered resources in local mode (JSON formatted reflow.Resources)")
 	flags.BoolVar(&r.nocacheextern, "nocacheextern", false, "don't cache extern ops")
 	flags.BoolVar(&r.recomputeempty, "recomputeempty", false, "recompute empty cache values")
+	flags.StringVar(&r.eval, "eval", "topdown", "evaluation strategy")
 }
 
 func (r *runConfig) Err() error {
+	switch r.eval {
+	case "topdown", "bottomup":
+	default:
+		return fmt.Errorf("invalid evaluation strategy %s", r.eval)
+	}
 	if r.local || r.hybrid != "" {
 		if r.alloc != "" {
 			return errors.New("-alloc cannot be used in local mode")
@@ -86,6 +93,15 @@ func (r *runConfig) Err() error {
 		}
 	}
 	return nil
+}
+
+// Configure stores the runConfig's configuration into the provided
+// EvalConfig.
+func (r *runConfig) Configure(c *reflow.EvalConfig) {
+	c.NoCacheExtern = r.nocacheextern
+	c.GC = r.gc
+	c.RecomputeEmpty = r.recomputeempty
+	c.BottomUp = r.eval == "bottomup"
 }
 
 func (c *Cmd) run(ctx context.Context, args ...string) {
@@ -216,17 +232,15 @@ retriable.`
 	run := runner.Runner{
 		Flow: er.Flow,
 		EvalConfig: reflow.EvalConfig{
-			Log:            execLogger,
-			Cache:          rcache,
-			NoCacheExtern:  config.nocacheextern,
-			GC:             config.gc,
-			Transferer:     transferer,
-			RecomputeEmpty: config.recomputeempty,
+			Log:        execLogger,
+			Cache:      rcache,
+			Transferer: transferer,
 		},
 		Type:    er.Type,
 		Labels:  make(pool.Labels),
 		Cluster: cluster,
 	}
+	config.Configure(&run.EvalConfig)
 	run.Name = runName
 	run.Program = er.Program
 	run.Params = er.Params
@@ -375,14 +389,12 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		log.Fatal(err)
 	}
 	evalConfig := reflow.EvalConfig{
-		Executor:       x,
-		Transferer:     transferer,
-		Log:            execLogger,
-		GC:             config.gc,
-		Cache:          rcache,
-		NoCacheExtern:  config.nocacheextern,
-		RecomputeEmpty: config.recomputeempty,
+		Executor:   x,
+		Transferer: transferer,
+		Log:        execLogger,
+		Cache:      rcache,
 	}
+	config.Configure(&evalConfig)
 	if config.trace {
 		evalConfig.Trace = c.Log
 	}

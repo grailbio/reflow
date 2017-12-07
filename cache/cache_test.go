@@ -48,6 +48,10 @@ func (transferer) Transfer(ctx context.Context, dst, src reflow.Repository, file
 	return nil
 }
 
+func (transferer) NeedTransfer(ctx context.Context, dst reflow.Repository, files ...reflow.File) ([]reflow.File, error) {
+	return repository.Missing(ctx, dst, files...)
+}
+
 func TestCache(t *testing.T) {
 	ctx := context.Background()
 	cache := &Cache{
