@@ -72,7 +72,11 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 
 	switch e.Kind {
 	case ExprIdent:
-		return env.Value(e.Ident), nil
+		v := env.Value(e.Ident)
+		if err, ok := v.(error); ok {
+			return nil, err
+		}
+		return v, nil
 	case ExprBinop:
 		switch e.Op {
 		case "||", "&&":

@@ -231,6 +231,8 @@ func (m *ModuleImpl) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error
 			default:
 				return nil, fmt.Errorf("-%s: flags of type %s not supported (valid types are: string, int, bool)", p.Ident, p.Type)
 			}
+			// Assign error values here, so that we get a type error.
+			env.Bind(p.Ident, fmt.Errorf("%s is undefined; flag parameters may not depend on other flag parameters", p.Ident))
 		case DeclAssign:
 			tenv := types.NewEnv()
 			p.Pat.BindTypes(tenv, p.Type)
