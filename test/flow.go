@@ -15,6 +15,14 @@ import (
 
 // The following are useful constructors for testing.
 
+// File returns a file object representing the given contents.
+func File(contents string) reflow.File {
+	return reflow.File{
+		reflow.Digester.FromString(contents),
+		int64(len(contents)),
+	}
+}
+
 // Files returns a value comprising the given files with contents derived from
 // their names.
 func Files(files ...string) reflow.Fileset {
@@ -31,10 +39,7 @@ func Files(files ...string) reflow.Fileset {
 			path = parts[0]
 			contents = parts[1]
 		}
-		v.Map[path] = reflow.File{
-			reflow.Digester.FromString(contents),
-			int64(len(contents)),
-		}
+		v.Map[path] = File(contents)
 	}
 	return v
 }

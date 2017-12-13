@@ -19,7 +19,6 @@ import (
 // steal work from the same Eval. Work stealers free their allocs
 // when there is no more work to be stolen.
 type Stealer struct {
-	Cache   reflow.Cache
 	Cluster Cluster
 	Log     *log.Logger
 	Labels  pool.Labels
@@ -51,7 +50,6 @@ poll:
 			w := &worker{
 				Executor: alloc,
 				Eval:     e,
-				Cache:    s.Cache,
 				Log:      s.Log.Tee(nil, alloc.ID()+": "),
 			}
 			wctx, wcancel := context.WithCancel(ctx)

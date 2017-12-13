@@ -6,6 +6,7 @@ package test
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/grailbio/reflow"
@@ -22,7 +23,8 @@ type EvalResult struct {
 
 // EvalAsync evaluates Flow f on Eval e asynchronously. It also
 // ensures that any background tasks are completed before reporting
-// completion.
+// completion. EvalAsync expects that e's toplevel flow returns a
+// Fileset.
 func EvalAsync(ctx context.Context, e *reflow.Eval) <-chan EvalResult {
 	c := make(chan EvalResult, 1)
 	//	e.Logger = log.New(os.Stderr, "", 0)
@@ -31,7 +33,16 @@ func EvalAsync(ctx context.Context, e *reflow.Eval) <-chan EvalResult {
 		ctx, _ := reflow.WithBackground(ctx, &wg)
 		var r EvalResult
 		r.Err = e.Do(ctx)
-		r.Val = e.Value().(reflow.Fileset)
+		if r.Err == nil {
+			r.Err = e.Err()
+		}
+		if r.Err == nil {
+			var ok bool
+			r.Val, ok = e.Value().(reflow.Fileset)
+			if !ok {
+				r.Err = errors.New("flow did not return a fileset")
+			}
+		}
 		wg.Wait()
 		c <- r
 	}()

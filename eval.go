@@ -38,6 +38,8 @@ const (
 	printAllTasks = false
 )
 
+const cacheLookupTimeout = 10 * time.Second
+
 // stateStatusOrder defines the order in which differenet flow
 // statuses are rendered.
 var stateStatusOrder = []FlowState{
@@ -984,21 +986,62 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 	// they might be overfetched, and then wittled down later. It is
 	// also extra protection for reproducibility, though ideally this will
 	// be tackled by filesets.
-	fs, ok := f.Value.(Fileset)
-	if ok && f.Err == nil && e.Cache != nil && f.State == FlowDone && f.Op != OpData && (e.BottomUp || f.Op != OpIntern) && (!e.NoCacheExtern || f.Op != OpExtern) {
-		bgctx := Background(ctx)
-		go func() {
-			err := e.Cache.Write(bgctx, f.Digest(), fs, e.Executor.Repository())
-			bgctx.Complete()
-			if err != nil {
-				e.Log.Errorf("cache write %v %v: %v", f.Digest(), f.Value, err)
-			}
-			e.Mutate(f, Decr)
-		}()
-	} else {
+	bgctx := Background(ctx)
+	go func() {
+		err := e.CacheWrite(bgctx, f, e.Executor.Repository())
+		if err != nil {
+			e.Log.Errorf("cache write %v: %v", f, err)
+		}
+		bgctx.Complete()
 		e.Mutate(f, Decr)
-	}
+	}()
 	return nil
+}
+
+// CacheWrite writes the cache entry for flow f, with objects in the provided
+// source repository. CacheWrite returns nil on success, or else the first error
+// encountered.
+func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo Repository) error {
+	if e.Cache == nil {
+		return nil
+	}
+	// We currently only cache fileset values.
+	fs, ok := f.Value.(Fileset)
+	if !ok {
+		return nil
+	}
+	// We don't cache errors, and only completed nodes.
+	if f.Err != nil || f.State != FlowDone {
+		return nil
+	}
+	if f.Op == OpData {
+		return nil
+	}
+	if e.NoCacheExtern && f.Op == OpExtern {
+		return nil
+	}
+	keys := f.CacheKeys()
+	if len(keys) == 0 {
+		return nil
+	}
+	errc := make(chan error, len(keys))
+	var wg sync.WaitGroup
+	wg.Add(len(keys))
+	for i := range keys {
+		go func(i int) {
+			if err := e.Cache.Write(ctx, keys[i], fs, repo); err != nil {
+				errc <- err
+			}
+			wg.Done()
+		}(i)
+	}
+	wg.Wait()
+	select {
+	case err := <-errc:
+		return err
+	default:
+		return nil
+	}
 }
 
 // lookup performs a cache lookup of node f.
@@ -1007,7 +1050,28 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 		e.Mutate(f, FlowTODO)
 		return
 	}
-	fs, err := e.Cache.Lookup(ctx, f.Digest())
+	var (
+		keys = f.CacheKeys()
+		fs   Fileset
+		err  error
+	)
+	if len(keys) == 0 {
+		// This can't be true now, but in the future it could be valid for nodes
+		// to present no cache keys.
+		e.Mutate(f, FlowTODO)
+		return
+	}
+	for _, key := range keys {
+		ctx, cancel := context.WithTimeout(ctx, cacheLookupTimeout)
+		fs, err = e.Cache.Lookup(ctx, key)
+		cancel()
+		if err == nil {
+			break
+		}
+		if !errors.Match(errors.NotExist, err) {
+			e.Log.Errorf("cache.Lookup %v: %v", f, err)
+		}
+	}
 	if err == nil && e.RecomputeEmpty && fs.Empty() {
 		e.Log.Debugf("recomputing empty value for %v", f)
 	} else if err == nil {
@@ -1019,9 +1083,6 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 			e.LogFlow(ctx, f)
 		}
 		return
-	}
-	if !errors.Match(errors.NotExist, err) {
-		e.Log.Errorf("assoc %v: %v", f, err)
 	}
 	if e.BottomUp {
 		// In bottom-up mode, we're only looked up if our dependencies are

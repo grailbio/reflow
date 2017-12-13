@@ -307,7 +307,6 @@ func (r *Runner) Eval(ctx context.Context) (string, error) {
 	config.Executor = r.Alloc
 	eval := reflow.NewEval(r.Flow, config)
 	stealer := &Stealer{
-		Cache:   r.Cache,
 		Cluster: r.ClusterAux,
 		Log:     r.Log,
 		Labels:  r.labels().Add("type", "aux"),

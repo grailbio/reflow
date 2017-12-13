@@ -34,10 +34,6 @@ type worker struct {
 	// Log is a logger to which status and errors are reported.
 	Log *log.Logger
 
-	// Cache is the reflow.Cache to which successful execs are
-	// uploaded. Caching is not performed if Cache is nil.
-	Cache reflow.Cache
-
 	// MaxIdleTime determines how long a worker is allowed to remain
 	// idle before stopping work. It is set to 5 minutes if not set.
 	MaxIdleTime time.Duration
@@ -239,19 +235,14 @@ func (w *worker) do(ctx context.Context, f *reflow.Flow) (err error) {
 		return err
 	}
 	w.Eval.Mutate(f, r.Err, reflow.FlowDone)
-	fs, ok := f.Value.(reflow.Fileset)
-	if ok && r.Err == nil && w.Cache != nil {
-		bgctx := reflow.Background(ctx)
-		go func() {
-			err := w.Cache.Write(bgctx, f.Digest(), fs, w.Executor.Repository())
-			bgctx.Complete()
-			if err != nil {
-				w.Log.Errorf("cache write %v %v: %v", f.Digest(), f.Value, err)
-			}
-			w.Eval.Mutate(f, reflow.Decr)
-		}()
-	} else {
+	bgctx := reflow.Background(ctx)
+	go func() {
+		err := w.Eval.CacheWrite(bgctx, f, w.Executor.Repository())
+		if err != nil {
+			w.Log.Errorf("cache write %v: %v", f, err)
+		}
+		bgctx.Complete()
 		w.Eval.Mutate(f, reflow.Decr)
-	}
+	}()
 	return nil
 }

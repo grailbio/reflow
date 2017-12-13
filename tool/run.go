@@ -407,7 +407,6 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 			c.Fatal(err)
 		}
 		stealer := &runner.Stealer{
-			Cache:   rcache,
 			Cluster: cluster,
 			Log:     c.Log.Tee(nil, "hybrid: "),
 			Labels: pool.Labels{

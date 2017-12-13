@@ -41,6 +41,20 @@ func (c *Cache) Exists(f *reflow.Flow) bool {
 	return ok
 }
 
+// ExistsAll tells whether a value has been stored for flow f,
+// for all of its cache keys.
+func (c *Cache) ExistsAll(f *reflow.Flow) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, key := range f.CacheKeys() {
+		_, ok := c.vmap[key]
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // Lookup returns the value stored at id, or else an errors.NotExist.
 func (c *Cache) Lookup(ctx context.Context, id digest.Digest) (reflow.Fileset, error) {
 	c.mu.Lock()

@@ -65,7 +65,6 @@ func (e *Exec) Inspect(ctx context.Context) (reflow.ExecInspect, error) {
 
 // Wait rendezvous this exec.
 func (e *Exec) Wait(ctx context.Context) error {
-	//	log.Printf("(*testExec).Wait %v %v", e.id, e.config)
 	_, err := e.result(ctx)
 	return err
 }
@@ -124,7 +123,7 @@ func (e *Exec) result(ctx context.Context) (ExecResult, error) {
 type Executor struct {
 	Have reflow.Resources
 
-	repo  reflow.Repository
+	Repo  reflow.Repository
 	mu    sync.Mutex
 	cond  *sync.Cond
 	execs map[digest.Digest]*Exec
@@ -134,7 +133,7 @@ type Executor struct {
 func (e *Executor) Init() {
 	e.cond = sync.NewCond(&e.mu)
 	e.execs = map[digest.Digest]*Exec{}
-	e.repo = &panicRepository{}
+	e.Repo = &panicRepository{}
 }
 
 // Put defines a new exec (idempotently).
@@ -182,7 +181,7 @@ func (e *Executor) Resources() reflow.Resources {
 
 // Repository returns this executor's repository.
 func (e *Executor) Repository() reflow.Repository {
-	return e.repo
+	return e.Repo
 }
 
 // Equiv tells whether this executor contains precisely a set of flows.
@@ -216,6 +215,20 @@ func (e *Executor) exec(f *reflow.Flow) *Exec {
 // Wait blocks until a Flow is defined in the executor.
 func (e *Executor) Wait(f *reflow.Flow) {
 	e.exec(f)
+}
+
+// WaitAny returns the first of flows to be defined.
+func (e *Executor) WaitAny(flows ...*reflow.Flow) *reflow.Flow {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for {
+		for _, flow := range flows {
+			if e.execs[flow.Digest()] != nil {
+				return flow
+			}
+		}
+		e.cond.Wait()
+	}
 }
 
 // Ok defines a successful result for a Flow.

@@ -6,11 +6,13 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/internal/ctxwg"
+	"github.com/grailbio/reflow/repository/testutil"
 	"github.com/grailbio/reflow/test"
 	"github.com/grailbio/reflow/test/flow"
 )
@@ -33,18 +35,20 @@ func TestWorker(t *testing.T) {
 	cache.Init()
 	e := &test.Executor{Have: test.Resources}
 	e.Init()
+	e.Repo = testutil.NewInmemory()
 	eval := reflow.NewEval(merge, reflow.EvalConfig{
 		Executor:   e,
 		Transferer: &tf,
+		Cache:      &cache,
 	})
 	e2 := &test.Executor{Have: test.Resources.Scale(2)}
 	e2.Init()
+	e2.Repo = testutil.NewInmemory()
 	const idleTime = 2 * time.Second
 	w := &worker{
 		Executor:    e2,
 		Eval:        eval,
 		MaxIdleTime: idleTime,
-		Cache:       &cache,
 	}
 
 	ctx := context.Background()
@@ -56,14 +60,31 @@ func TestWorker(t *testing.T) {
 		wg.Done()
 	}()
 
-	e.Ok(intern, test.Files("intern"))
-	tf.Ok(e2.Repository(), e.Repository(), test.Files("intern").Files()...)
-	tf.Ok(e2.Repository(), e.Repository(), test.Files("intern").Files()...)
-	e2.Ok(exec2, test.Files("2"))
-	e2.Ok(exec3, test.Files("3"))
-	tf.Ok(e.Repository(), e2.Repository(), test.Files("2").Files()...)
-	tf.Ok(e.Repository(), e2.Repository(), test.Files("3").Files()...)
-	e.Ok(exec1, test.Files("1"))
+	e.Ok(intern, test.WriteFiles(e.Repository(), "intern"))
+
+	tf.Ok(e2.Repository(), e.Repository(), test.File("intern"))
+	tf.Ok(e2.Repository(), e.Repository(), test.File("intern"))
+
+	// Now wait for the main executor to grab a task, and figure out
+	// which it is. We expect the auxilliary executor to grab the
+	// remaining ones (concurrently).
+	execs := []*reflow.Flow{exec1, exec2, exec3}
+	main := e.WaitAny(execs...)
+	var maini int
+	for i, exec := range execs {
+		if exec == main {
+			maini = i
+			continue
+		}
+		e2.Ok(exec, test.WriteFiles(e2.Repository(), fmt.Sprint(i+1)))
+	}
+	e.Ok(main, test.WriteFiles(e.Repository(), fmt.Sprint(maini+1)))
+	for i, exec := range execs {
+		if exec == main {
+			continue
+		}
+		tf.Ok(e.Repository(), e2.Repository(), test.File(fmt.Sprint(i+1)))
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, idleTime*time.Duration(2))
 	defer cancel()
@@ -81,14 +102,9 @@ func TestWorker(t *testing.T) {
 	if got, want := r.Val, test.List(test.Files("1"), test.Files("2"), test.Files("3")); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	if !cache.Exists(exec2) {
-		t.Error("no cached value for exec2")
-	}
-	if !cache.Exists(exec3) {
-		t.Error("no cached value for exec3")
-	}
-	// We did not give the main evaluator a cache.
-	if cache.Exists(exec1) {
-		t.Error("cached value for exec1")
+	for _, expect := range []*reflow.Flow{exec1, exec2, exec3} {
+		if !cache.Exists(expect) {
+			t.Errorf("no cached value for %v", expect)
+		}
 	}
 }

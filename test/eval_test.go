@@ -129,12 +129,17 @@ func TestCacheWrite(t *testing.T) {
 		cache.Init()
 		e := Executor{Have: Resources}
 		e.Init()
-		e.repo = repotest.NewInmemory()
-		eval := reflow.NewEval(pullup, reflow.EvalConfig{Executor: &e, Cache: &cache, BottomUp: bottomup})
+		e.Repo = repotest.NewInmemory()
+		eval := reflow.NewEval(pullup, reflow.EvalConfig{
+			Executor: &e,
+			Cache:    &cache,
+			BottomUp: bottomup,
+			//			Log:      log.New(golog.New(os.Stderr, "", golog.LstdFlags), log.InfoLevel),
+		})
 		rc := EvalAsync(context.Background(), eval)
 		var (
-			internValue = WriteFiles(e.repo, "ignored")
-			execValue   = WriteFiles(e.repo, "a", "b", "c", "d")
+			internValue = WriteFiles(e.Repo, "ignored")
+			execValue   = WriteFiles(e.Repo, "a", "b", "c", "d")
 		)
 		e.Ok(intern, internValue)
 		e.Ok(exec, execValue)
@@ -145,10 +150,10 @@ func TestCacheWrite(t *testing.T) {
 		if got, want := r.Val, execValue; !got.Equal(want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
-		if got, want := cache.Exists(intern), bottomup; got != want {
+		if got, want := cache.ExistsAll(intern), true; got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
-		if got, want := cache.Value(exec), execValue; !got.Equal(want) {
+		if got, want := cache.Value(exec), execValue; !cache.ExistsAll(exec) || !got.Equal(want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
 		if got, want := cache.Value(pullup), execValue; !got.Equal(want) {
@@ -169,7 +174,7 @@ func TestCacheLookup(t *testing.T) {
 
 	e := Executor{Have: Resources}
 	e.Init()
-	e.repo = repotest.NewInmemory()
+	e.Repo = repotest.NewInmemory()
 	var cache WaitCache
 	cache.Init()
 	eval := reflow.NewEval(extern, reflow.EvalConfig{Executor: &e, Cache: &cache})
@@ -184,7 +189,7 @@ func TestCacheLookup(t *testing.T) {
 	}
 
 	e.Init()
-	e.repo = repotest.NewInmemory()
+	e.Repo = repotest.NewInmemory()
 	cache.Init()
 	eval = reflow.NewEval(extern, reflow.EvalConfig{Executor: &e, Cache: &cache})
 	rc = EvalAsync(context.Background(), eval)
@@ -219,7 +224,7 @@ func TestCacheLookupBottomup(t *testing.T) {
 
 	e := Executor{Have: Resources}
 	e.Init()
-	e.repo = repotest.NewInmemory()
+	e.Repo = repotest.NewInmemory()
 	var cache WaitCache
 	cache.Init()
 	eval := reflow.NewEval(extern, reflow.EvalConfig{Executor: &e, Cache: &cache, BottomUp: true})
@@ -265,7 +270,7 @@ func TestGC(t *testing.T) {
 	objects, cleanup := testutil.TempDir(t, "", "test-")
 	defer cleanup()
 	repo := file.Repository{Root: objects}
-	e.repo = &repo
+	e.Repo = &repo
 	eval := reflow.NewEval(pullup, reflow.EvalConfig{Executor: &e, GC: true})
 	rc := EvalAsync(context.Background(), eval)
 	files := []string{
@@ -312,14 +317,26 @@ func TestData(t *testing.T) {
 	hello := []byte("hello, world!")
 	e := Executor{Have: Resources}
 	e.Init()
-	e.repo = repotest.NewInmemory()
+	e.Repo = repotest.NewInmemory()
 	eval := reflow.NewEval(flow.Data(hello), reflow.EvalConfig{Executor: &e})
 	r := <-EvalAsync(context.Background(), eval)
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	_, err := e.repo.Stat(context.Background(), reflow.Digester.FromBytes(hello))
+	_, err := e.Repo.Stat(context.Background(), reflow.Digester.FromBytes(hello))
 	if err != nil {
 		t.Error(err)
+	}
+}
+
+// CheckCached emits errors on the provided testing instance for any missing
+// cache entries among the provided list of flows. All cache keys are checked.
+func checkCached(t *testing.T, cache reflow.Cache, flows ...*reflow.Flow) {
+	for _, f := range flows {
+		for _, key := range f.CacheKeys() {
+			if _, err := cache.Lookup(context.Background(), key); err != nil {
+				t.Errorf("cache.Lookup %v: %v", key, err)
+			}
+		}
 	}
 }

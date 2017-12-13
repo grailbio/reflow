@@ -747,6 +747,57 @@ func (f *Flow) WriteDigest(w io.Writer) {
 	}
 }
 
+// PhysicalDigest computes the physical digest of the Flow f,
+// reflecting the actual underlying operation to be performed, and
+// not the logical one.
+//
+// It is an error to call PhysicalDigest on nodes whose dependencies
+// are not fully resolved (i.e., state FlowDone, contains a Fileset
+// value), or on nodes not of type OpExec, OpIntern, or OpExtern.
+// This is because the physical input values must be available to
+// compute the digest.
+func (f *Flow) PhysicalDigest() digest.Digest {
+	w := Digester.NewWriter()
+	for _, dep := range f.Deps {
+		fs := dep.Value.(Fileset)
+		fs.WriteDigest(w)
+	}
+	switch f.Op {
+	case OpIntern, OpExtern:
+		io.WriteString(w, f.URL.String())
+	case OpExec:
+		io.WriteString(w, f.Image)
+		io.WriteString(w, f.Cmd)
+		for _, arg := range f.Argmap {
+			if arg.Out {
+				writeN(w, -arg.Index)
+			} else {
+				writeN(w, arg.Index)
+			}
+		}
+	default:
+		panic("invalid node type for physical digest")
+	}
+	return w.Digest()
+}
+
+// CacheKeys returns all the valid cache keys for this flow node.
+// They are returned in order from most concrete to least concrete.
+func (f *Flow) CacheKeys() []digest.Digest {
+	var digests []digest.Digest
+opswitch:
+	switch f.Op {
+	case OpExtern, OpExec:
+		for _, dep := range f.Deps {
+			if dep.State != FlowDone {
+				break opswitch
+			}
+		}
+		digests = append(digests, f.PhysicalDigest())
+	}
+	return append(digests, f.Digest())
+}
+
 // Visitor returns a new FlowVisitor rooted at this node.
 func (f *Flow) Visitor() *FlowVisitor {
 	v := &FlowVisitor{}
