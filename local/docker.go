@@ -141,7 +141,7 @@ func (e *dockerExec) create(ctx context.Context) (execState, error) {
 	}
 	// TODO: it might be worthwhile doing image pulling as a separate state.
 	if err := e.Executor.ensureImage(ctx, e.Config.Image); err != nil {
-		return execInit, fmt.Errorf("failed to pull image: %s", err)
+		return execInit, fmt.Errorf("failed to pull image %s: %s", e.Config.Image, err)
 	}
 	// Map the products to input arguments and volume bindings for
 	// the container. Currently we map the whole repository (named by
