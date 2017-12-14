@@ -44,7 +44,8 @@ important ways:
 
 - it is a vertically integrated system with a minimal set of external dependencies; this allows Reflow to be "plug-and-play": bring your cloud credentials, and you're off to the races;
 - it defines a strict data model which is used for transparent memoization and other optimizations;
-- it takes workflow software seriously: the Reflow DSL provides type checking, modularity, and other constructors that are commonplace in general purpose programming languages.
+- it takes workflow software seriously: the Reflow DSL provides type checking, modularity, and other constructors that are commonplace in general purpose programming languages;
+- because of its high level data model and use of caching, Reflow computes [incrementally](https://en.wikipedia.org/wiki/Incremental_computing): it is always able to compute the smallest set of operations given what has been computed previously.
 
 ## Getting Reflow
 
