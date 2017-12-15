@@ -599,6 +599,21 @@ var stringsDecls = []*Decl{
 			return stringVal, nil
 		},
 	}.Decl(),
+	systemFunc{
+		Id:     "FromFloat",
+		Module: "strings",
+		Force:  true,
+		Doc:    "FromFloat parses a float into a string with the specified digits of precision.",
+		Type: types.Func(types.String,
+			&types.Field{Name: "floattVal", T: types.Float},
+			&types.Field{Name: "precision", T: types.Int}),
+		Do: func(loc values.Location, args []values.T) (values.T, error) {
+			floatVal := args[0].(*big.Float)
+			prec := args[1].(*big.Int)
+			stringVal := floatVal.Text('g', int(prec.Int64()))
+			return stringVal, nil
+		},
+	}.Decl(),
 }
 
 var pathDecls = []*Decl{
