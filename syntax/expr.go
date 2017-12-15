@@ -82,6 +82,26 @@ func (f *FieldExpr) Equal(e *FieldExpr) bool {
 	return f.Name == e.Name && f.Expr.Equal(e.Expr)
 }
 
+// ComprKind is the type of the kind of a comprehension clause.
+type ComprKind int
+
+const (
+	// ComprEnum is the kind of an enumeration clause.
+	ComprEnum ComprKind = iota
+	// ComprFilter is the kind of a filter clause.
+	ComprFilter
+)
+
+// A ComprClause is a single clause in a comprehension expression.
+type ComprClause struct {
+	// Kind is the clause's kind.
+	Kind ComprKind
+	// Pat is the clause's pattern (ComprEnum).
+	Pat *Pat
+	// Expr is the clause's expression (ComprEnum, ComprFilter).
+	Expr *Expr
+}
+
 // Template is an exec template and its interpolation arguments.
 // The template is stored as a number of fragments interspersed
 // by argument expressions to be rendered.
@@ -167,8 +187,8 @@ type Expr struct {
 	// Template is the exec template in ExprExec.
 	Template *Template
 
-	// ComprExpr is the comprehension expression.
-	ComprExpr *Expr
+	ComprExpr    *Expr
+	ComprClauses []*ComprClause
 
 	// Env stores a value environmetn for ExprThunk.
 	Env *values.Env
@@ -238,8 +258,10 @@ func (e *Expr) err() error {
 	for _, sub := range e.Subexpr() {
 		el = el.Append(sub.err())
 	}
-	if e.ComprExpr != nil {
-		el = el.Append(e.ComprExpr.err())
+	for _, clause := range e.ComprClauses {
+		if clause.Expr != nil {
+			el = el.Append(clause.Expr.err())
+		}
 	}
 	if e.Kind == ExprError {
 		el = el.Errorf(e.Position, "erroneous expression")
@@ -552,20 +574,39 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		e.Type = e.Left.Type.Elem.Assign(e.Left.Type.Index)
 	case ExprCompr:
 		env = env.Push()
-		switch e.Left.Type.Kind {
-		case types.ListKind:
-			if err := e.Pat.BindTypes(env, e.Left.Type.Elem); err != nil {
-				e.Type = types.Error(err)
+		for i, clause := range e.ComprClauses {
+			clause.Expr.init(sess, env)
+			if clause.Expr.Type.Kind == types.ErrorKind {
+				e.Type = clause.Expr.Type.Assign(nil)
 				return
 			}
-		case types.MapKind:
-			if err := e.Pat.BindTypes(env, types.Tuple(&types.Field{T: e.Left.Type.Index}, &types.Field{T: e.Left.Type.Elem})); err != nil {
-				e.Type = types.Error(err)
-				return
+			switch clause.Kind {
+			case ComprEnum:
+				switch clause.Expr.Type.Kind {
+				case types.ListKind:
+					if err := clause.Pat.BindTypes(env, clause.Expr.Type.Elem); err != nil {
+						e.Type = types.Error(err)
+						return
+					}
+				case types.MapKind:
+					if err := clause.Pat.BindTypes(env, types.Tuple(&types.Field{T: clause.Expr.Type.Index}, &types.Field{T: clause.Expr.Type.Elem})); err != nil {
+						e.Type = types.Error(err)
+						return
+					}
+				default:
+					e.Type = types.Errorf("expected list or map, got %v", clause.Expr.Type)
+					return
+				}
+			case ComprFilter:
+				if i == 0 {
+					e.Type = types.Errorf("the first clause of a comprehension must be an enumeration")
+					return
+				}
+				if clause.Expr.Type.Kind != types.BoolKind {
+					e.Type = types.Errorf("expected boolean expression, got %v", clause.Expr.Type)
+					return
+				}
 			}
-		default:
-			e.Type = types.Errorf("expected list or map, got %v", e.Left.Type)
-			return
 		}
 		e.ComprExpr.init(sess, env)
 		e.Type = types.List(e.ComprExpr.Type)
@@ -954,7 +995,16 @@ func (e *Expr) String() string {
 	case ExprDeref:
 		fmt.Fprintf(b, "deref(%v, %v)", e.Left, e.Ident)
 	case ExprCompr:
-		fmt.Fprintf(b, "compr(%v, %v, %v)", e.ComprExpr, e.Left, e.Pat)
+		clauses := make([]string, len(e.ComprClauses))
+		for i, clause := range e.ComprClauses {
+			switch clause.Kind {
+			case ComprEnum:
+				clauses[i] = fmt.Sprintf("enum(%v, %v)", clause.Expr, clause.Pat)
+			case ComprFilter:
+				clauses[i] = fmt.Sprintf("filter(%v)", clause.Expr)
+			}
+		}
+		fmt.Fprintf(b, "compr(%v, %s)", e.ComprExpr, strings.Join(clauses, ", "))
 	case ExprThunk:
 		fmt.Fprintf(b, "thunk(%v, %v)", e.Left, e.Env)
 	case ExprBuiltin:

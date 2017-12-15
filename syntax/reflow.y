@@ -31,6 +31,9 @@ type typearg struct {
 	exprfields []*FieldExpr
 	exprmap map[*Expr]*Expr
 	
+	comprclauses []*ComprClause
+	comprclause *ComprClause
+	
 	typ *types.T
 	typlist []*types.T
 	typfield *types.Field
@@ -82,6 +85,8 @@ type typearg struct {
 %type	<expr>		expr factor term keyspace exprblock ifelseblock
 %type	<exprlist>	 listargs  listappendargs
 %type	<exprmap>	mapargs
+%type	<comprclauses>	comprclauses
+%type	<comprclause>	comprclause
 %type	<idents>	identSelector
 %type	<typ>		type
 %type	<typearg>		typearg
@@ -527,8 +532,16 @@ term:
 			$$ = &Expr{Position: $1.Position, Kind: ExprBinop, Op: "+", Left: list, Right: $$}
 		}
 	}
-|	'[' expr '|' pat tokLeftArrow expr ']'
-	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprCompr, Left: $6, Pat: $4, ComprExpr: $2}}
+|	'[' expr '|' comprclauses ']'
+	{
+		$$ = &Expr{
+			Position: $1.Position, 
+			Comment: $1.comment, 
+			Kind: ExprCompr, 
+			ComprExpr: $2, 
+			ComprClauses: $4,
+		}
+	}
 |	'(' expr ')'
 	{$$ = $2}
 |	exprblock
@@ -560,6 +573,18 @@ exprblock:
 ifelseblock:
 	'{' defs expr maybeColon '}'
 	{$$ = &Expr{Position: $1.Position, Comment: $1.comment,  Kind: ExprBlock, Decls: $2, Left: $3}}
+	
+comprclauses:
+	comprclause
+	{$$ = []*ComprClause{$1}}
+|	comprclauses ',' comprclause
+	{$$ = append($1, $3)}
+
+comprclause:
+	pat tokLeftArrow expr
+	{$$ = &ComprClause{Kind: ComprEnum, Pat: $1, Expr: $3}}
+|	tokIf expr
+	{$$ = &ComprClause{Kind: ComprFilter, Expr: $2}}
 
 maybeColon:
 |	';' 

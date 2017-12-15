@@ -181,6 +181,23 @@ val integers = [(1, 2), (-4, 3), (1, 1)]
 val multiplied = [absMul(x, y) | (x, y) <- integers]
 </pre>
 Each pair of integers are multiplied together, producing <code>[2, 12, 1]</code>.
+<p>
+Comprehensions can range over multiple lists (or maps),
+computing the cross product of these. For example
+<pre>
+val integers = [1,2,3,4]
+val chars = ["a", "b", "c"]
+val cross = [(i, c) | i <- integers, c <- chars]
+</pre>
+computes the cross product <code>[(1, "a"), (1, "b"), (1, "c"), (2, "a"), (2, "b"), (2, "c"), (3, "a"), (3, "b"), (3, "c"), (4, "a"), (4, "b"), (4, "c")]</code>.
+<p>
+Finally, comprehensions can apply filters.
+As an example, the following computes the
+cross product only for even integers:
+<pre>
+val evenCross = [(i, c) | i <- integers, if i%2 == 0, c <- chars]
+</pre>
+resulting in <code>[(2, "a"), (2, "b"), (2, "c"), (4, "a"), (4, "b"), (4, "c")]</code>.
   </dd>
 </dl>
 

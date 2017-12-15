@@ -7,6 +7,7 @@ package syntax
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
 	"runtime/debug"
@@ -452,51 +453,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			return v, nil
 		}, e.Left, e.Right)
 	case ExprCompr:
-		return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
-			switch e.Left.Type.Kind {
-			default:
-				panic("invalid expr")
-			case types.ListKind:
-				left := vs[0].(values.List)
-				list := make(values.List, len(left))
-				for i, v := range left {
-					env2 := env.Push()
-					for id, m := range e.Pat.Matchers() {
-						w, err := coerceMatch(v, e.Left.Type.Elem, m.Path())
-						if err != nil {
-							return nil, err
-						}
-						env2.Bind(id, w)
-					}
-					var err error
-					list[i], err = e.ComprExpr.eval(sess, env2, ident)
-					if err != nil {
-						return nil, err
-					}
-				}
-				return list, nil
-			case types.MapKind:
-				left := vs[0].(values.Map)
-				var list values.List
-				for k, v := range left {
-					env2 := env.Push()
-					for id, matcher := range e.Pat.Matchers() {
-						tup := values.Tuple{k, v}
-						w, err := coerceMatch(tup, types.Tuple(&types.Field{T: e.Left.Type.Index}, &types.Field{T: e.Left.Type.Elem}), matcher.Path())
-						if err != nil {
-							return nil, err
-						}
-						env2.Bind(id, w)
-					}
-					ev, err := e.ComprExpr.eval(sess, env2, ident)
-					if err != nil {
-						return nil, err
-					}
-					list = append(list, ev)
-				}
-				return list, nil
-			}
-		}, e.Left)
+		return e.evalCompr(sess, env, ident, 0)
 	case ExprMake:
 		var (
 			params = make(map[string]Param)
@@ -609,21 +566,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}, e.Left)
 		case "flatten":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
-				// Traverse the outer list so we can get its length.
-				outer := vs[0].(values.List)
-				tvals := make([]interface{}, len(outer))
-				for i := range outer {
-					tvals[i] = tval{types.List(e.Type.Elem), outer[i]}
-				}
-				return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
-					var list values.List
-					for _, v := range vs {
-						for _, el := range v.(values.List) {
-							list = append(list, el)
-						}
-					}
-					return list, nil
-				}, tvals...)
+				return e.flatten(sess, env, ident, vs[0].(values.List), types.List(e.Type.Elem))
 			}, e.Left)
 		case "map":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
@@ -896,12 +839,186 @@ func (e *Expr) evalUnop(vs []values.T) (values.T, error) {
 	}
 }
 
+func (e *Expr) evalCompr(sess *Session, env *values.Env, ident string, begin int) (values.T, error) {
+	// The clause expression is captured directly.
+	var k evalK = func(e *Expr, env *values.Env, dw io.Writer) {
+		e.digest1(dw)
+		// TODO: make sure we compute the same digest for the single-clause case.
+		//	(and test this)
+		env2 := env.Push()
+		for i, j := begin, 0; i < len(e.ComprClauses); i++ {
+			clause := e.ComprClauses[i]
+			switch clause.Kind {
+			case ComprEnum:
+				for _, id := range clause.Pat.Idents(nil) {
+					env2.Bind(id, digestN(j))
+					j++
+				}
+			case ComprFilter:
+			}
+			if i > begin {
+				clause.Expr.digest(dw, env2)
+			}
+		}
+		e.ComprExpr.digest(dw, env2)
+	}
+	clause := e.ComprClauses[begin]
+	return k.Continue(e, sess, env, ident, func(vs []values.T) (values.T, error) {
+		var (
+			list values.List
+			last = begin == len(e.ComprClauses)-1
+		)
+		switch clause.Kind {
+		case ComprEnum:
+			switch clause.Expr.Type.Kind {
+			default:
+				panic("invalid expr")
+			case types.ListKind:
+				left := vs[0].(values.List)
+				list = make(values.List, len(left))
+				for i, v := range left {
+					env2 := env.Push()
+					for id, m := range clause.Pat.Matchers() {
+						w, err := coerceMatch(v, clause.Expr.Type.Elem, m.Path())
+						if err != nil {
+							return nil, err
+						}
+						env2.Bind(id, w)
+					}
+					var err error
+					if last {
+						list[i], err = e.ComprExpr.eval(sess, env2, ident)
+					} else {
+						list[i], err = e.evalCompr(sess, env2, ident, begin+1)
+					}
+					if err != nil {
+						return nil, err
+					}
+				}
+			case types.MapKind:
+				left := vs[0].(values.Map)
+				for k, v := range left {
+					env2 := env.Push()
+					for id, matcher := range clause.Pat.Matchers() {
+						tup := values.Tuple{k, v}
+						w, err := coerceMatch(tup, types.Tuple(&types.Field{T: clause.Expr.Type.Index}, &types.Field{T: clause.Expr.Type.Elem}), matcher.Path())
+						if err != nil {
+							return nil, err
+						}
+						env2.Bind(id, w)
+					}
+					var (
+						err error
+						ev  values.T
+					)
+					if last {
+						ev, err = e.ComprExpr.eval(sess, env2, ident)
+					} else {
+						ev, err = e.evalCompr(sess, env2, ident, begin+1)
+					}
+					if err != nil {
+						return nil, err
+					}
+					list = append(list, ev)
+				}
+
+				return list, nil
+			}
+		case ComprFilter:
+			if !vs[0].(bool) {
+				return values.List{}, nil
+			}
+			if last {
+				v, err := e.ComprExpr.eval(sess, env, ident)
+				if err != nil {
+					return nil, err
+				}
+				return values.List{v}, nil
+			}
+			return e.evalCompr(sess, env, ident, begin+1)
+		}
+		if last {
+			return list, nil
+		}
+		return e.flatten(sess, env, ident, list, types.List(e.Type.Elem))
+	}, clause.Expr)
+}
+
 type tval struct {
 	T *types.T
 	V values.T
 }
 
 func (e *Expr) k(sess *Session, env *values.Env, ident string, k func(vs []values.T) (values.T, error), subs ...interface{}) (values.T, error) {
+	return stdEvalK.Continue(e, sess, env, ident, k, subs...)
+}
+
+func (e *Expr) flatten(sess *Session, env *values.Env, ident string, list values.List, t *types.T) (values.T, error) {
+	tvals := make([]interface{}, len(list))
+	for i := range list {
+		tvals[i] = tval{t, list[i]}
+	}
+	return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+		var list values.List
+		for _, v := range vs {
+			for _, el := range v.(values.List) {
+				list = append(list, el)
+			}
+		}
+		return list, nil
+	}, tvals...)
+}
+
+// indexer is used to mint fresh indices and look them up later.
+type indexer struct {
+	i   int
+	ids map[string]int
+}
+
+func newIndexer() *indexer {
+	return &indexer{ids: map[string]int{}}
+}
+
+// Lookup returns the index associated with an id.
+func (x *indexer) Lookup(id string) (int, bool) {
+	i, ok := x.ids[id]
+	return i, ok
+}
+
+// Index returns the index associated with id. If no association
+// exists, it returns the next index and stores the new association.
+func (x *indexer) Index(id string) int {
+	i, ok := x.ids[id]
+	if !ok {
+		i = x.i
+		x.i++
+		x.ids[id] = i
+	}
+	return i
+}
+
+// N returns the number of associations made.
+func (x *indexer) N() int {
+	return x.i
+}
+
+func quotequote(s string) string {
+	return strings.Replace(s, "%", "%%", -1)
+}
+
+// evalK is the type of evaluation continuation. It is abstracted
+// over the function that computes the digest of the delayed
+// computation. This allows us to reuse this code when the expression
+// does not provide enough context to compute the digest, as is the
+// case in ExprCompr.
+type evalK func(*Expr, *values.Env, io.Writer)
+
+// Continue continues the evaluation of expression e once the
+// subcomputations (expressions or tvals) subs are evaluated. If the
+// dependencies are available immediately, kfn is invoked inline;
+// otherwise a delayed OpK node is returned which represents the
+// implied dependency graph and continuation.
+func (k evalK) Continue(e *Expr, sess *Session, env *values.Env, ident string, kfn func(vs []values.T) (values.T, error), subs ...interface{}) (values.T, error) {
 	var (
 		deps  []*reflow.Flow
 		depsi []int
@@ -937,55 +1054,22 @@ func (e *Expr) k(sess *Session, env *values.Env, ident string, k func(vs []value
 	// If all dependencies are resolved, we evaluate directly,
 	// except if we're evaluating a delay operation.
 	if len(deps) == 0 && (e.Kind != ExprBuiltin || e.Op != "delay") {
-		return k(vs)
+		return kfn(vs)
 	}
 
-	// Otherwise, we compute the single-node digest. Note that, except
-	// for operations that delay evaluating part of the three, all
-	// dependencies are captured either directly through value digests
-	// or else through the flow dependencies in the OpK below. Thus, we
-	// need only include the operation itself.
+	// Otherwise, the node cannot be immediately evaluated; we defer its
+	// evaluation until all of its dependencies are resolved.
 	//
-	// In the case of expressions with delayed evaluation, we construct
-	// an environment with indexed identifiers. This is ok since we're
-	// capturing the structure of an expression, and the expressions
-	// dependencies are captured independently.
-	e.digest1(dw)
-	switch e.Kind {
-	case ExprCond:
-		e.Left.digest(dw, env)
-		e.Right.digest(dw, env)
-	case ExprBinop:
-		// These are short-circuit operations, and so their dependencies
-		// aren't captured by the evaluator directly.
-		if e.Op == "||" || e.Op == "&&" {
-			e.Right.digest(dw, env)
-		}
-	case ExprApply:
-		for _, f := range e.Fields {
-			f.Expr.digest(dw, env)
-		}
-	case ExprCompr:
-		env2 := env.Push()
-		for i, id := range e.Pat.Idents(nil) {
-			env2.Bind(id, digestN(i))
-		}
-		e.ComprExpr.digest(dw, env2)
-	case ExprBlock:
-		env2 := env.Push()
-		i := 0
-		for _, decl := range e.Decls {
-			for _, id := range decl.Pat.Idents(nil) {
-				env2.Bind(id, i)
-				i++
-			}
-		}
-		e.Left.digest(dw, env2)
-	}
+	//We first compute the (single-node) digest to identify  the
+	//operation.
+	//
+	// Note that, except for operations that delay evaluating part of
+	// the tree, all dependencies are captured either directly through
+	// value digests or else through the flow dependencies in the OpK
+	// below. Thus, we need only include the logical operation itself
+	// here.
+	k(e, env, dw)
 
-	// This node cannot be immediately evaluated, so we defer it
-	// until all its dependencies are resolved. Evaluation continues
-	// in (*Expr).eval.
 	return &reflow.Flow{
 		Op:         reflow.OpK,
 		Deps:       deps,
@@ -994,7 +1078,7 @@ func (e *Expr) k(sess *Session, env *values.Env, ident string, k func(vs []value
 			for i, v := range vs1 {
 				vs[depsi[i]] = v
 			}
-			v, err := k(vs)
+			v, err := kfn(vs)
 			if err != nil {
 				return &reflow.Flow{Op: reflow.OpVal, Err: errors.Recover(err)}
 			}
@@ -1011,39 +1095,39 @@ func (e *Expr) k(sess *Session, env *values.Env, ident string, k func(vs []value
 	}, nil
 }
 
-// indexer is used to mind fresh indices and look them up later.
-type indexer struct {
-	i   int
-	ids map[string]int
-}
-
-func newIndexer() *indexer {
-	return &indexer{ids: map[string]int{}}
-}
-
-// Lookup returns the index associated with an id.
-func (x *indexer) Lookup(id string) (int, bool) {
-	i, ok := x.ids[id]
-	return i, ok
-}
-
-// Index returns the index associated with id. If no association
-// exists, it returns the next index and stores the new association.
-func (x *indexer) Index(id string) int {
-	i, ok := x.ids[id]
-	if !ok {
-		i = x.i
-		x.i++
-		x.ids[id] = i
+// The standard evalK, computing single-node digests for known
+// expressions.
+var stdEvalK evalK = func(e *Expr, env *values.Env, dw io.Writer) {
+	// We construct an environment with indexed identifiers. This is ok
+	// since we're capturing the structure of an expression, and the
+	// expressions dependencies are captured independently.
+	e.digest1(dw)
+	switch e.Kind {
+	case ExprCond:
+		e.Left.digest(dw, env)
+		e.Right.digest(dw, env)
+	case ExprBinop:
+		// These are short-circuit operations, and so their dependencies
+		// aren't captured by the evaluator directly.
+		if e.Op == "||" || e.Op == "&&" {
+			e.Right.digest(dw, env)
+		}
+	case ExprApply:
+		for _, f := range e.Fields {
+			f.Expr.digest(dw, env)
+		}
+	case ExprCompr:
+		panic("stdEvalK used for ExprCompr")
+	case ExprBlock:
+		env2 := env.Push()
+		i := 0
+		for _, decl := range e.Decls {
+			for _, id := range decl.Pat.Idents(nil) {
+				env2.Bind(id, i)
+				i++
+			}
+		}
+		e.Left.digest(dw, env2)
 	}
-	return i
-}
 
-// N returns the number of associations made.
-func (x *indexer) N() int {
-	return x.i
-}
-
-func quotequote(s string) string {
-	return strings.Replace(s, "%", "%%", -1)
 }

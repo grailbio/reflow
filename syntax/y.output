@@ -19,10 +19,10 @@ state 1
 
 state 2
 	start:  tokStartModule.module tokEOF 
-	keyspace: .    (143)
+	keyspace: .    (147)
 
 	tokKeyspace  shift 8
-	.  reduce 143 (src line 621)
+	.  reduce 147 (src line 646)
 
 	keyspace  goto 7
 	module  goto 6
@@ -31,7 +31,7 @@ state 3
 	start:  tokStartDecls.defs tokEOF 
 	defs: .    (42)
 
-	.  reduce 42 (src line 308)
+	.  reduce 42 (src line 313)
 
 	defs  goto 9
 
@@ -97,9 +97,9 @@ state 6
 
 state 7
 	module:  keyspace.params defs 
-	params: .    (145)
+	params: .    (149)
 
-	.  reduce 145 (src line 626)
+	.  reduce 149 (src line 651)
 
 	params  goto 52
 
@@ -176,7 +176,7 @@ state 10
 state 11
 	expr:  factor.    (68)
 
-	.  reduce 68 (src line 437)
+	.  reduce 68 (src line 442)
 
 
 state 12
@@ -215,7 +215,7 @@ state 12
 state 13
 	factor:  term.    (90)
 
-	.  reduce 90 (src line 481)
+	.  reduce 90 (src line 486)
 
 
 state 14
@@ -283,25 +283,25 @@ state 15
 state 16
 	term:  tokExpr.    (93)
 
-	.  reduce 93 (src line 487)
+	.  reduce 93 (src line 492)
 
 
 state 17
 	term:  tokIdent.    (94)
 
-	.  reduce 94 (src line 489)
+	.  reduce 94 (src line 494)
 
 
 state 18
 	term:  tokFile.    (95)
 
-	.  reduce 95 (src line 491)
+	.  reduce 95 (src line 496)
 
 
 state 19
 	term:  tokDir.    (96)
 
-	.  reduce 96 (src line 493)
+	.  reduce 96 (src line 498)
 
 
 state 20
@@ -385,8 +385,8 @@ state 25
 	term:  '['.':' ']' 
 	term:  '['.mapargs commaOk ']' 
 	term:  '['.mapargs commaOk listappendargs commaOk ']' 
-	term:  '['.expr '|' pat tokLeftArrow expr ']' 
-	listargs: .    (130)
+	term:  '['.expr '|' comprclauses ']' 
+	listargs: .    (134)
 
 	tokIdent  shift 17
 	tokExpr  shift 16
@@ -412,7 +412,7 @@ state 25
 	'-'  shift 15
 	'!'  shift 14
 	':'  shift 97
-	.  reduce 130 (src line 579)
+	.  reduce 134 (src line 604)
 
 	expr  goto 99
 	factor  goto 11
@@ -424,7 +424,7 @@ state 25
 state 26
 	term:  exprblock.    (111)
 
-	.  reduce 111 (src line 534)
+	.  reduce 111 (src line 547)
 
 
 state 27
@@ -507,37 +507,37 @@ state 37
 state 38
 	type:  tokInt.    (7)
 
-	.  reduce 7 (src line 150)
+	.  reduce 7 (src line 155)
 
 
 state 39
 	type:  tokFloat.    (8)
 
-	.  reduce 8 (src line 152)
+	.  reduce 8 (src line 157)
 
 
 state 40
 	type:  tokString.    (9)
 
-	.  reduce 9 (src line 153)
+	.  reduce 9 (src line 158)
 
 
 state 41
 	type:  tokBool.    (10)
 
-	.  reduce 10 (src line 154)
+	.  reduce 10 (src line 159)
 
 
 state 42
 	type:  tokFile.    (11)
 
-	.  reduce 11 (src line 155)
+	.  reduce 11 (src line 160)
 
 
 state 43
 	type:  tokDir.    (12)
 
-	.  reduce 12 (src line 156)
+	.  reduce 12 (src line 161)
 
 
 state 44
@@ -545,7 +545,7 @@ state 44
 	type:  identSelector.    (13)
 
 	'.'  shift 111
-	.  reduce 13 (src line 157)
+	.  reduce 13 (src line 162)
 
 
 state 45
@@ -619,38 +619,38 @@ state 49
 state 50
 	identSelector:  tokIdent.    (5)
 
-	.  reduce 5 (src line 144)
+	.  reduce 5 (src line 149)
 
 
 state 51
 	start:  tokStartModule module tokEOF.    (1)
 
-	.  reduce 1 (src line 118)
+	.  reduce 1 (src line 123)
 
 
 state 52
 	module:  keyspace params.defs 
 	params:  params.param ';' 
 	defs: .    (42)
-	param: .    (147)
+	param: .    (151)
 
 	tokParam  shift 125
-	';'  reduce 147 (src line 631)
-	.  reduce 42 (src line 308)
+	';'  reduce 151 (src line 656)
+	.  reduce 42 (src line 313)
 
 	defs  goto 123
 	param  goto 124
 
 state 53
-	keyspace:  tokKeyspace tokExpr.    (144)
+	keyspace:  tokKeyspace tokExpr.    (148)
 
-	.  reduce 144 (src line 623)
+	.  reduce 148 (src line 648)
 
 
 state 54
 	start:  tokStartDecls defs tokEOF.    (2)
 
-	.  reduce 2 (src line 124)
+	.  reduce 2 (src line 129)
 
 
 state 55
@@ -663,13 +663,13 @@ state 55
 state 56
 	def:  valdef.    (53)
 
-	.  reduce 53 (src line 343)
+	.  reduce 53 (src line 348)
 
 
 state 57
 	def:  typedef.    (54)
 
-	.  reduce 54 (src line 343)
+	.  reduce 54 (src line 348)
 
 
 state 58
@@ -717,7 +717,7 @@ state 62
 state 63
 	start:  tokStartExpr expr tokEOF.    (3)
 
-	.  reduce 3 (src line 129)
+	.  reduce 3 (src line 134)
 
 
 state 64
@@ -1406,13 +1406,13 @@ state 84
 state 85
 	factor:  '!' factor.    (91)
 
-	.  reduce 91 (src line 482)
+	.  reduce 91 (src line 487)
 
 
 state 86
 	factor:  '-' factor.    (92)
 
-	.  reduce 92 (src line 484)
+	.  reduce 92 (src line 489)
 
 
 state 87
@@ -1436,7 +1436,7 @@ state 88
 	tokVal  shift 59
 	tokFunc  shift 61
 	tokType  shift 62
-	.  reduce 46 (src line 319)
+	.  reduce 46 (src line 324)
 
 	commadefs  goto 163
 	valdef  goto 56
@@ -1504,10 +1504,10 @@ state 90
 state 91
 	term:  '{' structfieldargs.commaOk '}' 
 	structfieldargs:  structfieldargs.',' structfieldarg 
-	commaOk: .    (150)
+	commaOk: .    (154)
 
 	','  shift 171
-	.  reduce 150 (src line 638)
+	.  reduce 154 (src line 663)
 
 	commaOk  goto 170
 
@@ -1552,9 +1552,9 @@ state 92
 	exprblock  goto 26
 
 state 93
-	structfieldargs:  structfieldarg.    (126)
+	structfieldargs:  structfieldarg.    (130)
 
-	.  reduce 126 (src line 567)
+	.  reduce 130 (src line 592)
 
 
 state 94
@@ -1566,22 +1566,22 @@ state 94
 
 state 95
 	valdef:  tokIdent.tokAssign expr 
-	structfieldarg:  tokIdent.    (128)
+	structfieldarg:  tokIdent.    (132)
 	structfieldarg:  tokIdent.':' expr 
 
 	tokAssign  shift 135
 	':'  shift 177
-	.  reduce 128 (src line 573)
+	.  reduce 132 (src line 598)
 
 
 state 96
 	term:  '[' listargs.commaOk ']' 
 	term:  '[' listargs.commaOk listappendargs commaOk ']' 
 	listargs:  listargs.',' expr 
-	commaOk: .    (150)
+	commaOk: .    (154)
 
 	','  shift 179
-	.  reduce 150 (src line 638)
+	.  reduce 154 (src line 663)
 
 	commaOk  goto 178
 
@@ -1596,10 +1596,10 @@ state 98
 	term:  '[' mapargs.commaOk ']' 
 	term:  '[' mapargs.commaOk listappendargs commaOk ']' 
 	mapargs:  mapargs.',' expr ':' expr 
-	commaOk: .    (150)
+	commaOk: .    (154)
 
 	','  shift 182
-	.  reduce 150 (src line 638)
+	.  reduce 154 (src line 663)
 
 	commaOk  goto 181
 
@@ -1624,8 +1624,8 @@ state 99
 	expr:  expr.tokSquiggleArrow expr 
 	expr:  expr.'.' tokIdent 
 	expr:  expr.'[' expr ']' 
-	term:  '[' expr.'|' pat tokLeftArrow expr ']' 
-	listargs:  expr.    (131)
+	term:  '[' expr.'|' comprclauses ']' 
+	listargs:  expr.    (135)
 	mapargs:  expr.':' expr 
 
 	'('  shift 64
@@ -1650,7 +1650,7 @@ state 99
 	'&'  shift 78
 	'.'  shift 82
 	':'  shift 184
-	.  reduce 131 (src line 581)
+	.  reduce 135 (src line 606)
 
 
 state 100
@@ -1986,7 +1986,7 @@ state 109
 state 110
 	start:  tokStartType type tokEOF.    (4)
 
-	.  reduce 4 (src line 134)
+	.  reduce 4 (src line 139)
 
 
 state 111
@@ -2017,7 +2017,7 @@ state 113
 state 114
 	typefields:  typefield.    (23)
 
-	.  reduce 23 (src line 194)
+	.  reduce 23 (src line 199)
 
 
 state 115
@@ -2045,7 +2045,7 @@ state 115
 state 116
 	typefieldidents:  tokIdent.    (20)
 
-	.  reduce 20 (src line 180)
+	.  reduce 20 (src line 185)
 
 
 state 117
@@ -2070,13 +2070,13 @@ state 119
 	typeargs:  typearglist.    (29)
 
 	','  shift 204
-	.  reduce 29 (src line 218)
+	.  reduce 29 (src line 223)
 
 
 state 120
 	typearglist:  typearg.    (27)
 
-	.  reduce 27 (src line 206)
+	.  reduce 27 (src line 211)
 
 
 state 121
@@ -2095,7 +2095,7 @@ state 121
 	'{'  shift 46
 	'('  shift 48
 	'['  shift 45
-	.  reduce 25 (src line 200)
+	.  reduce 25 (src line 205)
 
 	identSelector  goto 44
 	type  goto 205
@@ -2125,14 +2125,14 @@ state 122
 
 state 123
 	defs:  defs.def ';' 
-	module:  keyspace params defs.    (142)
+	module:  keyspace params defs.    (146)
 
 	tokIdent  shift 60
 	tokAt  shift 58
 	tokVal  shift 59
 	tokFunc  shift 61
 	tokType  shift 62
-	.  reduce 142 (src line 615)
+	.  reduce 146 (src line 640)
 
 	valdef  goto 56
 	typedef  goto 57
@@ -2159,7 +2159,7 @@ state 125
 state 126
 	defs:  defs def ';'.    (43)
 
-	.  reduce 43 (src line 310)
+	.  reduce 43 (src line 315)
 
 
 state 127
@@ -2172,7 +2172,7 @@ state 127
 state 128
 	valdef:  tokVal val.    (56)
 
-	.  reduce 56 (src line 351)
+	.  reduce 56 (src line 356)
 
 
 state 129
@@ -2200,13 +2200,13 @@ state 129
 state 130
 	pat:  tokIdent.    (30)
 
-	.  reduce 30 (src line 259)
+	.  reduce 30 (src line 264)
 
 
 state 131
 	pat:  '_'.    (31)
 
-	.  reduce 31 (src line 262)
+	.  reduce 31 (src line 267)
 
 
 state 132
@@ -2309,10 +2309,10 @@ state 137
 state 138
 	expr:  expr '(' applyargs.commaOk ')' 
 	applyargs:  applyargs.',' expr 
-	commaOk: .    (150)
+	commaOk: .    (154)
 
 	','  shift 226
-	.  reduce 150 (src line 638)
+	.  reduce 154 (src line 663)
 
 	commaOk  goto 225
 
@@ -2337,7 +2337,7 @@ state 139
 	expr:  expr.tokSquiggleArrow expr 
 	expr:  expr.'.' tokIdent 
 	expr:  expr.'[' expr ']' 
-	applyargs:  expr.    (137)
+	applyargs:  expr.    (141)
 
 	'('  shift 64
 	'['  shift 83
@@ -2359,7 +2359,7 @@ state 139
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 137 (src line 598)
+	.  reduce 141 (src line 623)
 
 
 state 140
@@ -2403,7 +2403,7 @@ state 140
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 70 (src line 440)
+	.  reduce 70 (src line 445)
 
 
 state 141
@@ -2446,7 +2446,7 @@ state 141
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 71 (src line 442)
+	.  reduce 71 (src line 447)
 
 
 state 142
@@ -2483,7 +2483,7 @@ state 142
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 72 (src line 444)
+	.  reduce 72 (src line 449)
 
 
 state 143
@@ -2520,7 +2520,7 @@ state 143
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 73 (src line 446)
+	.  reduce 73 (src line 451)
 
 
 state 144
@@ -2557,7 +2557,7 @@ state 144
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 74 (src line 448)
+	.  reduce 74 (src line 453)
 
 
 state 145
@@ -2594,7 +2594,7 @@ state 145
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 75 (src line 450)
+	.  reduce 75 (src line 455)
 
 
 state 146
@@ -2631,7 +2631,7 @@ state 146
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 76 (src line 452)
+	.  reduce 76 (src line 457)
 
 
 state 147
@@ -2668,7 +2668,7 @@ state 147
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 77 (src line 454)
+	.  reduce 77 (src line 459)
 
 
 state 148
@@ -2703,7 +2703,7 @@ state 148
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 78 (src line 456)
+	.  reduce 78 (src line 461)
 
 
 state 149
@@ -2738,7 +2738,7 @@ state 149
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 79 (src line 458)
+	.  reduce 79 (src line 463)
 
 
 state 150
@@ -2767,7 +2767,7 @@ state 150
 	'('  shift 64
 	'['  shift 83
 	'.'  shift 82
-	.  reduce 80 (src line 460)
+	.  reduce 80 (src line 465)
 
 
 state 151
@@ -2796,7 +2796,7 @@ state 151
 	'('  shift 64
 	'['  shift 83
 	'.'  shift 82
-	.  reduce 81 (src line 462)
+	.  reduce 81 (src line 467)
 
 
 state 152
@@ -2825,7 +2825,7 @@ state 152
 	'('  shift 64
 	'['  shift 83
 	'.'  shift 82
-	.  reduce 82 (src line 464)
+	.  reduce 82 (src line 469)
 
 
 state 153
@@ -2854,7 +2854,7 @@ state 153
 	'('  shift 64
 	'['  shift 83
 	'.'  shift 82
-	.  reduce 83 (src line 466)
+	.  reduce 83 (src line 471)
 
 
 state 154
@@ -2883,7 +2883,7 @@ state 154
 	'('  shift 64
 	'['  shift 83
 	'.'  shift 82
-	.  reduce 84 (src line 468)
+	.  reduce 84 (src line 473)
 
 
 state 155
@@ -2912,7 +2912,7 @@ state 155
 	'('  shift 64
 	'['  shift 83
 	'.'  shift 82
-	.  reduce 85 (src line 470)
+	.  reduce 85 (src line 475)
 
 
 state 156
@@ -2957,13 +2957,13 @@ state 156
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 86 (src line 472)
+	.  reduce 86 (src line 477)
 
 
 state 157
 	expr:  expr '.' tokIdent.    (88)
 
-	.  reduce 88 (src line 476)
+	.  reduce 88 (src line 481)
 
 
 state 158
@@ -3024,7 +3024,7 @@ state 160
 	ifelseblock:  '{'.defs expr maybeColon '}' 
 	defs: .    (42)
 
-	.  reduce 42 (src line 308)
+	.  reduce 42 (src line 313)
 
 	defs  goto 229
 
@@ -3038,10 +3038,10 @@ state 161
 
 state 162
 	typefields:  typefields.',' typefield 
-	funcargs:  typefields.    (141)
+	funcargs:  typefields.    (145)
 
 	','  shift 199
-	.  reduce 141 (src line 613)
+	.  reduce 145 (src line 638)
 
 
 state 163
@@ -3056,13 +3056,13 @@ state 163
 state 164
 	commadefs:  commadef.    (47)
 
-	.  reduce 47 (src line 321)
+	.  reduce 47 (src line 326)
 
 
 state 165
 	commadef:  def.    (49)
 
-	.  reduce 49 (src line 326)
+	.  reduce 49 (src line 331)
 
 
 state 166
@@ -3070,7 +3070,7 @@ state 166
 	valdef:  tokIdent.tokAssign expr 
 
 	tokAssign  shift 135
-	.  reduce 50 (src line 327)
+	.  reduce 50 (src line 332)
 
 
 state 167
@@ -3119,7 +3119,7 @@ state 168
 state 169
 	term:  '(' expr ')'.    (110)
 
-	.  reduce 110 (src line 532)
+	.  reduce 110 (src line 545)
 
 
 state 170
@@ -3131,10 +3131,10 @@ state 170
 
 state 171
 	structfieldargs:  structfieldargs ','.structfieldarg 
-	commaOk:  ','.    (151)
+	commaOk:  ','.    (155)
 
 	tokIdent  shift 239
-	.  reduce 151 (src line 639)
+	.  reduce 155 (src line 664)
 
 	structfieldarg  goto 238
 
@@ -3167,7 +3167,7 @@ state 173
 	expr:  expr.'.' tokIdent 
 	expr:  expr.'[' expr ']' 
 	exprblock:  '{' defs1 expr.maybeColon '}' 
-	maybeColon: .    (124)
+	maybeColon: .    (128)
 
 	'('  shift 64
 	'['  shift 83
@@ -3190,7 +3190,7 @@ state 173
 	'&'  shift 78
 	'.'  shift 82
 	';'  shift 242
-	.  reduce 124 (src line 564)
+	.  reduce 128 (src line 589)
 
 	maybeColon  goto 241
 
@@ -3199,7 +3199,7 @@ state 174
 	term:  tokIdent.    (94)
 
 	tokAssign  shift 135
-	.  reduce 94 (src line 489)
+	.  reduce 94 (src line 494)
 
 
 state 175
@@ -3216,7 +3216,7 @@ state 175
 state 176
 	defs1:  def ';'.    (44)
 
-	.  reduce 44 (src line 313)
+	.  reduce 44 (src line 318)
 
 
 state 177
@@ -3264,7 +3264,7 @@ state 178
 
 state 179
 	listargs:  listargs ','.expr 
-	commaOk:  ','.    (151)
+	commaOk:  ','.    (155)
 
 	tokIdent  shift 17
 	tokExpr  shift 16
@@ -3289,7 +3289,7 @@ state 179
 	'['  shift 25
 	'-'  shift 15
 	'!'  shift 14
-	.  reduce 151 (src line 639)
+	.  reduce 155 (src line 664)
 
 	expr  goto 247
 	factor  goto 11
@@ -3299,7 +3299,7 @@ state 179
 state 180
 	term:  '[' ':' ']'.    (106)
 
-	.  reduce 106 (src line 519)
+	.  reduce 106 (src line 524)
 
 
 state 181
@@ -3314,7 +3314,7 @@ state 181
 
 state 182
 	mapargs:  mapargs ','.expr ':' expr 
-	commaOk:  ','.    (151)
+	commaOk:  ','.    (155)
 
 	tokIdent  shift 17
 	tokExpr  shift 16
@@ -3339,7 +3339,7 @@ state 182
 	'['  shift 25
 	'-'  shift 15
 	'!'  shift 14
-	.  reduce 151 (src line 639)
+	.  reduce 155 (src line 664)
 
 	expr  goto 250
 	factor  goto 11
@@ -3347,16 +3347,19 @@ state 182
 	exprblock  goto 26
 
 state 183
-	term:  '[' expr '|'.pat tokLeftArrow expr ']' 
+	term:  '[' expr '|'.comprclauses ']' 
 
 	tokIdent  shift 130
+	tokIf  shift 254
 	'{'  shift 134
 	'('  shift 132
 	'['  shift 133
 	'_'  shift 131
 	.  error
 
-	pat  goto 251
+	comprclauses  goto 251
+	comprclause  goto 252
+	pat  goto 253
 
 state 184
 	mapargs:  expr ':'.expr 
@@ -3386,7 +3389,7 @@ state 184
 	'!'  shift 14
 	.  error
 
-	expr  goto 252
+	expr  goto 255
 	factor  goto 11
 	term  goto 13
 	exprblock  goto 26
@@ -3434,7 +3437,7 @@ state 185
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	')'  shift 253
+	')'  shift 256
 	.  error
 
 
@@ -3481,7 +3484,7 @@ state 186
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	')'  shift 254
+	')'  shift 257
 	.  error
 
 
@@ -3528,7 +3531,7 @@ state 187
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	')'  shift 255
+	')'  shift 258
 	.  error
 
 
@@ -3575,7 +3578,7 @@ state 188
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	','  shift 256
+	','  shift 259
 	.  error
 
 
@@ -3622,7 +3625,7 @@ state 189
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	')'  shift 257
+	')'  shift 260
 	.  error
 
 
@@ -3669,7 +3672,7 @@ state 190
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	')'  shift 258
+	')'  shift 261
 	.  error
 
 
@@ -3716,7 +3719,7 @@ state 191
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	')'  shift 259
+	')'  shift 262
 	.  error
 
 
@@ -3763,7 +3766,7 @@ state 192
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	')'  shift 260
+	')'  shift 263
 	.  error
 
 
@@ -3810,7 +3813,7 @@ state 193
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	')'  shift 261
+	')'  shift 264
 	.  error
 
 
@@ -3857,20 +3860,20 @@ state 194
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	')'  shift 262
+	')'  shift 265
 	.  error
 
 
 state 195
 	identSelector:  identSelector '.' tokIdent.    (6)
 
-	.  reduce 6 (src line 147)
+	.  reduce 6 (src line 152)
 
 
 state 196
 	type:  '[' type ']'.    (14)
 
-	.  reduce 14 (src line 158)
+	.  reduce 14 (src line 163)
 
 
 state 197
@@ -3891,12 +3894,12 @@ state 197
 	.  error
 
 	identSelector  goto 44
-	type  goto 263
+	type  goto 266
 
 state 198
 	type:  '{' typefields '}'.    (16)
 
-	.  reduce 16 (src line 161)
+	.  reduce 16 (src line 166)
 
 
 state 199
@@ -3905,27 +3908,27 @@ state 199
 	tokIdent  shift 116
 	.  error
 
-	typefield  goto 264
+	typefield  goto 267
 	typefieldidents  goto 115
 
 state 200
 	typefieldidents:  typefieldidents ','.tokIdent 
 
-	tokIdent  shift 265
+	tokIdent  shift 268
 	.  error
 
 
 state 201
 	typefield:  typefieldidents type.    (22)
 
-	.  reduce 22 (src line 186)
+	.  reduce 22 (src line 191)
 
 
 state 202
 	type:  tokModule '{' typefields.'}' 
 	typefields:  typefields.',' typefield 
 
-	'}'  shift 266
+	'}'  shift 269
 	','  shift 199
 	.  error
 
@@ -3933,7 +3936,7 @@ state 202
 state 203
 	type:  '(' typeargs ')'.    (18)
 
-	.  reduce 18 (src line 165)
+	.  reduce 18 (src line 170)
 
 
 state 204
@@ -3955,40 +3958,40 @@ state 204
 
 	identSelector  goto 44
 	type  goto 121
-	typearg  goto 267
+	typearg  goto 270
 
 state 205
 	typearg:  type type.    (26)
 
-	.  reduce 26 (src line 203)
+	.  reduce 26 (src line 208)
 
 
 state 206
 	type:  tokFunc '(' typeargs.')' type 
 
-	')'  shift 268
+	')'  shift 271
 	.  error
 
 
 state 207
-	params:  params param ';'.    (146)
+	params:  params param ';'.    (150)
 
-	.  reduce 146 (src line 628)
+	.  reduce 150 (src line 653)
 
 
 state 208
-	param:  tokParam paramdef.    (148)
+	param:  tokParam paramdef.    (152)
 
-	.  reduce 148 (src line 633)
+	.  reduce 152 (src line 658)
 
 
 state 209
 	param:  tokParam '('.paramdefs ')' 
 	paramdefs: .    (51)
 
-	.  reduce 51 (src line 338)
+	.  reduce 51 (src line 343)
 
-	paramdefs  goto 269
+	paramdefs  goto 272
 
 state 210
 	paramdef:  idents.type 
@@ -4008,17 +4011,17 @@ state 210
 	'{'  shift 46
 	'('  shift 48
 	'['  shift 45
-	','  shift 272
-	'='  shift 271
+	','  shift 275
+	'='  shift 274
 	.  error
 
 	identSelector  goto 44
-	type  goto 270
+	type  goto 273
 
 state 211
 	idents:  tokIdent.    (66)
 
-	.  reduce 66 (src line 429)
+	.  reduce 66 (src line 434)
 
 
 state 212
@@ -4030,9 +4033,9 @@ state 212
 	tokVal  shift 59
 	tokFunc  shift 61
 	tokType  shift 62
-	.  reduce 46 (src line 319)
+	.  reduce 46 (src line 324)
 
-	commadefs  goto 273
+	commadefs  goto 276
 	valdef  goto 56
 	typedef  goto 57
 	def  goto 165
@@ -4066,7 +4069,7 @@ state 213
 	'!'  shift 14
 	.  error
 
-	expr  goto 274
+	expr  goto 277
 	factor  goto 11
 	term  goto 13
 	exprblock  goto 26
@@ -4074,7 +4077,7 @@ state 213
 state 214
 	val:  pat type.'=' expr 
 
-	'='  shift 275
+	'='  shift 278
 	.  error
 
 
@@ -4082,21 +4085,21 @@ state 215
 	pat:  '(' tuplepatargs.')' 
 	tuplepatargs:  tuplepatargs.',' pat 
 
-	')'  shift 276
-	','  shift 277
+	')'  shift 279
+	','  shift 280
 	.  error
 
 
 state 216
 	tuplepatargs:  pat.    (36)
 
-	.  reduce 36 (src line 279)
+	.  reduce 36 (src line 284)
 
 
 state 217
 	pat:  '[' listpatargs.']' 
 
-	']'  shift 278
+	']'  shift 281
 	.  error
 
 
@@ -4104,31 +4107,31 @@ state 218
 	listpatargs:  tuplepatargs.    (35)
 	tuplepatargs:  tuplepatargs.',' pat 
 
-	','  shift 277
-	.  reduce 35 (src line 276)
+	','  shift 280
+	.  reduce 35 (src line 281)
 
 
 state 219
 	pat:  '{' structpatargs.'}' 
 	structpatargs:  structpatargs.',' structpat 
 
-	'}'  shift 279
-	','  shift 280
+	'}'  shift 282
+	','  shift 283
 	.  error
 
 
 state 220
 	structpatargs:  structpat.    (38)
 
-	.  reduce 38 (src line 285)
+	.  reduce 38 (src line 290)
 
 
 state 221
 	structpat:  tokIdent.    (40)
 	structpat:  tokIdent.':' pat 
 
-	':'  shift 281
-	.  reduce 40 (src line 294)
+	':'  shift 284
+	.  reduce 40 (src line 299)
 
 
 state 222
@@ -4174,7 +4177,7 @@ state 222
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 57 (src line 356)
+	.  reduce 57 (src line 361)
 
 
 state 223
@@ -4186,25 +4189,25 @@ state 223
 
 	typefields  goto 162
 	typefield  goto 114
-	funcargs  goto 282
+	funcargs  goto 285
 	typefieldidents  goto 115
 
 state 224
 	typedef:  tokType tokIdent type.    (60)
 
-	.  reduce 60 (src line 370)
+	.  reduce 60 (src line 375)
 
 
 state 225
 	expr:  expr '(' applyargs commaOk.')' 
 
-	')'  shift 283
+	')'  shift 286
 	.  error
 
 
 state 226
 	applyargs:  applyargs ','.expr 
-	commaOk:  ','.    (151)
+	commaOk:  ','.    (155)
 
 	tokIdent  shift 17
 	tokExpr  shift 16
@@ -4229,9 +4232,9 @@ state 226
 	'['  shift 25
 	'-'  shift 15
 	'!'  shift 14
-	.  reduce 151 (src line 639)
+	.  reduce 155 (src line 664)
 
-	expr  goto 284
+	expr  goto 287
 	factor  goto 11
 	term  goto 13
 	exprblock  goto 26
@@ -4239,7 +4242,7 @@ state 226
 state 227
 	expr:  expr '[' expr ']'.    (89)
 
-	.  reduce 89 (src line 478)
+	.  reduce 89 (src line 483)
 
 
 state 228
@@ -4248,7 +4251,7 @@ state 228
 	'{'  shift 160
 	.  error
 
-	ifelseblock  goto 285
+	ifelseblock  goto 288
 
 state 229
 	defs:  defs.def ';' 
@@ -4285,7 +4288,7 @@ state 229
 	valdef  goto 56
 	typedef  goto 57
 	def  goto 55
-	expr  goto 286
+	expr  goto 289
 	factor  goto 11
 	term  goto 13
 	exprblock  goto 26
@@ -4303,14 +4306,14 @@ state 230
 	tokDir  shift 43
 	tokModule  shift 47
 	tokFunc  shift 49
-	tokArrow  shift 287
+	tokArrow  shift 290
 	'{'  shift 46
 	'('  shift 48
 	'['  shift 45
 	.  error
 
 	identSelector  goto 44
-	type  goto 288
+	type  goto 291
 
 state 231
 	commadefs:  commadefs ','.commadef 
@@ -4325,7 +4328,7 @@ state 231
 	valdef  goto 56
 	typedef  goto 57
 	def  goto 165
-	commadef  goto 289
+	commadef  goto 292
 
 state 232
 	term:  tokExec '(' commadefs ')'.type tokTemplate 
@@ -4345,12 +4348,12 @@ state 232
 	.  error
 
 	identSelector  goto 44
-	type  goto 290
+	type  goto 293
 
 state 233
 	term:  tokMake '(' tokExpr ')'.    (100)
 
-	.  reduce 100 (src line 502)
+	.  reduce 100 (src line 507)
 
 
 state 234
@@ -4362,9 +4365,9 @@ state 234
 	tokVal  shift 59
 	tokFunc  shift 61
 	tokType  shift 62
-	.  reduce 46 (src line 319)
+	.  reduce 46 (src line 324)
 
-	commadefs  goto 291
+	commadefs  goto 294
 	valdef  goto 56
 	typedef  goto 57
 	def  goto 165
@@ -4373,12 +4376,12 @@ state 234
 state 235
 	term:  '(' expr ',' tupleargs.commaOk ')' 
 	tupleargs:  tupleargs.',' expr 
-	commaOk: .    (150)
+	commaOk: .    (154)
 
-	','  shift 293
-	.  reduce 150 (src line 638)
+	','  shift 296
+	.  reduce 154 (src line 663)
 
-	commaOk  goto 292
+	commaOk  goto 295
 
 state 236
 	expr:  expr.'(' applyargs commaOk ')' 
@@ -4401,7 +4404,7 @@ state 236
 	expr:  expr.tokSquiggleArrow expr 
 	expr:  expr.'.' tokIdent 
 	expr:  expr.'[' expr ']' 
-	tupleargs:  expr.    (135)
+	tupleargs:  expr.    (139)
 
 	'('  shift 64
 	'['  shift 83
@@ -4423,46 +4426,46 @@ state 236
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 135 (src line 592)
+	.  reduce 139 (src line 617)
 
 
 state 237
 	term:  '{' structfieldargs commaOk '}'.    (103)
 
-	.  reduce 103 (src line 508)
+	.  reduce 103 (src line 513)
 
 
 state 238
-	structfieldargs:  structfieldargs ',' structfieldarg.    (127)
+	structfieldargs:  structfieldargs ',' structfieldarg.    (131)
 
-	.  reduce 127 (src line 570)
+	.  reduce 131 (src line 595)
 
 
 state 239
-	structfieldarg:  tokIdent.    (128)
+	structfieldarg:  tokIdent.    (132)
 	structfieldarg:  tokIdent.':' expr 
 
 	':'  shift 177
-	.  reduce 128 (src line 573)
+	.  reduce 132 (src line 598)
 
 
 state 240
 	defs1:  defs1 def ';'.    (45)
 
-	.  reduce 45 (src line 316)
+	.  reduce 45 (src line 321)
 
 
 state 241
 	exprblock:  '{' defs1 expr maybeColon.'}' 
 
-	'}'  shift 294
+	'}'  shift 297
 	.  error
 
 
 state 242
-	maybeColon:  ';'.    (125)
+	maybeColon:  ';'.    (129)
 
-	.  reduce 125 (src line 565)
+	.  reduce 129 (src line 590)
 
 
 state 243
@@ -4486,7 +4489,7 @@ state 243
 	expr:  expr.tokSquiggleArrow expr 
 	expr:  expr.'.' tokIdent 
 	expr:  expr.'[' expr ']' 
-	structfieldarg:  tokIdent ':' expr.    (129)
+	structfieldarg:  tokIdent ':' expr.    (133)
 
 	'('  shift 64
 	'['  shift 83
@@ -4508,25 +4511,25 @@ state 243
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 129 (src line 576)
+	.  reduce 133 (src line 601)
 
 
 state 244
 	term:  '[' listargs commaOk ']'.    (104)
 
-	.  reduce 104 (src line 510)
+	.  reduce 104 (src line 515)
 
 
 state 245
 	term:  '[' listargs commaOk listappendargs.commaOk ']' 
 	listappendargs:  listappendargs.tokEllipsis expr semiOk 
-	commaOk: .    (150)
+	commaOk: .    (154)
 
-	tokEllipsis  shift 296
-	','  shift 297
-	.  reduce 150 (src line 638)
+	tokEllipsis  shift 299
+	','  shift 300
+	.  reduce 154 (src line 663)
 
-	commaOk  goto 295
+	commaOk  goto 298
 
 state 246
 	listappendargs:  tokEllipsis.expr semiOk 
@@ -4556,7 +4559,7 @@ state 246
 	'!'  shift 14
 	.  error
 
-	expr  goto 298
+	expr  goto 301
 	factor  goto 11
 	term  goto 13
 	exprblock  goto 26
@@ -4582,7 +4585,7 @@ state 247
 	expr:  expr.tokSquiggleArrow expr 
 	expr:  expr.'.' tokIdent 
 	expr:  expr.'[' expr ']' 
-	listargs:  listargs ',' expr.    (132)
+	listargs:  listargs ',' expr.    (136)
 
 	'('  shift 64
 	'['  shift 83
@@ -4604,25 +4607,25 @@ state 247
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 132 (src line 583)
+	.  reduce 136 (src line 608)
 
 
 state 248
 	term:  '[' mapargs commaOk ']'.    (107)
 
-	.  reduce 107 (src line 521)
+	.  reduce 107 (src line 526)
 
 
 state 249
 	term:  '[' mapargs commaOk listappendargs.commaOk ']' 
 	listappendargs:  listappendargs.tokEllipsis expr semiOk 
-	commaOk: .    (150)
+	commaOk: .    (154)
 
-	tokEllipsis  shift 296
-	','  shift 297
-	.  reduce 150 (src line 638)
+	tokEllipsis  shift 299
+	','  shift 300
+	.  reduce 154 (src line 663)
 
-	commaOk  goto 299
+	commaOk  goto 302
 
 state 250
 	expr:  expr.'(' applyargs commaOk ')' 
@@ -4667,83 +4670,34 @@ state 250
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	':'  shift 300
+	':'  shift 303
 	.  error
 
 
 state 251
-	term:  '[' expr '|' pat.tokLeftArrow expr ']' 
+	term:  '[' expr '|' comprclauses.']' 
+	comprclauses:  comprclauses.',' comprclause 
 
-	tokLeftArrow  shift 301
+	']'  shift 304
+	','  shift 305
 	.  error
 
 
 state 252
-	expr:  expr.'(' applyargs commaOk ')' 
-	expr:  expr.tokOrOr expr 
-	expr:  expr.tokAndAnd expr 
-	expr:  expr.'<' expr 
-	expr:  expr.'>' expr 
-	expr:  expr.tokLE expr 
-	expr:  expr.tokGE expr 
-	expr:  expr.tokNE expr 
-	expr:  expr.tokEqEq expr 
-	expr:  expr.'+' expr 
-	expr:  expr.'-' expr 
-	expr:  expr.'*' expr 
-	expr:  expr.'/' expr 
-	expr:  expr.'%' expr 
-	expr:  expr.'&' expr 
-	expr:  expr.tokLSH expr 
-	expr:  expr.tokRSH expr 
-	expr:  expr.tokSquiggleArrow expr 
-	expr:  expr.'.' tokIdent 
-	expr:  expr.'[' expr ']' 
-	mapargs:  expr ':' expr.    (139)
+	comprclauses:  comprclause.    (124)
 
-	'('  shift 64
-	'['  shift 83
-	tokOrOr  shift 65
-	tokAndAnd  shift 66
-	tokLE  shift 69
-	tokGE  shift 70
-	tokNE  shift 71
-	tokEqEq  shift 72
-	tokLSH  shift 79
-	tokRSH  shift 80
-	tokSquiggleArrow  shift 81
-	'<'  shift 67
-	'>'  shift 68
-	'+'  shift 73
-	'-'  shift 74
-	'*'  shift 75
-	'/'  shift 76
-	'%'  shift 77
-	'&'  shift 78
-	'.'  shift 82
-	.  reduce 139 (src line 604)
+	.  reduce 124 (src line 577)
 
 
 state 253
-	term:  tokLen '(' expr ')'.    (112)
+	comprclause:  pat.tokLeftArrow expr 
 
-	.  reduce 112 (src line 535)
+	tokLeftArrow  shift 306
+	.  error
 
 
 state 254
-	term:  tokInt '(' expr ')'.    (113)
-
-	.  reduce 113 (src line 537)
-
-
-state 255
-	term:  tokFloat '(' expr ')'.    (114)
-
-	.  reduce 114 (src line 539)
-
-
-state 256
-	term:  tokZip '(' expr ','.expr ')' 
+	comprclause:  tokIf.expr 
 
 	tokIdent  shift 17
 	tokExpr  shift 16
@@ -4770,119 +4724,77 @@ state 256
 	'!'  shift 14
 	.  error
 
-	expr  goto 302
+	expr  goto 307
 	factor  goto 11
 	term  goto 13
 	exprblock  goto 26
 
-state 257
-	term:  tokUnzip '(' expr ')'.    (116)
+state 255
+	expr:  expr.'(' applyargs commaOk ')' 
+	expr:  expr.tokOrOr expr 
+	expr:  expr.tokAndAnd expr 
+	expr:  expr.'<' expr 
+	expr:  expr.'>' expr 
+	expr:  expr.tokLE expr 
+	expr:  expr.tokGE expr 
+	expr:  expr.tokNE expr 
+	expr:  expr.tokEqEq expr 
+	expr:  expr.'+' expr 
+	expr:  expr.'-' expr 
+	expr:  expr.'*' expr 
+	expr:  expr.'/' expr 
+	expr:  expr.'%' expr 
+	expr:  expr.'&' expr 
+	expr:  expr.tokLSH expr 
+	expr:  expr.tokRSH expr 
+	expr:  expr.tokSquiggleArrow expr 
+	expr:  expr.'.' tokIdent 
+	expr:  expr.'[' expr ']' 
+	mapargs:  expr ':' expr.    (143)
 
-	.  reduce 116 (src line 543)
+	'('  shift 64
+	'['  shift 83
+	tokOrOr  shift 65
+	tokAndAnd  shift 66
+	tokLE  shift 69
+	tokGE  shift 70
+	tokNE  shift 71
+	tokEqEq  shift 72
+	tokLSH  shift 79
+	tokRSH  shift 80
+	tokSquiggleArrow  shift 81
+	'<'  shift 67
+	'>'  shift 68
+	'+'  shift 73
+	'-'  shift 74
+	'*'  shift 75
+	'/'  shift 76
+	'%'  shift 77
+	'&'  shift 78
+	'.'  shift 82
+	.  reduce 143 (src line 629)
+
+
+state 256
+	term:  tokLen '(' expr ')'.    (112)
+
+	.  reduce 112 (src line 548)
+
+
+state 257
+	term:  tokInt '(' expr ')'.    (113)
+
+	.  reduce 113 (src line 550)
 
 
 state 258
-	term:  tokFlatten '(' expr ')'.    (117)
+	term:  tokFloat '(' expr ')'.    (114)
 
-	.  reduce 117 (src line 545)
+	.  reduce 114 (src line 552)
 
 
 state 259
-	term:  tokMap '(' expr ')'.    (118)
-
-	.  reduce 118 (src line 547)
-
-
-state 260
-	term:  tokList '(' expr ')'.    (119)
-
-	.  reduce 119 (src line 549)
-
-
-state 261
-	term:  tokDelay '(' expr ')'.    (120)
-
-	.  reduce 120 (src line 551)
-
-
-state 262
-	term:  tokPanic '(' expr ')'.    (121)
-
-	.  reduce 121 (src line 553)
-
-
-state 263
-	type:  '[' type ':' type.']' 
-
-	']'  shift 303
-	.  error
-
-
-state 264
-	typefields:  typefields ',' typefield.    (24)
-
-	.  reduce 24 (src line 197)
-
-
-state 265
-	typefieldidents:  typefieldidents ',' tokIdent.    (21)
-
-	.  reduce 21 (src line 183)
-
-
-state 266
-	type:  tokModule '{' typefields '}'.    (17)
-
-	.  reduce 17 (src line 163)
-
-
-state 267
-	typearglist:  typearglist ',' typearg.    (28)
-
-	.  reduce 28 (src line 209)
-
-
-state 268
-	type:  tokFunc '(' typeargs ')'.type 
-
-	tokIdent  shift 50
-	tokInt  shift 38
-	tokString  shift 40
-	tokBool  shift 41
-	tokFloat  shift 39
-	tokFile  shift 42
-	tokDir  shift 43
-	tokModule  shift 47
-	tokFunc  shift 49
-	'{'  shift 46
-	'('  shift 48
-	'['  shift 45
-	.  error
-
-	identSelector  goto 44
-	type  goto 304
-
-state 269
-	paramdefs:  paramdefs.paramdef ';' 
-	param:  tokParam '(' paramdefs.')' 
-
-	tokIdent  shift 211
-	')'  shift 306
-	.  error
-
-	paramdef  goto 305
-	idents  goto 210
-
-state 270
-	paramdef:  idents type.    (63)
-	paramdef:  idents type.'=' expr 
-
-	'='  shift 307
-	.  reduce 63 (src line 392)
-
-
-state 271
-	paramdef:  idents '='.expr 
+	term:  tokZip '(' expr ','.expr ')' 
 
 	tokIdent  shift 17
 	tokExpr  shift 16
@@ -4914,23 +4826,162 @@ state 271
 	term  goto 13
 	exprblock  goto 26
 
-state 272
-	idents:  idents ','.tokIdent 
+state 260
+	term:  tokUnzip '(' expr ')'.    (116)
 
-	tokIdent  shift 309
+	.  reduce 116 (src line 556)
+
+
+state 261
+	term:  tokFlatten '(' expr ')'.    (117)
+
+	.  reduce 117 (src line 558)
+
+
+state 262
+	term:  tokMap '(' expr ')'.    (118)
+
+	.  reduce 118 (src line 560)
+
+
+state 263
+	term:  tokList '(' expr ')'.    (119)
+
+	.  reduce 119 (src line 562)
+
+
+state 264
+	term:  tokDelay '(' expr ')'.    (120)
+
+	.  reduce 120 (src line 564)
+
+
+state 265
+	term:  tokPanic '(' expr ')'.    (121)
+
+	.  reduce 121 (src line 566)
+
+
+state 266
+	type:  '[' type ':' type.']' 
+
+	']'  shift 309
 	.  error
 
 
+state 267
+	typefields:  typefields ',' typefield.    (24)
+
+	.  reduce 24 (src line 202)
+
+
+state 268
+	typefieldidents:  typefieldidents ',' tokIdent.    (21)
+
+	.  reduce 21 (src line 188)
+
+
+state 269
+	type:  tokModule '{' typefields '}'.    (17)
+
+	.  reduce 17 (src line 168)
+
+
+state 270
+	typearglist:  typearglist ',' typearg.    (28)
+
+	.  reduce 28 (src line 214)
+
+
+state 271
+	type:  tokFunc '(' typeargs ')'.type 
+
+	tokIdent  shift 50
+	tokInt  shift 38
+	tokString  shift 40
+	tokBool  shift 41
+	tokFloat  shift 39
+	tokFile  shift 42
+	tokDir  shift 43
+	tokModule  shift 47
+	tokFunc  shift 49
+	'{'  shift 46
+	'('  shift 48
+	'['  shift 45
+	.  error
+
+	identSelector  goto 44
+	type  goto 310
+
+state 272
+	paramdefs:  paramdefs.paramdef ';' 
+	param:  tokParam '(' paramdefs.')' 
+
+	tokIdent  shift 211
+	')'  shift 312
+	.  error
+
+	paramdef  goto 311
+	idents  goto 210
+
 state 273
+	paramdef:  idents type.    (63)
+	paramdef:  idents type.'=' expr 
+
+	'='  shift 313
+	.  reduce 63 (src line 397)
+
+
+state 274
+	paramdef:  idents '='.expr 
+
+	tokIdent  shift 17
+	tokExpr  shift 16
+	tokInt  shift 28
+	tokFloat  shift 29
+	tokFile  shift 18
+	tokDir  shift 19
+	tokExec  shift 21
+	tokFunc  shift 20
+	tokIf  shift 12
+	tokMake  shift 22
+	tokLen  shift 27
+	tokPanic  shift 36
+	tokDelay  shift 35
+	tokMap  shift 33
+	tokList  shift 34
+	tokZip  shift 30
+	tokUnzip  shift 31
+	tokFlatten  shift 32
+	'{'  shift 24
+	'('  shift 23
+	'['  shift 25
+	'-'  shift 15
+	'!'  shift 14
+	.  error
+
+	expr  goto 314
+	factor  goto 11
+	term  goto 13
+	exprblock  goto 26
+
+state 275
+	idents:  idents ','.tokIdent 
+
+	tokIdent  shift 315
+	.  error
+
+
+state 276
 	commadefs:  commadefs.',' commadef 
 	valdef:  tokAt tokRequires '(' commadefs.')' semiOk valdef 
 
-	')'  shift 310
+	')'  shift 316
 	','  shift 231
 	.  error
 
 
-state 274
+state 277
 	val:  pat '=' expr.    (61)
 	expr:  expr.'(' applyargs commaOk ')' 
 	expr:  expr.tokOrOr expr 
@@ -4973,209 +5024,11 @@ state 274
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 61 (src line 374)
+	.  reduce 61 (src line 379)
 
-
-state 275
-	val:  pat type '='.expr 
-
-	tokIdent  shift 17
-	tokExpr  shift 16
-	tokInt  shift 28
-	tokFloat  shift 29
-	tokFile  shift 18
-	tokDir  shift 19
-	tokExec  shift 21
-	tokFunc  shift 20
-	tokIf  shift 12
-	tokMake  shift 22
-	tokLen  shift 27
-	tokPanic  shift 36
-	tokDelay  shift 35
-	tokMap  shift 33
-	tokList  shift 34
-	tokZip  shift 30
-	tokUnzip  shift 31
-	tokFlatten  shift 32
-	'{'  shift 24
-	'('  shift 23
-	'['  shift 25
-	'-'  shift 15
-	'!'  shift 14
-	.  error
-
-	expr  goto 311
-	factor  goto 11
-	term  goto 13
-	exprblock  goto 26
-
-state 276
-	pat:  '(' tuplepatargs ')'.    (32)
-
-	.  reduce 32 (src line 264)
-
-
-state 277
-	tuplepatargs:  tuplepatargs ','.pat 
-
-	tokIdent  shift 130
-	'{'  shift 134
-	'('  shift 132
-	'['  shift 133
-	'_'  shift 131
-	.  error
-
-	pat  goto 312
 
 state 278
-	pat:  '[' listpatargs ']'.    (33)
-
-	.  reduce 33 (src line 266)
-
-
-state 279
-	pat:  '{' structpatargs '}'.    (34)
-
-	.  reduce 34 (src line 268)
-
-
-state 280
-	structpatargs:  structpatargs ','.structpat 
-
-	tokIdent  shift 221
-	.  error
-
-	structpat  goto 313
-
-state 281
-	structpat:  tokIdent ':'.pat 
-
-	tokIdent  shift 130
-	'{'  shift 134
-	'('  shift 132
-	'['  shift 133
-	'_'  shift 131
-	.  error
-
-	pat  goto 314
-
-state 282
-	valdef:  tokFunc tokIdent '(' funcargs.')' '=' expr 
-	valdef:  tokFunc tokIdent '(' funcargs.')' type '=' expr 
-
-	')'  shift 315
-	.  error
-
-
-state 283
-	expr:  expr '(' applyargs commaOk ')'.    (69)
-
-	.  reduce 69 (src line 438)
-
-
-state 284
-	expr:  expr.'(' applyargs commaOk ')' 
-	expr:  expr.tokOrOr expr 
-	expr:  expr.tokAndAnd expr 
-	expr:  expr.'<' expr 
-	expr:  expr.'>' expr 
-	expr:  expr.tokLE expr 
-	expr:  expr.tokGE expr 
-	expr:  expr.tokNE expr 
-	expr:  expr.tokEqEq expr 
-	expr:  expr.'+' expr 
-	expr:  expr.'-' expr 
-	expr:  expr.'*' expr 
-	expr:  expr.'/' expr 
-	expr:  expr.'%' expr 
-	expr:  expr.'&' expr 
-	expr:  expr.tokLSH expr 
-	expr:  expr.tokRSH expr 
-	expr:  expr.tokSquiggleArrow expr 
-	expr:  expr.'.' tokIdent 
-	expr:  expr.'[' expr ']' 
-	applyargs:  applyargs ',' expr.    (138)
-
-	'('  shift 64
-	'['  shift 83
-	tokOrOr  shift 65
-	tokAndAnd  shift 66
-	tokLE  shift 69
-	tokGE  shift 70
-	tokNE  shift 71
-	tokEqEq  shift 72
-	tokLSH  shift 79
-	tokRSH  shift 80
-	tokSquiggleArrow  shift 81
-	'<'  shift 67
-	'>'  shift 68
-	'+'  shift 73
-	'-'  shift 74
-	'*'  shift 75
-	'/'  shift 76
-	'%'  shift 77
-	'&'  shift 78
-	'.'  shift 82
-	.  reduce 138 (src line 601)
-
-
-state 285
-	expr:  tokIf expr ifelseblock tokElse ifelseblock.    (87)
-
-	.  reduce 87 (src line 474)
-
-
-state 286
-	expr:  expr.'(' applyargs commaOk ')' 
-	expr:  expr.tokOrOr expr 
-	expr:  expr.tokAndAnd expr 
-	expr:  expr.'<' expr 
-	expr:  expr.'>' expr 
-	expr:  expr.tokLE expr 
-	expr:  expr.tokGE expr 
-	expr:  expr.tokNE expr 
-	expr:  expr.tokEqEq expr 
-	expr:  expr.'+' expr 
-	expr:  expr.'-' expr 
-	expr:  expr.'*' expr 
-	expr:  expr.'/' expr 
-	expr:  expr.'%' expr 
-	expr:  expr.'&' expr 
-	expr:  expr.tokLSH expr 
-	expr:  expr.tokRSH expr 
-	expr:  expr.tokSquiggleArrow expr 
-	expr:  expr.'.' tokIdent 
-	expr:  expr.'[' expr ']' 
-	ifelseblock:  '{' defs expr.maybeColon '}' 
-	maybeColon: .    (124)
-
-	'('  shift 64
-	'['  shift 83
-	tokOrOr  shift 65
-	tokAndAnd  shift 66
-	tokLE  shift 69
-	tokGE  shift 70
-	tokNE  shift 71
-	tokEqEq  shift 72
-	tokLSH  shift 79
-	tokRSH  shift 80
-	tokSquiggleArrow  shift 81
-	'<'  shift 67
-	'>'  shift 68
-	'+'  shift 73
-	'-'  shift 74
-	'*'  shift 75
-	'/'  shift 76
-	'%'  shift 77
-	'&'  shift 78
-	'.'  shift 82
-	';'  shift 242
-	.  reduce 124 (src line 564)
-
-	maybeColon  goto 316
-
-state 287
-	term:  tokFunc '(' funcargs ')' tokArrow.expr 
+	val:  pat type '='.expr 
 
 	tokIdent  shift 17
 	tokExpr  shift 16
@@ -5207,46 +5060,173 @@ state 287
 	term  goto 13
 	exprblock  goto 26
 
-state 288
-	term:  tokFunc '(' funcargs ')' type.tokArrow expr 
+state 279
+	pat:  '(' tuplepatargs ')'.    (32)
 
-	tokArrow  shift 318
+	.  reduce 32 (src line 269)
+
+
+state 280
+	tuplepatargs:  tuplepatargs ','.pat 
+
+	tokIdent  shift 130
+	'{'  shift 134
+	'('  shift 132
+	'['  shift 133
+	'_'  shift 131
 	.  error
+
+	pat  goto 318
+
+state 281
+	pat:  '[' listpatargs ']'.    (33)
+
+	.  reduce 33 (src line 271)
+
+
+state 282
+	pat:  '{' structpatargs '}'.    (34)
+
+	.  reduce 34 (src line 273)
+
+
+state 283
+	structpatargs:  structpatargs ','.structpat 
+
+	tokIdent  shift 221
+	.  error
+
+	structpat  goto 319
+
+state 284
+	structpat:  tokIdent ':'.pat 
+
+	tokIdent  shift 130
+	'{'  shift 134
+	'('  shift 132
+	'['  shift 133
+	'_'  shift 131
+	.  error
+
+	pat  goto 320
+
+state 285
+	valdef:  tokFunc tokIdent '(' funcargs.')' '=' expr 
+	valdef:  tokFunc tokIdent '(' funcargs.')' type '=' expr 
+
+	')'  shift 321
+	.  error
+
+
+state 286
+	expr:  expr '(' applyargs commaOk ')'.    (69)
+
+	.  reduce 69 (src line 443)
+
+
+state 287
+	expr:  expr.'(' applyargs commaOk ')' 
+	expr:  expr.tokOrOr expr 
+	expr:  expr.tokAndAnd expr 
+	expr:  expr.'<' expr 
+	expr:  expr.'>' expr 
+	expr:  expr.tokLE expr 
+	expr:  expr.tokGE expr 
+	expr:  expr.tokNE expr 
+	expr:  expr.tokEqEq expr 
+	expr:  expr.'+' expr 
+	expr:  expr.'-' expr 
+	expr:  expr.'*' expr 
+	expr:  expr.'/' expr 
+	expr:  expr.'%' expr 
+	expr:  expr.'&' expr 
+	expr:  expr.tokLSH expr 
+	expr:  expr.tokRSH expr 
+	expr:  expr.tokSquiggleArrow expr 
+	expr:  expr.'.' tokIdent 
+	expr:  expr.'[' expr ']' 
+	applyargs:  applyargs ',' expr.    (142)
+
+	'('  shift 64
+	'['  shift 83
+	tokOrOr  shift 65
+	tokAndAnd  shift 66
+	tokLE  shift 69
+	tokGE  shift 70
+	tokNE  shift 71
+	tokEqEq  shift 72
+	tokLSH  shift 79
+	tokRSH  shift 80
+	tokSquiggleArrow  shift 81
+	'<'  shift 67
+	'>'  shift 68
+	'+'  shift 73
+	'-'  shift 74
+	'*'  shift 75
+	'/'  shift 76
+	'%'  shift 77
+	'&'  shift 78
+	'.'  shift 82
+	.  reduce 142 (src line 626)
+
+
+state 288
+	expr:  tokIf expr ifelseblock tokElse ifelseblock.    (87)
+
+	.  reduce 87 (src line 479)
 
 
 state 289
-	commadefs:  commadefs ',' commadef.    (48)
+	expr:  expr.'(' applyargs commaOk ')' 
+	expr:  expr.tokOrOr expr 
+	expr:  expr.tokAndAnd expr 
+	expr:  expr.'<' expr 
+	expr:  expr.'>' expr 
+	expr:  expr.tokLE expr 
+	expr:  expr.tokGE expr 
+	expr:  expr.tokNE expr 
+	expr:  expr.tokEqEq expr 
+	expr:  expr.'+' expr 
+	expr:  expr.'-' expr 
+	expr:  expr.'*' expr 
+	expr:  expr.'/' expr 
+	expr:  expr.'%' expr 
+	expr:  expr.'&' expr 
+	expr:  expr.tokLSH expr 
+	expr:  expr.tokRSH expr 
+	expr:  expr.tokSquiggleArrow expr 
+	expr:  expr.'.' tokIdent 
+	expr:  expr.'[' expr ']' 
+	ifelseblock:  '{' defs expr.maybeColon '}' 
+	maybeColon: .    (128)
 
-	.  reduce 48 (src line 323)
+	'('  shift 64
+	'['  shift 83
+	tokOrOr  shift 65
+	tokAndAnd  shift 66
+	tokLE  shift 69
+	tokGE  shift 70
+	tokNE  shift 71
+	tokEqEq  shift 72
+	tokLSH  shift 79
+	tokRSH  shift 80
+	tokSquiggleArrow  shift 81
+	'<'  shift 67
+	'>'  shift 68
+	'+'  shift 73
+	'-'  shift 74
+	'*'  shift 75
+	'/'  shift 76
+	'%'  shift 77
+	'&'  shift 78
+	'.'  shift 82
+	';'  shift 242
+	.  reduce 128 (src line 589)
 
+	maybeColon  goto 322
 
 state 290
-	term:  tokExec '(' commadefs ')' type.tokTemplate 
-
-	tokTemplate  shift 319
-	.  error
-
-
-state 291
-	commadefs:  commadefs.',' commadef 
-	term:  tokMake '(' tokExpr ',' commadefs.commaOk ')' 
-	commaOk: .    (150)
-
-	','  shift 320
-	.  reduce 150 (src line 638)
-
-	commaOk  goto 321
-
-state 292
-	term:  '(' expr ',' tupleargs commaOk.')' 
-
-	')'  shift 322
-	.  error
-
-
-state 293
-	tupleargs:  tupleargs ','.expr 
-	commaOk:  ','.    (151)
+	term:  tokFunc '(' funcargs ')' tokArrow.expr 
 
 	tokIdent  shift 17
 	tokExpr  shift 16
@@ -5271,27 +5251,98 @@ state 293
 	'['  shift 25
 	'-'  shift 15
 	'!'  shift 14
-	.  reduce 151 (src line 639)
+	.  error
 
 	expr  goto 323
 	factor  goto 11
 	term  goto 13
 	exprblock  goto 26
 
+state 291
+	term:  tokFunc '(' funcargs ')' type.tokArrow expr 
+
+	tokArrow  shift 324
+	.  error
+
+
+state 292
+	commadefs:  commadefs ',' commadef.    (48)
+
+	.  reduce 48 (src line 328)
+
+
+state 293
+	term:  tokExec '(' commadefs ')' type.tokTemplate 
+
+	tokTemplate  shift 325
+	.  error
+
+
 state 294
-	exprblock:  '{' defs1 expr maybeColon '}'.    (122)
+	commadefs:  commadefs.',' commadef 
+	term:  tokMake '(' tokExpr ',' commadefs.commaOk ')' 
+	commaOk: .    (154)
 
-	.  reduce 122 (src line 556)
+	','  shift 326
+	.  reduce 154 (src line 663)
 
+	commaOk  goto 327
 
 state 295
-	term:  '[' listargs commaOk listappendargs commaOk.']' 
+	term:  '(' expr ',' tupleargs commaOk.')' 
 
-	']'  shift 324
+	')'  shift 328
 	.  error
 
 
 state 296
+	tupleargs:  tupleargs ','.expr 
+	commaOk:  ','.    (155)
+
+	tokIdent  shift 17
+	tokExpr  shift 16
+	tokInt  shift 28
+	tokFloat  shift 29
+	tokFile  shift 18
+	tokDir  shift 19
+	tokExec  shift 21
+	tokFunc  shift 20
+	tokIf  shift 12
+	tokMake  shift 22
+	tokLen  shift 27
+	tokPanic  shift 36
+	tokDelay  shift 35
+	tokMap  shift 33
+	tokList  shift 34
+	tokZip  shift 30
+	tokUnzip  shift 31
+	tokFlatten  shift 32
+	'{'  shift 24
+	'('  shift 23
+	'['  shift 25
+	'-'  shift 15
+	'!'  shift 14
+	.  reduce 155 (src line 664)
+
+	expr  goto 329
+	factor  goto 11
+	term  goto 13
+	exprblock  goto 26
+
+state 297
+	exprblock:  '{' defs1 expr maybeColon '}'.    (122)
+
+	.  reduce 122 (src line 569)
+
+
+state 298
+	term:  '[' listargs commaOk listappendargs commaOk.']' 
+
+	']'  shift 330
+	.  error
+
+
+state 299
 	listappendargs:  listappendargs tokEllipsis.expr semiOk 
 
 	tokIdent  shift 17
@@ -5319,18 +5370,18 @@ state 296
 	'!'  shift 14
 	.  error
 
-	expr  goto 325
+	expr  goto 331
 	factor  goto 11
 	term  goto 13
 	exprblock  goto 26
 
-state 297
-	commaOk:  ','.    (151)
+state 300
+	commaOk:  ','.    (155)
 
-	.  reduce 151 (src line 639)
+	.  reduce 155 (src line 664)
 
 
-state 298
+state 301
 	expr:  expr.'(' applyargs commaOk ')' 
 	expr:  expr.tokOrOr expr 
 	expr:  expr.tokAndAnd expr 
@@ -5352,7 +5403,7 @@ state 298
 	expr:  expr.'.' tokIdent 
 	expr:  expr.'[' expr ']' 
 	listappendargs:  tokEllipsis expr.semiOk 
-	semiOk: .    (152)
+	semiOk: .    (156)
 
 	'('  shift 64
 	'['  shift 83
@@ -5374,19 +5425,19 @@ state 298
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	';'  shift 327
-	.  reduce 152 (src line 641)
+	';'  shift 333
+	.  reduce 156 (src line 666)
 
-	semiOk  goto 326
+	semiOk  goto 332
 
-state 299
+state 302
 	term:  '[' mapargs commaOk listappendargs commaOk.']' 
 
-	']'  shift 328
+	']'  shift 334
 	.  error
 
 
-state 300
+state 303
 	mapargs:  mapargs ',' expr ':'.expr 
 
 	tokIdent  shift 17
@@ -5414,13 +5465,33 @@ state 300
 	'!'  shift 14
 	.  error
 
-	expr  goto 329
+	expr  goto 335
 	factor  goto 11
 	term  goto 13
 	exprblock  goto 26
 
-state 301
-	term:  '[' expr '|' pat tokLeftArrow.expr ']' 
+state 304
+	term:  '[' expr '|' comprclauses ']'.    (109)
+
+	.  reduce 109 (src line 535)
+
+
+state 305
+	comprclauses:  comprclauses ','.comprclause 
+
+	tokIdent  shift 130
+	tokIf  shift 254
+	'{'  shift 134
+	'('  shift 132
+	'['  shift 133
+	'_'  shift 131
+	.  error
+
+	comprclause  goto 336
+	pat  goto 253
+
+state 306
+	comprclause:  pat tokLeftArrow.expr 
 
 	tokIdent  shift 17
 	tokExpr  shift 16
@@ -5447,12 +5518,58 @@ state 301
 	'!'  shift 14
 	.  error
 
-	expr  goto 330
+	expr  goto 337
 	factor  goto 11
 	term  goto 13
 	exprblock  goto 26
 
-state 302
+state 307
+	expr:  expr.'(' applyargs commaOk ')' 
+	expr:  expr.tokOrOr expr 
+	expr:  expr.tokAndAnd expr 
+	expr:  expr.'<' expr 
+	expr:  expr.'>' expr 
+	expr:  expr.tokLE expr 
+	expr:  expr.tokGE expr 
+	expr:  expr.tokNE expr 
+	expr:  expr.tokEqEq expr 
+	expr:  expr.'+' expr 
+	expr:  expr.'-' expr 
+	expr:  expr.'*' expr 
+	expr:  expr.'/' expr 
+	expr:  expr.'%' expr 
+	expr:  expr.'&' expr 
+	expr:  expr.tokLSH expr 
+	expr:  expr.tokRSH expr 
+	expr:  expr.tokSquiggleArrow expr 
+	expr:  expr.'.' tokIdent 
+	expr:  expr.'[' expr ']' 
+	comprclause:  tokIf expr.    (127)
+
+	'('  shift 64
+	'['  shift 83
+	tokOrOr  shift 65
+	tokAndAnd  shift 66
+	tokLE  shift 69
+	tokGE  shift 70
+	tokNE  shift 71
+	tokEqEq  shift 72
+	tokLSH  shift 79
+	tokRSH  shift 80
+	tokSquiggleArrow  shift 81
+	'<'  shift 67
+	'>'  shift 68
+	'+'  shift 73
+	'-'  shift 74
+	'*'  shift 75
+	'/'  shift 76
+	'%'  shift 77
+	'&'  shift 78
+	'.'  shift 82
+	.  reduce 127 (src line 586)
+
+
+state 308
 	expr:  expr.'(' applyargs commaOk ')' 
 	expr:  expr.tokOrOr expr 
 	expr:  expr.tokAndAnd expr 
@@ -5495,36 +5612,36 @@ state 302
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	')'  shift 331
+	')'  shift 338
 	.  error
 
 
-state 303
+state 309
 	type:  '[' type ':' type ']'.    (15)
 
-	.  reduce 15 (src line 159)
+	.  reduce 15 (src line 164)
 
 
-state 304
+state 310
 	type:  tokFunc '(' typeargs ')' type.    (19)
 
-	.  reduce 19 (src line 177)
+	.  reduce 19 (src line 182)
 
 
-state 305
+state 311
 	paramdefs:  paramdefs paramdef.';' 
 
-	';'  shift 332
+	';'  shift 339
 	.  error
 
 
-state 306
-	param:  tokParam '(' paramdefs ')'.    (149)
+state 312
+	param:  tokParam '(' paramdefs ')'.    (153)
 
-	.  reduce 149 (src line 635)
+	.  reduce 153 (src line 660)
 
 
-state 307
+state 313
 	paramdef:  idents type '='.expr 
 
 	tokIdent  shift 17
@@ -5552,12 +5669,12 @@ state 307
 	'!'  shift 14
 	.  error
 
-	expr  goto 333
+	expr  goto 340
 	factor  goto 11
 	term  goto 13
 	exprblock  goto 26
 
-state 308
+state 314
 	paramdef:  idents '=' expr.    (64)
 	expr:  expr.'(' applyargs commaOk ')' 
 	expr:  expr.tokOrOr expr 
@@ -5600,25 +5717,25 @@ state 308
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 64 (src line 406)
+	.  reduce 64 (src line 411)
 
 
-state 309
+state 315
 	idents:  idents ',' tokIdent.    (67)
 
-	.  reduce 67 (src line 432)
+	.  reduce 67 (src line 437)
 
 
-state 310
+state 316
 	valdef:  tokAt tokRequires '(' commadefs ')'.semiOk valdef 
-	semiOk: .    (152)
+	semiOk: .    (156)
 
-	';'  shift 327
-	.  reduce 152 (src line 641)
+	';'  shift 333
+	.  reduce 156 (src line 666)
 
-	semiOk  goto 334
+	semiOk  goto 341
 
-state 311
+state 317
 	val:  pat type '=' expr.    (62)
 	expr:  expr.'(' applyargs commaOk ')' 
 	expr:  expr.tokOrOr expr 
@@ -5661,28 +5778,28 @@ state 311
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 62 (src line 377)
+	.  reduce 62 (src line 382)
 
 
-state 312
+state 318
 	tuplepatargs:  tuplepatargs ',' pat.    (37)
 
-	.  reduce 37 (src line 282)
+	.  reduce 37 (src line 287)
 
 
-state 313
+state 319
 	structpatargs:  structpatargs ',' structpat.    (39)
 
-	.  reduce 39 (src line 291)
+	.  reduce 39 (src line 296)
 
 
-state 314
+state 320
 	structpat:  tokIdent ':' pat.    (41)
 
-	.  reduce 41 (src line 300)
+	.  reduce 41 (src line 305)
 
 
-state 315
+state 321
 	valdef:  tokFunc tokIdent '(' funcargs ')'.'=' expr 
 	valdef:  tokFunc tokIdent '(' funcargs ')'.type '=' expr 
 
@@ -5698,20 +5815,20 @@ state 315
 	'{'  shift 46
 	'('  shift 48
 	'['  shift 45
-	'='  shift 335
+	'='  shift 342
 	.  error
 
 	identSelector  goto 44
-	type  goto 336
+	type  goto 343
 
-state 316
+state 322
 	ifelseblock:  '{' defs expr maybeColon.'}' 
 
-	'}'  shift 337
+	'}'  shift 344
 	.  error
 
 
-state 317
+state 323
 	expr:  expr.'(' applyargs commaOk ')' 
 	expr:  expr.tokOrOr expr 
 	expr:  expr.tokAndAnd expr 
@@ -5754,10 +5871,10 @@ state 317
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 97 (src line 495)
+	.  reduce 97 (src line 500)
 
 
-state 318
+state 324
 	term:  tokFunc '(' funcargs ')' type tokArrow.expr 
 
 	tokIdent  shift 17
@@ -5785,163 +5902,44 @@ state 318
 	'!'  shift 14
 	.  error
 
-	expr  goto 338
+	expr  goto 345
 	factor  goto 11
 	term  goto 13
 	exprblock  goto 26
 
-state 319
+state 325
 	term:  tokExec '(' commadefs ')' type tokTemplate.    (99)
 
-	.  reduce 99 (src line 500)
+	.  reduce 99 (src line 505)
 
 
-state 320
+state 326
 	commadefs:  commadefs ','.commadef 
-	commaOk:  ','.    (151)
+	commaOk:  ','.    (155)
 
 	tokIdent  shift 166
 	tokAt  shift 58
 	tokVal  shift 59
 	tokFunc  shift 61
 	tokType  shift 62
-	.  reduce 151 (src line 639)
+	.  reduce 155 (src line 664)
 
 	valdef  goto 56
 	typedef  goto 57
 	def  goto 165
-	commadef  goto 289
+	commadef  goto 292
 
-state 321
+state 327
 	term:  tokMake '(' tokExpr ',' commadefs commaOk.')' 
 
-	')'  shift 339
+	')'  shift 346
 	.  error
 
 
-state 322
+state 328
 	term:  '(' expr ',' tupleargs commaOk ')'.    (102)
 
-	.  reduce 102 (src line 506)
-
-
-state 323
-	expr:  expr.'(' applyargs commaOk ')' 
-	expr:  expr.tokOrOr expr 
-	expr:  expr.tokAndAnd expr 
-	expr:  expr.'<' expr 
-	expr:  expr.'>' expr 
-	expr:  expr.tokLE expr 
-	expr:  expr.tokGE expr 
-	expr:  expr.tokNE expr 
-	expr:  expr.tokEqEq expr 
-	expr:  expr.'+' expr 
-	expr:  expr.'-' expr 
-	expr:  expr.'*' expr 
-	expr:  expr.'/' expr 
-	expr:  expr.'%' expr 
-	expr:  expr.'&' expr 
-	expr:  expr.tokLSH expr 
-	expr:  expr.tokRSH expr 
-	expr:  expr.tokSquiggleArrow expr 
-	expr:  expr.'.' tokIdent 
-	expr:  expr.'[' expr ']' 
-	tupleargs:  tupleargs ',' expr.    (136)
-
-	'('  shift 64
-	'['  shift 83
-	tokOrOr  shift 65
-	tokAndAnd  shift 66
-	tokLE  shift 69
-	tokGE  shift 70
-	tokNE  shift 71
-	tokEqEq  shift 72
-	tokLSH  shift 79
-	tokRSH  shift 80
-	tokSquiggleArrow  shift 81
-	'<'  shift 67
-	'>'  shift 68
-	'+'  shift 73
-	'-'  shift 74
-	'*'  shift 75
-	'/'  shift 76
-	'%'  shift 77
-	'&'  shift 78
-	'.'  shift 82
-	.  reduce 136 (src line 595)
-
-
-state 324
-	term:  '[' listargs commaOk listappendargs commaOk ']'.    (105)
-
-	.  reduce 105 (src line 512)
-
-
-state 325
-	expr:  expr.'(' applyargs commaOk ')' 
-	expr:  expr.tokOrOr expr 
-	expr:  expr.tokAndAnd expr 
-	expr:  expr.'<' expr 
-	expr:  expr.'>' expr 
-	expr:  expr.tokLE expr 
-	expr:  expr.tokGE expr 
-	expr:  expr.tokNE expr 
-	expr:  expr.tokEqEq expr 
-	expr:  expr.'+' expr 
-	expr:  expr.'-' expr 
-	expr:  expr.'*' expr 
-	expr:  expr.'/' expr 
-	expr:  expr.'%' expr 
-	expr:  expr.'&' expr 
-	expr:  expr.tokLSH expr 
-	expr:  expr.tokRSH expr 
-	expr:  expr.tokSquiggleArrow expr 
-	expr:  expr.'.' tokIdent 
-	expr:  expr.'[' expr ']' 
-	listappendargs:  listappendargs tokEllipsis expr.semiOk 
-	semiOk: .    (152)
-
-	'('  shift 64
-	'['  shift 83
-	tokOrOr  shift 65
-	tokAndAnd  shift 66
-	tokLE  shift 69
-	tokGE  shift 70
-	tokNE  shift 71
-	tokEqEq  shift 72
-	tokLSH  shift 79
-	tokRSH  shift 80
-	tokSquiggleArrow  shift 81
-	'<'  shift 67
-	'>'  shift 68
-	'+'  shift 73
-	'-'  shift 74
-	'*'  shift 75
-	'/'  shift 76
-	'%'  shift 77
-	'&'  shift 78
-	'.'  shift 82
-	';'  shift 327
-	.  reduce 152 (src line 641)
-
-	semiOk  goto 340
-
-state 326
-	listappendargs:  tokEllipsis expr semiOk.    (133)
-
-	.  reduce 133 (src line 586)
-
-
-state 327
-	semiOk:  ';'.    (153)
-
-	.  reduce 153 (src line 642)
-
-
-state 328
-	term:  '[' mapargs commaOk listappendargs commaOk ']'.    (108)
-
-	.  reduce 108 (src line 523)
+	.  reduce 102 (src line 511)
 
 
 state 329
@@ -5965,7 +5963,7 @@ state 329
 	expr:  expr.tokSquiggleArrow expr 
 	expr:  expr.'.' tokIdent 
 	expr:  expr.'[' expr ']' 
-	mapargs:  mapargs ',' expr ':' expr.    (140)
+	tupleargs:  tupleargs ',' expr.    (140)
 
 	'('  shift 64
 	'['  shift 83
@@ -5987,10 +5985,16 @@ state 329
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 140 (src line 607)
+	.  reduce 140 (src line 620)
 
 
 state 330
+	term:  '[' listargs commaOk listappendargs commaOk ']'.    (105)
+
+	.  reduce 105 (src line 517)
+
+
+state 331
 	expr:  expr.'(' applyargs commaOk ')' 
 	expr:  expr.tokOrOr expr 
 	expr:  expr.tokAndAnd expr 
@@ -6011,7 +6015,8 @@ state 330
 	expr:  expr.tokSquiggleArrow expr 
 	expr:  expr.'.' tokIdent 
 	expr:  expr.'[' expr ']' 
-	term:  '[' expr '|' pat tokLeftArrow expr.']' 
+	listappendargs:  listappendargs tokEllipsis expr.semiOk 
+	semiOk: .    (156)
 
 	'('  shift 64
 	'['  shift 83
@@ -6033,23 +6038,140 @@ state 330
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	']'  shift 341
-	.  error
+	';'  shift 333
+	.  reduce 156 (src line 666)
 
-
-state 331
-	term:  tokZip '(' expr ',' expr ')'.    (115)
-
-	.  reduce 115 (src line 541)
-
+	semiOk  goto 347
 
 state 332
-	paramdefs:  paramdefs paramdef ';'.    (52)
+	listappendargs:  tokEllipsis expr semiOk.    (137)
 
-	.  reduce 52 (src line 340)
+	.  reduce 137 (src line 611)
 
 
 state 333
+	semiOk:  ';'.    (157)
+
+	.  reduce 157 (src line 667)
+
+
+state 334
+	term:  '[' mapargs commaOk listappendargs commaOk ']'.    (108)
+
+	.  reduce 108 (src line 528)
+
+
+state 335
+	expr:  expr.'(' applyargs commaOk ')' 
+	expr:  expr.tokOrOr expr 
+	expr:  expr.tokAndAnd expr 
+	expr:  expr.'<' expr 
+	expr:  expr.'>' expr 
+	expr:  expr.tokLE expr 
+	expr:  expr.tokGE expr 
+	expr:  expr.tokNE expr 
+	expr:  expr.tokEqEq expr 
+	expr:  expr.'+' expr 
+	expr:  expr.'-' expr 
+	expr:  expr.'*' expr 
+	expr:  expr.'/' expr 
+	expr:  expr.'%' expr 
+	expr:  expr.'&' expr 
+	expr:  expr.tokLSH expr 
+	expr:  expr.tokRSH expr 
+	expr:  expr.tokSquiggleArrow expr 
+	expr:  expr.'.' tokIdent 
+	expr:  expr.'[' expr ']' 
+	mapargs:  mapargs ',' expr ':' expr.    (144)
+
+	'('  shift 64
+	'['  shift 83
+	tokOrOr  shift 65
+	tokAndAnd  shift 66
+	tokLE  shift 69
+	tokGE  shift 70
+	tokNE  shift 71
+	tokEqEq  shift 72
+	tokLSH  shift 79
+	tokRSH  shift 80
+	tokSquiggleArrow  shift 81
+	'<'  shift 67
+	'>'  shift 68
+	'+'  shift 73
+	'-'  shift 74
+	'*'  shift 75
+	'/'  shift 76
+	'%'  shift 77
+	'&'  shift 78
+	'.'  shift 82
+	.  reduce 144 (src line 632)
+
+
+state 336
+	comprclauses:  comprclauses ',' comprclause.    (125)
+
+	.  reduce 125 (src line 580)
+
+
+state 337
+	expr:  expr.'(' applyargs commaOk ')' 
+	expr:  expr.tokOrOr expr 
+	expr:  expr.tokAndAnd expr 
+	expr:  expr.'<' expr 
+	expr:  expr.'>' expr 
+	expr:  expr.tokLE expr 
+	expr:  expr.tokGE expr 
+	expr:  expr.tokNE expr 
+	expr:  expr.tokEqEq expr 
+	expr:  expr.'+' expr 
+	expr:  expr.'-' expr 
+	expr:  expr.'*' expr 
+	expr:  expr.'/' expr 
+	expr:  expr.'%' expr 
+	expr:  expr.'&' expr 
+	expr:  expr.tokLSH expr 
+	expr:  expr.tokRSH expr 
+	expr:  expr.tokSquiggleArrow expr 
+	expr:  expr.'.' tokIdent 
+	expr:  expr.'[' expr ']' 
+	comprclause:  pat tokLeftArrow expr.    (126)
+
+	'('  shift 64
+	'['  shift 83
+	tokOrOr  shift 65
+	tokAndAnd  shift 66
+	tokLE  shift 69
+	tokGE  shift 70
+	tokNE  shift 71
+	tokEqEq  shift 72
+	tokLSH  shift 79
+	tokRSH  shift 80
+	tokSquiggleArrow  shift 81
+	'<'  shift 67
+	'>'  shift 68
+	'+'  shift 73
+	'-'  shift 74
+	'*'  shift 75
+	'/'  shift 76
+	'%'  shift 77
+	'&'  shift 78
+	'.'  shift 82
+	.  reduce 126 (src line 583)
+
+
+state 338
+	term:  tokZip '(' expr ',' expr ')'.    (115)
+
+	.  reduce 115 (src line 554)
+
+
+state 339
+	paramdefs:  paramdefs paramdef ';'.    (52)
+
+	.  reduce 52 (src line 345)
+
+
+state 340
 	paramdef:  idents type '=' expr.    (65)
 	expr:  expr.'(' applyargs commaOk ')' 
 	expr:  expr.tokOrOr expr 
@@ -6092,10 +6214,10 @@ state 333
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 65 (src line 414)
+	.  reduce 65 (src line 419)
 
 
-state 334
+state 341
 	valdef:  tokAt tokRequires '(' commadefs ')' semiOk.valdef 
 
 	tokIdent  shift 60
@@ -6104,9 +6226,9 @@ state 334
 	tokFunc  shift 61
 	.  error
 
-	valdef  goto 342
+	valdef  goto 348
 
-state 335
+state 342
 	valdef:  tokFunc tokIdent '(' funcargs ')' '='.expr 
 
 	tokIdent  shift 17
@@ -6134,25 +6256,25 @@ state 335
 	'!'  shift 14
 	.  error
 
-	expr  goto 343
+	expr  goto 349
 	factor  goto 11
 	term  goto 13
 	exprblock  goto 26
 
-state 336
+state 343
 	valdef:  tokFunc tokIdent '(' funcargs ')' type.'=' expr 
 
-	'='  shift 344
+	'='  shift 350
 	.  error
 
 
-state 337
+state 344
 	ifelseblock:  '{' defs expr maybeColon '}'.    (123)
 
-	.  reduce 123 (src line 560)
+	.  reduce 123 (src line 573)
 
 
-state 338
+state 345
 	expr:  expr.'(' applyargs commaOk ')' 
 	expr:  expr.tokOrOr expr 
 	expr:  expr.tokAndAnd expr 
@@ -6195,34 +6317,28 @@ state 338
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 98 (src line 497)
+	.  reduce 98 (src line 502)
 
 
-state 339
+state 346
 	term:  tokMake '(' tokExpr ',' commadefs commaOk ')'.    (101)
 
-	.  reduce 101 (src line 504)
+	.  reduce 101 (src line 509)
 
 
-state 340
-	listappendargs:  listappendargs tokEllipsis expr semiOk.    (134)
+state 347
+	listappendargs:  listappendargs tokEllipsis expr semiOk.    (138)
 
-	.  reduce 134 (src line 589)
-
-
-state 341
-	term:  '[' expr '|' pat tokLeftArrow expr ']'.    (109)
-
-	.  reduce 109 (src line 530)
+	.  reduce 138 (src line 614)
 
 
-state 342
+state 348
 	valdef:  tokAt tokRequires '(' commadefs ')' semiOk valdef.    (55)
 
-	.  reduce 55 (src line 344)
+	.  reduce 55 (src line 349)
 
 
-state 343
+state 349
 	valdef:  tokFunc tokIdent '(' funcargs ')' '=' expr.    (58)
 	expr:  expr.'(' applyargs commaOk ')' 
 	expr:  expr.tokOrOr expr 
@@ -6265,10 +6381,10 @@ state 343
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 58 (src line 358)
+	.  reduce 58 (src line 363)
 
 
-state 344
+state 350
 	valdef:  tokFunc tokIdent '(' funcargs ')' type '='.expr 
 
 	tokIdent  shift 17
@@ -6296,12 +6412,12 @@ state 344
 	'!'  shift 14
 	.  error
 
-	expr  goto 345
+	expr  goto 351
 	factor  goto 11
 	term  goto 13
 	exprblock  goto 26
 
-state 345
+state 351
 	valdef:  tokFunc tokIdent '(' funcargs ')' type '=' expr.    (59)
 	expr:  expr.'(' applyargs commaOk ')' 
 	expr:  expr.tokOrOr expr 
@@ -6344,18 +6460,18 @@ state 345
 	'%'  shift 77
 	'&'  shift 78
 	'.'  shift 82
-	.  reduce 59 (src line 363)
+	.  reduce 59 (src line 368)
 
 
-79 terminals, 46 nonterminals
-154 grammar rules, 346/8000 states
+79 terminals, 48 nonterminals
+158 grammar rules, 352/8000 states
 0 shift/reduce, 0 reduce/reduce conflicts reported
-95 working sets used
-memory: parser 400/120000
-247 extra closures
-2678 shift entries, 2 exceptions
-152 goto entries
-221 entries saved by goto default
-Optimizer space used: output 1343/120000
-1343 table entries, 360 zero
-maximum spread: 79, maximum offset: 344
+97 working sets used
+memory: parser 409/120000
+245 extra closures
+2729 shift entries, 2 exceptions
+157 goto entries
+224 entries saved by goto default
+Optimizer space used: output 1320/120000
+1320 table entries, 345 zero
+maximum spread: 79, maximum offset: 350

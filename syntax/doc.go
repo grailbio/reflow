@@ -67,11 +67,15 @@ expressions, d1, d2, .. are declarations; t1, t2, .. are types):
 	make(strlit, d1, ..., dn)          // builtin make primitive. identifiers are valid declarations in
 	                                   // this context; they are deparsed as id := id.
 	panic(e1)                          // terminate the program with error e1
-	[e1 | p1 <- e2]                    // list comprehension: bind pattern p1 using expression e2,
-	                                   // evaluate e1 with this environment.
+	[e1 | c1, c2,..., cn]              // list comprehension: evaluate e1 in the environment provided by
+	                                   // the given clauses (see below)
 	e1 ~> e2                           // force evaluation of e1, ignore its result, then evaluate e2.
 	flatten(e1)                        // flatten a list of lists into a single list
 
+A comprehension clause is one of the following:
+
+	pat <- e1                          // bind a pattern to each of the list or map e1
+	if e1                              // filter entries that do not meet the predicate e1
 
 A Reflow declaration is one of the following:
 

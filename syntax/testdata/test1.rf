@@ -14,6 +14,28 @@ val TestCompr = {
 	test.All([x*2 == y | (x, y) <- zip(l, x2)])
 }
 
+val TestCompr2 = {
+	strings := make("$/strings")
+	x := ["a", "b", "c"]
+	y := [1, 2]
+	xy := [x + strings.FromInt(y) | x <- x, y <- y]
+	test.All([x == y | (x, y) <- zip(xy, ["a1", "a2", "b1", "b2", "c1", "c2"])])
+}
+
+val TestCompr3 = {
+	xs := [1,2,3,4]
+	xy := [x*y | x <- xs, if x%2 == 0, y <- xs]
+	expect := [2, 4, 6, 8, 4, 8, 12, 16]
+	test.All([x == y | (x, y) <- zip(xy, expect)])
+}
+
+val TestCompr4 = {
+	xss := [["a", "b", "c"], ["e"], ["f", "g", "h"]]
+	xy := [x | xs <- xss, x <- xs, if x != "a"]
+	expect := ["b", "c", "e", "f", "g", "h"]
+	test.All([x == y | (x, y) <- zip(xy, expect)])
+}
+
 val TestDestructure = {
 	tup := (1,2,3,"ok")
 	val (_, two, _, ok) = tup
@@ -40,7 +62,7 @@ val TestMapIndex = {
 	m["ok"] == 123
 }
 
-val TestLen = 
+val TestLen =
 	len([1,2,3,4]) == 4
 
 val TestCond =
@@ -53,15 +75,15 @@ val TestModule = {
 	mul2 := make("./mul.rf", l := [10,20,30])
 	l := [100,200,300]
 	mul3 := make("./mul.rf", l)
-	
+
 	test.All([
-		eq(mul.Do(1), [1,2,3]), 
+		eq(mul.Do(1), [1,2,3]),
 		eq(mul2.Do(10), [100, 200, 300]),
 		eq(mul3.Do(0), [0, 0, 0]),
-	])	
+	])
 }
 
-val TestConcat = 
+val TestConcat =
 	eq([1,2,3]+[4,5,6], [1,2,3,4,5,6])
 
 val TestConcatMap = {
@@ -119,11 +141,11 @@ val TestFlatten = {
 
 // Just here for the syntax check.
 val TestCommaOks = {
-	val _ = { 
+	val _ = {
 		a: 1,
 		b: 2,
 	}
-	mul := make("./mul.rf", 
+	mul := make("./mul.rf",
 		l := [10,20,30],
 	)
 	func x(a, b, c int) = a*b*c

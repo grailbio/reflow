@@ -29,7 +29,7 @@ func init() {
 }
 
 func digestN(i int) digest.Digest {
-	if i < len(nDigest) {
+	if i >= 0 && i < len(nDigest) {
 		return nDigest[i]
 	}
 	return reflow.Digester.FromBytes([]byte{byte(i)})
@@ -161,9 +161,16 @@ func (e *Expr) digest(w io.Writer, env *values.Env) {
 		e.Right.digest(w, env)
 	case ExprCompr:
 		env = env.Push()
-		d := e.Left.Digest(env)
-		for _, id := range e.Pat.Idents(nil) {
-			env.Bind(id, d)
+		for _, clause := range e.ComprClauses {
+			switch clause.Kind {
+			case ComprEnum:
+				d := clause.Expr.Digest(env)
+				for _, id := range clause.Pat.Idents(nil) {
+					env.Bind(id, d)
+				}
+			case ComprFilter:
+				clause.Expr.digest(w, env)
+			}
 		}
 		e.ComprExpr.digest(w, env)
 	case ExprThunk:
