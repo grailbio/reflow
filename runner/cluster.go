@@ -32,3 +32,9 @@ type StaticCluster struct {
 func (s *StaticCluster) Allocate(ctx context.Context, min, max reflow.Resources, labels pool.Labels) (pool.Alloc, error) {
 	return pool.Allocate(ctx, s, min, max, labels)
 }
+
+// TracingCluster is a cluster that traces the actions of an underlying
+// cluster manager.
+type TracingCluster struct {
+	Cluster
+}

@@ -108,8 +108,10 @@ type State struct {
 	Args []string
 	// Phase holds the current phase of the run.
 	Phase Phase
-	// AllocID is the ID of the run's alloc, if any.
+	// AllocID is the full URI for the run's alloc.
 	AllocID string
+	// AllocInspect is the alloc's inspect output.
+	AllocInspect pool.AllocInspect
 	// Value contains the result of the evaluation,
 	// rendered as a string.
 	// TODO(marius): serialize the value into JSON.
@@ -123,6 +125,12 @@ type State struct {
 	LastTry time.Time
 	// Created is the time of the run's creation.
 	Created time.Time
+	// Completion is the time of the run's completion.
+	Completion time.Time
+
+	// TotalResources stores the total amount of resources used
+	// by this run. Note that the resources are in resource-minutes.
+	TotalResources reflow.Resources
 }
 
 // Reset resets the state so that it will reinitialize if run.
@@ -130,11 +138,13 @@ type State struct {
 func (s *State) Reset() {
 	s.Phase = Init
 	s.AllocID = ""
+	s.AllocInspect = pool.AllocInspect{}
 	s.Result = ""
 	s.Err = nil
 	s.NumTries = 0
 	s.LastTry = time.Time{}
 	s.Created = time.Time{}
+	s.Completion = time.Time{}
 }
 
 // String returns a string representation of the state.
@@ -219,6 +229,13 @@ func (r *Runner) Do(ctx context.Context) bool {
 			break
 		}
 		r.AllocID = r.Alloc.ID()
+		var err error
+		r.AllocInspect, err = r.Alloc.Inspect(ctx)
+		if err != nil {
+			r.Err = errors.Recover(err)
+			r.Phase = Done
+			break
+		}
 		r.Phase = Eval
 	case Eval:
 		r.LastTry = time.Now()
@@ -237,6 +254,7 @@ func (r *Runner) Do(ctx context.Context) bool {
 		r.Result, err = r.Eval(ctx)
 		if err == nil {
 			r.Phase = Done
+			r.Completion = time.Now()
 			break
 		}
 		r.Err = errors.Recover(err)
@@ -247,6 +265,7 @@ func (r *Runner) Do(ctx context.Context) bool {
 			r.Phase = Retry
 		} else {
 			r.Log.Debugf("marking run done after nonrecoverable error %v", r.Err)
+			r.Completion = time.Now()
 			r.Phase = Done
 		}
 	case Retry:
@@ -258,6 +277,7 @@ func (r *Runner) Do(ctx context.Context) bool {
 		r.NumTries++
 		if r.NumTries > maxTries {
 			r.Err = errors.Recover(errors.E(errors.TooManyTries, r.Err))
+			r.Completion = time.Now()
 			r.Phase = Done
 			break
 		}
@@ -268,7 +288,6 @@ func (r *Runner) Do(ctx context.Context) bool {
 		time.Sleep(w)
 		r.Phase = Init
 		r.Err = nil
-	case Done:
 	}
 	return r.Phase != Done
 }

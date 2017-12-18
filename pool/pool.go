@@ -93,6 +93,7 @@ type AllocInspect struct {
 	ID            string
 	Resources     reflow.Resources
 	Meta          AllocMeta
+	Created       time.Time
 	LastKeepalive time.Time
 	Expires       time.Time
 }

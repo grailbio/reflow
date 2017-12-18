@@ -413,6 +413,7 @@ type alloc struct {
 	mu            sync.Mutex
 	id            string
 	p             *Pool
+	created       time.Time
 	expires       time.Time
 	lastKeepalive time.Time
 	freed         bool
@@ -450,7 +451,19 @@ func (p *Pool) newAlloc(id string) *alloc {
 	// Note that we refresh the keepalive time on exec restore. This is
 	// probably a useful safeguard, but could be annoying when keepalive
 	// intervals are large.
-	return &alloc{Executor: e, id: id, p: p, expires: time.Now().Add(keepaliveInterval), remoteStream: remoteStream}
+	//
+	// TODO(marius): persist alloc states across restarts. This doesn't
+	// matter too much at present, as ec2 nodes are terminated when
+	// the reflowlet terminates, but it should be done for potential future
+	// implementations.
+	return &alloc{
+		Executor:     e,
+		id:           id,
+		p:            p,
+		created:      time.Now(),
+		expires:      time.Now().Add(keepaliveInterval),
+		remoteStream: remoteStream,
+	}
 }
 
 // configure stores the given metadata in the alloc's directory.
@@ -542,6 +555,7 @@ func (a *alloc) Inspect(ctx context.Context) (pool.AllocInspect, error) {
 		ID:            a.id,
 		Resources:     a.meta.Want,
 		Meta:          a.meta,
+		Created:       a.created,
 		Expires:       a.expires,
 		LastKeepalive: a.lastKeepalive,
 	}
