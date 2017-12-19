@@ -27,7 +27,7 @@ func Missing(ctx context.Context, r reflow.Repository, files ...reflow.File) ([]
 			cancel()
 			if err == nil {
 				exists[i] = true
-			} else if errors.Match(errors.NotExist, err) {
+			} else if errors.Is(errors.NotExist, err) {
 				return nil
 			}
 			return err

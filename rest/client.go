@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -121,13 +120,7 @@ func (c *ClientCall) Do(ctx context.Context, body io.Reader) (int, error) {
 	case context.Canceled, context.DeadlineExceeded:
 		c.err = errors.Recover(err)
 	default:
-		if err, ok := err.(net.Error); ok {
-			// net.Error defines Temporary() bool
-			c.err = errors.E(err)
-		} else {
-			// Unless explicitly labeled otherwise, we assume these network errors
-			c.err = errors.E(errors.Temporary, err)
-		}
+		c.err = errors.E(errors.Net, err)
 	}
 	if c.log.At(log.DebugLevel) {
 		if c.resp != nil {

@@ -260,8 +260,8 @@ func (r *Runner) Do(ctx context.Context) bool {
 		r.Err = errors.Recover(err)
 		// We retry potentially transient errors here: there is no harm
 		// beyond extra resource usage.
-		if errors.Transient(r.Err) {
-			r.Log.Debugf("marking run for retry after transient error %v", r.Err)
+		if errors.Restartable(r.Err) {
+			r.Log.Debugf("marking run for retry after restartable error %v", r.Err)
 			r.Phase = Retry
 		} else {
 			r.Log.Debugf("marking run done after nonrecoverable error %v", r.Err)

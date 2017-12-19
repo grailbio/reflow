@@ -241,7 +241,7 @@ func Allocate(ctx context.Context, pool Pool, min, max reflow.Resources, labels 
 		if err == nil {
 			return alloc, err
 		}
-		if !errors.Match(errors.NotExist, err) {
+		if !errors.Is(errors.NotExist, err) {
 			return nil, err
 		}
 	}

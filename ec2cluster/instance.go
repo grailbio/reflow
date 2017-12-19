@@ -447,9 +447,9 @@ func (i *instance) Go(ctx context.Context) {
 		}
 		switch {
 		case i.err == nil:
-		case errors.Match(errors.Fatal, i.err):
+		case errors.Is(errors.Fatal, i.err):
 			return
-		case errors.Match(errors.Unavailable, i.err):
+		case errors.Is(errors.Unavailable, i.err):
 			// Return these immediately because our caller may be able to handle
 			// them by selecting a different instance type.
 			return

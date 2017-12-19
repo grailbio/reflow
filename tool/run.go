@@ -284,13 +284,13 @@ retriable.`
 	bgcancel()
 	cancel()
 	if run.Err != nil {
-		if errors.Match(errors.Eval, run.Err) {
+		if errors.Is(errors.Eval, run.Err) {
 			// Error that occured during evaluation. Probably not recoverable.
 			// TODO(marius): if this was caused by an underyling exit (from a tool)
 			// then propagate this here.
 			os.Exit(11)
 		}
-		if errors.Transient(run.Err) {
+		if errors.Restartable(run.Err) {
 			os.Exit(10)
 		}
 		os.Exit(1)
@@ -417,7 +417,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	}
 	if err = eval.Do(ctx); err != nil {
 		c.Errorln(err)
-		if errors.Transient(err) {
+		if errors.Restartable(err) {
 			os.Exit(10)
 		}
 		os.Exit(1)

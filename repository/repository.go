@@ -65,7 +65,7 @@ func Transfer(ctx context.Context, dst, src reflow.Repository, id digest.Digest)
 		switch {
 		case err == nil:
 			return nil
-		case errors.Match(errors.NotSupported, err):
+		case errors.Is(errors.NotSupported, err):
 		default:
 			return err
 		}
@@ -75,7 +75,7 @@ func Transfer(ctx context.Context, dst, src reflow.Repository, id digest.Digest)
 		switch {
 		case err == nil:
 			return nil
-		case errors.Match(errors.NotSupported, err):
+		case errors.Is(errors.NotSupported, err):
 		default:
 			return err
 		}

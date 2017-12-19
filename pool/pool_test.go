@@ -103,7 +103,7 @@ func TestMux(t *testing.T) {
 			t.Errorf("expected error for %s", c.arg)
 			continue
 		}
-		if !errors.Match(c.kind, err) {
+		if c.kind != errors.Other && !errors.Is(c.kind, err) {
 			t.Errorf("got %v, want %v", errors.Recover(err).Kind, c.kind)
 			t.Errorf("%v", errors.Recover(err).Kind == c.kind)
 		}

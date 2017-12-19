@@ -67,6 +67,8 @@ const (
 	Fatal
 	// Invalid indicates an invalid state or data.
 	Invalid
+	// Net indicates a networking error.
+	Net
 
 	maxKind
 )
@@ -102,6 +104,8 @@ func (k Kind) String() string {
 		return "fatal"
 	case Invalid:
 		return "invalid"
+	case Net:
+		return "network error"
 	}
 }
 
@@ -120,6 +124,7 @@ var kind2string = [maxKind]string{
 	Unavailable:        "Unavailable",
 	Fatal:              "Fatal",
 	Invalid:            "Invalid",
+	Net:                "Net",
 }
 
 var string2kind = map[string]Kind{
@@ -137,6 +142,7 @@ var string2kind = map[string]Kind{
 	"Unavailable":        Unavailable,
 	"Fatal":              Fatal,
 	"Invalid":            Invalid,
+	"Net":                Net,
 }
 
 // Error defines a Reflow error. It is used to indicate an error
@@ -414,38 +420,54 @@ func (e *Error) UnmarshalJSON(b []byte) error {
 // that every nonempty field in err1 has the same value in err2. If
 // err1 is an *Error with a non-nil Err field, Match recurs to check
 // that the two errors chain of underlying errors also match.
-func Match(err1 interface{}, err2 error) bool {
+func Match(err1, err2 error) bool {
 	e2 := Recover(err2)
-	switch e1 := err1.(type) {
-	default:
+	e1, ok := err1.(*Error)
+	if !ok {
 		return false
-	case Kind:
-		return e1 == e2.Kind
-	case *Error:
-		if e1.Op != "" && e2.Op != e1.Op {
-			return false
-		}
-		if len(e1.Arg) != len(e2.Arg) {
-			return false
-		}
-		for i := range e1.Arg {
-			if e1.Arg[i] != e2.Arg[i] {
-				return false
-			}
-		}
-		if e1.Kind != Other && e2.Kind != e1.Kind {
-			return false
-		}
-		if e1.Err != nil {
-			if _, ok := e1.Err.(*Error); ok {
-				return Match(e1.Err, e2.Err)
-			}
-			if e2.Err == nil || e2.Err.Error() != e1.Err.Error() {
-				return false
-			}
-		}
-		return true
 	}
+	if e1.Op != "" && e2.Op != e1.Op {
+		return false
+	}
+	if len(e1.Arg) != len(e2.Arg) {
+		return false
+	}
+	for i := range e1.Arg {
+		if e1.Arg[i] != e2.Arg[i] {
+			return false
+		}
+	}
+	if e1.Kind != Other && e2.Kind != e1.Kind {
+		return false
+	}
+	if e1.Err != nil {
+		if _, ok := e1.Err.(*Error); ok {
+			return Match(e1.Err, e2.Err)
+		}
+		if e2.Err == nil || e2.Err.Error() != e1.Err.Error() {
+			return false
+		}
+	}
+	return true
+}
+
+// Is tells whether an error has a specified kind, except for the
+// indeterminate kind Other. In the case an error has kind Other, the
+// chain is traversed until a non-Other error is encountered.
+func Is(kind Kind, err error) bool {
+	return is(kind, Recover(err))
+}
+
+func is(kind Kind, e *Error) bool {
+	if e.Kind != Other {
+		return e.Kind == kind
+	}
+	if e.Err != nil {
+		if e2, ok := e.Err.(*Error); ok {
+			return is(kind, e2)
+		}
+	}
+	return false
 }
 
 // Transient tells whether error err is likely transient, and thus may
@@ -457,4 +479,10 @@ func Transient(err error) bool {
 	default:
 		return false
 	}
+}
+
+// Restartable determines if the provided error is restartable.
+// Restartable errors include transient errors and network errors.
+func Restartable(err error) bool {
+	return Transient(err) || Is(Net, err)
 }

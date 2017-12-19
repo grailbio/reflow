@@ -327,7 +327,7 @@ func (c *Cluster) loop() {
 			npending--
 			switch {
 			case inst.Err() == nil:
-			case errors.Match(errors.Unavailable, inst.Err()):
+			case errors.Is(errors.Unavailable, inst.Err()):
 				c.Log.Printf("instance type %s unavailable in region %s: %v", inst.Config.Type, c.Region, inst.Err())
 				c.instanceState.Unavailable(inst.Config)
 				fallthrough

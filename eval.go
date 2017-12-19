@@ -875,7 +875,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 				// Don't print cancellation errors, since they are follow-on errors
 				// from upstream ones that have already been reported.
 				/*
-					if !errors.Match(errors.E(errors.Canceled), err) {
+					if !errors.Is(errors.E(errors.Canceled), err) {
 						e.Log.Errorf("eval %s runtime error: %v", f.ExecString(false), err)
 					}
 				*/
@@ -1068,7 +1068,7 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 		if err == nil {
 			break
 		}
-		if !errors.Match(errors.NotExist, err) {
+		if !errors.Is(errors.NotExist, err) {
 			e.Log.Errorf("cache.Lookup %v: %v", f, err)
 		}
 	}

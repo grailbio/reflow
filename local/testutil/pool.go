@@ -141,7 +141,7 @@ func TestPool(t *testing.T, p pool.Pool) {
 	}
 
 	_, err = alloc.Keepalive(ctx, intv)
-	if !errors.Match(errors.NotExist, err) {
+	if !errors.Is(errors.NotExist, err) {
 		t.Fatalf("expected NotExist error, got %v", err)
 	}
 	// Look it up again to get its zombie.

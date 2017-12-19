@@ -54,7 +54,7 @@ func TestError(t *testing.T) {
 	if err := json.NewDecoder(w.Result().Body).Decode(e); err != nil {
 		t.Fatal(err)
 	}
-	if !errors.Match(errors.NotExist, e) {
+	if !errors.Is(errors.NotExist, e) {
 		t.Errorf("expected %v to be NotExist", e)
 	}
 	if got, want := e.Error(), "op1: resource does not exist"; got != want {

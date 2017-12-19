@@ -218,7 +218,7 @@ func (w *worker) do(ctx context.Context, f *reflow.Flow) (err error) {
 			panic("unhandled state")
 		}
 		if err != nil {
-			if errors.Match(errors.Temporary, err) || errors.Match(errors.Timeout, err) {
+			if errors.Is(errors.Temporary, err) || errors.Is(errors.Timeout, err) {
 				n++
 			} else {
 				break

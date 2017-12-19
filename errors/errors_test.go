@@ -91,3 +91,21 @@ func TestError(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+type isTemporary bool
+
+func (t isTemporary) Error() string   { return "maybe a temporary error" }
+func (t isTemporary) Temporary() bool { return bool(t) }
+
+func TestIs(t *testing.T) {
+	for kind := Other; kind < maxKind; kind++ {
+		if got, want := Is(kind, E(kind)), kind != Other; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	}
+	for _, temp := range []bool{true, false} {
+		if got, want := Is(Temporary, isTemporary(temp)), temp; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	}
+}

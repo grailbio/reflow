@@ -60,7 +60,7 @@ func TestCache(t *testing.T) {
 		Transferer: transferer{},
 	}
 	key := reflow.Digester.FromString
-	if _, err := cache.Lookup(ctx, key("hello")); err == nil || !errors.Match(errors.NotExist, err) {
+	if _, err := cache.Lookup(ctx, key("hello")); err == nil || !errors.Is(errors.NotExist, err) {
 		t.Errorf("expected notexist error, got %v", err)
 	}
 
@@ -83,7 +83,7 @@ func TestCache(t *testing.T) {
 		},
 	}
 	err := cache.Write(ctx, key("key1"), v, local)
-	if err == nil || !errors.Match(errors.NotExist, err) {
+	if err == nil || !errors.Is(errors.NotExist, err) {
 		t.Errorf("expected nontexist error, got %v", err)
 	}
 

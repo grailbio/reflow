@@ -123,7 +123,7 @@ func TestClientServerFile(t *testing.T) {
 
 	id2 := reflow.Digester.FromString("hello, world")
 	_, err = repo.Get(ctx, id2)
-	if !errors.Match(errors.NotExist, err) {
+	if !errors.Is(errors.NotExist, err) {
 		t.Fatalf("expected NotExist, got %v", err)
 	}
 }
@@ -156,7 +156,7 @@ func TestClientServerCollect(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = repo.Get(ctx, id2)
-	if !errors.Match(errors.NotExist, err) {
+	if !errors.Is(errors.NotExist, err) {
 		t.Errorf("expected NotExist, got %v", err)
 	}
 	body, err := repo.Get(ctx, id1)
