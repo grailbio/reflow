@@ -119,7 +119,12 @@ func (r *Run) Go(ctx context.Context, initWG *sync.WaitGroup) error {
 		return err
 	}
 	defer f.Close()
-	r.log = log.New(golog.New(f, "", golog.LstdFlags), log.InfoLevel)
+	r.log = log.New(
+		golog.New(f, "", golog.LstdFlags),
+		// Use the globally configured log level. This is a bit clunky and
+		// we should pass down a log configuration in a different way.
+		log.Std.Level,
+	)
 	evalConfig := r.batch.EvalConfig
 	evalConfig.Log = r.log
 	run := &runner.Runner{
