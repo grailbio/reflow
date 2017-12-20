@@ -143,7 +143,6 @@ exec(image := "ubuntu", cpu := 1, mem := 100*MiB) (out file) {"
   produces a pair of files from two input files to <a href="http://bedtools.readthedocs.io/en/latest/">bedtools</a>:
   <pre>
 val image = "..."
-
 // Bins returns a BED resources for a given bin size and a given
 // genome with the given bin size.
 func Bins(alignmentGenome, genomeSizes file, binSize int) (bed, nuc file) =
