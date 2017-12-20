@@ -81,6 +81,7 @@ type Cluster struct {
 	// Region is the AWS availability region to use for launching new EC2 instances.
 	Region string
 	// InstanceTypes stores the set of admissible instance types.
+	// If nil, all instance types are permitted.
 	InstanceTypes map[string]bool
 	// ReflowletImage is the Docker URI of the image used for instance reflowlets.
 	// The image must be retrievable by the cluster's authenticator.
@@ -146,7 +147,7 @@ func (c *Cluster) Init() error {
 	// Construct the set of legal instances and set available disk space.
 	var instances []instanceConfig
 	for _, config := range instanceTypes {
-		if c.InstanceTypes[config.Type] {
+		if c.InstanceTypes == nil || c.InstanceTypes[config.Type] {
 			config.Resources.Disk = uint64(c.DiskSpace << 30)
 			instances = append(instances, config)
 		}

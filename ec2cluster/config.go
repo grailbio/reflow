@@ -65,7 +65,7 @@ type Config struct {
 	// running at any given time.
 	MaxInstances int `yaml:"maxinstances,omitempty"`
 	// InstanceTypes defines the set of allowable EC2 instance types for
-	// this cluster.
+	// this cluster. If empty, all instance types are permitted.
 	InstanceTypes []string `yaml:"instancetypes,omitempty"`
 	// Additional public SSH key to add to the instance.
 	SshKey string
@@ -170,9 +170,11 @@ func (c *Config) Cluster() (runner.Cluster, error) {
 	if cluster.MaxInstances == 0 {
 		cluster.MaxInstances = defaultMaxInstances
 	}
-	cluster.InstanceTypes = make(map[string]bool)
-	for _, typ := range c.InstanceTypes {
-		cluster.InstanceTypes[typ] = true
+	if len(c.InstanceTypes) > 0 {
+		cluster.InstanceTypes = make(map[string]bool)
+		for _, typ := range c.InstanceTypes {
+			cluster.InstanceTypes[typ] = true
+		}
 	}
 	if err := cluster.Init(); err != nil {
 		return nil, err
