@@ -12,12 +12,13 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"html/template"
 	"net/http"
 	"sort"
 	"strings"
 	"sync"
-	"text/template"
 	"time"
+	"unicode"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -44,109 +45,6 @@ import (
 // We reserve 5% for the Reflowlet, and the EC2 overhead appears to
 // be a little shy of 2%.
 const memoryDiscount = 0.05 + 0.02
-
-var ec2UserDataTmpl = template.Must(template.New("ec2userdata").Parse(ec2UserData))
-
-const ec2UserData = `#cloud-config
-write_files:
-  - path: "/etc/ecrlogin"
-    permissions: "0644"
-    owner: "root"
-    content: |
-      {{.LoginCommand}}
-
-  - path: "/etc/reflowconfig"
-    permissions: "0644"
-    owner: "root"
-    content: |
-      {{.ReflowConfig}}
-
-coreos:
-  update:
-    reboot-strategy: "off"
-
-  units:
-  - name: update-engine.service
-    command: stop
-
-  - name: locksmithd.service
-    command: stop
-
-  - name: format-{{.DeviceName}}.service
-    command: start
-    content: |
-      [Unit]
-      Description=Format /dev/{{.DeviceName}}
-      After=dev-{{.DeviceName}}.device
-      Requires=dev-{{.DeviceName}}.device
-      [Service]
-      Type=oneshot
-      RemainAfterExit=yes
-      ExecStart=/usr/sbin/wipefs -f /dev/{{.DeviceName}}
-      ExecStart=/usr/sbin/mkfs.ext4 -F /dev/{{.DeviceName}}
-
-  - name: mnt-data.mount
-    command: start
-    content: |
-      [Mount]
-      What=/dev/{{.DeviceName}}
-      Where=/mnt/data
-      Type=ext4
-      Options=data=writeback
-
-  - name: reflowlet.service
-    enable: true
-    command: start
-    content: |
-      [Unit]
-      Description=reflowlet
-      Requires=network.target
-      After=network.target
-{{if .Mortal}}
-      OnFailure=poweroff.target
-      OnFailureJobMode=replace-irreversibly
-{{end}}
-      
-      [Service]
-      Type=oneshot
-      ExecStartPre=-/usr/bin/docker stop %n
-      ExecStartPre=-/usr/bin/docker rm %n
-      ExecStartPre=-/bin/bash -c 'sleep $[( $RANDOM % {{.Count}} ) ]'
-      ExecStartPre=/bin/bash /etc/ecrlogin
-      ExecStartPre=/usr/bin/docker pull {{.ReflowletImage}}
-      ExecStart=/usr/bin/docker run --rm --name %n --net=host \
-        -v /:/host \
-        -v /var/run/docker.sock:/var/run/docker.sock \
-        -v '/etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt' \
-        {{.ReflowletImage}} -prefix /host -ec2cluster -ndigest 60 -config /host/etc/reflowconfig
-      
-      [Install]
-      WantedBy=multi-user.target
-
-  - name: "node-exporter.service"
-    enable: true
-    command: "start"
-    content: |
-      [Unit]
-      Description=node-exporter
-      Requires=network.target
-      After=network.target
-      After=mnt-data.mount
-      [Service]
-      Restart=always
-      TimeoutStartSec=infinity
-      RestartSec=10s
-      StartLimitInterval=0
-      ExecStartPre=-/usr/bin/docker stop %n
-      ExecStartPre=-/usr/bin/docker rm %n
-      ExecStartPre=/usr/bin/docker pull prom/node-exporter:0.12.0
-      ExecStart=/usr/bin/docker run --rm --name %n -p 9100:9100 -v /proc:/host/proc -v /sys:/host/sys -v /:/rootfs --net=host prom/node-exporter:0.12.0 -collector.procfs /host/proc -collector.sysfs /host/proc -collector.filesystem.ignored-mount-points "^/(sys|proc|dev|host|etc)($|/)"
-      [Install]
-      WantedBy=multi-user.target
-
-ssh-authorized-keys:
-  - {{.SshKey}}
-`
 
 // instanceConfig represents a instance configuration.
 type instanceConfig struct {
@@ -306,6 +204,7 @@ type instance struct {
 	KeyName         string
 	SshKey          string
 	Immortal        bool
+	CloudConfig     cloudConfig
 
 	userData string
 	err      error
@@ -482,18 +381,31 @@ func (i *instance) Go(ctx context.Context) {
 }
 
 func (i *instance) launch(ctx context.Context) (string, error) {
-	args := struct {
-		Count          int
-		LoginCommand   string
-		Mortal         bool
-		ReflowConfig   string
-		ReflowletImage string
-		SshKey         string
-		DeviceName     string
-	}{}
-	args.Count = 1
-	args.Mortal = !i.Immortal
+	// First we need to construct the cloud-config that's passed to
+	// our instances via EC2's user-data mechanism.
+	var c cloudConfig
 
+	if i.SshKey == "" {
+		i.Log.Debugf("instance launch: missing public SSH key")
+	} else {
+		c.SshAuthorizedKeys = []string{i.SshKey}
+	}
+
+	// /etc/ecrlogin contains the login command for ECR.
+	ecrFile := cloudFile{
+		Path:        "/etc/ecrlogin",
+		Permissions: "0644",
+		Owner:       "root",
+	}
+	var err error
+	ecrFile.Content, err = ecrauth.Login(context.TODO(), i.Authenticator)
+	if err != nil {
+		return "", err
+	}
+	c.AppendFile(ecrFile)
+
+	// /etc/reflowconfig contains the (YAML) marshaled configuration file
+	// for the reflowlet.
 	keys := make(config.Keys)
 	if err := i.ReflowConfig.Marshal(keys); err != nil {
 		return "", err
@@ -504,29 +416,86 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	args.ReflowConfig = string(b)
-	// This ugly hack is required to properly embed the (YAML) configuration
-	// inside another YAML file.
-	args.ReflowConfig = strings.Replace(args.ReflowConfig, "\n", "\n      ", -1)
-	args.LoginCommand, err = ecrauth.Login(context.TODO(), i.Authenticator)
+	c.AppendFile(cloudFile{
+		Path:        "/etc/reflowconfig",
+		Permissions: "0644",
+		Owner:       "root",
+		Content:     string(b),
+	})
+
+	// Turn off CoreOS services that would restart or otherwise disrupt
+	// the instances.
+	c.CoreOS.Update.RebootStrategy = "off"
+	c.AppendUnit(cloudUnit{Name: "update-engine.service", Command: "stop"})
+	c.AppendUnit(cloudUnit{Name: "locksmithd.service", Command: "stop"})
+
+	// Configure the disk.
+	deviceName := "xvdb"
+	if i.Config.NVMe {
+		deviceName = "nvme1n1"
+	}
+	c.AppendUnit(cloudUnit{
+		Name:    fmt.Sprintf("format-%s.service", deviceName),
+		Command: "start",
+		Content: tmpl(`
+			[Unit]
+			Description=Format /dev/{{.name}}
+			After=dev-{{.name}}.device
+			Requires=dev-{{.name}}.device
+			[Service]
+			Type=oneshot
+			RemainAfterExit=yes
+			ExecStart=/usr/sbin/wipefs -f /dev/{{.name}}
+			ExecStart=/usr/sbin/mkfs.ext4 -F /dev/{{.name}}
+		`, args{"name": deviceName}),
+	})
+	c.AppendUnit(cloudUnit{
+		Name: "mnt-data.mount",
+		Content: tmpl(`
+			[Mount]
+			What=/dev/{{.name}}
+			Where=/mnt/data
+			Type=ext4
+			Options=data=writeback
+		`, args{"name": deviceName}),
+	})
+
+	// We merge the user's cloud config before appending the reflowlet unit
+	// so that systemd units can be run before the reflowlet.
+	c.Merge(&i.CloudConfig)
+
+	c.AppendUnit(cloudUnit{
+		Name:    "reflowlet.service",
+		Enable:  true,
+		Command: "start",
+		Content: tmpl(`
+			[Unit]
+			Description=reflowlet
+			Requires=network.target
+			After=network.target
+			{{if .mortal}}
+			OnFailure=poweroff.target
+			OnFailureJobMode=replace-irreversibly
+			{{end}}
+			[Service]
+			Type=oneshot
+			ExecStartPre=-/usr/bin/docker stop %n
+			ExecStartPre=-/usr/bin/docker rm %n
+			ExecStartPre=/bin/bash /etc/ecrlogin
+			ExecStartPre=/usr/bin/docker pull {{.image}}
+			ExecStart=/usr/bin/docker run --rm --name %n --net=host \
+			  -v /:/host \
+			  -v /var/run/docker.sock:/var/run/docker.sock \
+			  -v '/etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt' \
+			  {{.image}} -prefix /host -ec2cluster -ndigest 60 -config /host/etc/reflowconfig
+		`, args{"mortal": !i.Immortal, "image": i.ReflowletImage}),
+	})
+
+	b, err = c.Marshal()
 	if err != nil {
 		return "", err
 	}
-	args.ReflowletImage = i.ReflowletImage
-	args.SshKey = i.SshKey
-	if args.SshKey == "" {
-		i.Log.Debugf("instance launch: missing public SSH key")
-	}
-	args.DeviceName = "xvdb"
-	if i.Config.NVMe {
-		args.DeviceName = "nvme1n1"
-	}
-
-	var userdataBuf bytes.Buffer
-	if err := ec2UserDataTmpl.Execute(&userdataBuf, args); err != nil {
-		return "", err
-	}
-	i.userData = base64.StdEncoding.EncodeToString(userdataBuf.Bytes())
+	i.userData = base64.StdEncoding.EncodeToString(b)
 	if i.Spot {
 		return i.ec2RunSpotInstance(ctx)
 	}
@@ -762,4 +731,38 @@ func nonemptyString(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+type args map[string]interface{}
+
+// tmpl renders the template text, after first stripping common
+// (whitespace) prefixes from text.
+func tmpl(text string, args interface{}) string {
+	lines := strings.Split(text, "\n")
+	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	var p int
+	if len(lines) > 0 {
+		p = strings.IndexFunc(lines[0], func(r rune) bool { return !unicode.IsSpace(r) })
+		if p < 0 {
+			p = 0
+		}
+	}
+	for i, line := range lines {
+		lines[i] = line[p:]
+		if strings.TrimSpace(line[:p]) != "" {
+			panic(fmt.Sprintf("nonspace prefix in %q", line))
+		}
+	}
+	text = strings.Join(lines, "\n")
+	t := template.Must(template.New("ec2template").Parse(text))
+	var b bytes.Buffer
+	if err := t.Execute(&b, args); err != nil {
+		panic(err)
+	}
+	return b.String()
 }

@@ -74,6 +74,11 @@ type Config struct {
 	KeyName string
 	// Immortal determines whether instances should be made immortal.
 	Immortal bool `yaml:"immortal,omitempty"`
+
+	// CloudConfig stores a cloud config that is merged into ec2cluster's
+	// cloud config. It is merged before the reflowlet unit is added, so
+	// the user has an opportunity to introduce additional systemd units.
+	CloudConfig cloudConfig `yaml:"cloudconfig"`
 }
 
 // Init initializes this EC2 configuration from the underlying configuration
@@ -166,6 +171,7 @@ func (c *Config) Cluster() (runner.Cluster, error) {
 		SshKey:         c.SshKey,
 		KeyName:        c.KeyName,
 		Immortal:       c.Immortal,
+		CloudConfig:    c.CloudConfig,
 	}
 	if cluster.MaxInstances == 0 {
 		cluster.MaxInstances = defaultMaxInstances

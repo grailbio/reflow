@@ -103,6 +103,8 @@ type Cluster struct {
 	KeyName string
 	// Immortal determines whether instances should be made immortal.
 	Immortal bool
+	// CloudConfig is merged into the instance's cloudConfig before launching.
+	CloudConfig cloudConfig
 
 	instanceState *instanceState
 	pools         map[string]pool.Pool
@@ -256,6 +258,7 @@ func (c *Cluster) loop() {
 			SshKey:         c.SshKey,
 			KeyName:        c.KeyName,
 			Immortal:       c.Immortal,
+			CloudConfig:    c.CloudConfig,
 		}
 		i.Go(context.Background())
 		done <- i
