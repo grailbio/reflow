@@ -39,7 +39,7 @@ type Cache interface {
 	NeedTransfer(ctx context.Context, dst Repository, v Fileset) ([]File, error)
 
 	// Write stores the Value v, whose file objects exist in Repository repo,
-	// under the key id.
+	// under the key id. If the repository is nil no objects are transferred.
 	Write(ctx context.Context, id digest.Digest, v Fileset, repo Repository) error
 
 	// Delete removes the value named by id from this cache.

@@ -1061,11 +1061,13 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 		e.Mutate(f, FlowTODO)
 		return
 	}
-	for _, key := range keys {
+	which := -1
+	for i, key := range keys {
 		ctx, cancel := context.WithTimeout(ctx, cacheLookupTimeout)
 		fs, err = e.Cache.Lookup(ctx, key)
 		cancel()
 		if err == nil {
+			which = i
 			break
 		}
 		if !errors.Is(errors.NotExist, err) {
@@ -1075,6 +1077,19 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 	if err == nil && e.RecomputeEmpty && fs.Empty() {
 		e.Log.Debugf("recomputing empty value for %v", f)
 	} else if err == nil {
+		// Perform read repair: asynchronously write back all of the other
+		// keys (which are synonymous by definition).
+		keys = append(keys[:which], keys[which+1:]...)
+		bgctx := Background(ctx)
+		go func() {
+			for _, key := range keys {
+				err := e.Cache.Write(bgctx, key, fs, nil)
+				if err != nil {
+					e.Log.Errorf("cache write for read repair %v %v: %v", f, key, err)
+				}
+			}
+			bgctx.Complete()
+		}()
 		// The node is marked done. If the needed objects are not later
 		// found in the cache's repository, the node will be marked for
 		// recomputation.

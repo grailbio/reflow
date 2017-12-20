@@ -60,8 +60,10 @@ type Cache struct {
 // Write stores the Value v, whose file objects exist in Repository
 // repo, under the key id.
 func (c *Cache) Write(ctx context.Context, id digest.Digest, v reflow.Fileset, repo reflow.Repository) error {
-	if err := c.Transferer.Transfer(ctx, c.Repository, repo, v.Files()...); err != nil {
-		return err
+	if repo != nil {
+		if err := c.Transferer.Transfer(ctx, c.Repository, repo, v.Files()...); err != nil {
+			return err
+		}
 	}
 	b, err := json.Marshal(v)
 	if err != nil {
