@@ -143,8 +143,13 @@ func (c *Cmd) printRunInfo(ctx context.Context, w io.Writer, name runner.Name) {
 	fmt.Fprintf(w, "\tprogram:\t%s\n", state.Program)
 	if len(state.Params) > 0 {
 		fmt.Fprintf(w, "\tparams:\n")
-		for k, v := range state.Params {
-			fmt.Fprintf(w, "\t\t%s:\t%s\n", k, v)
+		var keys []string
+		for k := range state.Params {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			fmt.Fprintf(w, "\t\t%s:\t%s\n", k, state.Params[k])
 		}
 	}
 	if len(state.Args) > 0 {
