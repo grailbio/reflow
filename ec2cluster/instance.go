@@ -450,7 +450,8 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 		`, args{"name": deviceName}),
 	})
 	c.AppendUnit(cloudUnit{
-		Name: "mnt-data.mount",
+		Name:    "mnt-data.mount",
+		Command: "start",
 		Content: tmpl(`
 			[Mount]
 			What=/dev/{{.name}}
