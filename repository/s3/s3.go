@@ -54,7 +54,12 @@ func (r *Repository) Stat(ctx context.Context, id digest.Digest) (reflow.File, e
 		Key:    aws.String(path.Join(r.Prefix, objectsPath, id.String())),
 	})
 	if err != nil {
-		if err, ok := err.(awserr.Error); ok && (err.Code() == "NoSuchKey" || err.Code() == "NoSuchBucket") {
+		// The S3 API presents inconsistent error codes between GetObject
+		// and HeadObject. It seems that GetObject returns "NoSuchKey" for
+		// a missing object, while HeadObject returns a body-less HTTP 404
+		// error, which is then assigned the fallback HTTP error code
+		// NotFound by the SDK.
+		if err, ok := err.(awserr.Error); ok && (err.Code() == "NotFound" || err.Code() == "NoSuchKey" || err.Code() == "NoSuchBucket") {
 			return reflow.File{}, errors.E("stat", r.URL().String(), id, errors.NotExist, err)
 		}
 		return reflow.File{}, err
