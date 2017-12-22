@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	golog "log"
 	"os"
 	"path/filepath"
@@ -114,16 +115,29 @@ func (r *Run) Go(ctx context.Context, initWG *sync.WaitGroup) error {
 		return err
 	}
 	path := r.batch.path(fmt.Sprintf("log.%s", r.ID))
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	batchLogFile, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer batchLogFile.Close()
+	var w io.Writer = batchLogFile
+	// Also tee the output to the standard runlog location.
+	// TODO(marius): this should be handled in a standard way.
+	// (And run state management generally.)
+	runLogPath := filepath.Join(r.batch.Rundir, r.Name.String()+".execlog")
+	os.MkdirAll(filepath.Dir(runLogPath), 0777)
+	runLogFile, err := os.Create(runLogPath)
+	if err != nil {
+		r.log.Errorf("create %s: %v", runLogPath, err)
+	} else {
+		defer runLogFile.Close()
+		w = io.MultiWriter(w, runLogFile)
+	}
 	r.log = log.New(
-		golog.New(f, "", golog.LstdFlags),
-		// Use the globally configured log level. This is a bit clunky and
-		// we should pass down a log configuration in a different way.
-		log.Std.Level,
+		golog.New(w, "", golog.LstdFlags),
+		// We always use debug-level logging for execution transcripts,
+		// since these are not meant for interactive output.
+		log.DebugLevel,
 	)
 	evalConfig := r.batch.EvalConfig
 	evalConfig.Log = r.log

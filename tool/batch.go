@@ -56,7 +56,12 @@ bam=3.bam,sample=c.
 	id,bam,sample
 	1,1.bam,a
 	2,2.bam,b
-	3,3.bam,c`
+	3,3.bam,c
+
+Reflow deposits individual log files into the working directory for
+each run in the batch. These are in addition to the standard log
+files that are peristed for runs, and are always logged at the debug
+level.`
 	retryFlag := flags.Bool("retry", false, "retry failed runs")
 	resetFlag := flags.Bool("reset", false, "reset failed runs")
 	gcFlag := flags.Bool("gc", false, "enable runtime garbage collection")
