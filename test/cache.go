@@ -123,13 +123,35 @@ func (c *WaitCache) val(id digest.Digest) chan cacheValue {
 // Hit sets the value of flow f to v. Hit returns when the value
 // has been consumed by the code under test.
 func (c *WaitCache) Hit(f *reflow.Flow, v reflow.Fileset) {
-	c.val(f.Digest()) <- cacheValue{v: v, hit: true}
+	c.cacheReply(f, cacheValue{v: v, hit: true})
 }
 
 // Miss sets the value of flow f to a cache miss. Miss returns when
 // it has been consumed by the code under test.
 func (c *WaitCache) Miss(f *reflow.Flow) {
-	c.val(f.Digest()) <- cacheValue{}
+	c.cacheReply(f, cacheValue{})
+}
+
+func (c *WaitCache) cacheReply(f *reflow.Flow, v cacheValue) {
+	// TODO(marius): we should probably watch for mutations on this flow node
+	// and expand the key set as they become available.
+	switch keys := f.CacheKeys(); len(keys) {
+	case 1:
+		c.val(keys[0]) <- v
+	case 2:
+		select {
+		case c.val(keys[0]) <- v:
+			if !v.hit {
+				c.val(keys[1]) <- v
+			}
+		case c.val(keys[1]) <- v:
+			if !v.hit {
+				c.val(keys[0]) <- v
+			}
+		}
+	default:
+		panic("can only handle up to 2 cache keys")
+	}
 }
 
 // Lookup implements cache lookups. Lookup returns when the value

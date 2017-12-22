@@ -414,10 +414,14 @@ func (f *Flow) String() string {
 // DebugString returns a human readable representation of the flow appropriate
 // for debugging.
 func (f *Flow) DebugString() string {
+	dstr := f.Digest().Short()
+	if d := f.PhysicalDigest(); !d.IsZero() {
+		dstr += "/" + d.Short()
+	}
 	b := new(bytes.Buffer)
 	switch f.Op {
 	case OpExec:
-		fmt.Fprintf(b, "exec<%s>(image(%s), resources(%s), cmd(%q)", f.Digest().Short(), f.Image, f.Resources, f.Cmd)
+		fmt.Fprintf(b, "exec<%s>(image(%s), resources(%s), cmd(%q)", dstr, f.Image, f.Resources, f.Cmd)
 		if f.Argmap != nil {
 			args := make([]string, len(f.Argmap))
 			for i, arg := range f.Argmap {
@@ -430,30 +434,30 @@ func (f *Flow) DebugString() string {
 			fmt.Fprintf(b, "args(%s)", strings.Join(args, ", "))
 		}
 	case OpIntern:
-		fmt.Fprintf(b, "intern<%s>(%q", f.Digest().Short(), f.URL)
+		fmt.Fprintf(b, "intern<%s>(%q", dstr, f.URL)
 	case OpExtern:
-		fmt.Fprintf(b, "extern<%s>(%q", f.Digest().Short(), f.URL)
+		fmt.Fprintf(b, "extern<%s>(%q", dstr, f.URL)
 	case OpGroupby:
-		fmt.Fprintf(b, "groupby<%s>(re(%s)", f.Digest().Short(), f.Re)
+		fmt.Fprintf(b, "groupby<%s>(re(%s)", dstr, f.Re)
 	case OpMap:
-		fmt.Fprintf(b, "map<%s>(", f.Digest().Short())
+		fmt.Fprintf(b, "map<%s>(", dstr)
 	case OpCollect:
-		fmt.Fprintf(b, "collect<%s>(re(%s), repl(%s)", f.Digest().Short(), f.Re, f.Repl)
+		fmt.Fprintf(b, "collect<%s>(re(%s), repl(%s)", dstr, f.Re, f.Repl)
 	case OpMerge:
-		fmt.Fprintf(b, "merge<%s>(", f.Digest().Short())
+		fmt.Fprintf(b, "merge<%s>(", dstr)
 	case OpVal:
-		fmt.Fprintf(b, "val<%s>(val(%v)", f.Digest().Short(), f.Value)
+		fmt.Fprintf(b, "val<%s>(val(%v)", dstr, f.Value)
 	case OpPullup:
-		fmt.Fprintf(b, "pullup<%s>(", f.Digest().Short())
+		fmt.Fprintf(b, "pullup<%s>(", dstr)
 	case OpK:
-		fmt.Fprintf(b, "k<%s>(", f.Digest().Short())
+		fmt.Fprintf(b, "k<%s>(", dstr)
 	case OpCoerce:
-		fmt.Fprintf(b, "coerce<%s>(", f.Digest().Short())
+		fmt.Fprintf(b, "coerce<%s>(", dstr)
 	case OpRequirements:
 		fmt.Fprintf(b, "requirements<%s>(min(%s), max(%s)",
-			f.Digest().Short(), f.FlowRequirements.Min, f.FlowRequirements.Max)
+			dstr, f.FlowRequirements.Min, f.FlowRequirements.Max)
 	case OpData:
-		fmt.Fprintf(b, "data<%s>(%s)", f.Digest().Short(), Digester.FromBytes(f.Data))
+		fmt.Fprintf(b, "data<%s>(%s)", dstr, Digester.FromBytes(f.Data))
 	}
 	if len(f.Deps) != 0 {
 		deps := make([]string, len(f.Deps))
@@ -756,14 +760,24 @@ func (f *Flow) WriteDigest(w io.Writer) {
 // value), or on nodes not of type OpExec, OpIntern, or OpExtern.
 // This is because the physical input values must be available to
 // compute the digest.
+//
+// Physical digest returns an empty digest a physical digest is not
+// computable for node f.
 func (f *Flow) PhysicalDigest() digest.Digest {
+	switch f.Op {
+	case OpExtern, OpExec:
+	default:
+		return digest.Digest{}
+	}
 	w := Digester.NewWriter()
 	for _, dep := range f.Deps {
-		fs := dep.Value.(Fileset)
-		fs.WriteDigest(w)
+		if dep.State != FlowDone {
+			return digest.Digest{}
+		}
+		dep.Value.(Fileset).WriteDigest(w)
 	}
 	switch f.Op {
-	case OpIntern, OpExtern:
+	case OpExtern:
 		io.WriteString(w, f.URL.String())
 	case OpExec:
 		io.WriteString(w, f.Image)
@@ -775,8 +789,6 @@ func (f *Flow) PhysicalDigest() digest.Digest {
 				writeN(w, arg.Index)
 			}
 		}
-	default:
-		panic("invalid node type for physical digest")
 	}
 	return w.Digest()
 }
@@ -785,15 +797,8 @@ func (f *Flow) PhysicalDigest() digest.Digest {
 // They are returned in order from most concrete to least concrete.
 func (f *Flow) CacheKeys() []digest.Digest {
 	var digests []digest.Digest
-opswitch:
-	switch f.Op {
-	case OpExtern, OpExec:
-		for _, dep := range f.Deps {
-			if dep.State != FlowDone {
-				break opswitch
-			}
-		}
-		digests = append(digests, f.PhysicalDigest())
+	if d := f.PhysicalDigest(); !d.IsZero() {
+		digests = append(digests, d)
 	}
 	return append(digests, f.Digest())
 }

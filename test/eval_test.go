@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
@@ -227,7 +228,20 @@ func TestCacheLookupBottomup(t *testing.T) {
 	e.Repo = repotest.NewInmemory()
 	var cache WaitCache
 	cache.Init()
-	eval := reflow.NewEval(extern, reflow.EvalConfig{Executor: &e, Cache: &cache, BottomUp: true})
+	eval := reflow.NewEval(extern, reflow.EvalConfig{
+		Executor: &e,
+		Cache:    &cache,
+		BottomUp: true,
+		// We set a small cache lookup timeout here to shorten test times.
+		// TODO(marius): allow for tighter integration or observation
+		// between the evaluator and its tests, e.g., so that we can wait
+		// for physical digests to be available and not rely on cache
+		// timeouts for progress. Perhaps this can be done by way of
+		// traces, or a way of observing individual nodes. (Observers would
+		// need to be shared across canonicalizations.)
+		CacheLookupTimeout: 100 * time.Millisecond,
+		//			Trace:    log.New(golog.New(os.Stderr, "", golog.LstdFlags), log.InfoLevel),
+	})
 	rc := EvalAsync(context.Background(), eval)
 
 	cache.Hit(intern, Files("a", "b"))
@@ -242,7 +256,6 @@ func TestCacheLookupBottomup(t *testing.T) {
 			go e.Ok(f, v) // identity
 		}
 	}
-
 	cache.Miss(extern)
 	e.Ok(extern, reflow.Fileset{})
 	r := <-rc
@@ -251,6 +264,46 @@ func TestCacheLookupBottomup(t *testing.T) {
 	}
 	if !e.Equiv(extern, mapFunc(Files("b").Flow())) {
 		t.Error("wrong set of expected flows")
+	}
+}
+
+func TestNoCacheExtern(t *testing.T) {
+	for _, bottomup := range []bool{false, true} {
+		intern := flow.Intern("internurl")
+		groupby := flow.Groupby("(.*)", intern)
+		mapFunc := func(f *reflow.Flow) *reflow.Flow {
+			return flow.Exec("image", "command", Resources, f)
+		}
+		mapCollect := flow.Map(mapFunc, groupby)
+		pullup := flow.Pullup(mapCollect)
+		extern := flow.Extern("externurl", pullup)
+
+		e := Executor{Have: Resources}
+		e.Init()
+		e.Repo = repotest.NewInmemory()
+		var cache WaitCache
+		cache.Init()
+		eval := reflow.NewEval(extern, reflow.EvalConfig{
+			Executor:      &e,
+			Cache:         &cache,
+			BottomUp:      bottomup,
+			NoCacheExtern: true,
+		})
+		rc := EvalAsync(context.Background(), eval)
+
+		go cache.Hit(intern, Files("a", "b"))
+		for _, v := range []reflow.Fileset{Files("a"), Files("b")} {
+			v := v
+			f := mapFunc(v.Flow())
+			go cache.Miss(f)
+			go e.Ok(f, v)
+		}
+
+		e.Ok(extern, reflow.Fileset{})
+		r := <-rc
+		if r.Err != nil {
+			t.Fatal(r.Err)
+		}
 	}
 }
 

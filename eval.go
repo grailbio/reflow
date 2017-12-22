@@ -38,7 +38,7 @@ const (
 	printAllTasks = false
 )
 
-const cacheLookupTimeout = 10 * time.Second
+const defaultCacheLookupTimeout = 10 * time.Second
 
 // stateStatusOrder defines the order in which differenet flow
 // statuses are rendered.
@@ -85,6 +85,11 @@ type EvalConfig struct {
 
 	// Config stores the flow config to be used.
 	Config Config
+
+	// CacheLookupTimeout is the timeout for cache lookups.
+	// After the timeout expires, a cache lookup is considered
+	// a miss.
+	CacheLookupTimeout time.Duration
 }
 
 // String returns a human-readable form of the evaluation configuration.
@@ -114,6 +119,7 @@ func (e EvalConfig) String() string {
 	}
 	fmt.Fprintf(&b, " flags %s", strings.Join(flags, ","))
 	fmt.Fprintf(&b, " flowconfig %s", e.Config)
+	fmt.Fprintf(&b, " cachelookuptimeout %s", e.CacheLookupTimeout)
 	return b.String()
 }
 
@@ -181,6 +187,9 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 		wakeupch:   make(chan bool, 1),
 		pending:    map[*Flow]bool{}, // TODO: name e.ready; but really we should just traverse the tree
 		total:      config.Executor.Resources(),
+	}
+	if e.CacheLookupTimeout == time.Duration(0) {
+		e.CacheLookupTimeout = defaultCacheLookupTimeout
 	}
 	e.available = e.total
 	if e.Log == nil && printAllTasks {
@@ -796,19 +805,6 @@ func (e *Eval) todo(f *Flow) {
 		e.Mutate(f, FlowTODO)
 		fallthrough
 	case FlowTODO:
-		if len(f.Deps) == 0 {
-			switch f.Op {
-			case OpIntern, OpExtern, OpExec:
-				if e.BottomUp {
-					e.Mutate(f, FlowNeedLookup)
-				} else {
-					e.Mutate(f, FlowReady)
-				}
-			default:
-				e.Mutate(f, FlowReady)
-			}
-			return
-		}
 		for _, dep := range f.Deps {
 			e.todo(dep)
 		}
@@ -1044,10 +1040,25 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo Repository) error {
 	}
 }
 
+// lookupFailed marks the flow f as having failed lookup. Lookup
+// failure is treated differently depending on evaluation mode. In
+// bottom-up mode, we're only looked up if our dependencies are met,
+// and we always compute on a cache miss, thus we now need to make
+// sure our dependencies are available, and the node is marked
+// FlowNeedTransfer. In top-down mode, we need to continue traversing
+// the graph, and the node is marked FlowTODO.
+func (e *Eval) lookupFailed(f *Flow) {
+	if e.BottomUp {
+		e.Mutate(f, FlowNeedTransfer)
+	} else {
+		e.Mutate(f, FlowTODO)
+	}
+}
+
 // lookup performs a cache lookup of node f.
 func (e *Eval) lookup(ctx context.Context, f *Flow) {
 	if e.Cache == nil || e.NoCacheExtern && (f.Op == OpExtern || f == e.root) {
-		e.Mutate(f, FlowTODO)
+		e.lookupFailed(f)
 		return
 	}
 	var (
@@ -1058,12 +1069,12 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 	if len(keys) == 0 {
 		// This can't be true now, but in the future it could be valid for nodes
 		// to present no cache keys.
-		e.Mutate(f, FlowTODO)
+		e.lookupFailed(f)
 		return
 	}
 	which := -1
 	for i, key := range keys {
-		ctx, cancel := context.WithTimeout(ctx, cacheLookupTimeout)
+		ctx, cancel := context.WithTimeout(ctx, e.CacheLookupTimeout)
 		fs, err = e.Cache.Lookup(ctx, key)
 		cancel()
 		if err == nil {
@@ -1099,14 +1110,7 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 		}
 		return
 	}
-	if e.BottomUp {
-		// In bottom-up mode, we're only looked up if our dependencies are
-		// met, and we always compute on a cache miss, thus we now need to
-		// make sure our dependencies are available.
-		e.Mutate(f, FlowNeedTransfer)
-	} else {
-		e.Mutate(f, FlowTODO)
-	}
+	e.lookupFailed(f)
 }
 
 // needTransfer returns the file objects that require transfer from flow f.
@@ -1115,6 +1119,9 @@ func (e *Eval) needTransfer(ctx context.Context, f *Flow) ([]File, error) {
 	fs := Fileset{List: make([]Fileset, len(f.Deps))}
 	for i := range f.Deps {
 		fs.List[i] = f.Deps[i].Value.(Fileset)
+	}
+	if fs.N() == 0 {
+		return nil, nil
 	}
 	return e.Cache.NeedTransfer(ctx, e.Executor.Repository(), fs)
 }
