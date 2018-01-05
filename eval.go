@@ -1588,6 +1588,9 @@ func (e *Eval) LogFlow(ctx context.Context, f *Flow) {
 	}
 	b.Reset()
 	fmt.Fprintf(&b, "%s %v %s:\n", f.Ident, f.Digest().Short(), f.Position)
+	for _, key := range f.CacheKeys() {
+		fmt.Fprintf(&b, "\t%s\n", key)
+	}
 	if f.State == FlowTransfer {
 		fmt.Fprintf(&b, "\ttransfer: %s\n", f.Digest())
 	}
