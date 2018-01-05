@@ -1085,7 +1085,7 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 			e.Log.Errorf("cache.Lookup %v: %v", f, err)
 		}
 	}
-	if err == nil && e.RecomputeEmpty && fs.Empty() {
+	if err == nil && e.RecomputeEmpty && fs.AnyEmpty() {
 		e.Log.Debugf("recomputing empty value for %v", f)
 	} else if err == nil {
 		// Perform read repair: asynchronously write back all of the other

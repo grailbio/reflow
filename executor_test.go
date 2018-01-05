@@ -123,3 +123,17 @@ func TestEmpty(t *testing.T) {
 		}
 	}
 }
+
+func TestAnyEmpty(t *testing.T) {
+	empty := []Fileset{
+		{},
+		{List: make([]Fileset, 1)},
+		{List: []Fileset{{}, {Map: map[string]File{}}, {List: make([]Fileset, 100)}}},
+		{List: []Fileset{{Map: map[string]File{".": File{}}}, {}}},
+	}
+	for i, fs := range empty {
+		if !fs.AnyEmpty() {
+			t.Errorf("expected anyempty %d %v", i, fs)
+		}
+	}
+}

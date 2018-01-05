@@ -54,6 +54,17 @@ func (v Fileset) Empty() bool {
 	return len(v.Map) == 0
 }
 
+// AnyEmpty tells whether this value, or any of its constituent
+// values contain no files.
+func (v Fileset) AnyEmpty() bool {
+	for _, fs := range v.List {
+		if fs.AnyEmpty() {
+			return true
+		}
+	}
+	return len(v.List) == 0 && len(v.Map) == 0
+}
+
 // Flatten is a convenience function to flatten (shallowly) the value
 // v, returning a list of Values. If the value is a list value, the
 // list is returned; otherwise a unary list of the value v is
