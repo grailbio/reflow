@@ -425,8 +425,6 @@ func (e *dockerExec) profile(ctx context.Context) (stats, error) {
 	}
 	defer resp.Close()
 	dec := json.NewDecoder(resp)
-	timer := time.NewTimer(100 * time.Millisecond)
-	defer timer.Stop()
 	gauges := make(reflow.Gauges)
 	for {
 		var v types.StatsJSON
@@ -435,12 +433,8 @@ func (e *dockerExec) profile(ctx context.Context) (stats, error) {
 				return stats, nil
 			}
 			dec = json.NewDecoder(io.MultiReader(dec.Buffered(), resp))
-			if !timer.Stop() {
-				<-timer.C
-			}
-			timer.Reset(100 * time.Millisecond)
 			select {
-			case <-timer.C:
+			case <-time.After(100 * time.Millisecond):
 				continue
 			case <-ctx.Done():
 				return stats, nil
