@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow"
@@ -36,7 +35,7 @@ import (
 )
 
 const (
-	ec2PollInterval   = 30 * time.Second
+	ec2PollInterval   = time.Minute
 	statePollInterval = 10 * time.Second
 )
 
@@ -453,37 +452,32 @@ func (c *Cluster) reconcile() error {
 		}
 		return err
 	}
-	live := map[string]bool{}
+	var instanceIds []*string
 	for id := range instances {
-		// We have to do instances one-by-one here: if we specify multiple
-		// instance IDs in a batch, and one of them has dissapeared, the
-		// whole call fails with an error which makes it impossible
-		// (without resorting to parsing the error message) to determine
-		// which ID has dissapeared.
-		input := ec2.DescribeInstancesInput{
-			InstanceIds: []*string{aws.String(id)},
-		}
-		resp, err := c.EC2.DescribeInstances(&input)
-		if err != nil {
-			if err, ok := err.(awserr.Error); ok && err.Code() == "InvalidInstanceID.NotFound" {
-				c.Log.Printf("marking instance %s down: not found", id)
+		instanceIds = append(instanceIds, aws.String(id))
+	}
+	resp, err := c.EC2.DescribeInstances(&ec2.DescribeInstancesInput{
+		Filters: []*ec2.Filter{{
+			Name:   aws.String("instance-id"),
+			Values: instanceIds,
+		}},
+	})
+	if err != nil {
+		return err
+	}
+	live := map[string]bool{}
+	for _, resv := range resp.Reservations {
+		for _, inst := range resv.Instances {
+			// For some reason, we keep getting unrelated instances in these
+			// requests.
+			if instances[*inst.InstanceId] == nil {
 				continue
 			}
-			return err
-		}
-		for _, resv := range resp.Reservations {
-			for _, inst := range resv.Instances {
-				// For some reason, we keep getting unrelated instances in these
-				// requests.
-				if instances[*inst.InstanceId] == nil {
-					continue
-				}
-				switch *inst.State.Name {
-				case "shutting-down", "terminated", "stopping", "stopped":
-					c.Log.Printf("marking instance %s down: %s", *inst.InstanceId, *inst.State.Name)
-				default:
-					live[*inst.InstanceId] = true
-				}
+			switch *inst.State.Name {
+			case "shutting-down", "terminated", "stopping", "stopped":
+				c.Log.Printf("marking instance %s down: %s", *inst.InstanceId, *inst.State.Name)
+			default:
+				live[*inst.InstanceId] = true
 			}
 		}
 	}
