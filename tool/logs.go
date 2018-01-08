@@ -23,21 +23,22 @@ func (c *Cmd) logs(ctx context.Context, args ...string) {
 		flags.Usage()
 	}
 
-	u, err := parseURI(flags.Arg(0))
+	arg := flags.Arg(0)
+	n, err := parseName(arg)
 	if err != nil {
 		c.Fatal(err)
 	}
-	if u.Kind != execURI {
-		c.Fatal("URI is not an exec URI")
+	if n.Kind != execName {
+		c.Fatal("%s: not an exec URI", arg)
 	}
 	cluster := c.cluster()
-	alloc, err := cluster.Alloc(ctx, u.AllocID)
+	alloc, err := cluster.Alloc(ctx, n.AllocID)
 	if err != nil {
-		c.Fatalf("alloc %s: %s", u.AllocID, err)
+		c.Fatalf("alloc %s: %s", n.AllocID, err)
 	}
-	exec, err := alloc.Get(ctx, u.ExecID)
+	exec, err := alloc.Get(ctx, n.ID)
 	if err != nil {
-		c.Fatalf("%s: %s", u.ExecID, err)
+		c.Fatalf("%s: %s", n.ID, err)
 	}
 	rc, err := exec.Logs(ctx, *stdoutFlag, !*stdoutFlag, *followFlag)
 	if err != nil {

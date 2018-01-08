@@ -22,23 +22,23 @@ The user may exit the terminal by typing 'exit'/'quit'`
 	if flags.NArg() != 1 {
 		flags.Usage()
 	}
-
-	u, err := parseURI(flags.Arg(0))
+	arg := flags.Arg(0)
+	n, err := parseName(arg)
 	if err != nil {
-		c.Fatal(err)
+		c.Fatalf("parse %s: %v", arg, err)
 	}
-	if u.Kind != execURI {
-		c.Fatal("URI is not an exec URI")
+	if n.Kind != execName {
+		c.Fatalf("%s: not an exec URI", arg)
 	}
 
 	cluster := c.cluster()
-	alloc, err := cluster.Alloc(ctx, u.AllocID)
+	alloc, err := cluster.Alloc(ctx, n.AllocID)
 	if err != nil {
-		c.Fatalf("alloc %s: %s", u.AllocID, err)
+		c.Fatalf("alloc %s: %s", n.AllocID, err)
 	}
-	e, err := alloc.Get(ctx, u.ExecID)
+	e, err := alloc.Get(ctx, n.ID)
 	if err != nil {
-		c.Fatalf("%s: %s", u.ExecID, err)
+		c.Fatalf("%s: %s", n.ID, err)
 	}
 	sr, sw := io.Pipe()
 	go func() {
@@ -46,24 +46,24 @@ The user may exit the terminal by typing 'exit'/'quit'`
 		for s.Scan() {
 			_, err := sw.Write([]byte(s.Text() + "\n"))
 			if err != nil {
-				c.Fatal("%s: %s", u.ExecID, err)
+				c.Fatal("%s: %s", n.ID, err)
 			}
 		}
 		sw.Close()
 		if s.Err() != nil {
-			c.Fatal("%s: %s", u.ExecID, s.Err())
+			c.Fatal("%s: %s", n.ID, s.Err())
 		}
 	}()
 
 	rwc, err := e.Shell(ctx)
 	if err != nil {
-		c.Fatalf("%s: %s", u.ExecID, err)
+		c.Fatalf("%s: %s", n.ID, err)
 	}
 	go func() {
 		io.Copy(rwc, sr)
 	}()
 	_, err = io.Copy(os.Stdout, rwc)
 	if err != nil {
-		c.Fatalf("%s: %s", u.ExecID, err)
+		c.Fatalf("%s: %s", n.ID, err)
 	}
 }

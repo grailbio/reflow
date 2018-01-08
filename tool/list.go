@@ -59,20 +59,20 @@ The columns displayed by list are:
 		flags.Usage()
 	} else {
 		for _, arg := range args {
-			u, err := parseURI(arg)
+			n, err := parseName(arg)
 			if err != nil {
 				c.Fatalf("invalid URI %s: %s", arg, err)
 			}
-			if u.Kind == runURI {
-				c.Errorf("%s: runs cannot be listed", arg)
+			if n.Kind == idName {
+				c.Errorf("%s: can only list allocs and execs", arg)
 				continue
 			}
-			alloc, err := cluster.Alloc(ctx, u.AllocID)
+			alloc, err := cluster.Alloc(ctx, n.AllocID)
 			if err != nil {
 				c.Fatalf("%s: %s", arg, err)
 			}
-			switch u.Kind {
-			case allocURI:
+			switch n.Kind {
+			case allocName:
 				execs, err := alloc.Execs(ctx)
 				if err != nil {
 					c.Fatalf("%s: %s", arg, err)
@@ -80,8 +80,8 @@ The columns displayed by list are:
 				for _, exec := range execs {
 					entries = append(entries, exec)
 				}
-			case execURI:
-				exec, err := alloc.Get(ctx, u.ExecID)
+			case execName:
+				exec, err := alloc.Get(ctx, n.ID)
 				if err != nil {
 					c.Fatalf("%s: %s", arg, err)
 				}

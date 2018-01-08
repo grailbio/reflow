@@ -16,14 +16,15 @@ import (
 	"time"
 
 	"github.com/grailbio/base/data"
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/pool"
-	"github.com/grailbio/reflow/runner"
 	"golang.org/x/sync/errgroup"
 )
 
 type execInfo struct {
 	URI string
+	ID  digest.Digest
 	reflow.ExecInspect
 	Alloc pool.AllocInspect
 }
@@ -109,10 +110,6 @@ printed on the console.`
 	tw.Init(os.Stdout, 4, 4, 1, ' ', 0)
 	defer tw.Flush()
 	for _, info := range infos {
-		name, err := runner.ParseName(info.Alloc.Meta.Labels["Name"])
-		if err != nil {
-			c.Log.Errorf("parse %s: %v", info.Alloc.Meta.Labels["Name"], err)
-		}
 		var layout = time.Kitchen
 		switch dur := time.Since(info.Created); {
 		case dur > 7*24*time.Hour:
@@ -163,7 +160,7 @@ printed on the console.`
 		}
 		runtime := info.Runtime()
 		fmt.Fprintf(&tw, "%s\t%s\t%s\t%d:%02d\t%s\t%s\t%.1f\t%s\t%s",
-			name.Short(), info.Config.Ident,
+			info.ID.Short(), info.Config.Ident,
 			info.Created.Local().Format(layout),
 			int(runtime.Hours()),
 			int(runtime.Minutes()-60*runtime.Hours()),
@@ -188,7 +185,7 @@ func (c *Cmd) execInfos(ctx context.Context, execs []reflow.Exec) []execInfo {
 			if err != nil {
 				c.Log.Errorf("inspect %s: %v", exec.URI(), err)
 			}
-			infos[i] = execInfo{URI: exec.URI(), ExecInspect: inspect}
+			infos[i] = execInfo{URI: exec.URI(), ID: exec.ID(), ExecInspect: inspect}
 			return nil
 		})
 	}

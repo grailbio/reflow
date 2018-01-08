@@ -31,27 +31,27 @@ func (c *Cmd) info(ctx context.Context, args ...string) {
 	if flags.NArg() == 0 {
 		flags.Usage()
 	}
-	cluster := c.cluster()
-	var tw tabwriter.Writer
-	tw.Init(os.Stdout, 4, 4, 1, ' ', 0)
 
 	for _, arg := range flags.Args() {
-		fmt.Fprintln(&tw, arg)
-		u, err := parseURI(arg)
+		n, err := parseName(arg)
 		if err != nil {
-			c.Fatalf("parse URI %s: %v", arg, err)
+			c.Fatalf("parse name %s: %v", arg, err)
 		}
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		switch u.Kind {
-		case runURI:
-			c.printRunInfo(ctx, &tw, u.Name)
-		case execURI:
-			alloc, err := cluster.Alloc(ctx, u.AllocID)
+		var tw tabwriter.Writer
+		tw.Init(os.Stdout, 4, 4, 1, ' ', 0)
+		switch n.Kind {
+		case idName:
+			if !c.printRunInfo(ctx, &tw, n.ID) {
+				c.Fatalf("unable to resolve id %s", arg)
+			}
+		case execName:
+			alloc, err := c.cluster().Alloc(ctx, n.AllocID)
 			if err != nil {
 				c.Fatal(err)
 			}
-			exec, err := alloc.Get(ctx, u.ExecID)
+			exec, err := alloc.Get(ctx, n.ID)
 			if err != nil {
 				c.Fatalf("failed to fetch exec for %q: %s", arg, err)
 			}
@@ -66,9 +66,10 @@ func (c *Cmd) info(ctx context.Context, args ...string) {
 					c.Errorf("failed to fetch result for exec %s: %s\n", arg, err)
 				}
 			}
+			fmt.Fprintln(&tw, arg, "(exec)")
 			c.printExec(ctx, &tw, inspect, result)
-		case allocURI:
-			alloc, err := cluster.Alloc(ctx, u.AllocID)
+		case allocName:
+			alloc, err := c.cluster().Alloc(ctx, n.AllocID)
 			if err != nil {
 				c.Fatal(err)
 			}
@@ -80,65 +81,63 @@ func (c *Cmd) info(ctx context.Context, args ...string) {
 			if err != nil {
 				c.Fatal(err)
 			}
+			fmt.Fprintln(&tw, arg, "(alloc)")
 			c.printAlloc(ctx, &tw, inspect, execs)
 
 		}
+		tw.Flush()
 	}
-	tw.Flush()
 }
 
-func (c *Cmd) printRunInfo(ctx context.Context, w io.Writer, name runner.Name) {
-	rundir := filepath.Join(c.rundir(), name.User)
-	f, err := os.Open(rundir)
+func (c *Cmd) printRunInfo(ctx context.Context, w io.Writer, id digest.Digest) bool {
+	f, err := os.Open(c.rundir())
 	if os.IsNotExist(err) {
-		c.Errorf("%s: no such run\n", name.Short())
-		return
+		return false
 	} else if err != nil {
 		c.Errorln(err)
-		return
+		return false
 	}
 	infos, err := f.Readdir(-1)
 	if err != nil {
 		c.Errorln(err)
-		return
+		return false
 	}
-	if name.ID.IsShort() {
+	if id.IsAbbrev() {
 		for _, info := range infos {
 			d := info.Name()
 			if filepath.Ext(d) != ".json" {
 				continue
 			}
 			d = d[:len(d)-5]
-			id, err := reflow.Digester.Parse(d)
+			fullID, err := reflow.Digester.Parse(d)
 			if err != nil {
 				c.Errorf("%s: %v\n", info.Name(), err)
 				continue
 			}
-			if id.Expands(name.ID) {
-				name.ID = id
+			if fullID.Expands(id) {
+				id = fullID
 				break
 			}
 		}
 
 	}
-	base := filepath.Join(c.rundir(), name.String())
+	base := filepath.Join(c.rundir(), id.Hex())
 	_, err = os.Stat(base + ".json")
 	if os.IsNotExist(err) {
-		c.Errorf("%s: no such run\n", name.Short())
-		return
+		return false
 	} else if err != nil {
-		c.Errorf("%s: %v\n", name.Short(), err)
-		return
+		c.Errorf("%s: %v\n", id.Short(), err)
+		return false
 	}
 	statefile, err := state.Open(base)
 	if err != nil {
-		c.Errorf("%s: %v\n", name.Short(), err)
-		return
+		c.Errorf("%s: %v\n", id.Short(), err)
+		return false
 	}
 
 	var state runner.State
 	statefile.Unmarshal(&state)
-
+	fmt.Fprintln(w, id.Hex(), "(run)")
 	fmt.Fprintf(w, "\ttime:\t%s\n", state.Created.Local().Format(time.ANSIC))
 	fmt.Fprintf(w, "\tprogram:\t%s\n", state.Program)
 	if len(state.Params) > 0 {
@@ -174,6 +173,7 @@ func (c *Cmd) printRunInfo(ctx context.Context, w io.Writer, name runner.Name) {
 	if _, err := os.Stat(base + ".execlog"); err == nil {
 		fmt.Fprintf(w, "\tlog:\t%s.execlog\n", base)
 	}
+	return true
 }
 
 func (c *Cmd) printAlloc(ctx context.Context, w io.Writer, inspect pool.AllocInspect, execs []reflow.Exec) {
@@ -303,60 +303,50 @@ func round(d time.Duration) time.Duration {
 	return d - d%time.Second
 }
 
-type uriKind int
+type nameKind int
 
 const (
-	allocURI uriKind = iota
-	execURI
-	runURI
+	allocName nameKind = iota
+	execName
+	idName
 )
 
-type uri struct {
-	Kind    uriKind
+type name struct {
+	Kind    nameKind
 	AllocID string
-	ExecID  digest.Digest
-	Name    runner.Name
+	ID      digest.Digest
 }
 
-// parseURI parses an alloc, exec URI, or run URI, or else returns an error.
-// If the URI is an allocUDI, then the execID is empty.
+// parseName parses a Reflow object name. Examples include:
 //
-// Examples:
-//
-//	marius@grailbio.com/f707217e
+//	9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49
+//	9909853c
+// 	sha256:9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49
 //	ec2-35-165-199-174.us-west-2.compute.amazonaws.com:9000/bb97e35db4101030
 //	ec2-35-165-199-174.us-west-2.compute.amazonaws.com:9000/bb97e35db4101030/9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49
-func parseURI(rawURI string) (uri, error) {
-	head, tail := peel(rawURI, "/")
-	if strings.Contains(head, "@") {
-		id, err := reflow.Digester.Parse(tail)
-		if err != nil {
-			return uri{}, err
-		}
-		return uri{
-			Kind: runURI,
-			Name: runner.Name{
-				User: head,
-				ID:   id,
-			},
-		}, nil
-	}
-
-	var u uri
-	u.AllocID = head
-	head, tail = peel(tail, "/")
-	u.AllocID += "/" + head
+func parseName(raw string) (name, error) {
+	head, tail := peel(raw, "/")
 	if tail == "" {
-		u.Kind = allocURI
-		return u, nil
+		n := name{Kind: idName}
+		var err error
+		n.ID, err = reflow.Digester.Parse(head)
+		return n, err
+	}
+	var n name
+	n.AllocID = head
+	head, tail = peel(tail, "/")
+	n.AllocID += "/" + head
+	if tail == "" {
+		n.Kind = allocName
+		return n, nil
 	}
 	var err error
-	u.ExecID, err = reflow.Digester.Parse(tail)
+	n.ID, err = reflow.Digester.Parse(tail)
 	if err != nil {
-		return uri{}, err
+		return name{}, err
 	}
-	u.Kind = execURI
-	return u, nil
+	n.Kind = execName
+	return n, nil
 }
 
 func peel(s, sep string) (head, tail string) {

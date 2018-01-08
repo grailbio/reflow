@@ -20,6 +20,7 @@ import (
 	"time"
 
 	dockerclient "github.com/docker/engine-api/client"
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/cache"
@@ -164,22 +165,11 @@ retriable.`
 
 	// Construct a unique name for this run, used to identify this invocation
 	// throughout the system.
-	//
-	// Note that we could use the hash of the computed flow as well, and
-	// (re-map) runs back to old states, but this might be a little confusing
-	// to users.
-	user, err := c.Config.User()
-	if err != nil {
-		log.Fatal(err)
-	}
-	runName := runner.Name{
-		User: user,
-		ID:   reflow.Digester.Rand(),
-	}
-	c.Log.Printf("run name: %s", runName.Short())
+	runID := reflow.Digester.Rand()
+	c.Log.Printf("run ID: %s", runID.Short())
 
 	// Set up run transcript and log files.
-	base := c.runbase(runName)
+	base := c.runbase(runID)
 	os.MkdirAll(filepath.Dir(base), 0777)
 	execfile, err := os.Create(base + ".execlog")
 	if err != nil {
@@ -237,7 +227,7 @@ retriable.`
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	if config.local || config.hybrid != "" {
-		c.runLocal(ctx, config, execLogger, runName, er.Flow, er.Type)
+		c.runLocal(ctx, config, execLogger, runID, er.Flow, er.Type)
 		return
 	}
 
@@ -272,7 +262,7 @@ retriable.`
 		Cluster: cluster,
 	}
 	config.Configure(&run.EvalConfig)
-	run.Name = runName
+	run.ID = runID
 	run.Program = er.Program
 	run.Params = er.Params
 	run.Args = er.Args
@@ -328,7 +318,7 @@ retriable.`
 	}
 }
 
-func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runName runner.Name, flow *reflow.Flow, typ *types.T) {
+func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID digest.Digest, flow *reflow.Flow, typ *types.T) {
 	client, err := dockerclient.NewClient(
 		"unix:///var/run/docker.sock", "1.22", /*client.DefaultVersion*/
 		nil, map[string]string{"user-agent": "reflow"})
@@ -441,7 +431,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 			Cluster: cluster,
 			Log:     c.Log.Tee(nil, "hybrid: "),
 			Labels: pool.Labels{
-				"Name": runName.String(),
+				"ID": runID.Hex(),
 			},
 		}
 		go stealer.Go(ctx, eval)
@@ -486,6 +476,6 @@ func (c *Cmd) rundir() string {
 }
 
 // runbase returns the base path for the run with the provided name
-func (c Cmd) runbase(name runner.Name) string {
-	return filepath.Join(c.rundir(), name.String())
+func (c Cmd) runbase(id digest.Digest) string {
+	return filepath.Join(c.rundir(), id.Hex())
 }

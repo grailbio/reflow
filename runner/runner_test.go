@@ -92,7 +92,7 @@ func TestRunner(t *testing.T) {
 			Flow:       flow.Exec("image", "blah", resources),
 		}
 	)
-	r.Name = Name{"@local", reflow.Digester.FromString("test")}
+	r.ID = reflow.Digester.FromString("test")
 	transferer.Init()
 	cluster.Init()
 

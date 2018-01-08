@@ -188,8 +188,8 @@ See runbatch -help for information about Reflow's batching mechanism.`
 
 	for _, id := range ids {
 		run := b.Runs[id]
-		fmt.Fprintf(&tw, "run %s: %s\n", id, run.State.Name.Short())
-		c.printRunInfo(ctx, &tw, run.State.Name)
+		fmt.Fprintf(&tw, "run %s: %s\n", id, run.State.ID.Short())
+		c.printRunInfo(ctx, &tw, run.State.ID)
 		fmt.Fprintf(&tw, "\tlog:\t%s\n", filepath.Join(b.Dir, "log."+id))
 	}
 }
@@ -248,6 +248,6 @@ The columns displayed by listbatch are:
 				state = "done"
 			}
 		}
-		fmt.Fprintf(&tw, "%s\t%s\t%s\n", id, run.State.Name.Short(), state)
+		fmt.Fprintf(&tw, "%s\t%s\t%s\n", id, run.State.ID.Short(), state)
 	}
 }

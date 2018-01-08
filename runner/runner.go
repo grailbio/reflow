@@ -7,7 +7,6 @@ package runner
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -47,59 +46,11 @@ const (
 	MaxPhase
 )
 
-// A Name identifies a single run.
-type Name struct {
-	// User is a username of the form "user@domain.com".
-	User string
-	// ID is the unique ID of the run.
-	ID digest.Digest
-}
-
-// IsZero tells whether n is the zero value.
-func (n Name) IsZero() bool {
-	return n == Name{}
-}
-
-// String formats an identifier, e.g.:
-//	user@domain.com/7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730
-//
-// An empty string is returned for a zero name.
-func (n Name) String() string {
-	if n.IsZero() {
-		return ""
-	}
-	return n.User + "/" + n.ID.Hex()
-}
-
-// Short formats a short identifier, e.g.,:
-//	user@domain.com/7d865e95
-func (n Name) Short() string {
-	return n.User + "/" + n.ID.Short()
-}
-
-// ParseName parses a name from a string.
-func ParseName(s string) (Name, error) {
-	parts := strings.SplitN(s, "/", 2)
-	if len(parts) == 1 {
-		return Name{}, fmt.Errorf("invalid name %s: missing ID", s)
-	}
-	if strings.Count(parts[0], "@") != 1 {
-		return Name{}, fmt.Errorf("invalid name %s: invalid user ID", s)
-	}
-	name := Name{User: parts[0]}
-	var err error
-	name.ID, err = reflow.Digester.Parse(parts[1])
-	if err != nil {
-		return Name{}, err
-	}
-	return name, nil
-}
-
 // State contains the full state of a run. A State can be serialized
 // and later recovered in order to resume a run.
 type State struct {
-	// Name is the name of the run.
-	Name Name
+	// ID is this run's global ID.
+	ID digest.Digest
 	// Program stores the reflow program name.
 	Program string
 	// Params is the run parameters
@@ -367,7 +318,7 @@ func (r *Runner) Eval(ctx context.Context) (string, error) {
 
 func (r Runner) labels() pool.Labels {
 	labels := r.Labels.Copy()
-	labels["Name"] = r.Name.String()
+	labels["ID"] = r.ID.Hex()
 	labels["program"] = r.Program
 	for k, v := range r.Params {
 		labels[fmt.Sprintf("param[%s]", k)] = v

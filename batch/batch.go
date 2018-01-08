@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
@@ -89,8 +90,8 @@ type Run struct {
 	// Argv contains the run's argument vector.
 	Argv []string
 
-	// Name stores the name of the run.
-	Name runner.Name
+	// RunID is the global run ID for this run.
+	RunID digest.Digest
 
 	// State stores the runner state of this run.
 	State runner.State `json:"-"`
@@ -124,7 +125,7 @@ func (r *Run) Go(ctx context.Context, initWG *sync.WaitGroup) error {
 	// Also tee the output to the standard runlog location.
 	// TODO(marius): this should be handled in a standard way.
 	// (And run state management generally.)
-	runLogPath := filepath.Join(r.batch.Rundir, r.Name.String()+".execlog")
+	runLogPath := filepath.Join(r.batch.Rundir, r.RunID.Hex()+".execlog")
 	os.MkdirAll(filepath.Dir(runLogPath), 0777)
 	runLogFile, err := os.Create(runLogPath)
 	if err != nil {
@@ -414,23 +415,23 @@ func (b *Batch) read() error {
 		run := b.Runs[id]
 		if run == nil {
 			run = new(Run)
-			run.Name.User = b.User
-			run.Name.ID = reflow.Digester.Rand()
+			// Create fresh run ID the first time we encounted a run.
+			run.RunID = reflow.Digester.Rand()
 		}
 		run.ID = id
 		run.Args = attrs
 		run.Argv = fields[len(header):]
 		run.Program = b.config.Program
 		run.batch = b
-		b.states[id], err = state.Open(filepath.Join(b.Rundir, run.Name.String()))
+		b.states[id], err = state.Open(filepath.Join(b.Rundir, run.RunID.Hex()))
 		if err != nil {
 			return err
 		}
 		if err := b.states[id].Unmarshal(&run.State); err != nil && err != state.ErrNoState {
 			return err
 		}
-		if run.State.Name.IsZero() {
-			run.State.Name = run.Name
+		if run.State.ID.IsZero() {
+			run.State.ID = run.RunID
 		}
 		runs[id] = run
 	}

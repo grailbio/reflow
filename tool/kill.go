@@ -17,23 +17,23 @@ func (c *Cmd) kill(ctx context.Context, args ...string) {
 		flags.Usage()
 	}
 	cluster := c.cluster()
-	for _, uri := range flags.Args() {
-		u, err := parseURI(uri)
+	for _, arg := range flags.Args() {
+		n, err := parseName(arg)
 		if err != nil {
-			c.Errorf("%s: %s\n", uri, err)
+			c.Errorf("%s: %s\n", arg, err)
 			continue
 		}
-		if u.Kind != allocURI {
-			c.Errorf("%s: only allocs can be killed\n", uri)
+		if n.Kind != allocName {
+			c.Errorf("%s: only allocs can be killed\n", arg)
 			continue
 		}
-		alloc, err := cluster.Alloc(ctx, u.AllocID)
+		alloc, err := cluster.Alloc(ctx, n.AllocID)
 		if err != nil {
-			c.Errorf("%s: %s\n", uri, err)
+			c.Errorf("%s: %s\n", arg, err)
 			continue
 		}
 		if err := alloc.Free(ctx); err != nil {
-			c.Errorf("%s: %s\n", uri, err)
+			c.Errorf("%s: %s\n", arg, err)
 			continue
 		}
 	}
