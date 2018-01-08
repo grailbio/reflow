@@ -117,9 +117,10 @@ func (e *dockerExec) save(state execState) error {
 }
 
 // containerName returns the name of the container for
-// this exec. It is uniquely determined by the exec's ID.
+// this exec. It is uniquely determined by the exec's ID and directory.
 func (e *dockerExec) containerName() string {
-	return fmt.Sprintf("reflow-%s-%s", e.Executor.ID, e.id.Hex())
+	pathHex := reflow.Digester.FromString(e.path()).Short()
+	return fmt.Sprintf("reflow-%s-%s-%s", e.Executor.ID, e.id.Hex(), pathHex)
 }
 
 // create sets up the exec's filesystem layout environment and
