@@ -5,6 +5,7 @@
 package tool
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -15,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	dockerclient "github.com/docker/engine-api/client"
@@ -201,10 +203,39 @@ retriable.`
 	defer func() {
 		c.Log.Outputter = saveOut
 	}()
-
+	if c.Log.At(log.DebugLevel) {
+		path, err := filepath.Abs(er.Program)
+		if err != nil {
+			log.Errorf("abs %s: %v", er.Program, err)
+			path = er.Program
+		}
+		var b bytes.Buffer
+		fmt.Fprintf(&b, "evaluating program %s", path)
+		if len(er.Params) > 0 {
+			var keys []string
+			for key := range er.Params {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			fmt.Fprintf(&b, "\n\tparams:")
+			for _, key := range keys {
+				fmt.Fprintf(&b, "\n\t\t%s=%s", key, er.Params[key])
+			}
+		} else {
+			fmt.Fprintf(&b, "\n\t(no params)")
+		}
+		if len(er.Args) > 0 {
+			fmt.Fprintf(&b, "\n\targuments:")
+			for _, arg := range er.Args {
+				fmt.Fprintf(&b, "\n\t%s", arg)
+			}
+		} else {
+			fmt.Fprintf(&b, "\n\t(no arguments)")
+		}
+		c.Log.Debug(b.String())
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-
 	if config.local || config.hybrid != "" {
 		c.runLocal(ctx, config, execLogger, runName, er.Flow, er.Type)
 		return
