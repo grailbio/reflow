@@ -244,7 +244,7 @@ retriable.`
 		Stat:         repository.NewLimits(statLimit),
 	}
 	if cache, ok := rcache.(*cache.Cache); ok {
-		transferer.PendingBytes.Set(cache.Repository.URL().String(), int(^uint(0)>>1))
+		transferer.PendingBytes.Set(cache.Repo.URL().String(), int(^uint(0)>>1))
 		cache.Transferer = transferer
 	}
 	if c.Log.At(log.DebugLevel) {
@@ -348,7 +348,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		Stat:         repository.NewLimits(statLimit),
 	}
 	if cache, ok := rcache.(*cache.Cache); ok {
-		transferer.PendingBytes.Set(cache.Repository.URL().String(), int(^uint(0)>>1))
+		transferer.PendingBytes.Set(cache.Repo.URL().String(), int(^uint(0)>>1))
 		cache.Transferer = transferer
 	}
 	go transferer.Report(ctx, time.Minute)

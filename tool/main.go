@@ -72,6 +72,8 @@ var commands = map[string]Func{
 	"run":          (*Cmd).run,
 	"doc":          (*Cmd).doc,
 	"info":         (*Cmd).info,
+	"cat":          (*Cmd).cat,
+	"sync":         (*Cmd).sync,
 	"kill":         (*Cmd).kill,
 	"offers":       (*Cmd).offers,
 	"logs":         (*Cmd).logs,

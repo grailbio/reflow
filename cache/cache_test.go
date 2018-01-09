@@ -55,7 +55,7 @@ func (transferer) NeedTransfer(ctx context.Context, dst reflow.Repository, files
 func TestCache(t *testing.T) {
 	ctx := context.Background()
 	cache := &Cache{
-		Repository: testutil.NewInmemory(),
+		Repo:       testutil.NewInmemory(),
 		Assoc:      make(assoc),
 		Transferer: transferer{},
 	}

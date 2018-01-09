@@ -21,6 +21,11 @@ type Cache struct {
 	vmap map[digest.Digest]reflow.Fileset
 }
 
+// Repository is not implemented.
+func (c *Cache) Repository() reflow.Repository {
+	panic("not implemented")
+}
+
 // Init initializes (or re-initializes) a Cache.
 func (c *Cache) Init() {
 	c.vmap = map[digest.Digest]reflow.Fileset{}
@@ -103,6 +108,11 @@ type cacheValue struct {
 type WaitCache struct {
 	mu    sync.Mutex
 	chans map[digest.Digest]chan cacheValue
+}
+
+// Repository is not implemented.
+func (*WaitCache) Repository() reflow.Repository {
+	panic("not implemented")
 }
 
 // Init (re-) initializes a WaitCache.

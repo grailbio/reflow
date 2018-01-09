@@ -59,10 +59,10 @@ func (c *Cache) Cache() (reflow.Cache, error) {
 		TableName: c.Table,
 	}
 	cache := &cache.Cache{
-		Repository: &repo,
-		Assoc:      assoc,
-		WriteLim:   limiter.New(),
-		LookupLim:  limiter.New(),
+		Repo:      &repo,
+		Assoc:     assoc,
+		WriteLim:  limiter.New(),
+		LookupLim: limiter.New(),
 	}
 	// TODO(marius): make this configurable.
 	const concurrency = 512

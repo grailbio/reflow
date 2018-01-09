@@ -44,4 +44,9 @@ type Cache interface {
 
 	// Delete removes the value named by id from this cache.
 	Delete(ctx context.Context, id digest.Digest) error
+
+	// Repository returns this cache's underlying repository. It should
+	// not be used for data transfer during the course of evaluation; see
+	// Transfer.
+	Repository() Repository
 }

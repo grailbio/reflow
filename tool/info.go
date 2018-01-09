@@ -20,18 +20,31 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/runner"
 )
 
 func (c *Cmd) info(ctx context.Context, args ...string) {
 	flags := flag.NewFlagSet("info", flag.ExitOnError)
-	help := "Info displays general information about allocs, execs, and runs."
-	c.Parse(flags, args, help, "info uris...")
+	help := `Info displays general information about Reflow objects.
+
+Info displays information about:
+
+	- runs
+	- cached filesets
+	- files
+	- execs
+	- allocs
+
+Where an opaque identifier is given (a sha256 checksum), info looks
+it up in all candidate data sources and displays the first match.
+Abbreviated IDs are expanded where possible.`
+	c.Parse(flags, args, help, "info names...")
 	if flags.NArg() == 0 {
 		flags.Usage()
 	}
-
+	var cache reflow.Cache
 	for _, arg := range flags.Args() {
 		n, err := parseName(arg)
 		if err != nil {
@@ -43,7 +56,11 @@ func (c *Cmd) info(ctx context.Context, args ...string) {
 		tw.Init(os.Stdout, 4, 4, 1, ' ', 0)
 		switch n.Kind {
 		case idName:
-			if !c.printRunInfo(ctx, &tw, n.ID) {
+			switch {
+			case c.printRunInfo(ctx, &tw, n.ID):
+			case c.printCacheInfo(ctx, &cache, &tw, n.ID):
+			case c.printFileInfo(ctx, &cache, &tw, n.ID):
+			default:
 				c.Fatalf("unable to resolve id %s", arg)
 			}
 		case execName:
@@ -174,6 +191,54 @@ func (c *Cmd) printRunInfo(ctx context.Context, w io.Writer, id digest.Digest) b
 		fmt.Fprintf(w, "\tlog:\t%s.execlog\n", base)
 	}
 	return true
+}
+
+func (c *Cmd) printCacheInfo(ctx context.Context, cache *reflow.Cache, w io.Writer, id digest.Digest) bool {
+	if *cache == nil {
+		var err error
+		*cache, err = c.Config.Cache()
+		if err != nil {
+			c.Fatal(err)
+		}
+	}
+	fs, err := (*cache).Lookup(ctx, id)
+	switch {
+	case err == nil:
+		fmt.Fprintln(w, id.Hex(), "(cached fileset)")
+		if fs.N() == 0 {
+			fmt.Fprintln(w, "	(empty)")
+		} else {
+			c.printFileset(w, "	", fs)
+		}
+		return true
+	case errors.Is(errors.NotExist, err):
+		return false
+	default:
+		c.Fatalf("lookup %s: %v", id.Hex(), err)
+		return false
+	}
+}
+
+func (c *Cmd) printFileInfo(ctx context.Context, cache *reflow.Cache, w io.Writer, id digest.Digest) bool {
+	if *cache == nil {
+		var err error
+		*cache, err = c.Config.Cache()
+		if err != nil {
+			c.Fatal(err)
+		}
+	}
+	info, err := (*cache).Repository().Stat(ctx, id)
+	switch {
+	case err == nil:
+		fmt.Fprintln(w, id.Hex(), "(cached file)")
+		fmt.Fprintf(w, "\tsize:\t%d\n", info.Size)
+		return true
+	case errors.Is(errors.NotExist, err):
+		return false
+	default:
+		c.Fatalf("stat %v: %v", id.Hex(), err)
+		return false
+	}
 }
 
 func (c *Cmd) printAlloc(ctx context.Context, w io.Writer, inspect pool.AllocInspect, execs []reflow.Exec) {

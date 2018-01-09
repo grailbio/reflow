@@ -37,9 +37,9 @@ type Assoc interface {
 //
 // Cache implements reflow.Cache.
 type Cache struct {
-	// Repository stores the cache's objects: both file objects and
+	// Repo stores the cache's objects: both file objects and
 	// serialized values are stored here.
-	Repository reflow.Repository
+	Repo reflow.Repository
 
 	// Assoc maintains the association between cache keys and the
 	// ID of their associated Value object as stored in Repository.
@@ -57,11 +57,16 @@ type Cache struct {
 	WriteLim *limiter.Limiter
 }
 
+// Repository returns this cache's remote repository.
+func (c *Cache) Repository() reflow.Repository {
+	return c.Repo
+}
+
 // Write stores the Value v, whose file objects exist in Repository
 // repo, under the key id.
 func (c *Cache) Write(ctx context.Context, id digest.Digest, v reflow.Fileset, repo reflow.Repository) error {
 	if repo != nil {
-		if err := c.Transferer.Transfer(ctx, c.Repository, repo, v.Files()...); err != nil {
+		if err := c.Transferer.Transfer(ctx, c.Repo, repo, v.Files()...); err != nil {
 			return err
 		}
 	}
@@ -75,7 +80,7 @@ func (c *Cache) Write(ctx context.Context, id digest.Digest, v reflow.Fileset, r
 		}
 		defer c.WriteLim.Release(1)
 	}
-	d, err := c.Repository.Put(ctx, bytes.NewReader(b))
+	d, err := c.Repo.Put(ctx, bytes.NewReader(b))
 	if err != nil {
 		return err
 	}
@@ -100,7 +105,7 @@ func (c *Cache) Lookup(ctx context.Context, id digest.Digest) (reflow.Fileset, e
 	if err != nil {
 		return reflow.Fileset{}, err
 	}
-	rc, err := c.Repository.Get(ctx, d)
+	rc, err := c.Repo.Get(ctx, d)
 	if err != nil {
 		return reflow.Fileset{}, err
 	}
@@ -111,7 +116,7 @@ func (c *Cache) Lookup(ctx context.Context, id digest.Digest) (reflow.Fileset, e
 		return reflow.Fileset{}, err
 	}
 	// Also check that the objects exist.
-	missing, err := repository.Missing(ctx, c.Repository, v.Files()...)
+	missing, err := repository.Missing(ctx, c.Repo, v.Files()...)
 	if err != nil {
 		return reflow.Fileset{}, err
 	}
@@ -135,7 +140,7 @@ func (c *Cache) Delete(ctx context.Context, id digest.Digest) error {
 // Transfer transmits the file objects associated with value v
 // (usually retrieved by Lookup) to the repository dst.
 func (c *Cache) Transfer(ctx context.Context, dst reflow.Repository, v reflow.Fileset) error {
-	return c.Transferer.Transfer(ctx, dst, c.Repository, v.Files()...)
+	return c.Transferer.Transfer(ctx, dst, c.Repo, v.Files()...)
 }
 
 // NeedTransfer returns the file objects in v that are missing from repository dst.
