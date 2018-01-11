@@ -59,6 +59,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/runner"
 	yaml "gopkg.in/yaml.v2"
@@ -71,8 +72,11 @@ const (
 	AWSTool = "awstool"
 	User    = "user"
 	HTTPS   = "https"
-	Cache   = "cache"
-	Cluster = "cluster"
+	// Cache is maintained as a key for backwards compatibility purposes.
+	Cache      = "cache"
+	Cluster    = "cluster"
+	Assoc      = "assoc"
+	Repository = "repository"
 )
 
 // AllKeys defines the order in which configuration keys are
@@ -85,6 +89,8 @@ var AllKeys = []string{
 	User,
 	HTTPS,
 	Cache,
+	Assoc,
+	Repository,
 	Cluster,
 }
 
@@ -95,9 +101,14 @@ type Keys map[string]interface{}
 // that are used in Reflow. It is safe to call each method multiple
 // times, but they should not be called concurrently.
 type Config interface {
-	// Cache returns this configuration's cache implementation.
-	// Cache may return nil if no cache is configured.
-	Cache() (reflow.Cache, error)
+	// CacheMode returns the configured cache mode.
+	CacheMode() reflow.CacheMode
+
+	// Assoc returns this configuration's assoc.
+	Assoc() (assoc.Assoc, error)
+
+	// Repository returns this configuration's repository.
+	Repository() (reflow.Repository, error)
 
 	// AWS returns this configuration's AWS session.
 	AWS() (*session.Session, error)
@@ -138,6 +149,21 @@ type Config interface {
 // Base defines a base configuration with reasonable defaults
 // where they apply.
 type Base Keys
+
+// Assoc returns a nil assoc.
+func (b Base) Assoc() (assoc.Assoc, error) {
+	return nil, nil
+}
+
+// Repository returns a nil repository.
+func (b Base) Repository() (reflow.Repository, error) {
+	return nil, nil
+}
+
+// CacheMode returns the default cache mode, reflow.CacheOff.
+func (b Base) CacheMode() reflow.CacheMode {
+	return reflow.CacheRead | reflow.CacheWrite
+}
 
 // Cache returns an error indicating no cache was configured.
 func (b Base) Cache() (reflow.Cache, error) {

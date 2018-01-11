@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
@@ -19,11 +20,13 @@ import (
 
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/bloomlive"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/values"
 	"github.com/willf/bloom"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -49,6 +52,32 @@ var stateStatusOrder = []FlowState{
 	FlowNeedLookup, FlowLookup, FlowNeedTransfer, FlowTODO,
 }
 
+// CacheMode is a bitmask that tells how caching is to be used
+// in the evaluator.
+type CacheMode int
+
+const (
+	// CacheOff is CacheMode's default value and indicates
+	// no caching (read or write) is to be performed.
+	CacheOff CacheMode = 0
+	// CacheRead indicates that cache lookups should be performed
+	// during evaluation.
+	CacheRead CacheMode = 1 << iota
+	// CacheWrite indicates that the evaluator should write evaluation
+	// results to the cache.
+	CacheWrite
+)
+
+// Reading returns whether the cache mode contains CacheRead.
+func (m CacheMode) Reading() bool {
+	return m&CacheRead == CacheRead
+}
+
+// Writing returns whether the cache mode contains CacheWrite.
+func (m CacheMode) Writing() bool {
+	return m&CacheWrite == CacheWrite
+}
+
 // EvalConfig provides runtime configuration for evaluation instances.
 type EvalConfig struct {
 	// The executor to which execs are submitted.
@@ -60,13 +89,21 @@ type EvalConfig struct {
 	// An (optional) logger to print evaluation trace.
 	Trace *log.Logger
 
-	// Transferer is used to arrange transfers between nodes and caches.
+	// Transferer is used to arrange transfers between repositories,
+	// including nodes and caches.
 	Transferer Transferer
 
-	// Cache is used to look up past execution results and upload new
-	// (successful) ones. Lookups and writes are skipped when Cache is
-	// nil.
-	Cache Cache
+	// Repository is the main, shared repository between evaluations.
+	Repository Repository
+
+	// Assoc is the main, shared assoc that is used to store cache and
+	// metadata associations.
+	Assoc assoc.Assoc
+
+	// CacheMode determines whether the evaluator reads from
+	// or writees to the cache. If CacheMode is nonzero, Assoc,
+	// Repository, and Transferer must be non-nil.
+	CacheMode CacheMode
 
 	// NoCacheExtern determines whether externs are cached.
 	NoCacheExtern bool
@@ -95,12 +132,22 @@ type EvalConfig struct {
 // String returns a human-readable form of the evaluation configuration.
 func (e EvalConfig) String() string {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "executor %T transferer %T cache %T", e.Executor, e.Transferer, e.Cache)
+	fmt.Fprintf(&b, "executor %T transferer %T", e.Executor, e.Transferer)
 	var flags []string
 	if e.NoCacheExtern {
 		flags = append(flags, "nocacheextern")
 	} else {
 		flags = append(flags, "cacheextern")
+	}
+	if e.CacheMode == CacheOff {
+		flags = append(flags, "nocache")
+	} else {
+		if e.CacheMode.Reading() {
+			flags = append(flags, "cacheread")
+		}
+		if e.CacheMode.Writing() {
+			flags = append(flags, "cachewrite")
+		}
 	}
 	if e.GC {
 		flags = append(flags, "gc")
@@ -177,6 +224,18 @@ type Eval struct {
 // NewEval creates and initializes a new evaluator using the provided
 // evaluation configuration and root flow.
 func NewEval(root *Flow, config EvalConfig) *Eval {
+	if (config.Assoc == nil || config.Repository == nil) && config.CacheMode != CacheOff {
+		switch {
+		case config.Assoc == nil && config.Repository == nil:
+			config.Log.Printf("turning caching off because assoc and repository are not configured")
+		case config.Assoc == nil:
+			config.Log.Printf("turning caching off because assoc is not configured")
+		case config.Repository == nil:
+			config.Log.Printf("turning caching off because repository is not configured")
+		}
+		config.CacheMode = CacheOff
+	}
+
 	e := &Eval{
 		EvalConfig: config,
 		root:       root.Canonicalize(config.Config),
@@ -797,7 +856,7 @@ func (e *Eval) todo(f *Flow) {
 	case FlowInit:
 		switch f.Op {
 		case OpIntern, OpExec, OpExtern:
-			if !e.BottomUp && e.Cache != nil && !e.dirty(f) {
+			if !e.BottomUp && e.CacheMode.Reading() && !e.dirty(f) {
 				e.Mutate(f, FlowNeedLookup)
 				return
 			}
@@ -830,7 +889,7 @@ func (e *Eval) todo(f *Flow) {
 			if e.BottomUp {
 				e.Mutate(f, FlowNeedLookup)
 			} else {
-				if e.Cache != nil {
+				if e.CacheMode.Reading() {
 					e.Mutate(f, FlowNeedTransfer)
 				} else {
 					e.Mutate(f, FlowReady)
@@ -974,7 +1033,10 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 	default:
 		panic(fmt.Sprintf("bug %v", f))
 	}
-
+	if !e.CacheMode.Writing() {
+		e.Mutate(f, Decr)
+		return nil
+	}
 	// We're currently pretty conservative in what we choose to cache:
 	// we don't cache interns, nor error values. We should revisit this
 	// in the future.
@@ -998,9 +1060,6 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 // source repository. CacheWrite returns nil on success, or else the first error
 // encountered.
 func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo Repository) error {
-	if e.Cache == nil {
-		return nil
-	}
 	// We currently only cache fileset values.
 	fs, ok := f.Value.(Fileset)
 	if !ok {
@@ -1020,24 +1079,22 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo Repository) error {
 	if len(keys) == 0 {
 		return nil
 	}
-	errc := make(chan error, len(keys))
-	var wg sync.WaitGroup
-	wg.Add(len(keys))
-	for i := range keys {
-		go func(i int) {
-			if err := e.Cache.Write(ctx, keys[i], fs, repo); err != nil {
-				errc <- err
-			}
-			wg.Done()
-		}(i)
-	}
-	wg.Wait()
-	select {
-	case err := <-errc:
+	if err := e.Transferer.Transfer(ctx, e.Repository, repo, fs.Files()...); err != nil {
 		return err
-	default:
-		return nil
 	}
+	id, err := marshal(ctx, e.Repository, fs)
+	if err != nil {
+		return err
+	}
+	// Write a mapping for each cache key.
+	g, ctx := errgroup.WithContext(ctx)
+	for i := range keys {
+		key := keys[i]
+		g.Go(func() error {
+			return e.Assoc.Put(ctx, assoc.Fileset, digest.Digest{}, key, id)
+		})
+	}
+	return g.Wait()
 }
 
 // lookupFailed marks the flow f as having failed lookup. Lookup
@@ -1057,13 +1114,14 @@ func (e *Eval) lookupFailed(f *Flow) {
 
 // lookup performs a cache lookup of node f.
 func (e *Eval) lookup(ctx context.Context, f *Flow) {
-	if e.Cache == nil || e.NoCacheExtern && (f.Op == OpExtern || f == e.root) {
+	if !e.CacheMode.Reading() || e.NoCacheExtern && (f.Op == OpExtern || f == e.root) {
 		e.lookupFailed(f)
 		return
 	}
 	var (
 		keys = f.CacheKeys()
 		fs   Fileset
+		fsid digest.Digest
 		err  error
 	)
 	if len(keys) == 0 {
@@ -1073,18 +1131,42 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 		return
 	}
 	which := -1
+	// TODO(marius): push multiple lookups into the assoc,
+	// so that these requests can be batched underneath.
 	for i, key := range keys {
 		ctx, cancel := context.WithTimeout(ctx, e.CacheLookupTimeout)
-		fs, err = e.Cache.Lookup(ctx, key)
+		fsid, err = e.Assoc.Get(ctx, assoc.Fileset, key)
 		cancel()
+		if err != nil {
+			if !errors.Is(errors.NotExist, err) {
+				e.Log.Errorf("assoc.Get %v: %v", f, err)
+			}
+			continue
+		}
+		err = unmarshal(ctx, e.Repository, fsid, &fs)
 		if err == nil {
 			which = i
 			break
 		}
 		if !errors.Is(errors.NotExist, err) {
-			e.Log.Errorf("cache.Lookup %v: %v", f, err)
+			e.Log.Errorf("unmarshal %v: %v", fsid, err)
 		}
 	}
+	// Make sure all of the files are present in the repository.
+	// If they are not, we consider this a cache miss.
+	switch missing, err := missing(ctx, e.Repository, fs.Files()...); {
+	case err != nil:
+		e.Log.Errorf("missing %v: %v", fs, err)
+	case len(missing) != 0:
+		var total int64
+		for _, file := range missing {
+			total += file.Size
+		}
+		err = errors.E(
+			errors.NotExist, "cache.Lookup",
+			errors.Errorf("missing %d files (%s)", len(missing), data.Size(total)))
+	}
+
 	if err == nil && e.RecomputeEmpty && fs.AnyEmpty() {
 		e.Log.Debugf("recomputing empty value for %v", f)
 	} else if err == nil {
@@ -1094,9 +1176,8 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 		bgctx := Background(ctx)
 		go func() {
 			for _, key := range keys {
-				err := e.Cache.Write(bgctx, key, fs, nil)
-				if err != nil {
-					e.Log.Errorf("cache write for read repair %v %v: %v", f, key, err)
+				if err := e.Assoc.Put(bgctx, assoc.Fileset, digest.Digest{}, key, fsid); err != nil {
+					e.Log.Errorf("assoc write for read repair %v %v: %v", f, key, err)
 				}
 			}
 			bgctx.Complete()
@@ -1123,7 +1204,7 @@ func (e *Eval) needTransfer(ctx context.Context, f *Flow) ([]File, error) {
 	if fs.N() == 0 {
 		return nil, nil
 	}
-	return e.Cache.NeedTransfer(ctx, e.Executor.Repository(), fs)
+	return e.Transferer.NeedTransfer(ctx, e.Executor.Repository(), fs.Files()...)
 }
 
 // transfer performs data transfers a node's dependent values. this
@@ -1134,7 +1215,7 @@ func (e *Eval) transfer(ctx context.Context, f *Flow) {
 	for i := range f.Deps {
 		fs.List[i] = f.Deps[i].Value.(Fileset)
 	}
-	err := e.Cache.Transfer(ctx, e.Executor.Repository(), fs)
+	err := e.Transferer.Transfer(ctx, e.Executor.Repository(), e.Repository, fs.Files()...)
 	if err == nil {
 		e.Mutate(f, FlowReady)
 		return
@@ -1742,4 +1823,67 @@ func printFileset(w io.Writer, prefix string, fs Fileset) {
 			fmt.Fprintf(w, "%s%s %s %s\n", prefix, key, file.ID, data.Size(file.Size))
 		}
 	}
+}
+
+// Below are some utilities for dealing with repositories and assocs.
+// They are in package reflow in order to avoid too much dependencies
+// on other packages, but we should refactor Reflow's dependencies to
+// accomodate better for this.
+
+// Marshal marshals the value v and stores it in the provided
+// repository. The digest of the contents of the marshaled content is
+// returned.
+func marshal(ctx context.Context, repo Repository, v interface{}) (digest.Digest, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return digest.Digest{}, err
+	}
+	return repo.Put(ctx, bytes.NewReader(b))
+}
+
+// Unmarshal unmarshals the value named by digest k into v.
+// If the value does not exist in repository, an error is returned.
+func unmarshal(ctx context.Context, repo Repository, k digest.Digest, v interface{}) error {
+	rc, err := repo.Get(ctx, k)
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	return json.NewDecoder(rc).Decode(v)
+}
+
+// Missing returns the files in files that are missing from
+// repository r. Missing returns an error if any underlying
+// call fails.
+func missing(ctx context.Context, r Repository, files ...File) ([]File, error) {
+	exists := make([]bool, len(files))
+	g, gctx := errgroup.WithContext(ctx)
+	for i, file := range files {
+		i, file := i, file
+		g.Go(func() (err error) {
+			ctx, cancel := context.WithTimeout(gctx, 10*time.Second)
+			_, err = r.Stat(ctx, file.ID)
+			cancel()
+			if err == nil {
+				exists[i] = true
+			} else if errors.Is(errors.NotExist, err) {
+				return nil
+			}
+			return err
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	all := files
+	files = nil
+	for i := range exists {
+		if !exists[i] {
+			files = append(files, all[i])
+		}
+	}
+	return files, nil
 }

@@ -69,6 +69,8 @@ const (
 	Invalid
 	// Net indicates a networking error.
 	Net
+	// Precondition indicates that a precondition was not met.
+	Precondition
 
 	maxKind
 )
@@ -106,6 +108,8 @@ func (k Kind) String() string {
 		return "invalid"
 	case Net:
 		return "network error"
+	case Precondition:
+		return "precondition was not met"
 	}
 }
 
@@ -125,6 +129,7 @@ var kind2string = [maxKind]string{
 	Fatal:              "Fatal",
 	Invalid:            "Invalid",
 	Net:                "Net",
+	Precondition:       "Precondition",
 }
 
 var string2kind = map[string]Kind{
@@ -143,6 +148,7 @@ var string2kind = map[string]Kind{
 	"Fatal":              Fatal,
 	"Invalid":            Invalid,
 	"Net":                Net,
+	"Precondition":       Precondition,
 }
 
 // Error defines a Reflow error. It is used to indicate an error

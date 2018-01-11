@@ -8,7 +8,6 @@ import (
 	"context"
 	"flag"
 	"io"
-	"log"
 	"os"
 
 	"github.com/grailbio/base/digest"
@@ -17,16 +16,15 @@ import (
 
 func (c *Cmd) cat(ctx context.Context, args ...string) {
 	flags := flag.NewFlagSet("cat", flag.ExitOnError)
-	help := "Cat copies files from Reflow's cache"
+	help := "Cat copies files from Reflow's repository"
 	c.Parse(flags, args, help, "cat files...")
 	if flags.NArg() == 0 {
 		flags.Usage()
 	}
-	cache, err := c.Config.Cache()
+	repo, err := c.Config.Repository()
 	if err != nil {
-		log.Fatal(err)
+		c.Fatal(err)
 	}
-	repo := cache.Repository()
 	var ids []digest.Digest
 	for _, arg := range flags.Args() {
 		id, err := reflow.Digester.Parse(arg)

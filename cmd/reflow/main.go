@@ -7,14 +7,8 @@ package main
 import (
 	"os"
 
-	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/config"
-	_ "github.com/grailbio/reflow/config/awsenvconfig"
-	_ "github.com/grailbio/reflow/config/dockerconfig"
-	_ "github.com/grailbio/reflow/config/ec2metadataconfig"
-	_ "github.com/grailbio/reflow/config/httpscaconfig"
-	_ "github.com/grailbio/reflow/config/httpsconfig"
-	_ "github.com/grailbio/reflow/config/s3config"
+	_ "github.com/grailbio/reflow/config/all"
 	_ "github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/tool"
 )
@@ -33,14 +27,17 @@ The command setup-ec2 configures an AWS account to be used by
 Reflow's cluster manager.
 
 Reflow may also use a distributed cache to automatically store and
-reuse intermediate results. Reflow may be configured to use S3 (and
-dynamoDB) to implement such a cache. Command setup-s3-cache
-provisions the necessary resources in an AWS account.
+reuse intermediate results. Caching requires setting up a global
+repository and association table. A global repository may be
+configured to use S3, and the association table may be configured to
+use DynamoDB. Command setup-s3-repository and setup-dynamodb-assoc
+provisions the necessary resources in an AWS account. 
 
 See the following for more details:
 
 	reflow setup-ec2 -help
-	reflow setup-s3-cache -help`
+	reflow setup-s3-repository -help
+	reflow setup-dynamodb-assoc -help`
 
 func main() {
 	var cfg config.Config = make(config.Base)
@@ -55,8 +52,9 @@ func main() {
 		Version:           version,
 		Intro:             intro,
 		Commands: map[string]tool.Func{
-			"setup-ec2":      setupEC2,
-			"setup-s3-cache": setupS3Cache,
+			"setup-ec2":            setupEC2,
+			"setup-s3-repository":  setupS3Repository,
+			"setup-dynamodb-assoc": setupDynamoDBAssoc,
 		},
 	}
 	cmd.Flags().Parse(os.Args[1:])
@@ -75,10 +73,6 @@ func (c defaultConfig) Marshal(keys config.Keys) error {
 		return err
 	}
 	return nil
-}
-
-func (defaultConfig) Cache() (reflow.Cache, error) {
-	return nil, nil
 }
 
 func (defaultConfig) AWSTool() (string, error) {

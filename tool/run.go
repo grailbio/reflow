@@ -23,7 +23,6 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow"
-	"github.com/grailbio/reflow/cache"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/ctxwg"
 	"github.com/grailbio/reflow/internal/ec2authenticator"
@@ -234,7 +233,11 @@ retriable.`
 	// Default case: execute on cluster with shared cache.
 	// TODO: get rid of profile here
 	cluster := c.cluster()
-	rcache, err := c.Config.Cache()
+	assoc, err := c.Config.Assoc()
+	if err != nil {
+		c.Fatal(err)
+	}
+	repo, err := c.Config.Repository()
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -243,9 +246,8 @@ retriable.`
 		PendingBytes: repository.NewLimits(transferLimit),
 		Stat:         repository.NewLimits(statLimit),
 	}
-	if cache, ok := rcache.(*cache.Cache); ok {
-		transferer.PendingBytes.Set(cache.Repo.URL().String(), int(^uint(0)>>1))
-		cache.Transferer = transferer
+	if repo != nil {
+		transferer.PendingBytes.Set(repo.URL().String(), int(^uint(0)>>1))
 	}
 	if c.Log.At(log.DebugLevel) {
 		go transferer.Report(ctx, time.Minute)
@@ -254,7 +256,9 @@ retriable.`
 		Flow: er.Flow,
 		EvalConfig: reflow.EvalConfig{
 			Log:        execLogger,
-			Cache:      rcache,
+			Repository: repo,
+			Assoc:      assoc,
+			CacheMode:  c.Config.CacheMode(),
 			Transferer: transferer,
 		},
 		Type:    er.Type,
@@ -325,7 +329,11 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	if err != nil {
 		c.Fatal(err)
 	}
-	rcache, err := c.Config.Cache()
+	repo, err := c.Config.Repository()
+	if err != nil {
+		c.Fatal(err)
+	}
+	assoc, err := c.Config.Assoc()
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -341,15 +349,13 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	if err != nil {
 		c.Fatal(err)
 	}
-
 	transferer := &repository.Manager{
 		Log:          c.Log.Tee(nil, "transferer: "),
 		PendingBytes: repository.NewLimits(transferLimit),
 		Stat:         repository.NewLimits(statLimit),
 	}
-	if cache, ok := rcache.(*cache.Cache); ok {
-		transferer.PendingBytes.Set(cache.Repo.URL().String(), int(^uint(0)>>1))
-		cache.Transferer = transferer
+	if repo != nil {
+		transferer.PendingBytes.Set(repo.URL().String(), int(^uint(0)>>1))
 	}
 	go transferer.Report(ctx, time.Minute)
 	dir := config.localDir
@@ -413,7 +419,9 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		Executor:   x,
 		Transferer: transferer,
 		Log:        execLogger,
-		Cache:      rcache,
+		Repository: repo,
+		Assoc:      assoc,
+		CacheMode:  c.Config.CacheMode(),
 	}
 	config.Configure(&evalConfig)
 	if config.trace {

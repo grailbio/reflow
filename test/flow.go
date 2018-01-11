@@ -10,7 +10,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc"
+	"github.com/grailbio/reflow/repository"
 )
 
 // The following are useful constructors for testing.
@@ -54,6 +57,19 @@ func WriteFiles(r reflow.Repository, files ...string) reflow.Fileset {
 		}
 	}
 	return Files(files...)
+}
+
+// WriteCache writes the provided files into the eval's repository and registers
+// a Fileset cache assoc.
+func WriteCache(e *reflow.Eval, key digest.Digest, files ...string) {
+	fs := WriteFiles(e.Repository, files...)
+	fsid, err := repository.Marshal(context.Background(), e.Repository, fs)
+	if err != nil {
+		unexpected(err)
+	}
+	if err := e.Assoc.Put(context.Background(), assoc.Fileset, digest.Digest{}, key, fsid); err != nil {
+		unexpected(err)
+	}
 }
 
 // List constructs a list value.

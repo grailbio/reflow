@@ -11,6 +11,7 @@ import (
 	"os"
 
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc"
 )
 
 func (c *Cmd) rmcache(ctx context.Context, args ...string) {
@@ -24,7 +25,7 @@ Items are digests read from the standard input.`
 		flags.Usage()
 	}
 
-	cache, err := c.Config.Cache()
+	ass, err := c.Config.Assoc()
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -38,7 +39,7 @@ Items are digests read from the standard input.`
 			continue
 		}
 		// TODO(marius): parallelize this for large jobs.
-		if err := cache.Delete(ctx, id); err != nil {
+		if err := assoc.Delete(ctx, ass, assoc.Fileset, id); err != nil {
 			c.Log.Errorf("failed to delete %s: %v", id, err)
 		}
 		c.Log.Debugf("removed key %v", id)

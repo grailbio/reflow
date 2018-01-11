@@ -154,21 +154,27 @@ Next, we'll set up a cache. This isn't strictly necessary, but we'll
 need it in order to use many of Reflow's sophisticated caching and
 incremental computation features. On AWS, Reflow implements a cache
 based on S3 and DynamoDB. A new S3-based cache is provisioned by
-`reflow setup-s3-cache`. It takes two arguments. The first is the
-name of the S3 bucket to use. If you provide an existing S3 bucket,
-it is used, or else a new bucket is created. The second argument is
-the name of the DynamoDB table, where again existing tables are
-reused. Note that S3 bucket names are global, so pick a name that's
-likely to be unique.
+`reflow setup-s3-repository` and `reflow setup-dynamodb-assoc`, each
+of which take one argument naming the S3 bucket and DynamoDB table
+name to be used, respectively. The S3 bucket is used to store file
+objects while the DynamoDB table is used to store associations
+between logically named computations and their concrete output. Note
+that S3 bucket names are global, so pick a name that's likely to be
+unique.
 
-	% reflow setup-s3-cache reflow-quickstart-cache reflow-quickstart
+	% reflow setup-s3-repository reflow-quickstart-cache
 	2017/10/18 15:09:10 creating s3 bucket reflow-quickstart-cache
 	2017/10/18 15:09:12 created s3 bucket reflow-quickstart-cache
+	% reflow setup-dynamodb-assoc reflow-quickstart
+	2017/10/18 15:09:40 creating DynamoDB table reflow-quickstart
+	2017/10/18 15:09:40 created DynamoDB table reflow-quickstart
 	% reflow config
-	cache: s3,reflow-quickstart-cache,reflow-quickstart
-	<same as before>
+	assoc: dynamodb,reflow-quickstart
+	repository: s3,reflow-quickstart-cache
 
-`Reflow setup-s3-cache` creates the S3 bucket and DynamoDB table as
+	<rest is same as before>
+
+The setup commands created the S3 bucket and DynamoDB table as
 needed, and modified the configuration accordingly.
 
 We're now ready to run our first "hello world" program!

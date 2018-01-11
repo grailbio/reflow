@@ -9,32 +9,32 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc"
 )
 
-type testCache struct {
+type testAssoc struct {
 	Config
 	arg string
 }
 
-func (c *testCache) Cache() (reflow.Cache, error) {
-	return nil, errors.New(c.arg)
+func (a *testAssoc) Assoc() (assoc.Assoc, error) {
+	return nil, errors.New(a.arg)
 }
 
 func TestConfig(t *testing.T) {
-	Register(Cache, "test", "test", "", func(cfg Config, arg string) (Config, error) {
-		return &testCache{cfg, arg}, nil
+	Register(Assoc, "test", "test", "", func(cfg Config, arg string) (Config, error) {
+		return &testAssoc{cfg, arg}, nil
 	})
 
 	cfg, err := Parse([]byte(`
-cache: test,arg1
+assoc: test,arg1
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	cache, err := cfg.Cache()
-	if cache != nil {
-		t.Errorf("expected nil cache, got %v", cache)
+	assoc, err := cfg.Assoc()
+	if assoc != nil {
+		t.Errorf("expected nil assoc, got %v", assoc)
 	}
 	if err == nil {
 		t.Fatal("expected non-nil error")

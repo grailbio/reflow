@@ -6,16 +6,18 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/repository"
 )
 
-// Cache is a implementation of reflow.Cache that stores values
-// (but not objects) in memory.
+// Cache is a Reflow cache that stores values (but not objects)
+// in memory. It implements assoc.Assoc.
 type Cache struct {
 	mu   sync.Mutex
 	vmap map[digest.Digest]reflow.Fileset
@@ -196,4 +198,52 @@ func (c *WaitCache) NeedTransfer(ctx context.Context, dst reflow.Repository, v r
 // Write always returns (immediate) success.
 func (c *WaitCache) Write(ctx context.Context, id digest.Digest, v reflow.Fileset, repo reflow.Repository) error {
 	return nil
+}
+
+func unexpected(err error) {
+	panic(fmt.Sprintf("unexpected error %v", err))
+}
+
+// Exists tells whether a value has been cached for the provided keys.
+// Exists checks whether all the objects are present in the Eval's
+// repository.
+func Exists(e *reflow.Eval, keys ...digest.Digest) bool {
+	if len(keys) == 0 {
+		panic("exists must be provided with at least one key")
+	}
+	for _, key := range keys {
+		fsid, err := e.Assoc.Get(context.Background(), assoc.Fileset, key)
+		if err != nil {
+			if !errors.Is(errors.NotExist, err) {
+				unexpected(err)
+			}
+			return false
+		}
+		var fs reflow.Fileset
+		if err := repository.Unmarshal(context.Background(), e.Repository, fsid, &fs); err != nil {
+			unexpected(err)
+		}
+		files, err := repository.Missing(context.Background(), e.Repository, fs.Files()...)
+		if err != nil {
+			unexpected(err)
+		}
+		if len(files) > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// Value returns the fileset stored for the provided key in the cache
+// configured in Eval e.
+func Value(e *reflow.Eval, key digest.Digest) reflow.Fileset {
+	fsid, err := e.Assoc.Get(context.Background(), assoc.Fileset, key)
+	if err != nil {
+		unexpected(err)
+	}
+	var fs reflow.Fileset
+	if err := repository.Unmarshal(context.Background(), e.Repository, fsid, &fs); err != nil {
+		unexpected(err)
+	}
+	return fs
 }

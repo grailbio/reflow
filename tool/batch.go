@@ -16,7 +16,6 @@ import (
 
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/batch"
-	"github.com/grailbio/reflow/cache"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/ctxwg"
 	"github.com/grailbio/reflow/repository"
@@ -83,7 +82,11 @@ level.`
 		c.Fatal(err)
 	}
 	cluster := c.cluster()
-	rcache, err := c.Config.Cache()
+	repo, err := c.Config.Repository()
+	if err != nil {
+		c.Fatal(err)
+	}
+	assoc, err := c.Config.Assoc()
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -93,16 +96,17 @@ level.`
 		PendingBytes: repository.NewLimits(transferLimit),
 		Stat:         repository.NewLimits(statLimit),
 	}
-	if cache, ok := rcache.(*cache.Cache); ok {
-		transferer.PendingBytes.Set(cache.Repo.URL().String(), int(^uint(0)>>1))
-		cache.Transferer = transferer
+	if repo != nil {
+		transferer.PendingBytes.Set(repo.URL().String(), int(^uint(0)>>1))
 	}
 	go transferer.Report(ctx, time.Minute)
 
 	b := &batch.Batch{
 		EvalConfig: reflow.EvalConfig{
 			Log:            c.Log,
-			Cache:          rcache,
+			Repository:     repo,
+			Assoc:          assoc,
+			CacheMode:      c.Config.CacheMode(),
 			NoCacheExtern:  *nocacheexternFlag,
 			RecomputeEmpty: *recomputeemptyFlag,
 			Transferer:     transferer,

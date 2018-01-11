@@ -8,7 +8,9 @@
 package repository
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/url"
 	"sync"
 
@@ -98,4 +100,26 @@ func transferLocal(ctx context.Context, dst, src reflow.Repository, id digest.Di
 		return errors.Errorf("transfer %v: wrong digest %s", id, dgst)
 	}
 	return nil
+}
+
+// Marshal marshals the value v and stores it in the provided
+// repository. The digest of the contents of the marshaled content is
+// returned.
+func Marshal(ctx context.Context, repo reflow.Repository, v interface{}) (digest.Digest, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return digest.Digest{}, err
+	}
+	return repo.Put(ctx, bytes.NewReader(b))
+}
+
+// Unmarshal unmarshals the value named by digest k into v.
+// If the value does not exist in repository, an error is returned.
+func Unmarshal(ctx context.Context, repo reflow.Repository, k digest.Digest, v interface{}) error {
+	rc, err := repo.Get(ctx, k)
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	return json.NewDecoder(rc).Decode(v)
 }

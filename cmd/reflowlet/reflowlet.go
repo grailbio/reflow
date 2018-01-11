@@ -18,12 +18,7 @@ import (
 	"os"
 
 	"github.com/grailbio/reflow/config"
-	_ "github.com/grailbio/reflow/config/awsenvconfig"
-	_ "github.com/grailbio/reflow/config/dockerconfig"
-	_ "github.com/grailbio/reflow/config/ec2metadataconfig"
-	_ "github.com/grailbio/reflow/config/httpscaconfig"
-	_ "github.com/grailbio/reflow/config/httpsconfig"
-	_ "github.com/grailbio/reflow/config/s3config"
+	_ "github.com/grailbio/reflow/config/all"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/reflowlet"
 )

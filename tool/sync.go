@@ -13,6 +13,8 @@ import (
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc"
+	"github.com/grailbio/reflow/repository"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -34,12 +36,20 @@ are not also in the fileset.`
 	if err != nil {
 		c.Fatalf("parse %s: %v", fsID, err)
 	}
-	cache, err := c.Config.Cache()
+	ass, err := c.Config.Assoc()
 	if err != nil {
 		c.Fatal(err)
 	}
-	fs, err := cache.Lookup(ctx, id)
+	fsid, err := ass.Get(ctx, assoc.Fileset, id)
 	if err != nil {
+		c.Fatal(err)
+	}
+	repo, err := c.Config.Repository()
+	if err != nil {
+		c.Fatal(err)
+	}
+	var fs reflow.Fileset
+	if err := repository.Unmarshal(ctx, repo, fsid, &fs); err != nil {
 		c.Fatal(err)
 	}
 	if fs.N() == 0 {
@@ -84,7 +94,7 @@ are not also in the fileset.`
 				return err
 			}
 			c.Log.Printf("copying %s %s", path, f.ID.Hex())
-			rc, err := cache.Repository().Get(ctx, f.ID)
+			rc, err := repo.Get(ctx, f.ID)
 			if err != nil {
 				return err
 			}

@@ -222,6 +222,7 @@ func (c *Cmd) Main() {
 		// ugly. We should rethink this configuration system a little.
 		c.Config = c.MakeConfig(c.Config)
 	}
+	c.Config = config.Once(c.Config)
 	if c.httpFlag != "" {
 		go func() {
 			c.Fatal(http.ListenAndServe(c.httpFlag, nil))

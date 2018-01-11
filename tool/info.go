@@ -20,8 +20,10 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/pool"
+	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/runner"
 )
 
@@ -44,7 +46,6 @@ Abbreviated IDs are expanded where possible.`
 	if flags.NArg() == 0 {
 		flags.Usage()
 	}
-	var cache reflow.Cache
 	for _, arg := range flags.Args() {
 		n, err := parseName(arg)
 		if err != nil {
@@ -58,8 +59,8 @@ Abbreviated IDs are expanded where possible.`
 		case idName:
 			switch {
 			case c.printRunInfo(ctx, &tw, n.ID):
-			case c.printCacheInfo(ctx, &cache, &tw, n.ID):
-			case c.printFileInfo(ctx, &cache, &tw, n.ID):
+			case c.printCacheInfo(ctx, &tw, n.ID):
+			case c.printFileInfo(ctx, &tw, n.ID):
 			default:
 				c.Fatalf("unable to resolve id %s", arg)
 			}
@@ -193,17 +194,26 @@ func (c *Cmd) printRunInfo(ctx context.Context, w io.Writer, id digest.Digest) b
 	return true
 }
 
-func (c *Cmd) printCacheInfo(ctx context.Context, cache *reflow.Cache, w io.Writer, id digest.Digest) bool {
-	if *cache == nil {
-		var err error
-		*cache, err = c.Config.Cache()
+func (c *Cmd) printCacheInfo(ctx context.Context, w io.Writer, id digest.Digest) bool {
+	ass, err := c.Config.Assoc()
+	if err != nil {
+		c.Fatal(err)
+	}
+	fsid, err := ass.Get(ctx, assoc.Fileset, id)
+	switch {
+	case err == nil:
+		repo, err := c.Config.Repository()
 		if err != nil {
 			c.Fatal(err)
 		}
-	}
-	fs, err := (*cache).Lookup(ctx, id)
-	switch {
-	case err == nil:
+		var fs reflow.Fileset
+		switch err := repository.Unmarshal(ctx, repo, fsid, &fs); {
+		case err == nil:
+		case errors.Is(errors.NotExist, err):
+			return false
+		default:
+			c.Fatalf("repository.Unmarshal %v: %v", fsid, err)
+		}
 		fmt.Fprintln(w, id.Hex(), "(cached fileset)")
 		if fs.N() == 0 {
 			fmt.Fprintln(w, "	(empty)")
@@ -214,23 +224,20 @@ func (c *Cmd) printCacheInfo(ctx context.Context, cache *reflow.Cache, w io.Writ
 	case errors.Is(errors.NotExist, err):
 		return false
 	default:
-		c.Fatalf("lookup %s: %v", id.Hex(), err)
+		c.Fatalf("assoc.Get %s: %v", id.Hex(), err)
 		return false
 	}
 }
 
-func (c *Cmd) printFileInfo(ctx context.Context, cache *reflow.Cache, w io.Writer, id digest.Digest) bool {
-	if *cache == nil {
-		var err error
-		*cache, err = c.Config.Cache()
-		if err != nil {
-			c.Fatal(err)
-		}
+func (c *Cmd) printFileInfo(ctx context.Context, w io.Writer, id digest.Digest) bool {
+	repo, err := c.Config.Repository()
+	if err != nil {
+		c.Fatal(err)
 	}
-	info, err := (*cache).Repository().Stat(ctx, id)
+	info, err := repo.Stat(ctx, id)
 	switch {
 	case err == nil:
-		fmt.Fprintln(w, id.Hex(), "(cached file)")
+		fmt.Fprintln(w, id.Hex(), "(file)")
 		fmt.Fprintf(w, "\tsize:\t%d\n", info.Size)
 		return true
 	case errors.Is(errors.NotExist, err):

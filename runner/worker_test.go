@@ -27,19 +27,14 @@ func TestWorker(t *testing.T) {
 	exec3 := flow.Exec("image", "command3 %s", test.Resources, intern)
 	merge := flow.Merge(exec1, exec2, exec3)
 
-	var (
-		tf    test.Transferer
-		cache test.Cache
-	)
+	var tf test.Transferer
 	tf.Init()
-	cache.Init()
 	e := &test.Executor{Have: test.Resources}
 	e.Init()
 	e.Repo = testutil.NewInmemory()
 	eval := reflow.NewEval(merge, reflow.EvalConfig{
 		Executor:   e,
 		Transferer: &tf,
-		Cache:      &cache,
 	})
 	e2 := &test.Executor{Have: test.Resources.Scale(2)}
 	e2.Init()
@@ -101,10 +96,5 @@ func TestWorker(t *testing.T) {
 	}
 	if got, want := r.Val, test.List(test.Files("1"), test.Files("2"), test.Files("3")); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
-	}
-	for _, expect := range []*reflow.Flow{exec1, exec2, exec3} {
-		if !cache.Exists(expect) {
-			t.Errorf("no cached value for %v", expect)
-		}
 	}
 }

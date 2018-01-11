@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package repository
+package repository_test
 
 import (
 	"bytes"
@@ -15,6 +15,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/repository"
 	. "github.com/grailbio/reflow/repository/testutil"
 )
 
@@ -51,14 +52,14 @@ func (nilRepository) URL() *url.URL {
 func TestDial(t *testing.T) {
 	var repo nilRepository
 	const scheme = "testscheme"
-	RegisterScheme(scheme, func(u *url.URL) (reflow.Repository, error) {
+	repository.RegisterScheme(scheme, func(u *url.URL) (reflow.Repository, error) {
 		if got, want := u.Scheme, "testscheme"; got != want {
 			t.Fatalf("got %v, want %v", got, want)
 		}
 		return repo, nil
 	})
-	defer UnregisterScheme(scheme)
-	r, err := Dial(scheme + "://foobar")
+	defer repository.UnregisterScheme(scheme)
+	r, err := repository.Dial(scheme + "://foobar")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +77,7 @@ func TestTransfer(t *testing.T) {
 	src := NewExpectRepository(t, "src://foobar")
 	id := reflow.Digester.FromString("hello, world!")
 	dst.Expect(RepositoryCall{T: CallReadFrom, ArgID: id, ArgURL: *src.URL()})
-	if err := Transfer(context.Background(), dst, src, id); err != nil {
+	if err := repository.Transfer(context.Background(), dst, src, id); err != nil {
 		t.Fatal(err)
 	}
 	src.Complete()
@@ -95,7 +96,7 @@ func TestTransfer(t *testing.T) {
 		ArgID:  id,
 		ArgURL: *dst.URL(),
 	})
-	if err := Transfer(context.Background(), dst, src, id); err != nil {
+	if err := repository.Transfer(context.Background(), dst, src, id); err != nil {
 		t.Fatal(err)
 	}
 	if err := src.Complete(); err != nil {
@@ -128,7 +129,7 @@ func TestTransfer(t *testing.T) {
 		ArgBytes: []byte(body),
 		ReplyID:  reflow.Digester.FromString(body),
 	})
-	if err := Transfer(context.Background(), dst, src, id); err != nil {
+	if err := repository.Transfer(context.Background(), dst, src, id); err != nil {
 		t.Fatal(err)
 	}
 	if err := src.Complete(); err != nil {

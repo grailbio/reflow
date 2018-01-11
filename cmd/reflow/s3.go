@@ -9,41 +9,27 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/tool"
 )
 
-func setupS3Cache(c *tool.Cmd, ctx context.Context, args ...string) {
-	flags := flag.NewFlagSet("setup-s3-cache", flag.ExitOnError)
-	var (
-		writeCap = flags.Int("writecap", 10, "dynamodb provisioned write capacity")
-		readCap  = flags.Int("readcap", 20, "dynamodb provisioned read capacity")
-	)
-	help := `Setup-s3 provisions resources on AWS in order to set up and configure
-a distributed cache for Reflow. The modified configuration is written back to the
-configuration file.
-
-A bucket with the provided name is created (if it does not already
-exist); a DynamoDB table with the provided name is also instantiated
-(if it does not already exist). By default the DynamoDB table is
-configured with a provisoned capacity of 10 writes/sec and 20
-reads/sec. This can be overriden with the flags -writecap and
--readcap, or else modified through the AWS console after
-configuration.
+func setupS3Repository(c *tool.Cmd, ctx context.Context, args ...string) {
+	flags := flag.NewFlagSet("setup-s3-repository", flag.ExitOnError)
+	help := `Setup-s3-repository provisions a bucket in AWS's S3 storage service
+and modifies Reflow's configuration to use this S3 bucket as its
+object repository.
 
 The resulting configuration can be examined with "reflow config"`
-	c.Parse(flags, args, help, "setup-s3-cache s3bucket dynamoDBtable")
-	if flags.NArg() != 2 {
+	c.Parse(flags, args, help, "setup-s3-repository s3bucket")
+	if flags.NArg() != 1 {
 		flags.Usage()
 	}
-	bucket, table := flags.Arg(0), flags.Arg(1)
+	bucket := flags.Arg(0)
 
 	b, err := ioutil.ReadFile(c.ConfigFile)
 	if err != nil && !os.IsNotExist(err) {
@@ -53,9 +39,9 @@ The resulting configuration can be examined with "reflow config"`
 	if err := config.Unmarshal(b, base.Keys()); err != nil {
 		c.Fatal(err)
 	}
-	v, _ := base[config.Cache].(string)
+	v, _ := base[config.Repository].(string)
 	if v != "" {
-		c.Fatalf("cache already set up: %v", v)
+		c.Fatalf("repository already set up: %v", v)
 	}
 	sess, err := c.Config.AWS()
 	if err != nil {
@@ -88,33 +74,7 @@ The resulting configuration can be examined with "reflow config"`
 	} else {
 		c.Log.Printf("created s3 bucket %s", bucket)
 	}
-	_, err = dynamodb.New(sess).CreateTable(&dynamodb.CreateTableInput{
-		AttributeDefinitions: []*dynamodb.AttributeDefinition{
-			{
-				AttributeName: aws.String("ID"),
-				AttributeType: aws.String("S"),
-			},
-		},
-		KeySchema: []*dynamodb.KeySchemaElement{
-			{
-				AttributeName: aws.String("ID"),
-				KeyType:       aws.String("HASH"),
-			},
-		},
-		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(int64(*readCap)),
-			WriteCapacityUnits: aws.Int64(int64(*writeCap)),
-		},
-		TableName: aws.String(table),
-	})
-	if err != nil {
-		if aerr, ok := err.(awserr.Error); !ok || aerr.Code() != dynamodb.ErrCodeResourceInUseException {
-			log.Fatal(err)
-		}
-		c.Log.Printf("dynamodb table %s already exists", table)
-	}
-
-	base[config.Cache] = fmt.Sprintf("s3,%s,%s", bucket, table)
+	base[config.Repository] = fmt.Sprintf("s3,%s", bucket)
 	b, err = config.Marshal(base)
 	if err != nil {
 		c.Fatal(err)
