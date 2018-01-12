@@ -14,4 +14,5 @@ import (
 	_ "github.com/grailbio/reflow/config/httpscaconfig"
 	_ "github.com/grailbio/reflow/config/httpsconfig"
 	_ "github.com/grailbio/reflow/config/s3config"
+	_ "github.com/grailbio/reflow/config/staticconfig"
 )
