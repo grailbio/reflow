@@ -52,6 +52,8 @@ type Server struct {
 	// EC2Cluster tells whether this reflowlet is part of an EC2cluster.
 	// When true, the reflowlet shuts down if it is idle after 10 minutes.
 	EC2Cluster bool
+	// HTTPDebug determines whether HTTP debug logging is turned on.
+	HTTPDebug bool
 
 	configFlag string
 }
@@ -66,6 +68,7 @@ func (s *Server) AddFlags(flags *flag.FlagSet) {
 	flags.StringVar(&s.Dir, "dir", "/mnt/data/reflow", "runtime data directory")
 	flags.IntVar(&s.NDigest, "ndigest", 32, "number of allowable concurrent digest ops")
 	flags.BoolVar(&s.EC2Cluster, "ec2cluster", false, "this reflowlet is part of an ec2cluster")
+	flags.BoolVar(&s.HTTPDebug, "httpdebug", false, "turn on HTTP debug logging")
 }
 
 // ListenAndServe serves the Reflowlet server on the configured address.
@@ -150,7 +153,14 @@ func (s *Server) ListenAndServe() error {
 		}()
 	}
 
-	http.Handle("/", rest.Handler(server.NewNode(p), nil))
+	var httpLog *log.Logger
+	if s.HTTPDebug {
+		httpLog = log.Std.Tee(nil, "http: ")
+		httpLog.Level = log.DebugLevel
+		log.Std.Level = log.DebugLevel
+	}
+
+	http.Handle("/", rest.Handler(server.NewNode(p), httpLog))
 	server := &http.Server{Addr: s.Addr}
 	if s.Insecure {
 		return server.ListenAndServe()

@@ -23,6 +23,10 @@ type Client struct {
 	*rest.Client
 }
 
+func (c *Client) String() string {
+	return "remote:" + c.Client.URL().String()
+}
+
 // Stat queries the repository for the file metadata for the given object.
 func (c *Client) Stat(ctx context.Context, id digest.Digest) (reflow.File, error) {
 	call := c.Call("HEAD", "%s", id)
@@ -31,12 +35,16 @@ func (c *Client) Stat(ctx context.Context, id digest.Digest) (reflow.File, error
 	if err != nil {
 		return reflow.File{}, errors.E("stat", id, err)
 	}
-	if code != http.StatusOK {
+	// HEAD requests are special: their bodies are dropped by Go's
+	// HTTP library. So we need to reconstruct errors here.
+	switch code {
+	case http.StatusOK:
+		return reflow.File{ID: id, Size: call.ContentLength()}, nil
+	case http.StatusNotFound:
+		return reflow.File{}, errors.E(errors.NotExist, errors.Errorf("file %v does not exist", id))
+	default:
 		return reflow.File{}, call.Error()
 	}
-	var f reflow.File
-	err = call.Unmarshal(&f)
-	return f, err
 }
 
 // Get retrieves the object with digest id.

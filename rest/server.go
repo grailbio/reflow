@@ -49,6 +49,10 @@ type Call struct {
 	log    *log.Logger
 }
 
+func (c *Call) String() string {
+	return fmt.Sprintf("%s %s", c.Method(), c.URL())
+}
+
 // Allow admits a set of methods to this call. If the call's method
 // is not among the ones passed in, Allow returns false and fails the
 // call with a http.StatusMethodNotAllowed error.
@@ -97,6 +101,11 @@ func (c *Call) Method() string {
 // Header returns the HTTP headers set by the client.
 func (c *Call) Header() http.Header {
 	return c.req.Header
+}
+
+// ReplyHeader returns the HTTP headers used in the call's reply.
+func (c *Call) ReplyHeader() http.Header {
+	return c.writer.Header()
 }
 
 // URL returns the url of this call.
@@ -157,7 +166,7 @@ func (c *Call) flush() {
 		reply interface{}
 		code  int
 	)
-	if c.done || c.Method() == "HEAD" {
+	if c.done {
 		return
 	}
 	if c.err != nil {
@@ -169,9 +178,11 @@ func (c *Call) flush() {
 		reply = c.reply
 	}
 	if c.log.At(log.DebugLevel) {
-		c.log.Debugf("response %d %v", code, reply)
+		c.log.Debugf("response %s %d %v", c, code, reply)
 	}
-	c.writer.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	if reply != nil {
+		c.writer.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	}
 	c.writer.WriteHeader(code)
 	if reply != nil {
 		if err := json.NewEncoder(c.writer).Encode(reply); err != nil {

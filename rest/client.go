@@ -71,6 +71,10 @@ type ClientCall struct {
 	err    error
 }
 
+func (c *ClientCall) String() string {
+	return fmt.Sprintf("%s %s", c.method, c.path)
+}
+
 // Err returns the call's error, if any.
 func (c *ClientCall) Err() error {
 	return c.err
@@ -124,13 +128,14 @@ func (c *ClientCall) Do(ctx context.Context, body io.Reader) (int, error) {
 	}
 	if c.log.At(log.DebugLevel) {
 		if c.resp != nil {
+			c.log.Debugf("response %s body %v", c, c.resp.Body)
 			b, err := httputil.DumpResponse(c.resp, true)
 			if err != nil {
 				return 0, err
 			}
-			c.log.Debugf("response %s", string(b))
+			c.log.Debugf("response %s [%d] %s", c, c.resp.ContentLength, string(b))
 		} else if c.err != nil {
-			c.log.Debugf("response error %s", c.err)
+			c.log.Debugf("response %s error %s", c, c.err)
 		}
 	}
 	if c.resp == nil {
@@ -176,4 +181,11 @@ func (c *ClientCall) Close() error {
 		return c.resp.Body.Close()
 	}
 	return nil
+}
+
+// ContentLength returns the content lenth of the reply.
+// Unless the request's method is HEAD, this is the number
+// of bytes that may be read from the call.
+func (c *ClientCall) ContentLength() int64 {
+	return c.resp.ContentLength
 }

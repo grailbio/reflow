@@ -13,6 +13,7 @@ import (
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"golang.org/x/sync/errgroup"
 )
@@ -149,6 +150,9 @@ func (m *Manager) NeedTransfer(ctx context.Context, dst reflow.Repository, files
 			lstat.Release(1)
 			cancel()
 			exists[i] = err == nil
+			if err != nil && !errors.Is(errors.NotExist, err) {
+				m.Log.Printf("stat %v %v: %v", dst, file.ID, err)
+			}
 			return nil
 		})
 	}

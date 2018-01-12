@@ -9,6 +9,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strconv"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
@@ -86,7 +87,7 @@ func (n fileNode) Walk(ctx context.Context, call *rest.Call, path string) rest.N
 }
 
 func (n fileNode) Do(ctx context.Context, call *rest.Call) {
-	if !call.Allow("GET", "PUT", "POST") {
+	if !call.Allow("HEAD", "GET", "PUT", "POST") {
 		return
 	}
 	switch call.Method() {
@@ -96,7 +97,8 @@ func (n fileNode) Do(ctx context.Context, call *rest.Call) {
 			call.Error(err)
 			return
 		}
-		call.Reply(http.StatusOK, file)
+		call.ReplyHeader().Add("Content-Length", strconv.FormatInt(file.Size, 10))
+		call.Reply(http.StatusOK, nil)
 	case "GET":
 		rc, err := n.r.Get(ctx, n.id)
 		if err != nil {
