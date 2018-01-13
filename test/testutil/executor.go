@@ -1,8 +1,8 @@
-// Copyright 2017 GRAIL, Inc. All rights reserved.
+// Copyright 2018 GRAIL, Inc. All rights reserved.
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package test
+package testutil
 
 import (
 	"context"
@@ -118,8 +118,9 @@ func (e *Exec) result(ctx context.Context) (ExecResult, error) {
 	}
 }
 
-// Executor implements Executor for testing purposes.
-// It allows the caller to await creation of testExecs.
+// Executor implements Executor for testing purposes. It allows the
+// caller to await creation of Execs, to introspect execs in the
+// exeutor, and to set exec results.
 type Executor struct {
 	Have reflow.Resources
 

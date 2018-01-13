@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package test
+package evaltest
 
 import (
 	"bytes"
@@ -16,22 +16,22 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/repository/file"
-	repotest "github.com/grailbio/reflow/repository/testutil"
 	"github.com/grailbio/reflow/test/flow"
-	"grail.com/testutil"
+	"github.com/grailbio/reflow/test/testutil"
+	grailtest "grail.com/testutil"
 )
 
 func TestSimpleEval(t *testing.T) {
 	intern := flow.Intern("internurl")
-	exec := flow.Exec("image", "command", Resources, intern)
+	exec := flow.Exec("image", "command", testutil.Resources, intern)
 	extern := flow.Extern("externurl", exec)
 
-	e := Executor{Have: Resources}
+	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
 	eval := reflow.NewEval(extern, reflow.EvalConfig{Executor: &e})
-	rc := EvalAsync(context.Background(), eval)
-	e.Ok(intern, Files("a/b/c", "a/b/d", "x/y/z"))
-	e.Ok(exec, Files("execout"))
+	rc := testutil.EvalAsync(context.Background(), eval)
+	e.Ok(intern, testutil.Files("a/b/c", "a/b/d", "x/y/z"))
+	e.Ok(exec, testutil.Files("execout"))
 	e.Ok(extern, reflow.Fileset{})
 	r := <-rc
 	if r.Err != nil {
@@ -49,35 +49,35 @@ func TestGroupbyMapCollect(t *testing.T) {
 		return flow.Collect("^./(.*)", "$1", f)
 	}, groupby)
 
-	e := Executor{Have: Resources}
+	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
 	eval := reflow.NewEval(mapCollect, reflow.EvalConfig{Executor: &e})
-	rc := EvalAsync(context.Background(), eval)
-	e.Ok(intern, Files("a/one:one", "a/two:two", "a/three:three", "b/1:four", "b/2:five", "c/xxx:six"))
+	rc := testutil.EvalAsync(context.Background(), eval)
+	e.Ok(intern, testutil.Files("a/one:one", "a/two:two", "a/three:three", "b/1:four", "b/2:five", "c/xxx:six"))
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	expect := List(Files("one", "two", "three"), Files("1:four", "2:five"), Files("xxx:six"))
+	expect := testutil.List(testutil.Files("one", "two", "three"), testutil.Files("1:four", "2:five"), testutil.Files("xxx:six"))
 	if got, want := r.Val, expect; !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }
 
 func TestExecRetry(t *testing.T) {
-	exec := flow.Exec("image", "command", Resources)
-	e := Executor{Have: Resources}
+	exec := flow.Exec("image", "command", testutil.Resources)
+	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
 
 	eval := reflow.NewEval(exec, reflow.EvalConfig{Executor: &e})
-	rc := EvalAsync(context.Background(), eval)
+	rc := testutil.EvalAsync(context.Background(), eval)
 	e.Error(exec, errors.New("failed"))
-	e.Ok(exec, Files("execout"))
+	e.Ok(exec, testutil.Files("execout"))
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if got, want := r.Val, Files("execout"); !reflect.DeepEqual(got, want) {
+	if got, want := r.Val, testutil.Files("execout"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }
@@ -86,14 +86,14 @@ func TestSteal(t *testing.T) {
 	const N = 10
 	var execs [N]*reflow.Flow
 	for i := range execs {
-		execs[i] = flow.Exec(fmt.Sprintf("cmd%d", i), "image", Resources)
+		execs[i] = flow.Exec(fmt.Sprintf("cmd%d", i), "image", testutil.Resources)
 	}
 	merge := flow.Merge(execs[:]...)
 
-	e := Executor{Have: Resources}
+	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
 	eval := reflow.NewEval(merge, reflow.EvalConfig{Executor: &e})
-	rc := EvalAsync(context.Background(), eval)
+	rc := testutil.EvalAsync(context.Background(), eval)
 	for i := 0; i < N; i++ {
 		e.Wait(execs[i])
 		s := eval.Stealer()
@@ -122,29 +122,29 @@ func TestSteal(t *testing.T) {
 func TestCacheWrite(t *testing.T) {
 	for _, bottomup := range []bool{false, true} {
 		intern := flow.Intern("internurl")
-		exec := flow.Exec("image", "command", Resources, intern)
+		exec := flow.Exec("image", "command", testutil.Resources, intern)
 		groupby := flow.Groupby("(.*)", exec)
 		pullup := flow.Pullup(groupby)
 
-		assoc := NewInmemoryAssoc()
-		repo := repotest.NewInmemory()
+		assoc := testutil.NewInmemoryAssoc()
+		repo := testutil.NewInmemoryRepository()
 
-		e := Executor{Have: Resources}
+		e := testutil.Executor{Have: testutil.Resources}
 		e.Init()
-		e.Repo = repotest.NewInmemory()
+		e.Repo = testutil.NewInmemoryRepository()
 		eval := reflow.NewEval(pullup, reflow.EvalConfig{
 			Executor:   &e,
 			CacheMode:  reflow.CacheRead | reflow.CacheWrite,
 			Assoc:      assoc,
-			Transferer: repotest.Transferer,
+			Transferer: testutil.Transferer,
 			Repository: repo,
 			BottomUp:   bottomup,
 			//			Log:      log.New(golog.New(os.Stderr, "", golog.LstdFlags), log.InfoLevel),
 		})
-		rc := EvalAsync(context.Background(), eval)
+		rc := testutil.EvalAsync(context.Background(), eval)
 		var (
-			internValue = WriteFiles(e.Repo, "ignored")
-			execValue   = WriteFiles(e.Repo, "a", "b", "c", "d")
+			internValue = testutil.WriteFiles(e.Repo, "ignored")
+			execValue   = testutil.WriteFiles(e.Repo, "a", "b", "c", "d")
 		)
 		e.Ok(intern, internValue)
 		e.Ok(exec, execValue)
@@ -155,13 +155,13 @@ func TestCacheWrite(t *testing.T) {
 		if got, want := r.Val, execValue; !got.Equal(want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
-		if got, want := Exists(eval, intern.CacheKeys()...), true; got != want {
+		if got, want := testutil.Exists(eval, intern.CacheKeys()...), true; got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
-		if got, want := Value(eval, exec.Digest()), execValue; !Exists(eval, exec.CacheKeys()...) || !got.Equal(want) {
+		if got, want := testutil.Value(eval, exec.Digest()), execValue; !testutil.Exists(eval, exec.CacheKeys()...) || !got.Equal(want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
-		if got, want := Value(eval, pullup.Digest()), execValue; !got.Equal(want) {
+		if got, want := testutil.Value(eval, pullup.Digest()), execValue; !got.Equal(want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
 	}
@@ -171,25 +171,25 @@ func TestCacheLookup(t *testing.T) {
 	intern := flow.Intern("internurl")
 	groupby := flow.Groupby("(.*)", intern)
 	mapFunc := func(f *reflow.Flow) *reflow.Flow {
-		return flow.Exec("image", "command", Resources, f)
+		return flow.Exec("image", "command", testutil.Resources, f)
 	}
 	mapCollect := flow.Map(mapFunc, groupby)
 	pullup := flow.Pullup(mapCollect)
 	extern := flow.Extern("externurl", pullup)
 
-	e := Executor{Have: Resources}
+	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
-	e.Repo = repotest.NewInmemory()
+	e.Repo = testutil.NewInmemoryRepository()
 	eval := reflow.NewEval(extern, reflow.EvalConfig{
 		Executor:   &e,
 		CacheMode:  reflow.CacheRead | reflow.CacheWrite,
-		Assoc:      NewInmemoryAssoc(),
-		Repository: repotest.NewInmemory(),
-		Transferer: repotest.Transferer,
+		Assoc:      testutil.NewInmemoryAssoc(),
+		Repository: testutil.NewInmemoryRepository(),
+		Transferer: testutil.Transferer,
 	})
 
-	WriteCache(eval, extern.Digest() /*empty*/)
-	rc := EvalAsync(context.Background(), eval)
+	testutil.WriteCache(eval, extern.Digest() /*empty*/)
+	rc := testutil.EvalAsync(context.Background(), eval)
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
@@ -199,17 +199,17 @@ func TestCacheLookup(t *testing.T) {
 	}
 
 	e.Init()
-	e.Repo = repotest.NewInmemory()
+	e.Repo = testutil.NewInmemoryRepository()
 	eval = reflow.NewEval(extern, reflow.EvalConfig{
 		Executor:   &e,
 		CacheMode:  reflow.CacheRead | reflow.CacheWrite,
-		Assoc:      NewInmemoryAssoc(),
-		Repository: repotest.NewInmemory(),
-		Transferer: repotest.Transferer,
+		Assoc:      testutil.NewInmemoryAssoc(),
+		Repository: testutil.NewInmemoryRepository(),
+		Transferer: testutil.Transferer,
 	})
-	WriteCache(eval, intern.Digest(), "a", "b")
-	rc = EvalAsync(context.Background(), eval)
-	for _, v := range []reflow.Fileset{Files("a"), Files("b")} {
+	testutil.WriteCache(eval, intern.Digest(), "a", "b")
+	rc = testutil.EvalAsync(context.Background(), eval)
+	for _, v := range []reflow.Fileset{testutil.Files("a"), testutil.Files("b")} {
 		v := v
 		f := mapFunc(v.Flow())
 		go e.Ok(f, v) // identity
@@ -220,7 +220,7 @@ func TestCacheLookup(t *testing.T) {
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if !e.Equiv(extern, mapFunc(Files("a").Flow()), mapFunc(Files("b").Flow())) {
+	if !e.Equiv(extern, mapFunc(testutil.Files("a").Flow()), mapFunc(testutil.Files("b").Flow())) {
 		t.Error("wrong set of expected flows")
 	}
 }
@@ -229,23 +229,23 @@ func TestCacheLookupBottomup(t *testing.T) {
 	intern := flow.Intern("internurl")
 	groupby := flow.Groupby("(.*)", intern)
 	mapFunc := func(f *reflow.Flow) *reflow.Flow {
-		return flow.Exec("image", "command", Resources, f)
+		return flow.Exec("image", "command", testutil.Resources, f)
 	}
 	mapCollect := flow.Map(mapFunc, groupby)
 	pullup := flow.Pullup(mapCollect)
 	extern := flow.Extern("externurl", pullup)
 
-	e := Executor{Have: Resources}
+	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
-	e.Repo = repotest.NewInmemory()
-	var cache WaitCache
+	e.Repo = testutil.NewInmemoryRepository()
+	var cache testutil.WaitCache
 	cache.Init()
 	eval := reflow.NewEval(extern, reflow.EvalConfig{
 		Executor:   &e,
 		CacheMode:  reflow.CacheRead | reflow.CacheWrite,
-		Assoc:      NewInmemoryAssoc(),
-		Repository: repotest.NewInmemory(),
-		Transferer: repotest.Transferer,
+		Assoc:      testutil.NewInmemoryAssoc(),
+		Repository: testutil.NewInmemoryRepository(),
+		Transferer: testutil.Transferer,
 		BottomUp:   true,
 		// We set a small cache lookup timeout here to shorten test times.
 		// TODO(marius): allow for tighter integration or observation
@@ -257,17 +257,17 @@ func TestCacheLookupBottomup(t *testing.T) {
 		CacheLookupTimeout: 100 * time.Millisecond,
 		//			Trace:    log.New(golog.New(os.Stderr, "", golog.LstdFlags), log.InfoLevel),
 	})
-	WriteCache(eval, intern.Digest(), "a", "b")
+	testutil.WriteCache(eval, intern.Digest(), "a", "b")
 	// "a" gets a cache hit, "b" a miss.
-	WriteCache(eval, mapFunc(Files("a").Flow()).Digest(), "a")
-	rc := EvalAsync(context.Background(), eval)
-	go e.Ok(mapFunc(Files("b").Flow()), Files("b"))
+	testutil.WriteCache(eval, mapFunc(testutil.Files("a").Flow()).Digest(), "a")
+	rc := testutil.EvalAsync(context.Background(), eval)
+	go e.Ok(mapFunc(testutil.Files("b").Flow()), testutil.Files("b"))
 	e.Ok(extern, reflow.Fileset{})
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if !e.Equiv(extern, mapFunc(Files("b").Flow())) {
+	if !e.Equiv(extern, mapFunc(testutil.Files("b").Flow())) {
 		t.Error("wrong set of expected flows")
 	}
 }
@@ -277,29 +277,29 @@ func TestNoCacheExtern(t *testing.T) {
 		intern := flow.Intern("internurl")
 		groupby := flow.Groupby("(.*)", intern)
 		mapFunc := func(f *reflow.Flow) *reflow.Flow {
-			return flow.Exec("image", "command", Resources, f)
+			return flow.Exec("image", "command", testutil.Resources, f)
 		}
 		mapCollect := flow.Map(mapFunc, groupby)
 		pullup := flow.Pullup(mapCollect)
 		extern := flow.Extern("externurl", pullup)
 
-		e := Executor{Have: Resources}
+		e := testutil.Executor{Have: testutil.Resources}
 		e.Init()
-		e.Repo = repotest.NewInmemory()
+		e.Repo = testutil.NewInmemoryRepository()
 
 		eval := reflow.NewEval(extern, reflow.EvalConfig{
 			Executor:      &e,
 			CacheMode:     reflow.CacheRead | reflow.CacheWrite,
-			Assoc:         NewInmemoryAssoc(),
-			Repository:    repotest.NewInmemory(),
-			Transferer:    repotest.Transferer,
+			Assoc:         testutil.NewInmemoryAssoc(),
+			Repository:    testutil.NewInmemoryRepository(),
+			Transferer:    testutil.Transferer,
 			BottomUp:      bottomup,
 			NoCacheExtern: true,
 		})
-		WriteCache(eval, intern.Digest(), "a", "b")
-		rc := EvalAsync(context.Background(), eval)
+		testutil.WriteCache(eval, intern.Digest(), "a", "b")
+		rc := testutil.EvalAsync(context.Background(), eval)
 
-		for _, v := range []reflow.Fileset{Files("a"), Files("b")} {
+		for _, v := range []reflow.Fileset{testutil.Files("a"), testutil.Files("b")} {
 			go e.Ok(mapFunc(v.Flow()), v)
 		}
 
@@ -322,14 +322,14 @@ func TestGC(t *testing.T) {
 	}, mapCollect)
 	pullup := flow.Pullup(mapPullup)
 
-	e := Executor{Have: Resources}
+	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
-	objects, cleanup := testutil.TempDir(t, "", "test-")
+	objects, cleanup := grailtest.TempDir(t, "", "test-")
 	defer cleanup()
 	repo := file.Repository{Root: objects}
 	e.Repo = &repo
 	eval := reflow.NewEval(pullup, reflow.EvalConfig{Executor: &e, GC: true})
-	rc := EvalAsync(context.Background(), eval)
+	rc := testutil.EvalAsync(context.Background(), eval)
 	files := []string{
 		"a/x:x", "a/y:y", "a/z:z", "b/1:1", "b/2:2", "c/xxx:xxx",
 		"orphan:orphan", "unrooted:unrooted"}
@@ -340,12 +340,12 @@ func TestGC(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	e.Ok(intern, Files(files...))
+	e.Ok(intern, testutil.Files(files...))
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	expect := Files("x:x", "y:y", "z:z", "1:1", "2:2", "xxx:xxx", "anotherfile:orphan")
+	expect := testutil.Files("x:x", "y:y", "z:z", "1:1", "2:2", "xxx:xxx", "anotherfile:orphan")
 	if got, want := r.Val, expect; !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -358,7 +358,7 @@ func TestGC(t *testing.T) {
 			t.Errorf("missing file %s:%v", k, file)
 		}
 	}
-	for _, file := range Files("unrooted:unrooted").Files() {
+	for _, file := range testutil.Files("unrooted:unrooted").Files() {
 		ok, err := repo.Contains(file.ID)
 		if err != nil {
 			t.Fatal(err)
@@ -372,11 +372,11 @@ func TestGC(t *testing.T) {
 func TestData(t *testing.T) {
 	// Test that data are uploaded appropriately.
 	hello := []byte("hello, world!")
-	e := Executor{Have: Resources}
+	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
-	e.Repo = repotest.NewInmemory()
+	e.Repo = testutil.NewInmemoryRepository()
 	eval := reflow.NewEval(flow.Data(hello), reflow.EvalConfig{Executor: &e})
-	r := <-EvalAsync(context.Background(), eval)
+	r := <-testutil.EvalAsync(context.Background(), eval)
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}

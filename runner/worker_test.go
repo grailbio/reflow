@@ -12,9 +12,8 @@ import (
 
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/internal/ctxwg"
-	"github.com/grailbio/reflow/repository/testutil"
-	"github.com/grailbio/reflow/test"
 	"github.com/grailbio/reflow/test/flow"
+	"github.com/grailbio/reflow/test/testutil"
 )
 
 func TestWorker(t *testing.T) {
@@ -22,23 +21,23 @@ func TestWorker(t *testing.T) {
 		t.Skip("skipping test in short mode because it sleeps")
 	}
 	intern := flow.Intern("internurl")
-	exec1 := flow.Exec("image", "command1 %s", test.Resources, intern)
-	exec2 := flow.Exec("image", "command2 %s", test.Resources, intern)
-	exec3 := flow.Exec("image", "command3 %s", test.Resources, intern)
+	exec1 := flow.Exec("image", "command1 %s", testutil.Resources, intern)
+	exec2 := flow.Exec("image", "command2 %s", testutil.Resources, intern)
+	exec3 := flow.Exec("image", "command3 %s", testutil.Resources, intern)
 	merge := flow.Merge(exec1, exec2, exec3)
 
-	var tf test.Transferer
+	var tf testutil.WaitTransferer
 	tf.Init()
-	e := &test.Executor{Have: test.Resources}
+	e := &testutil.Executor{Have: testutil.Resources}
 	e.Init()
-	e.Repo = testutil.NewInmemory()
+	e.Repo = testutil.NewInmemoryRepository()
 	eval := reflow.NewEval(merge, reflow.EvalConfig{
 		Executor:   e,
 		Transferer: &tf,
 	})
-	e2 := &test.Executor{Have: test.Resources.Scale(2)}
+	e2 := &testutil.Executor{Have: testutil.Resources.Scale(2)}
 	e2.Init()
-	e2.Repo = testutil.NewInmemory()
+	e2.Repo = testutil.NewInmemoryRepository()
 	const idleTime = 2 * time.Second
 	w := &worker{
 		Executor:    e2,
@@ -47,7 +46,7 @@ func TestWorker(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	rc := test.EvalAsync(ctx, eval)
+	rc := testutil.EvalAsync(ctx, eval)
 	var wg ctxwg.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -55,10 +54,10 @@ func TestWorker(t *testing.T) {
 		wg.Done()
 	}()
 
-	e.Ok(intern, test.WriteFiles(e.Repository(), "intern"))
+	e.Ok(intern, testutil.WriteFiles(e.Repository(), "intern"))
 
-	tf.Ok(e2.Repository(), e.Repository(), test.File("intern"))
-	tf.Ok(e2.Repository(), e.Repository(), test.File("intern"))
+	tf.Ok(e2.Repository(), e.Repository(), testutil.File("intern"))
+	tf.Ok(e2.Repository(), e.Repository(), testutil.File("intern"))
 
 	// Now wait for the main executor to grab a task, and figure out
 	// which it is. We expect the auxilliary executor to grab the
@@ -71,14 +70,14 @@ func TestWorker(t *testing.T) {
 			maini = i
 			continue
 		}
-		e2.Ok(exec, test.WriteFiles(e2.Repository(), fmt.Sprint(i+1)))
+		e2.Ok(exec, testutil.WriteFiles(e2.Repository(), fmt.Sprint(i+1)))
 	}
-	e.Ok(main, test.WriteFiles(e.Repository(), fmt.Sprint(maini+1)))
+	e.Ok(main, testutil.WriteFiles(e.Repository(), fmt.Sprint(maini+1)))
 	for i, exec := range execs {
 		if exec == main {
 			continue
 		}
-		tf.Ok(e.Repository(), e2.Repository(), test.File(fmt.Sprint(i+1)))
+		tf.Ok(e.Repository(), e2.Repository(), testutil.File(fmt.Sprint(i+1)))
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, idleTime*time.Duration(2))
@@ -94,7 +93,7 @@ func TestWorker(t *testing.T) {
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if got, want := r.Val, test.List(test.Files("1"), test.Files("2"), test.Files("3")); !got.Equal(want) {
+	if got, want := r.Val, testutil.List(testutil.Files("1"), testutil.Files("2"), testutil.Files("3")); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }

@@ -21,16 +21,16 @@ import (
 	"github.com/grailbio/reflow/internal/bloomlive"
 	"github.com/grailbio/reflow/repository/client"
 	"github.com/grailbio/reflow/repository/file"
-	. "github.com/grailbio/reflow/repository/testutil"
 	"github.com/grailbio/reflow/rest"
+	"github.com/grailbio/reflow/test/testutil"
 	"github.com/willf/bloom"
-	"grail.com/testutil"
+	grailtest "grail.com/testutil"
 )
 
 const maxBlobSize = 1 << 20
 
 func newFileRepository(t *testing.T) (*file.Repository, func()) {
-	objects, cleanup := testutil.TempDir(t, "", "test-")
+	objects, cleanup := grailtest.TempDir(t, "", "test-")
 	return &file.Repository{Root: objects}, cleanup
 }
 
@@ -44,7 +44,7 @@ func newBlob() ([]byte, digest.Digest) {
 }
 
 func TestClientServer(t *testing.T) {
-	expect := NewExpectRepository(t, "http://srv")
+	expect := testutil.NewExpectRepository(t, "http://srv")
 	expectNode := Node{expect}
 	srv := httptest.NewServer(rest.Handler(expectNode, nil))
 	defer srv.Close()
@@ -57,13 +57,13 @@ func TestClientServer(t *testing.T) {
 
 	const hello = "hello, world!"
 	id := reflow.Digester.FromString(hello)
-	expect.Expect(RepositoryCall{
-		T:               CallGet,
+	expect.Expect(testutil.RepositoryCall{
+		Kind:            testutil.RepositoryGet,
 		ArgID:           id,
 		ReplyReadCloser: ioutil.NopCloser(bytes.NewReader([]byte(hello))),
 	})
-	expect.Expect(RepositoryCall{
-		T:        CallGet,
+	expect.Expect(testutil.RepositoryCall{
+		Kind:     testutil.RepositoryGet,
 		ArgID:    id,
 		ReplyErr: errors.Errorf("get %v", id),
 	})

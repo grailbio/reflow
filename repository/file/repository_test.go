@@ -19,9 +19,9 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/internal/bloomlive"
 	"github.com/grailbio/reflow/repository"
-	. "github.com/grailbio/reflow/repository/testutil"
+	"github.com/grailbio/reflow/test/testutil"
 	"github.com/willf/bloom"
-	"grail.com/testutil"
+	grailtest "grail.com/testutil"
 )
 
 func mustInstall(t *testing.T, r *Repository, contents string) digest.Digest {
@@ -33,7 +33,7 @@ func mustInstall(t *testing.T, r *Repository, contents string) digest.Digest {
 }
 
 func newTestRepository(t *testing.T) (*Repository, func()) {
-	objects, cleanup := testutil.TempDir(t, "", "test-")
+	objects, cleanup := grailtest.TempDir(t, "", "test-")
 	return &Repository{Root: objects}, cleanup
 }
 
@@ -58,7 +58,7 @@ func TestMaterialize(t *testing.T) {
 	b := mustInstall(t, r, "b")
 	c := mustInstall(t, r, "c")
 	d := mustInstall(t, r, "d")
-	root, cleanupRoot := testutil.TempDir(t, "", "materialize-")
+	root, cleanupRoot := grailtest.TempDir(t, "", "materialize-")
 	defer cleanupRoot()
 	binds := map[string]digest.Digest{
 		"a/b/c":   a,
@@ -70,7 +70,7 @@ func TestMaterialize(t *testing.T) {
 		if err := r.Materialize(root, binds); err != nil {
 			t.Fatal(err)
 		}
-		dirs, files := testutil.ListRecursively(t, root)
+		dirs, files := grailtest.ListRecursively(t, root)
 		for i := range files {
 			files[i], _ = filepath.Rel(root, files[i])
 		}
@@ -101,14 +101,14 @@ func TestReadFrom(t *testing.T) {
 	ctx := context.Background()
 	r, cleanup := newTestRepository(t)
 	defer cleanup()
-	src := NewExpectRepository(t, "src://foobar")
+	src := testutil.NewExpectRepository(t, "src://foobar")
 	repository.RegisterScheme("src", func(u *url.URL) (reflow.Repository, error) { return src, nil })
 	defer repository.UnregisterScheme("src")
 
 	const body = "hello world"
 	id := reflow.Digester.FromString(body)
-	src.Expect(RepositoryCall{
-		T:               CallGet,
+	src.Expect(testutil.RepositoryCall{
+		Kind:            testutil.RepositoryGet,
 		ArgID:           id,
 		ReplyReadCloser: ioutil.NopCloser(bytes.NewReader([]byte(body))),
 	})
@@ -135,7 +135,7 @@ func TestWriteTo(t *testing.T) {
 	r, cleanup := newTestRepository(t)
 	defer cleanup()
 	// directly, and also just test transferring between two file repositories.
-	dst := NewExpectRepository(t, "dst://foobar")
+	dst := testutil.NewExpectRepository(t, "dst://foobar")
 	repository.RegisterScheme("dst", func(u *url.URL) (reflow.Repository, error) { return dst, nil })
 	defer repository.UnregisterScheme("dst")
 
@@ -145,8 +145,8 @@ func TestWriteTo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dst.Expect(RepositoryCall{
-		T:        CallPut,
+	dst.Expect(testutil.RepositoryCall{
+		Kind:     testutil.RepositoryPut,
 		ArgBytes: []byte(body),
 		ReplyID:  id,
 	})

@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package test
+package reflow_test
 
 import (
 	"net/url"
@@ -72,7 +72,7 @@ func TestVisitor(t *testing.T) {
 	}
 }
 
-func TestRequirements(t *testing.T) {
+func TestFlowRequirements(t *testing.T) {
 	e1 := flow.Exec("cmd1", "image", reflow.Resources{Memory: 10, CPU: 1, Disk: 110})
 	e2 := flow.Exec("cmd2", "image", reflow.Resources{Memory: 20, CPU: 1, Disk: 100})
 	merge := flow.Merge(e1, e2)

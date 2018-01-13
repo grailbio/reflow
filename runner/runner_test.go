@@ -12,8 +12,8 @@ import (
 
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/pool"
-	"github.com/grailbio/reflow/test"
 	"github.com/grailbio/reflow/test/flow"
+	"github.com/grailbio/reflow/test/testutil"
 )
 
 type allocateResult struct {
@@ -64,7 +64,7 @@ func (t *testCluster) Grant(min, max reflow.Resources, result allocateResult) {
 }
 
 type testAlloc struct {
-	test.Executor
+	testutil.Executor
 	Freed bool
 }
 
@@ -83,7 +83,7 @@ func (t *testAlloc) Free(ctx context.Context) error {
 
 func TestRunner(t *testing.T) {
 	var (
-		transferer test.Transferer
+		transferer testutil.WaitTransferer
 		cluster    testCluster
 		resources  = reflow.Resources{Memory: 5 << 30, CPU: 10, Disk: 10 << 30}
 		r          = &Runner{
@@ -121,14 +121,14 @@ func TestRunner(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	c <- r
-	alloc.Ok(r.Flow, test.Files("ok"))
+	alloc.Ok(r.Flow, testutil.Files("ok"))
 	if <-rc {
 		t.Fatal("late termination")
 	}
 	if r.Err != nil {
 		t.Errorf("got %v, want nil", r.Err)
 	}
-	if got, want := r.Result, (reflow.Result{Fileset: test.Files("ok")}); got != want.String() {
+	if got, want := r.Result, (reflow.Result{Fileset: testutil.Files("ok")}); got != want.String() {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }

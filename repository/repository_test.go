@@ -16,7 +16,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/repository"
-	. "github.com/grailbio/reflow/repository/testutil"
+	"github.com/grailbio/reflow/test/testutil"
 )
 
 type nilRepository struct{}
@@ -73,10 +73,10 @@ func TestDial(t *testing.T) {
 }
 
 func TestTransfer(t *testing.T) {
-	dst := NewExpectRepository(t, "dst://foobar")
-	src := NewExpectRepository(t, "src://foobar")
+	dst := testutil.NewExpectRepository(t, "dst://foobar")
+	src := testutil.NewExpectRepository(t, "src://foobar")
 	id := reflow.Digester.FromString("hello, world!")
-	dst.Expect(RepositoryCall{T: CallReadFrom, ArgID: id, ArgURL: *src.URL()})
+	dst.Expect(testutil.RepositoryCall{Kind: testutil.RepositoryReadFrom, ArgID: id, ArgURL: *src.URL()})
 	if err := repository.Transfer(context.Background(), dst, src, id); err != nil {
 		t.Fatal(err)
 	}
@@ -85,14 +85,14 @@ func TestTransfer(t *testing.T) {
 
 	uerr := errors.E(errors.NotSupported)
 
-	dst.Expect(RepositoryCall{
-		T:        CallReadFrom,
+	dst.Expect(testutil.RepositoryCall{
+		Kind:     testutil.RepositoryReadFrom,
 		ArgID:    id,
 		ArgURL:   *src.URL(),
 		ReplyErr: uerr,
 	})
-	src.Expect(RepositoryCall{
-		T:      CallWriteTo,
+	src.Expect(testutil.RepositoryCall{
+		Kind:   testutil.RepositoryWriteTo,
 		ArgID:  id,
 		ArgURL: *dst.URL(),
 	})
@@ -107,25 +107,25 @@ func TestTransfer(t *testing.T) {
 	}
 
 	const body = "hello, world!"
-	dst.Expect(RepositoryCall{
-		T:        CallReadFrom,
+	dst.Expect(testutil.RepositoryCall{
+		Kind:     testutil.RepositoryReadFrom,
 		ArgID:    id,
 		ArgURL:   *src.URL(),
 		ReplyErr: uerr,
 	})
-	src.Expect(RepositoryCall{
-		T:        CallWriteTo,
+	src.Expect(testutil.RepositoryCall{
+		Kind:     testutil.RepositoryWriteTo,
 		ArgID:    id,
 		ArgURL:   *dst.URL(),
 		ReplyErr: uerr,
 	})
-	src.Expect(RepositoryCall{
-		T:               CallGet,
+	src.Expect(testutil.RepositoryCall{
+		Kind:            testutil.RepositoryGet,
 		ArgID:           id,
 		ReplyReadCloser: ioutil.NopCloser(bytes.NewReader([]byte(body))),
 	})
-	dst.Expect(RepositoryCall{
-		T:        CallPut,
+	dst.Expect(testutil.RepositoryCall{
+		Kind:     testutil.RepositoryPut,
 		ArgBytes: []byte(body),
 		ReplyID:  reflow.Digester.FromString(body),
 	})
