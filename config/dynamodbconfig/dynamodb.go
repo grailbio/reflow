@@ -8,6 +8,7 @@ import (
 	"errors"
 
 	"github.com/aws/aws-sdk-go/service/dynamodb"
+	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/assoc/dydbassoc"
 	"github.com/grailbio/reflow/config"
@@ -36,8 +37,11 @@ func (a *Assoc) Assoc() (assoc.Assoc, error) {
 	if err != nil {
 		return nil, err
 	}
+	lim := limiter.New()
+	lim.Release(32)
 	return &dydbassoc.Assoc{
 		DB:        dynamodb.New(sess),
 		TableName: a.Table,
+		Limiter:   lim,
 	}, nil
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
@@ -28,6 +29,7 @@ import (
 // more efficient than relying on call concurrency.
 type Assoc struct {
 	DB        *dynamodb.DynamoDB
+	Limiter   *limiter.Limiter
 	TableName string
 }
 
@@ -38,6 +40,10 @@ func (a *Assoc) Put(ctx context.Context, kind assoc.Kind, expect, k, v digest.Di
 	if kind != assoc.Fileset {
 		return errors.E(errors.NotSupported, errors.Errorf("mappings of kind %v are not supported", kind))
 	}
+	if err := a.Limiter.Acquire(ctx, 1); err != nil {
+		return err
+	}
+	defer a.Limiter.Release(1)
 	var (
 		conditionExpression       *string
 		expressionAttributeValues map[string]*dynamodb.AttributeValue
@@ -93,6 +99,10 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 	if kind != assoc.Fileset {
 		return digest.Digest{}, errors.E(errors.NotSupported, errors.Errorf("mappings of kind %v are not supported", kind))
 	}
+	if err := a.Limiter.Acquire(ctx, 1); err != nil {
+		return digest.Digest{}, err
+	}
+	defer a.Limiter.Release(1)
 	resp, err := a.DB.GetItemWithContext(ctx, &dynamodb.GetItemInput{
 		Key: map[string]*dynamodb.AttributeValue{
 			"ID": {

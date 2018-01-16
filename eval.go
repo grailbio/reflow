@@ -41,7 +41,7 @@ const (
 	printAllTasks = false
 )
 
-const defaultCacheLookupTimeout = 10 * time.Second
+const defaultCacheLookupTimeout = time.Minute
 
 // stateStatusOrder defines the order in which differenet flow
 // statuses are rendered.
@@ -1131,8 +1131,18 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 		return
 	}
 	which := -1
+	// The assoc lookups can produce a very high rate of lookups, especially
+	// when restarting large workflows. This is exacerbated by the fact that
+	// we don't perform batch lookups, and also perform "blind" read-repair:
+	// since we don't know which keys are missing, we write back all of the
+	// candidates. Here, the former would alleviate the latter.
+	//
+	// For now, we have the band-aids of concurrency limiting and large
+	// timeouts.
+	//
 	// TODO(marius): push multiple lookups into the assoc,
-	// so that these requests can be batched underneath.
+	// so that these requests can be batched underneath,
+	// then perform precise read repair.
 	for i, key := range keys {
 		ctx, cancel := context.WithTimeout(ctx, e.CacheLookupTimeout)
 		fsid, err = e.Assoc.Get(ctx, assoc.Fileset, key)
