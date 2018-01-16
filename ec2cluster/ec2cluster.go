@@ -24,6 +24,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/config"
@@ -35,7 +36,10 @@ import (
 )
 
 const (
-	ec2PollInterval   = time.Minute
+	ec2PollInterval = time.Minute
+	// ec2MaxFilter is the maximum number of filter expressions
+	// that are permitted in EC2 API calls.
+	ec2MaxFilter      = 200
 	statePollInterval = 10 * time.Second
 )
 
@@ -61,7 +65,7 @@ type Cluster struct {
 	// File stores the cluster's state.
 	File *state.File
 	// EC2 is the EC2 API instance through which EC2 calls are made.
-	EC2 *ec2.EC2
+	EC2 ec2iface.EC2API
 	// Authenticator authenticates the ECR repository that stores the
 	// Reflowlet container.
 	Authenticator ecrauth.Interface
@@ -456,28 +460,44 @@ func (c *Cluster) reconcile() error {
 	for id := range instances {
 		instanceIds = append(instanceIds, aws.String(id))
 	}
-	resp, err := c.EC2.DescribeInstances(&ec2.DescribeInstancesInput{
-		Filters: []*ec2.Filter{{
-			Name:   aws.String("instance-id"),
-			Values: instanceIds,
-		}},
-	})
-	if err != nil {
-		return err
-	}
+	// The EC2 API has a limit to the number of filters that are permissible in a single
+	// call, so we have to page through our instance IDs here.
 	live := map[string]bool{}
-	for _, resv := range resp.Reservations {
-		for _, inst := range resv.Instances {
-			// For some reason, we keep getting unrelated instances in these
-			// requests.
-			if instances[*inst.InstanceId] == nil {
-				continue
-			}
-			switch *inst.State.Name {
-			case "shutting-down", "terminated", "stopping", "stopped":
-				c.Log.Printf("marking instance %s down: %s", *inst.InstanceId, *inst.State.Name)
-			default:
-				live[*inst.InstanceId] = true
+	for len(instanceIds) > 0 {
+		var queryInstanceIds []*string
+		if len(instanceIds) > ec2MaxFilter {
+			queryInstanceIds = instanceIds[:ec2MaxFilter]
+			instanceIds = instanceIds[ec2MaxFilter:]
+		} else {
+			queryInstanceIds = instanceIds
+			instanceIds = nil
+		}
+		var q []string
+		for _, id := range queryInstanceIds {
+			q = append(q, *id)
+		}
+		resp, err := c.EC2.DescribeInstances(&ec2.DescribeInstancesInput{
+			Filters: []*ec2.Filter{{
+				Name:   aws.String("instance-id"),
+				Values: queryInstanceIds,
+			}},
+		})
+		if err != nil {
+			return err
+		}
+		for _, resv := range resp.Reservations {
+			for _, inst := range resv.Instances {
+				// For some reason, we keep getting unrelated instances in these
+				// requests.
+				if instances[*inst.InstanceId] == nil {
+					continue
+				}
+				switch *inst.State.Name {
+				case "shutting-down", "terminated", "stopping", "stopped":
+					c.Log.Printf("marking instance %s down: %s", *inst.InstanceId, *inst.State.Name)
+				default:
+					live[*inst.InstanceId] = true
+				}
 			}
 		}
 	}

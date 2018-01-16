@@ -24,6 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/config"
@@ -189,7 +190,7 @@ type instance struct {
 	ReflowConfig    config.Config
 	Log             *log.Logger
 	Authenticator   ecrauth.Interface
-	EC2             *ec2.EC2
+	EC2             ec2iface.EC2API
 	Tag             string
 	Labels          pool.Labels
 	Spot            bool
