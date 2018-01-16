@@ -61,6 +61,8 @@ func (a *Assoc) Put(ctx context.Context, kind assoc.Kind, expect, k, v digest.Di
 		})
 		return err
 	}
+	k4 := k
+	k4.Truncate(4)
 	_, err := a.DB.PutItemWithContext(ctx, &dynamodb.PutItemInput{
 		ConditionExpression:       conditionExpression,
 		ExpressionAttributeValues: expressionAttributeValues,
@@ -73,6 +75,9 @@ func (a *Assoc) Put(ctx context.Context, kind assoc.Kind, expect, k, v digest.Di
 			},
 			"LastAccessTime": {
 				N: aws.String(fmt.Sprint(time.Now().Unix())),
+			},
+			"ID4": {
+				S: aws.String(k4.HexN(4)),
 			},
 		},
 		TableName: aws.String(a.TableName),
