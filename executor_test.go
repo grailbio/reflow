@@ -12,48 +12,48 @@ import (
 )
 
 func TestResources(t *testing.T) {
-	r1 := reflow.Resources{10, 5, 1}
-	r2 := reflow.Resources{5, 2, 3}
-	if got, want := r1.Sub(r2), (reflow.Resources{5, 3, 0}); got != want {
+	r1 := reflow.Resources{"mem": 10, "cpu": 5, "disk": 1}
+	r2 := reflow.Resources{"mem": 5, "cpu": 2, "disk": 3}
+	var got, want reflow.Resources
+	got.Sub(r1, r2)
+	if want := (reflow.Resources{"mem": 5, "cpu": 3, "disk": -2}); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	if got, want := r1.Add(r2), (reflow.Resources{15, 7, 4}); got != want {
+	got.Add(r1, r2)
+	if want := (reflow.Resources{"mem": 15, "cpu": 7, "disk": 4}); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	if got, want := r1.Add(r2), r2.Add(r1); got != want {
+	got.Add(r1, r2)
+	want.Add(r2, r1)
+	if !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	if r1.Available(r2) {
 		t.Errorf("expected %v to be unavailable in %v", r2, r1)
 	}
-	r3 := reflow.Resources{3, 1, 1}
+	r3 := reflow.Resources{"mem": 3, "cpu": 1, "disk": 1}
 	if !r1.Available(r3) {
 		t.Errorf("expected %v to be available in %v", r3, r1)
 	}
-
-	if got, want := r1.Units(r2), 3; got != want {
+	got.Min(r1, r2)
+	if want := (reflow.Resources{"mem": 5, "cpu": 2, "disk": 1}); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	if got, want := r2.Units(r1), 3; got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
-
-	if got, want := reflow.MaxResources.Add(reflow.MaxResources), reflow.MaxResources; got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	if got, want := r1.Min(r2), (reflow.Resources{5, 2, 1}); got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	if got, want := r1.Max(r2), (reflow.Resources{10, 5, 3}); got != want {
+	got.Max(r1, r2)
+	if want := (reflow.Resources{"mem": 10, "cpu": 5, "disk": 3}); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
 
 func TestRequirements(t *testing.T) {
-	var req reflow.Requirements
-	req = req.Add(reflow.Resources{10, 5, 1})
-	req = req.Add(reflow.Resources{20, 3, 1})
-	if got, want := req.Min, (reflow.Resources{20, 5, 1}); got != want {
+	var (
+		req  reflow.Requirements
+		res1 = reflow.Resources{"mem": 10, "cpu": 5, "disk": 1}
+		res2 = reflow.Resources{"mem": 20, "cpu": 3, "disk": 1}
+	)
+	req.Add(reflow.Requirements{res1, res1, false})
+	req.Add(reflow.Requirements{res2, res2, false})
+	if got, want := req.Min, (reflow.Resources{"mem": 20, "cpu": 5, "disk": 1}); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }

@@ -20,7 +20,7 @@ type Cluster interface {
 	// Allocate reserves an alloc of at least min, and at most max resources.
 	// The cluster may scale elastically in order to meet this demand.
 	// Labels are passed down to the underlying pool.
-	Allocate(ctx context.Context, min, max reflow.Resources, labels pool.Labels) (pool.Alloc, error)
+	Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error)
 }
 
 // A StaticCluster implements a pass-through Cluster on top of a pool.Pool.
@@ -29,8 +29,8 @@ type StaticCluster struct {
 }
 
 // Allocate reserves an alloc from the underlying static pool.
-func (s *StaticCluster) Allocate(ctx context.Context, min, max reflow.Resources, labels pool.Labels) (pool.Alloc, error) {
-	return pool.Allocate(ctx, s, min, max, labels)
+func (s *StaticCluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error) {
+	return pool.Allocate(ctx, s, req, labels)
 }
 
 // TracingCluster is a cluster that traces the actions of an underlying

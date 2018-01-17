@@ -112,7 +112,7 @@ func (c *Cmd) eval(args []string) (evalResult, error) {
 		})
 		switch v := v.(type) {
 		case *reflow.Flow:
-			if min, _ := v.Requirements(); min.IsZeroAll() {
+			if v.Requirements().IsZero() {
 				c.Fatal("flow does not have resource requirements; add a @requires annotation to val Main")
 			}
 			er.Flow = v

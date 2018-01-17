@@ -413,6 +413,7 @@ func (e *Expr) Eval(env EvalEnv) Val {
 		for i, arg := range f.Argstrs {
 			f.Argstrs[i] = "{{" + arg + "}}"
 		}
+		f.Resources = make(reflow.Resources)
 		for _, ee := range e.list {
 			// TODO(marius): move to type checking.
 			s := ee.Eval(env).str
@@ -422,11 +423,11 @@ func (e *Expr) Eval(env EvalEnv) Val {
 			}
 			switch limit.Name {
 			case "rss":
-				f.Resources.Memory = uint64(limit.Hard)
+				f.Resources["mem"] = float64(limit.Hard)
 			case "cpu":
-				f.Resources.CPU = uint16(limit.Hard)
+				f.Resources["cpu"] = float64(limit.Hard)
 			case "data":
-				f.Resources.Disk = uint64(limit.Hard)
+				f.Resources["disk"] = float64(limit.Hard)
 			}
 		}
 		return Val{typ: typeFlow, flow: f}

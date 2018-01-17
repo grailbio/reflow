@@ -433,142 +433,103 @@ func (e ExecInspect) Runtime() time.Duration {
 	return end.Sub(start)
 }
 
-// Resources describes a set of resources.
-type Resources struct {
-	Memory uint64
-	CPU    uint16
-	Disk   uint64
-}
-
-var (
-	// MaxResources is the maximum value of Resources.
-	MaxResources = Resources{Memory: math.MaxUint64, CPU: math.MaxUint16, Disk: math.MaxUint64}
-	// MinResources is the minimum value of Resources.
-	MinResources = Resources{Memory: 0, CPU: 0, Disk: 0}
-)
+// Resources describes a set of labeled resources. Each resource is
+// described by a string label and assigned a value. The zero value
+// of Resources represents the resources with zeros for all labels.
+type Resources map[string]float64
 
 // String renders a Resources.
 func (r Resources) String() string {
-	switch {
-	case r == MaxResources:
-		return "mem max cpu max disk max"
-	case r == MinResources:
-		return "mem min cpu min disk min"
-	default:
-		return fmt.Sprintf("mem %d cpu %d disk %d", r.Memory, r.CPU, r.Disk)
+	var b bytes.Buffer
+	b.WriteString("{")
+	fmt.Fprintf(&b, "mem:%s cpu:%.1g disk:%s", data.Size(r["mem"]), r["cpu"], data.Size(r["disk"]))
+	var keys []string
+	for key := range r {
+		switch key {
+		case "mem", "cpu", "disk":
+		default:
+			keys = append(keys, key)
+		}
 	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		fmt.Fprintf(&b, " %s:%g", key, r[key])
+	}
+	b.WriteString("}")
+	return b.String()
 }
 
 // Available tells if s resources are available from r.
 func (r Resources) Available(s Resources) bool {
-	return r.Memory >= s.Memory && r.CPU >= s.CPU && r.Disk >= s.Disk
+	for key := range s {
+		if r[key] < s[key] {
+			return false
+		}
+	}
+	return true
 }
 
-// Sub subtracts s resources from r.
-func (r Resources) Sub(s Resources) Resources {
-	t := Resources{}
-	if r.Memory > s.Memory {
-		t.Memory = r.Memory - s.Memory
-	} else {
-		t.Memory = 0
+// Sub sets r to the difference x[key]-y[key] for all keys and returns r.
+func (r *Resources) Sub(x, y Resources) *Resources {
+	r.Set(x)
+	for key := range y {
+		(*r)[key] = x[key] - y[key]
 	}
-	if r.CPU > s.CPU {
-		t.CPU = r.CPU - s.CPU
-	} else {
-		t.CPU = 0
-	}
-	if r.Disk > s.Disk {
-		t.Disk = r.Disk - s.Disk
-	} else {
-		t.Disk = 0
-	}
-	return t
+	return r
 }
 
-// Add adds s resources to r.
-func (r Resources) Add(s Resources) Resources {
-	add := r
-	if r.Memory > math.MaxUint64-s.Memory {
-		add.Memory = math.MaxUint64
-	} else {
-		add.Memory += s.Memory
+// Add sets r to the sum x[key]+y[key] for all keys and returns r.
+func (r *Resources) Add(x, y Resources) *Resources {
+	r.Set(x)
+	for key := range y {
+		(*r)[key] += y[key]
 	}
-	if r.CPU > math.MaxUint16-s.CPU {
-		add.CPU = math.MaxUint16
-	} else {
-		add.CPU += s.CPU
-	}
-	if r.Disk > math.MaxUint64-s.Disk {
-		add.Disk = math.MaxUint64
-	} else {
-		add.Disk += s.Disk
-	}
-	return add
+	return r
 }
 
-// Min returns the minimum resources available from both
-// r and s.
-func (r Resources) Min(s Resources) Resources {
-	min := s
-	if r.Memory < s.Memory {
-		min.Memory = r.Memory
+// Set sets r[key]=s[key] for all keys and returns r.
+func (r *Resources) Set(s Resources) *Resources {
+	*r = make(Resources)
+	for key, val := range s {
+		(*r)[key] = val
 	}
-	if r.CPU < s.CPU {
-		min.CPU = r.CPU
-	}
-	if r.Disk < s.Disk {
-		min.Disk = r.Disk
-	}
-	return min
+	return r
 }
 
-// Max returns the maximum resources availble from either
-// r or s.
-func (r Resources) Max(s Resources) Resources {
-	max := r
-	if r.Memory < s.Memory {
-		max.Memory = s.Memory
+// Min sets r to the minimum min(x[key], y[key]) for all keys
+// and returns r.
+func (r *Resources) Min(x, y Resources) *Resources {
+	r.Set(x)
+	for key, val := range y {
+		if val < (*r)[key] {
+			(*r)[key] = val
+		}
 	}
-	if r.CPU < s.CPU {
-		max.CPU = s.CPU
-	}
-	if r.Disk < s.Disk {
-		max.Disk = s.Disk
-	}
-	return max
+	return r
 }
 
-// Units tells how many units of size u must be provided
-// to satisfy a resource requirement of r.
-func (r Resources) Units(u Resources) int {
-	var mem, cpu, disk float64
-	if u.Memory > 0 {
-		mem = float64(r.Memory) / float64(u.Memory)
+// Max sets r to the maximum max(x[key], y[key]) for all keys
+// and returns r.
+func (r *Resources) Max(x, y Resources) *Resources {
+	r.Set(x)
+	for key, val := range y {
+		if val > (*r)[key] {
+			(*r)[key] = val
+		}
 	}
-	if u.CPU > 0 {
-		cpu = float64(r.CPU) / float64(u.CPU)
-	}
-	if u.Disk > 0 {
-		disk = float64(r.Disk) / float64(u.Disk)
-	}
-	max := mem
-	if max < cpu {
-		max = cpu
-	}
-	if max < disk {
-		max = disk
-	}
-	return int(math.Ceil(max))
+	return r
 }
 
-// Scale returns a Resources where each resources dimension is scaled
-// by the given factor.
-func (r Resources) Scale(factor float64) Resources {
-	return Resources{
-		Memory: uint64(factor * float64(r.Memory)),
-		CPU:    uint16(factor * float64(r.CPU)),
-		Disk:   uint64(factor * float64(r.Disk)),
+// Scale sets r to the scaled resources s[key]*factor for all keys
+// and returns r.
+func (r *Resources) Scale(s Resources, factor float64) *Resources {
+	if *r == nil {
+		*r = make(Resources)
 	}
+	for key, val := range s {
+		(*r)[key] = val * factor
+	}
+	return r
 }
 
 // ScaledDistance returns the distance between two resources computed as a sum
@@ -583,49 +544,99 @@ func (r Resources) ScaledDistance(u Resources) float64 {
 		memoryScaling = 1.0 / (6 * G)
 		cpuScaling    = 1
 	)
-	return math.Abs(float64(r.Memory)-float64(u.Memory))*memoryScaling +
-		math.Abs(float64(r.CPU)-float64(u.CPU))*cpuScaling
+	return math.Abs(float64(r["mem"])-float64(u["mem"]))*memoryScaling +
+		math.Abs(float64(r["cpu"])-float64(u["cpu"]))*cpuScaling
 }
 
 // LessAny tells whether r contains fewer resources than s, along
 // any dimension.
 func (r Resources) LessAny(s Resources) bool {
-	return r.Memory < s.Memory || r.CPU < s.CPU || r.Disk < s.Disk
+	for key, val := range s {
+		if r[key] < val {
+			return true
+		}
+	}
+	return false
 }
 
 // LessEqualAny tells whether r contains fewer resources or equal
 // resources to s, along any dimension.
 func (r Resources) LessEqualAny(s Resources) bool {
-	return r.Memory <= s.Memory || r.CPU <= s.CPU || r.Disk <= s.Disk
+	for key, val := range s {
+		if r[key] <= val {
+			return true
+		}
+	}
+	return false
 }
 
 // LessAll tells whether r contains fewer resources than s, along
 // all dimensions.
 func (r Resources) LessAll(s Resources) bool {
-	return r.Memory < s.Memory && r.CPU < s.CPU && r.Disk < s.Disk
+	for key, val := range s {
+		if r[key] >= val {
+			return false
+		}
+	}
+	return true
 }
 
 // LessEqualAll tells whether r contains fewer resources or equal
 // resources to s, along all dimensions.
 func (r Resources) LessEqualAll(s Resources) bool {
-	return r.Memory <= s.Memory && r.CPU <= s.CPU && r.Disk <= s.Disk
+	for key, val := range s {
+		if r[key] > val {
+			return false
+		}
+	}
+	return true
 }
 
 // IsZeroAll tells whether Resources r is zero in all dimensions.
 func (r Resources) IsZeroAll() bool {
-	return r == Resources{}
+	for _, val := range r {
+		if val != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // IsZeroAny tells whether Resources r is zero in any dimension.
 func (r Resources) IsZeroAny() bool {
-	return r.Memory == 0 || r.CPU == 0 || r.Disk == 0
+	for _, val := range r {
+		if val == 0 {
+			return true
+		}
+	}
+	return r["mem"] == 0 || r["cpu"] == 0 || r["disk"] == 0
+}
+
+// Equal tells whether the resources r and s are equal
+// in all keys.
+func (r Resources) Equal(s Resources) bool {
+	for key, val := range s {
+		if r[key] != val {
+			return false
+		}
+	}
+	for key, val := range r {
+		if s[key] != val {
+			return false
+		}
+	}
+	return true
 }
 
 // Requirements stores a range of resource requirements. Minimum
 // requirements indicate the smallest acceptable unit of resources,
 // while max is the maximum (total) amount of useful resources.
+// Wide indicates whether the computation is "wide" - that is, some
+// multiple of the minimum resource requirements can usefully
+// be employed.
 type Requirements struct {
 	Min, Max Resources
+	Wide     bool
 }
 
 // IsZero tells whether there are zero requirements.
@@ -633,20 +644,28 @@ func (r Requirements) IsZero() bool {
 	return r.Min.IsZeroAll()
 }
 
-// Add returns r with s as added requirements. S is added to the max,
-// and r's min is adjusted to account for all of s's resources. This
-// way, Requirements reflects the smallest amount of resources that
 // can fit any of the discrete resources added.
-func (r Requirements) Add(s Resources) Requirements {
-	return Requirements{
-		Min: r.Min.Max(s),
-		Max: r.Max.Add(s),
-	}
+func (r *Requirements) Add(s Requirements) {
+	r.Min.Max(r.Min, s.Min)
+	r.Max.Max(r.Max, s.Max)
+	r.Wide = r.Wide || s.Wide
+}
+
+// Equal reports whether r and s represent the same requirements.
+func (r Requirements) Equal(s Requirements) bool {
+	return r.Min.Equal(s.Min) && r.Min.Equal(s.Min) && r.Wide == s.Wide
 }
 
 // String renders a human-readable representation of r.
 func (r Requirements) String() string {
-	return fmt.Sprintf("min(%v) max(%v)", r.Min, r.Max)
+	s := fmt.Sprintf("min%s", r.Min)
+	if !r.Min.Equal(r.Max) {
+		s += fmt.Sprintf(" max%s", r.Max)
+	}
+	if r.Wide {
+		return s + " wide"
+	}
+	return s
 }
 
 // An Exec computes a Value. It is created from an ExecConfig; the

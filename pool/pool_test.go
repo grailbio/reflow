@@ -51,12 +51,12 @@ func (p idPool) Allocs(ctx context.Context) ([]Alloc, error)         { panic("no
 func (p idPool) Offer(ctx context.Context, id string) (Offer, error) { return idOffer(id), nil }
 func (p idPool) Offers(ctx context.Context) ([]Offer, error)         { panic("not implemented") }
 
-type resourceOffer reflow.Resources
+type resourceOffer struct{ reflow.Resources }
 
-func (resourceOffer) ID() string                    { panic("not implemented") }
-func (resourceOffer) Pool() Pool                    { panic("not implemented") }
-func (r resourceOffer) Available() reflow.Resources { return reflow.Resources(r) }
-func (resourceOffer) Accept(ctx context.Context, meta AllocMeta) (Alloc, error) {
+func (*resourceOffer) ID() string                    { panic("not implemented") }
+func (*resourceOffer) Pool() Pool                    { panic("not implemented") }
+func (r *resourceOffer) Available() reflow.Resources { return r.Resources }
+func (*resourceOffer) Accept(ctx context.Context, meta AllocMeta) (Alloc, error) {
 	panic("not implemented")
 }
 
@@ -111,40 +111,42 @@ func TestMux(t *testing.T) {
 }
 
 func TestPick(t *testing.T) {
-	var (
-		small  = reflow.Resources{Memory: 10, CPU: 1, Disk: 20}
-		medium = small.Scale(2)
-		large  = medium.Scale(2)
-		offers = []Offer{
-			resourceOffer(small),
-			resourceOffer(medium),
-			resourceOffer(large),
-		}
-	)
+	small := reflow.Resources{"mem": 10, "cpu": 1, "disk": 20}
+	var medium, large reflow.Resources
+	medium.Scale(small, 2)
+	large.Scale(medium, 2)
+	offers := []Offer{
+		&resourceOffer{small},
+		&resourceOffer{medium},
+		&resourceOffer{large},
+	}
 	for _, offer := range offers {
 		if got, want := Pick(offers, offer.Available(), offer.Available()), offer; got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
-		if got, want := Pick(offers, offer.Available().Scale(.5), offer.Available()), offer; got != want {
+		var tmp reflow.Resources
+		tmp.Scale(offer.Available(), .5)
+		if got, want := Pick(offers, tmp, offer.Available()), offer; got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
-		if got, want := Pick(offers, offer.Available(), offer.Available().Scale(10)), offers[2]; got != want {
+		tmp.Scale(offer.Available(), 10)
+		if got, want := Pick(offers, offer.Available(), tmp), offers[2]; got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
 	}
 
 	const G = 1 << 30
 	var (
-		min = resourceOffer(
-			reflow.Resources{Memory: 10 * G, CPU: 1, Disk: 20 * G})
-		max = resourceOffer(
-			reflow.Resources{Memory: 20 * G, CPU: 1, Disk: 20 * G})
-		o1 = resourceOffer(
-			reflow.Resources{Memory: 28 * G, CPU: 1, Disk: 20 * G})
-		o2 = resourceOffer(
-			reflow.Resources{Memory: 18 * G, CPU: 1, Disk: 20 * G})
-		o3 = resourceOffer(
-			reflow.Resources{Memory: 19 * G, CPU: 1, Disk: 20 * G})
+		min = &resourceOffer{
+			reflow.Resources{"mem": 10 * G, "cpu": 1, "disk": 20 * G}}
+		max = &resourceOffer{
+			reflow.Resources{"mem": 20 * G, "cpu": 1, "disk": 20 * G}}
+		o1 = &resourceOffer{
+			reflow.Resources{"mem": 28 * G, "cpu": 1, "disk": 20 * G}}
+		o2 = &resourceOffer{
+			reflow.Resources{"mem": 18 * G, "cpu": 1, "disk": 20 * G}}
+		o3 = &resourceOffer{
+			reflow.Resources{"mem": 19 * G, "cpu": 1, "disk": 20 * G}}
 		offers1 = []Offer{o1, o2, o3}
 		offers2 = []Offer{o3, o2, o1}
 	)

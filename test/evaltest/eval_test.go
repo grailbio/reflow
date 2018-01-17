@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -20,6 +21,12 @@ import (
 	"github.com/grailbio/reflow/test/testutil"
 	grailtest "grail.com/testutil"
 )
+
+var maxResources = reflow.Resources{
+	"mem":  math.MaxFloat64,
+	"cpu":  math.MaxFloat64,
+	"disk": math.MaxFloat64,
+}
 
 func TestSimpleEval(t *testing.T) {
 	intern := flow.Intern("internurl")
@@ -99,10 +106,10 @@ func TestSteal(t *testing.T) {
 		s := eval.Stealer()
 		stolen := make([]*reflow.Flow, N-i-1)
 		for j := range stolen {
-			stolen[j] = <-s.Admit(reflow.MaxResources)
+			stolen[j] = <-s.Admit(maxResources)
 		}
 		select {
-		case f := <-s.Admit(reflow.MaxResources):
+		case f := <-s.Admit(maxResources):
 			t.Errorf("stole too much %d: %v", i, f)
 		default:
 		}

@@ -264,7 +264,7 @@ type Flow struct {
 
 	// FlowRequirements stores the requirements indicated by
 	// OpRequirements.
-	FlowRequirements struct{ Min, Max Resources }
+	FlowRequirements Requirements
 
 	// Value stores the Value to which the node was evaluated.
 	Value values.T
@@ -337,23 +337,18 @@ func (f *Flow) Label(ident string) {
 // TODO(marius): include width hints on map nodes
 //
 // TODO(marius): account for static parallelism too.
-func (f *Flow) Requirements() (min, max Resources) {
+func (f *Flow) Requirements() (req Requirements) {
 	for _, ff := range f.Deps {
-		ffmin, ffmax := ff.Requirements()
-		min = min.Max(ffmin)
-		max = max.Max(ffmax)
+		req.Add(ff.Requirements())
 	}
 	switch f.Op {
 	case OpMap:
-		mapmin, _ := f.MapFlow.Requirements()
-		min = min.Max(mapmin)
-		max = MaxResources
+		req.Add(f.MapFlow.Requirements())
+		req.Wide = true
 	case OpExec:
-		min = min.Max(f.Resources)
-		max = max.Max(f.Resources)
+		req.Add(Requirements{f.Resources, f.Resources, false})
 	case OpRequirements:
-		min = min.Max(f.FlowRequirements.Min)
-		max = max.Max(f.FlowRequirements.Max)
+		req.Add(f.FlowRequirements)
 	}
 	return
 }

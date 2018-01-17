@@ -27,7 +27,8 @@ const (
 	maxTries         = 10
 )
 
-var minResources = reflow.Resources{CPU: 1, Memory: 500 << 20, Disk: 1 << 30}
+var minResources = reflow.Resources{"cpu": 1, "mem": 500 << 20, "disk": 1 << 30}
+var minRequirements = reflow.Requirements{minResources, minResources, false}
 
 // Phase enumerates the possible phases of a run.
 type Phase int
@@ -245,10 +246,10 @@ func (r *Runner) Do(ctx context.Context) bool {
 
 // Allocate reserves a new alloc from r.Cluster when r.Alloc is nil.
 func (r *Runner) Allocate(ctx context.Context) error {
-	min, max := r.Flow.Requirements()
-	min, max = min.Max(minResources), max.Max(minResources)
+	req := r.Flow.Requirements()
+	req.Add(minRequirements)
 	var err error
-	r.Alloc, err = r.Cluster.Allocate(ctx, min, max, r.labels())
+	r.Alloc, err = r.Cluster.Allocate(ctx, req, r.labels())
 	if err != nil {
 		return err
 	}

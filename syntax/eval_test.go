@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"math"
 	"reflect"
 	"regexp"
 	"strings"
@@ -121,7 +122,7 @@ func TestExec(t *testing.T) {
 	if got, want := f.Image, "ubuntu"; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
-	if got, want := f.Resources, (reflow.Resources{CPU: 32, Disk: 0, Memory: 32 << 30}); got != want {
+	if got, want := f.Resources, (reflow.Resources{"cpu": 32, "disk": 0, "mem": 32 << 30}); !got.Equal(want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	if got, want := f.Cmd, "\n\t\t\tcat %s > %s\n\t\t"; got != want {
@@ -308,7 +309,11 @@ func (nopexecutor) Execs(ctx context.Context) ([]reflow.Exec, error) {
 }
 
 func (nopexecutor) Resources() reflow.Resources {
-	return reflow.MaxResources
+	return reflow.Resources{
+		"mem":  math.MaxFloat64,
+		"cpu":  math.MaxFloat64,
+		"disk": math.MaxFloat64,
+	}
 }
 
 func (nopexecutor) Repository() reflow.Repository {

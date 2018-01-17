@@ -6,6 +6,7 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -21,17 +22,13 @@ type allocateResult struct {
 	err   error
 }
 
-type allocateRequest struct {
-	min, max reflow.Resources
-}
-
 type testCluster struct {
 	mu       sync.Mutex
-	requests map[allocateRequest]chan allocateResult
+	requests map[string]chan allocateResult
 }
 
 func (t *testCluster) Init() {
-	t.requests = map[allocateRequest]chan allocateResult{}
+	t.requests = make(map[string]chan allocateResult)
 }
 
 func (testCluster) ID() string                                               { panic("not implemented") }
@@ -40,27 +37,27 @@ func (testCluster) Allocs(ctx context.Context) ([]pool.Alloc, error)         { p
 func (testCluster) Offer(ctx context.Context, id string) (pool.Offer, error) { panic("not implemented") }
 func (testCluster) Offers(ctx context.Context) ([]pool.Offer, error)         { panic("not implemented") }
 
-func (t *testCluster) allocate(min, max reflow.Resources) chan allocateResult {
+func (t *testCluster) allocate(req reflow.Requirements) chan allocateResult {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	req := allocateRequest{min, max}
-	if t.requests[req] == nil {
-		t.requests[req] = make(chan allocateResult)
+	key := fmt.Sprint(req)
+	if t.requests[key] == nil {
+		t.requests[key] = make(chan allocateResult)
 	}
-	return t.requests[req]
+	return t.requests[key]
 }
 
-func (t *testCluster) Allocate(ctx context.Context, min, max reflow.Resources, labels pool.Labels) (pool.Alloc, error) {
+func (t *testCluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error) {
 	select {
-	case res := <-t.allocate(min, max):
+	case res := <-t.allocate(req):
 		return res.alloc, res.err
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 }
 
-func (t *testCluster) Grant(min, max reflow.Resources, result allocateResult) {
-	t.allocate(min, max) <- result
+func (t *testCluster) Grant(req reflow.Requirements, result allocateResult) {
+	t.allocate(req) <- result
 }
 
 type testAlloc struct {
@@ -85,7 +82,7 @@ func TestRunner(t *testing.T) {
 	var (
 		transferer testutil.WaitTransferer
 		cluster    testCluster
-		resources  = reflow.Resources{Memory: 5 << 30, CPU: 10, Disk: 10 << 30}
+		resources  = reflow.Resources{"mem": 5 << 30, "cpu": 10, "disk": 10 << 30}
 		r          = &Runner{
 			Cluster:    &cluster,
 			Transferer: &transferer,
@@ -113,7 +110,7 @@ func TestRunner(t *testing.T) {
 	var alloc testAlloc
 	alloc.Have = resources
 	alloc.Init()
-	cluster.Grant(resources, resources, allocateResult{alloc: &alloc})
+	cluster.Grant(r.Flow.Requirements(), allocateResult{alloc: &alloc})
 	if !<-rc {
 		t.Fatal("early termination")
 	}

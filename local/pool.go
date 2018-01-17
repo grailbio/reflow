@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -131,18 +132,18 @@ func (p *Pool) Start() error {
 		return err
 	}
 	p.resources = reflow.Resources{
-		Memory: uint64(float64(info.MemTotal) * 0.95),
-		CPU:    uint16(info.NCPU),
+		"mem": math.Floor(float64(info.MemTotal) * 0.95),
+		"cpu": float64(info.NCPU),
 	}
 	root := filepath.Join(p.Prefix, p.Dir)
 	if err := os.MkdirAll(root, 0777); err != nil {
 		log.Printf("mkdir %s: %v", root, err)
 	}
 	if usage, err := fs.Stat(root); err == nil {
-		p.resources.Disk = usage.Total
+		p.resources["disk"] = float64(usage.Total)
 	} else {
 		log.Printf("stat %s: %v", root, err)
-		p.resources.Disk = 2e12
+		p.resources["disk"] = 2e12
 	}
 
 	if err := os.MkdirAll(filepath.Join(p.Prefix, p.Dir, allocsPath), 0777); err != nil {
@@ -208,13 +209,15 @@ func (p *Pool) Start() error {
 // available returns the amount of currently available resources:
 // The total less what is occupied by active allocs.
 func (p *Pool) available() reflow.Resources {
-	reserved := reflow.Resources{}
+	var reserved reflow.Resources
 	for _, alloc := range p.allocs {
 		if !alloc.expired() {
-			reserved = reserved.Add(alloc.resources)
+			reserved.Add(reserved, alloc.resources)
 		}
 	}
-	return p.resources.Sub(reserved)
+	var avail reflow.Resources
+	avail.Sub(p.resources, reserved)
+	return avail
 }
 
 // new creates a new alloc with the given meta. new collects expired
@@ -231,7 +234,7 @@ func (p *Pool) new(ctx context.Context, meta pool.AllocMeta) (pool.Alloc, error)
 		expired []*alloc
 	)
 	for _, alloc := range p.allocs {
-		used = used.Add(alloc.resources)
+		used.Add(used, alloc.resources)
 		if alloc.expired() {
 			expired = append(expired, alloc)
 		}
@@ -241,8 +244,13 @@ func (p *Pool) new(ctx context.Context, meta pool.AllocMeta) (pool.Alloc, error)
 	collect := expired[:]
 	// TODO: preferentially prefer those allocs which will give us the
 	// resource types we need.
-	p.Log.Printf("alloc total (%s) used (%s) want (%s)", p.resources, used, meta.Want)
-	for !p.resources.Sub(used).Available(meta.Want) && len(expired) > 0 {
+	p.Log.Printf("alloc total%s used%s want%s", p.resources, used, meta.Want)
+	var free reflow.Resources
+	for {
+		free.Sub(p.resources, used)
+		if free.Available(meta.Want) || len(expired) == 0 {
+			break
+		}
 		max := 0
 		for i := 1; i < len(expired); i++ {
 			if expired[i].expiredBy() > expired[max].expiredBy() {
@@ -252,11 +260,11 @@ func (p *Pool) new(ctx context.Context, meta pool.AllocMeta) (pool.Alloc, error)
 		alloc := expired[max]
 		expired[0], expired[max] = expired[max], expired[0]
 		expired = expired[1:]
-		used = used.Sub(alloc.resources)
+		used.Sub(used, alloc.resources)
 		n++
 	}
 	collect = collect[:n]
-	if !p.resources.Sub(used).Available(meta.Want) {
+	if !free.Available(meta.Want) {
 		p.mu.Unlock()
 		return nil, errors.E("alloc", errors.NotExist, errOfferExpired)
 	}
@@ -350,14 +358,15 @@ func (p *Pool) Offers(ctx context.Context) ([]pool.Offer, error) {
 	if p.stopped {
 		return nil, nil
 	}
-	reserved := reflow.Resources{}
+	var reserved reflow.Resources
 	for _, alloc := range p.allocs {
 		if !alloc.expired() {
-			reserved = reserved.Add(alloc.resources)
+			reserved.Add(reserved, alloc.resources)
 		}
 	}
-	available := p.resources.Sub(reserved)
-	if available.Memory == 0 || available.CPU == 0 || available.Disk == 0 {
+	var available reflow.Resources
+	available.Sub(p.resources, reserved)
+	if available["mem"] == 0 || available["cpu"] == 0 || available["disk"] == 0 {
 		return nil, nil
 	}
 	return []pool.Offer{&offer{p, offerID, available}}, nil
@@ -469,7 +478,7 @@ func (p *Pool) newAlloc(id string) *alloc {
 // configure stores the given metadata in the alloc's directory.
 func (a *alloc) configure(meta pool.AllocMeta) error {
 	a.meta = meta
-	a.resources = a.meta.Want
+	a.resources.Set(a.meta.Want)
 	path := filepath.Join(a.Prefix, a.Dir, metaPath)
 	if err := os.MkdirAll(filepath.Dir(path), 0777); err != nil {
 		return err

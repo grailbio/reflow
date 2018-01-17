@@ -10,8 +10,6 @@ import (
 	"fmt"
 	"os"
 	"text/tabwriter"
-
-	"github.com/grailbio/base/data"
 )
 
 func (c *Cmd) offers(ctx context.Context, args ...string) {
@@ -30,10 +28,6 @@ func (c *Cmd) offers(ctx context.Context, args ...string) {
 	tw.Init(os.Stdout, 4, 4, 1, ' ', 0)
 	defer tw.Flush()
 	for _, offer := range offers {
-		fmt.Fprintf(&tw, "%s\t%d\t%s\t%s\n",
-			data.Size(offer.Available().Memory),
-			offer.Available().CPU,
-			data.Size(offer.Available().Disk),
-			offer.ID())
+		fmt.Fprintf(&tw, "%s\t%s\n", offer.ID(), offer.Available())
 	}
 }

@@ -73,25 +73,25 @@ func TestVisitor(t *testing.T) {
 }
 
 func TestFlowRequirements(t *testing.T) {
-	e1 := flow.Exec("cmd1", "image", reflow.Resources{Memory: 10, CPU: 1, Disk: 110})
-	e2 := flow.Exec("cmd2", "image", reflow.Resources{Memory: 20, CPU: 1, Disk: 100})
+	e1 := flow.Exec("cmd1", "image", reflow.Resources{"mem": 10, "cpu": 1, "disk": 110})
+	e2 := flow.Exec("cmd2", "image", reflow.Resources{"mem": 20, "cpu": 1, "disk": 100})
 	merge := flow.Merge(e1, e2)
-	min, max := merge.Requirements()
-	if min != max {
-		t.Errorf("expected min == max, got %v != %v", min, max)
+	req := merge.Requirements()
+	if !req.Min.Equal(req.Max) {
+		t.Errorf("expected min == max, got %s", req)
 	}
-	if got, want := min, (reflow.Resources{Memory: 20, CPU: 1, Disk: 110}); got != want {
+	if got, want := req.Min, (reflow.Resources{"mem": 20, "cpu": 1, "disk": 110}); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 
 	mapflow := flow.Map(func(f *reflow.Flow) *reflow.Flow {
 		return flow.Exec("image", "command", reflow.Resources{}, f)
 	}, merge)
-	min, max = mapflow.Requirements()
-	if got, want := max, reflow.MaxResources; got != want {
-		t.Errorf("got %v, want %v", got, want)
+	req = mapflow.Requirements()
+	if !req.Wide {
+		t.Errorf("expected wide, got %v", req)
 	}
-	if got, want := min, (reflow.Resources{Memory: 20, CPU: 1, Disk: 110}); got != want {
+	if got, want := req.Min, (reflow.Resources{"mem": 20, "cpu": 1, "disk": 110}); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }

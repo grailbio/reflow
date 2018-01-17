@@ -25,7 +25,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
-	"github.com/grailbio/base/data"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/ec2cluster/instances"
@@ -77,8 +76,8 @@ func init() {
 			EBSOptimized: typ.EBSOptimized,
 			Price:        typ.Price,
 			Resources: reflow.Resources{
-				CPU:    uint16(typ.VCPU),
-				Memory: uint64((1 - memoryDiscount) * typ.Memory * 1024 * 1024 * 1024),
+				"cpu": float64(typ.VCPU),
+				"mem": float64((1 - memoryDiscount) * typ.Memory * 1024 * 1024 * 1024),
 			},
 			// According to Amazon, "t2" instances are the only current-generation
 			// instances not supported by spot.
@@ -109,7 +108,7 @@ func newInstanceState(configs []instanceConfig, sleep time.Duration, region stri
 	}
 	copy(s.configs, configs)
 	sort.Slice(s.configs, func(i, j int) bool {
-		return s.configs[j].Resources.Memory < s.configs[i].Resources.Memory
+		return s.configs[j].Resources["mem"] < s.configs[i].Resources["mem"]
 	})
 	return s
 }
@@ -271,12 +270,7 @@ func (i *instance) Go(ctx context.Context) {
 				if i.Spot {
 					spot = "spot "
 				}
-				i.Log.Printf("launched %sinstance %v: %s: %s %d %s",
-					spot,
-					id, i.Config.Type,
-					data.Size(i.Config.Resources.Memory),
-					i.Config.Resources.CPU,
-					data.Size(i.Config.Resources.Disk))
+				i.Log.Printf("launched %sinstance %v: %s%s", spot, id, i.Config.Type, i.Config.Resources)
 			}
 
 		case stateTag:

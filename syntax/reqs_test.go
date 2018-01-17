@@ -52,26 +52,22 @@ func TestRequirements(t *testing.T) {
 	}
 	mod := v.(values.Module)
 	for _, test := range tests {
-		expect := "Expect" + strings.TrimPrefix(test, "Test")
-		var min, max reflow.Resources
+		name := "Expect" + strings.TrimPrefix(test, "Test")
+		var req reflow.Requirements
 		if f, ok := Force(mod[test], fm[test]).(*reflow.Flow); ok {
-			min, max = f.Requirements()
+			req = f.Requirements()
 		}
-		req := mod[expect].(values.Struct)
-		emin := reflow.Resources{
-			Memory: req["mem"].(*big.Int).Uint64(),
-			CPU:    uint16(req["cpu"].(*big.Int).Uint64()),
-			Disk:   req["disk"].(*big.Int).Uint64(),
+		val := mod[name].(values.Struct)
+		var expect reflow.Requirements
+		expect.Min = reflow.Resources{
+			"mem":  float64(val["mem"].(*big.Int).Uint64()),
+			"cpu":  float64(val["cpu"].(*big.Int).Uint64()),
+			"disk": float64(val["disk"].(*big.Int).Uint64()),
 		}
-		emax := emin
-		if req["wide"].(bool) {
-			emax = reflow.MaxResources
-		}
-		if got, want := min, emin; got != want {
-			t.Errorf("%s: got %v, want %v", test, got, want)
-		}
-		if got, want := max, emax; got != want {
-			t.Errorf("%s: got %s, want %s", test, got, want)
+		expect.Max = expect.Min
+		expect.Wide = val["wide"].(bool)
+		if !req.Equal(expect) {
+			t.Errorf("%s: got %s, want %s", test, req, expect)
 		}
 	}
 }

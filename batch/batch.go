@@ -250,7 +250,7 @@ func (r *Run) flow() (*reflow.Flow, *types.T, error) {
 		v = syntax.Force(v, maintyp)
 		switch v := v.(type) {
 		case *reflow.Flow:
-			if min, _ := v.Requirements(); min.IsZeroAll() {
+			if v.Requirements().IsZero() {
 				return nil, nil, fmt.Errorf("flow does not have resource requirements; add a @requires annotation to val Main")
 			}
 			return v, maintyp, nil

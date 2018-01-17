@@ -36,9 +36,9 @@ func newTestExecutorOrSkip(t *testing.T, creds *credentials.Credentials) (*Execu
 		AWSCreds: creds,
 	}
 	x.SetResources(reflow.Resources{
-		Memory: 1 << 30,
-		CPU:    2,
-		Disk:   1e10,
+		"mem":  1 << 30,
+		"cpu":  2,
+		"disk": 1e10,
 	})
 	if err := x.Start(); err != nil {
 		cleanup()

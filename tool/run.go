@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	golog "log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -376,9 +377,11 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		if err != nil {
 			log.Fatal(err)
 		}
-		resources.Memory = uint64(float64(info.MemTotal) * 0.95)
-		resources.CPU = uint16(info.NCPU)
-		resources.Disk = 1e13 // Assume 10TB. TODO(marius): real disk management
+		resources = reflow.Resources{
+			"mem":  math.Floor(float64(info.MemTotal) * 0.95),
+			"cpu":  float64(info.NCPU),
+			"disk": 1e13, // Assume 10TB. TODO(marius): real disk management
+		}
 	}
 	x.SetResources(resources)
 

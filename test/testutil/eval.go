@@ -13,7 +13,7 @@ import (
 )
 
 // Resources is a convenient set of resources to use for testing.
-var Resources = reflow.Resources{500 << 20, 1, 10}
+var Resources = reflow.Resources{"mem": 500 << 20, "cpu": 1, "disk": 10}
 
 // EvalResult stores the result of an asynchronous evaluation.
 type EvalResult struct {

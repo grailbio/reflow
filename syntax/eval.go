@@ -262,17 +262,17 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}
 		}
 		image := env2.Value("image").(string)
-		u64 := func(id string) uint64 {
+		f64 := func(id string) float64 {
 			v := env2.Value(id)
 			if v == nil {
 				return 0
 			}
-			return v.(*big.Int).Uint64()
+			return float64(v.(*big.Int).Uint64())
 		}
 		resources := reflow.Resources{
-			Memory: u64("mem"),
-			CPU:    uint16(u64("cpu")),
-			Disk:   u64("disk"),
+			"mem":  f64("mem"),
+			"cpu":  f64("cpu"),
+			"disk": f64("disk"),
 		}
 
 		// Now for each argument that must be evaluated through the flow
@@ -635,7 +635,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}, e.Left)
 		}
 	case ExprRequires:
-		min, max, err := e.evalRequirements(sess, env, ident)
+		req, err := e.evalRequirements(sess, env, ident)
 		if err != nil {
 			return nil, err
 		}
@@ -649,7 +649,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				Deps: []*reflow.Flow{f},
 				Op:   reflow.OpRequirements,
 			}
-			f.FlowRequirements.Min, f.FlowRequirements.Max = min, max
+			f.FlowRequirements = req
 			return f, nil
 		}
 		return v, nil
@@ -657,35 +657,34 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 	panic("eval bug " + e.String())
 }
 
-func (e *Expr) evalRequirements(sess *Session, env *values.Env, ident string) (min, max reflow.Resources, err error) {
+func (e *Expr) evalRequirements(sess *Session, env *values.Env, ident string) (req reflow.Requirements, err error) {
 	env2 := values.NewEnv()
 	for _, d := range e.Decls {
 		v, err := d.Expr.eval(sess, env, d.ID(ident))
 		if err != nil {
-			return min, max, err
+			return req, err
 		}
 		if !d.Pat.BindValues(env2, v) {
-			return min, max, errMatch
+			return req, errMatch
 		}
 	}
-	u64 := func(id string) uint64 {
+	f64 := func(id string) float64 {
 		v := env2.Value(id)
 		if v == nil {
 			return 0
 		}
-		return v.(*big.Int).Uint64()
+		return float64(v.(*big.Int).Uint64())
 	}
-	min = reflow.Resources{
-		Memory: u64("mem"),
-		CPU:    uint16(u64("cpu")),
-		Disk:   u64("disk"),
+	req.Min = reflow.Resources{
+		"mem":  f64("mem"),
+		"cpu":  f64("cpu"),
+		"disk": f64("disk"),
 	}
-	if v := env2.Value("wide"); v != nil && v.(bool) {
-		max = reflow.MaxResources
-	} else {
-		max = min
+	req.Max = req.Min
+	if v := env2.Value("wide"); v != nil {
+		req.Wide = v.(bool)
 	}
-	return min, max, nil
+	return req, nil
 }
 
 var intOps = map[string]func(*big.Int, *big.Int, *big.Int) *big.Int{

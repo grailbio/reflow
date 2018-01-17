@@ -259,7 +259,7 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 
 // Requirements returns the minimum and maximum resource
 // requirements for this Eval's flow.
-func (e *Eval) Requirements() (min, max Resources) {
+func (e *Eval) Requirements() Requirements {
 	return e.root.Requirements()
 }
 
@@ -377,11 +377,11 @@ func (e *Eval) Do(ctx context.Context) error {
 			}
 
 			if v.Op == OpExec {
-				if v.Resources.Memory < minExecMemory {
-					v.Resources.Memory = minExecMemory
+				if v.Resources["mem"] < minExecMemory {
+					v.Resources["mem"] = minExecMemory
 				}
-				if v.Resources.CPU < minExecCPU {
-					v.Resources.CPU = minExecCPU
+				if v.Resources["cpu"] < minExecCPU {
+					v.Resources["cpu"] = minExecCPU
 				}
 			}
 			switch f.State {
@@ -434,7 +434,7 @@ func (e *Eval) Do(ctx context.Context) error {
 				if !e.available.Available(f.Resources) {
 					continue dequeue
 				}
-				e.available = e.available.Sub(f.Resources)
+				e.available.Sub(e.available, f.Resources)
 				e.Mutate(f, FlowRunning, Reserve(f.Resources))
 				e.pending[f] = true
 				go func(f *Flow) {
@@ -660,7 +660,7 @@ func (e *Eval) wait(ctx context.Context) (err error) {
 					}
 				}
 				if !admitted {
-					need = need.Add(v.Resources)
+					need.Add(Requirements{v.Resources, v.Resources, false})
 				}
 			}
 		}
@@ -720,7 +720,7 @@ func (e *Eval) returnFlow(f *Flow) {
 	delete(e.pending, f)
 	e.needCollect = true
 	if !f.Reserved.IsZeroAll() {
-		e.available = e.available.Add(f.Reserved)
+		e.available.Add(e.available, f.Reserved)
 		e.Mutate(f, Unreserve(f.Reserved))
 	}
 	if f.Tracked && f.State == FlowDone {
@@ -1432,9 +1432,9 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 				f.Cached = true
 			}
 		case Reserve:
-			f.Reserved = f.Reserved.Add(Resources(arg))
+			f.Reserved.Add(f.Reserved, Resources(arg))
 		case Unreserve:
-			f.Reserved = f.Reserved.Sub(Resources(arg))
+			f.Reserved.Sub(f.Reserved, Resources(arg))
 		default:
 			panic("invalid argument " + fmt.Sprint(arg))
 		}

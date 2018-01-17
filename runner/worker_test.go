@@ -35,7 +35,8 @@ func TestWorker(t *testing.T) {
 		Executor:   e,
 		Transferer: &tf,
 	})
-	e2 := &testutil.Executor{Have: testutil.Resources.Scale(2)}
+	e2 := &testutil.Executor{}
+	e2.Have.Scale(testutil.Resources, 2)
 	e2.Init()
 	e2.Repo = testutil.NewInmemoryRepository()
 	const idleTime = 2 * time.Second

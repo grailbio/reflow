@@ -8,6 +8,7 @@ package testutil
 import (
 	"context"
 	"io/ioutil"
+	"log"
 	"reflect"
 	"testing"
 	"time"
@@ -64,10 +65,11 @@ func TestPool(t *testing.T, p pool.Pool) {
 	// We accept half the memory and disk; we use 0 CPUs.
 	o := offers[0]
 	r := o.Available()
-	orig := r
-	r.CPU = 0
-	r.Memory /= 2
-	r.Disk /= 2
+	var orig reflow.Resources
+	orig.Set(r)
+	r["cpu"] = 0
+	r["mem"] /= 2
+	r["disk"] /= 2
 	alloc, err := o.Accept(ctx, pool.AllocMeta{r, "test", nil})
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +82,8 @@ func TestPool(t *testing.T, p pool.Pool) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	o = offers[0]
-	if got, want := o.Available().Memory, (orig.Memory - orig.Memory/2); got != want {
+	log.Printf("offer received %v", o.Available())
+	if got, want := o.Available()["mem"], (orig["mem"] - orig["mem"]/2); got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 
@@ -129,14 +132,14 @@ func TestPool(t *testing.T, p pool.Pool) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	o = offers[0]
-	if got, want := o.Available(), orig; got != want {
+	if got, want := o.Available(), orig; !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	alloc1, err := o.Accept(ctx, pool.AllocMeta{o.Available(), "test", nil})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := alloc1.Resources(), o.Available(); got != want {
+	if got, want := alloc1.Resources(), o.Available(); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 

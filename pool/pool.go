@@ -207,25 +207,28 @@ var (
 
 // Allocate attempts to place an Alloc on a pool with the given
 // resource requirements.
-func Allocate(ctx context.Context, pool Pool, min, max reflow.Resources, labels Labels) (Alloc, error) {
+func Allocate(ctx context.Context, pool Pool, req reflow.Requirements, labels Labels) (Alloc, error) {
 	const maxRetries = 6
 	for n := 0; n < maxRetries; n++ {
 		offers, err := pool.Offers(ctx)
 		if err != nil {
 			return nil, err
 		}
-		pick := Pick(offers, min, max)
+		pick := Pick(offers, req.Min, req.Max)
 		if pick == nil {
 			return nil, errors.E(errors.Unavailable, errUnavailable)
 		}
 		// Pick the smallest of max and what's available. If any resource
 		// dimension is left empty, we grab the whole alloc so that we
 		// don't unnecessarily leave resources on the table; they can
-		// become useful later in execution.
+		// become useful later in execution, and it leaves the rest of the
+		// offer unusable anyway.
 		avail := pick.Available()
-		want := max.Min(avail)
-		if avail.Sub(want).IsZeroAny() {
-			want = avail
+		var want reflow.Resources
+		want.Min(req.Max, avail)
+		var tmp reflow.Resources
+		if tmp.Sub(avail, want).LessAny(nil) {
+			want.Set(avail)
 		}
 		meta := AllocMeta{Want: want, Labels: labels}
 

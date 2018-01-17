@@ -69,7 +69,7 @@ func (w *worker) Go(ctx context.Context) {
 				continue
 			}
 			w.Log.Debugf("stole %v", f)
-			available = available.Sub(f.Resources)
+			available.Sub(available, f.Resources)
 			w.Eval.Mutate(f, reflow.FlowRunning)
 			npending++
 			go func(f *reflow.Flow) {
@@ -84,7 +84,7 @@ func (w *worker) Go(ctx context.Context) {
 				done <- f
 			}(f)
 		case f := <-done:
-			available = available.Add(f.Resources)
+			available.Add(available, f.Resources)
 			stealer.Return(f)
 			npending--
 		case <-idlech:
@@ -92,7 +92,7 @@ func (w *worker) Go(ctx context.Context) {
 		case <-ctx.Done():
 			for npending > 0 {
 				f := <-done
-				available = available.Add(f.Resources)
+				available.Add(available, f.Resources)
 				npending--
 				stealer.Return(f)
 			}

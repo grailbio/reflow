@@ -120,16 +120,16 @@ The columns displayed by list are:
 		// (these need to be propagated from the alloc).
 		switch inspect := inspects[i].(type) {
 		case reflow.ExecInspect:
-			fmt.Fprintf(&tw, "%s\t%s\t%d\t%s\t%s\t%s\n",
+			fmt.Fprintf(&tw, "%s\t%s\t%g\t%s\t%s\t%s\n",
 				inspect.State,
-				data.Size(inspect.Config.Resources.Memory),
-				inspect.Config.Resources.CPU, data.Size(inspect.Config.Resources.Disk),
+				data.Size(inspect.Config.Resources["mem"]),
+				inspect.Config.Resources["cpu"], data.Size(inspect.Config.Resources["disk"]),
 				inspect.Config.Ident, sprintURI(entries[i]))
 		case pool.AllocInspect:
-			fmt.Fprintf(&tw, "%s\t%s\t%d\t%s\t%s\t%s\n",
+			fmt.Fprintf(&tw, "%s\t%s\t%g\t%s\t%s\t%s\n",
 				"", /*TODO(marius): print whether it's active or zombie*/
-				data.Size(inspect.Resources.Memory),
-				inspect.Resources.CPU, data.Size(inspect.Resources.Disk),
+				data.Size(inspect.Resources["mem"]),
+				inspect.Resources["cpu"], data.Size(inspect.Resources["disk"]),
 				inspect.Meta.Owner, sprintURI(entries[i]))
 		default:
 			panic("unknown inspect type")

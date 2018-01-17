@@ -249,9 +249,9 @@ func (c *Cmd) printFileInfo(ctx context.Context, w io.Writer, id digest.Digest) 
 }
 
 func (c *Cmd) printAlloc(ctx context.Context, w io.Writer, inspect pool.AllocInspect, execs []reflow.Exec) {
-	fmt.Fprintf(w, "\tmem:\t%s\n", data.Size(inspect.Resources.Memory))
-	fmt.Fprintf(w, "\tcpu:\t%d\n", inspect.Resources.CPU)
-	fmt.Fprintf(w, "\tdisk:\t%s\n", data.Size(inspect.Resources.Disk))
+	fmt.Fprintf(w, "\tmem:\t%s\n", data.Size(inspect.Resources["mem"]))
+	fmt.Fprintf(w, "\tcpu:\t%d\n", inspect.Resources["cpu"])
+	fmt.Fprintf(w, "\tdisk:\t%s\n", data.Size(inspect.Resources["disk"]))
 	fmt.Fprintf(w, "\towner:\t%s\n", inspect.Meta.Owner)
 	fmt.Fprintf(w, "\tkeepalive:\t%s (%s ago)\n", inspect.LastKeepalive, round(time.Since(inspect.LastKeepalive)))
 	if expires := time.Until(inspect.Expires); expires < time.Duration(0) {
