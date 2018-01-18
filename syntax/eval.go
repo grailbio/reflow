@@ -262,18 +262,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}
 		}
 		image := env2.Value("image").(string)
-		f64 := func(id string) float64 {
-			v := env2.Value(id)
-			if v == nil {
-				return 0
-			}
-			return float64(v.(*big.Int).Uint64())
-		}
-		resources := reflow.Resources{
-			"mem":  f64("mem"),
-			"cpu":  f64("cpu"),
-			"disk": f64("disk"),
-		}
+		resources := makeResources(env2)
 
 		// Now for each argument that must be evaluated through the flow
 		// evaluator, we attach as a dependency. Other arguments are inlined.
@@ -668,18 +657,7 @@ func (e *Expr) evalRequirements(sess *Session, env *values.Env, ident string) (r
 			return req, errMatch
 		}
 	}
-	f64 := func(id string) float64 {
-		v := env2.Value(id)
-		if v == nil {
-			return 0
-		}
-		return float64(v.(*big.Int).Uint64())
-	}
-	req.Min = reflow.Resources{
-		"mem":  f64("mem"),
-		"cpu":  f64("cpu"),
-		"disk": f64("disk"),
-	}
+	req.Min = makeResources(env2)
 	req.Max = req.Min
 	if v := env2.Value("wide"); v != nil {
 		req.Wide = v.(bool)
@@ -1129,4 +1107,32 @@ var stdEvalK evalK = func(e *Expr, env *values.Env, dw io.Writer) {
 		e.Left.digest(dw, env2)
 	}
 
+}
+
+// makeResources constructs a resource specification
+// from a value environment, where "mem", "cpu", and
+// "disk" are integers; "cpufeatures" is a list of strings.
+// Missing values are taken to be the zero value.
+func makeResources(env *values.Env) reflow.Resources {
+	f64 := func(id string) float64 {
+		v := env.Value(id)
+		if v == nil {
+			return 0
+		}
+		return float64(v.(*big.Int).Uint64())
+	}
+	resources := reflow.Resources{
+		"mem":  f64("mem"),
+		"cpu":  f64("cpu"),
+		"disk": f64("disk"),
+	}
+	v := env.Value("cpufeatures")
+	if v == nil {
+		return resources
+	}
+	for _, feature := range v.(values.List) {
+		// We assign one feature per CPU request.
+		resources[feature.(string)] = resources["cpu"]
+	}
+	return resources
 }

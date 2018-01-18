@@ -1,11 +1,14 @@
 val mem = 10*GiB
 val cpu = 4
 val disk = TiB
+val cpufeatures = ["intel_avx"]
+val nofeatures [string] = []
 
-@requires(mem, cpu, disk, wide := true)
+@requires(mem, cpu, disk, cpufeatures, wide := true)
 val TestReq1 = file("s3://")
-val ExpectReq1 = {mem, cpu, disk, wide: true}
+val ExpectReq1 = {mem, cpu, disk, cpufeatures, wide: true}
 
 @requires(mem := GiB)
 val TestReq2 = file("s3://")
-val ExpectReq2 = {mem: GiB, cpu: 0, disk: 0, wide: false}
+val ExpectReq2 = {mem: GiB, cpu: 0, disk: 0, cpufeatures: nofeatures, wide: false}
+

@@ -64,6 +64,9 @@ func TestRequirements(t *testing.T) {
 			"cpu":  float64(val["cpu"].(*big.Int).Uint64()),
 			"disk": float64(val["disk"].(*big.Int).Uint64()),
 		}
+		for _, feature := range val["cpufeatures"].(values.List) {
+			expect.Min[feature.(string)] = expect.Min["cpu"]
+		}
 		expect.Max = expect.Min
 		expect.Wide = val["wide"].(bool)
 		if !req.Equal(expect) {

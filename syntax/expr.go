@@ -499,6 +499,11 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 					e.Type = types.Errorf("%s must be an integer", ident)
 					return
 				}
+			case "cpufeatures":
+				if d.Type.Kind != types.ListKind || d.Type.Elem.Kind != types.StringKind {
+					e.Type = types.Errorf("%s must be a list of strings", ident)
+					return
+				}
 			default:
 				e.Type = types.Errorf("unrecognized exec parameter %s", ident)
 				return
@@ -764,6 +769,10 @@ func (e *Expr) initResources(sess *Session, env *types.Env) error {
 		case "mem", "cpu", "disk":
 			if d.Type.Kind != types.IntKind {
 				return fmt.Errorf("%s must be an integer", ident)
+			}
+		case "cpufeatures":
+			if d.Type.Kind != types.ListKind || d.Type.Elem.Kind != types.StringKind {
+				return fmt.Errorf("%s must be a list of strings", ident)
 			}
 		case "wide":
 			if d.Type.Kind != types.BoolKind {

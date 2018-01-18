@@ -88,13 +88,21 @@ A Reflow declaration is one of the following:
 Value declarations may be preceded by one of the following
 annoations, each of which takes a list of declarations.
 
-	@requires(...)                     // resource requirement annotation, takes declarations
-	                                   // mem int, cpu int, disk int, and wide bool. They indicate
-	                                   // resource requirements for computing the declaration;
-	                                   // if wide is set to true, then the resource requirements
-	                                   // have no theoretical upper bound. Wide is thus useful
-	                                   // for declarations whose parallelization factor is not known
-	                                   // statically, for example when processing sharded data.
+	@requires(...)                     // resource requirement annotation,
+	                                   // takes declarations mem int,
+	                                   // cpu int, disk int,
+	                                   // cpufeatures[string, and wide
+	                                   // bool. They indicate resource
+	                                   // requirements for computing the
+	                                   // declaration; if wide is set to
+	                                   // true, then the resource
+	                                   // requirements have no
+	                                   // theoretical upper bound. Wide
+	                                   // is thus useful for
+	                                   // declarations whose
+	                                   // parallelization factor is not
+	                                   // known statically, for example
+	                                   // when processing sharded data.
 
 Value declarations can take destructive pattern bindings, mimicing
 value constructors. Currently tuples and lists are supported.
