@@ -91,6 +91,8 @@ func main() {
 	g.Printf("	Virt string\n")
 	g.Printf("	// NVMe specifies whether EBS block devices are exposed as NVMe volumes.\n")
 	g.Printf("	NVMe bool\n")
+	g.Printf("	// CPUFeatures defines the available CPU features on this instance type\n")
+	g.Printf("	CPUFeatures map[string]bool\n")
 	g.Printf("}\n")
 
 	g.Printf("// Types stores known EC2 instance types.\n")
@@ -159,6 +161,18 @@ func main() {
 		g.Printf("	Generation: %q,\n", e.Generation)
 		g.Printf("	Virt: %q,\n", virt)
 		g.Printf("	NVMe: %v,\n", strings.HasPrefix(e.Type, "c5.") || strings.HasPrefix(e.Type, "m5."))
+		g.Printf("	CPUFeatures: map[string]bool{\n")
+		if e.IntelAVX {
+			g.Printf("		%q: true,\n", "intel_avx")
+		}
+		if e.IntelAVX2 {
+			g.Printf("		%q: true,\n", "intel_avx2")
+		}
+		// AVX512 isn't yet exported by the data provided by AWS/ec2instances.info.
+		if strings.HasPrefix(e.Type, "c5.") || strings.HasPrefix(e.Type, "m5.") {
+			g.Printf("		%q: true,\n", "intel_avx512")
+		}
+		g.Printf("	},\n")
 		g.Printf("},\n")
 	}
 	g.Printf("}\n")
@@ -186,6 +200,8 @@ type entry struct {
 	Network       string                            `json:"network_performance"`
 	Generation    string                            `json:"generation"`
 	LinuxVirtType []string                          `json:"linux_virtualization_types"`
+	IntelAVX      bool                              `json:"intel_avx"`
+	IntelAVX2     bool                              `json:"intel_avx2"`
 }
 
 type generator struct {

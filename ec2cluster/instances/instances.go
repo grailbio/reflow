@@ -20,6 +20,8 @@ type Type struct {
 	Virt string
 	// NVMe specifies whether EBS block devices are exposed as NVMe volumes.
 	NVMe bool
+	// CPUFeatures defines the available CPU features on this instance type
+	CPUFeatures map[string]bool
 }
 
 // Types stores known EC2 instance types.
@@ -36,9 +38,10 @@ var Types = []Type{
 			"us-gov-west-1":  2.25,
 			"us-west-2":      2,
 		},
-		Generation: "previous",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "previous",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "g2.2xlarge",
@@ -55,9 +58,10 @@ var Types = []Type{
 			"us-west-1":      0.702,
 			"us-west-2":      0.65,
 		},
-		Generation: "previous",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "previous",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "g2.8xlarge",
@@ -74,9 +78,10 @@ var Types = []Type{
 			"us-west-1":      2.808,
 			"us-west-2":      2.6,
 		},
-		Generation: "previous",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "previous",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "cg1.4xlarge",
@@ -87,9 +92,10 @@ var Types = []Type{
 			"eu-west-1": 2.36,
 			"us-east-1": 2.1,
 		},
-		Generation: "previous",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "previous",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "cr1.8xlarge",
@@ -102,9 +108,10 @@ var Types = []Type{
 			"us-east-1":      3.5,
 			"us-west-2":      3.5,
 		},
-		Generation: "previous",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "previous",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "i2.xlarge",
@@ -125,9 +132,10 @@ var Types = []Type{
 			"us-west-1":      0.938,
 			"us-west-2":      0.853,
 		},
-		Generation: "previous",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "previous",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "i2.2xlarge",
@@ -148,9 +156,10 @@ var Types = []Type{
 			"us-west-1":      1.876,
 			"us-west-2":      1.705,
 		},
-		Generation: "previous",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "previous",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "i2.4xlarge",
@@ -171,9 +180,10 @@ var Types = []Type{
 			"us-west-1":      3.751,
 			"us-west-2":      3.41,
 		},
-		Generation: "previous",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "previous",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "i2.8xlarge",
@@ -194,9 +204,10 @@ var Types = []Type{
 			"us-west-1":      7.502,
 			"us-west-2":      6.82,
 		},
-		Generation: "previous",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "previous",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "hs1.8xlarge",
@@ -212,9 +223,10 @@ var Types = []Type{
 			"us-gov-west-1":  5.52,
 			"us-west-2":      4.6,
 		},
-		Generation: "previous",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "previous",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "t2.nano",
@@ -242,6 +254,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "t2.micro",
@@ -269,6 +284,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "t2.small",
@@ -296,6 +314,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "t2.medium",
@@ -323,6 +344,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "t2.large",
@@ -350,6 +374,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "t2.xlarge",
@@ -377,6 +404,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "t2.2xlarge",
@@ -404,6 +434,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "m5.large",
@@ -421,6 +454,11 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       true,
+		CPUFeatures: map[string]bool{
+			"intel_avx":    true,
+			"intel_avx2":   true,
+			"intel_avx512": true,
+		},
 	},
 	{
 		Name:         "m5.xlarge",
@@ -438,6 +476,11 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       true,
+		CPUFeatures: map[string]bool{
+			"intel_avx":    true,
+			"intel_avx2":   true,
+			"intel_avx512": true,
+		},
 	},
 	{
 		Name:         "m5.2xlarge",
@@ -455,6 +498,11 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       true,
+		CPUFeatures: map[string]bool{
+			"intel_avx":    true,
+			"intel_avx2":   true,
+			"intel_avx512": true,
+		},
 	},
 	{
 		Name:         "m5.4xlarge",
@@ -472,6 +520,11 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       true,
+		CPUFeatures: map[string]bool{
+			"intel_avx":    true,
+			"intel_avx2":   true,
+			"intel_avx512": true,
+		},
 	},
 	{
 		Name:         "m5.12xlarge",
@@ -489,6 +542,11 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       true,
+		CPUFeatures: map[string]bool{
+			"intel_avx":    true,
+			"intel_avx2":   true,
+			"intel_avx512": true,
+		},
 	},
 	{
 		Name:         "m5.24xlarge",
@@ -506,6 +564,11 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       true,
+		CPUFeatures: map[string]bool{
+			"intel_avx":    true,
+			"intel_avx2":   true,
+			"intel_avx512": true,
+		},
 	},
 	{
 		Name:         "m4.large",
@@ -532,6 +595,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "m4.xlarge",
@@ -558,6 +625,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "m4.2xlarge",
@@ -584,6 +655,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "m4.4xlarge",
@@ -610,6 +685,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "m4.10xlarge",
@@ -636,6 +715,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "m4.16xlarge",
@@ -662,6 +745,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "m3.medium",
@@ -683,6 +770,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "m3.large",
@@ -704,6 +794,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "m3.xlarge",
@@ -725,6 +818,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "m3.2xlarge",
@@ -746,6 +842,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "c5.large",
@@ -763,6 +862,11 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       true,
+		CPUFeatures: map[string]bool{
+			"intel_avx":    true,
+			"intel_avx2":   true,
+			"intel_avx512": true,
+		},
 	},
 	{
 		Name:         "c5.xlarge",
@@ -780,6 +884,11 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       true,
+		CPUFeatures: map[string]bool{
+			"intel_avx":    true,
+			"intel_avx2":   true,
+			"intel_avx512": true,
+		},
 	},
 	{
 		Name:         "c5.2xlarge",
@@ -797,6 +906,11 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       true,
+		CPUFeatures: map[string]bool{
+			"intel_avx":    true,
+			"intel_avx2":   true,
+			"intel_avx512": true,
+		},
 	},
 	{
 		Name:         "c5.4xlarge",
@@ -814,6 +928,11 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       true,
+		CPUFeatures: map[string]bool{
+			"intel_avx":    true,
+			"intel_avx2":   true,
+			"intel_avx512": true,
+		},
 	},
 	{
 		Name:         "c5.9xlarge",
@@ -831,6 +950,11 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       true,
+		CPUFeatures: map[string]bool{
+			"intel_avx":    true,
+			"intel_avx2":   true,
+			"intel_avx512": true,
+		},
 	},
 	{
 		Name:         "c5.18xlarge",
@@ -848,6 +972,11 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       true,
+		CPUFeatures: map[string]bool{
+			"intel_avx":    true,
+			"intel_avx2":   true,
+			"intel_avx512": true,
+		},
 	},
 	{
 		Name:         "c4.large",
@@ -874,6 +1003,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "c4.xlarge",
@@ -900,6 +1033,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "c4.2xlarge",
@@ -926,6 +1063,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "c4.4xlarge",
@@ -952,6 +1093,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "c4.8xlarge",
@@ -978,6 +1123,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "c3.large",
@@ -999,6 +1148,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "c3.xlarge",
@@ -1020,6 +1172,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "c3.2xlarge",
@@ -1041,6 +1196,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "c3.4xlarge",
@@ -1062,6 +1220,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "c3.8xlarge",
@@ -1083,6 +1244,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "x1.16xlarge",
@@ -1109,6 +1273,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "x1.32xlarge",
@@ -1135,6 +1303,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "x1e.xlarge",
@@ -1151,6 +1323,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "x1e.2xlarge",
@@ -1167,6 +1343,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "x1e.4xlarge",
@@ -1183,6 +1363,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "x1e.8xlarge",
@@ -1199,6 +1383,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "x1e.16xlarge",
@@ -1215,6 +1403,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "x1e.32xlarge",
@@ -1231,6 +1423,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "r4.large",
@@ -1258,6 +1454,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "r4.xlarge",
@@ -1285,6 +1485,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "r4.2xlarge",
@@ -1312,6 +1516,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "r4.4xlarge",
@@ -1339,6 +1547,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "r4.8xlarge",
@@ -1366,6 +1578,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "r4.16xlarge",
@@ -1393,6 +1609,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "r3.large",
@@ -1417,6 +1637,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "r3.xlarge",
@@ -1441,6 +1664,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "r3.2xlarge",
@@ -1465,6 +1691,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "r3.4xlarge",
@@ -1489,6 +1718,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "r3.8xlarge",
@@ -1513,6 +1745,9 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx": true,
+		},
 	},
 	{
 		Name:         "p3.2xlarge",
@@ -1531,6 +1766,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "p3.8xlarge",
@@ -1549,6 +1788,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "p3.16xlarge",
@@ -1567,6 +1810,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "p2.xlarge",
@@ -1589,6 +1836,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "p2.8xlarge",
@@ -1611,6 +1862,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "p2.16xlarge",
@@ -1633,6 +1888,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "g3.4xlarge",
@@ -1654,6 +1913,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "g3.8xlarge",
@@ -1675,6 +1938,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "g3.16xlarge",
@@ -1696,6 +1963,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "f1.2xlarge",
@@ -1711,6 +1982,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "f1.16xlarge",
@@ -1726,6 +2001,10 @@ var Types = []Type{
 		Generation: "current",
 		Virt:       "HVM",
 		NVMe:       false,
+		CPUFeatures: map[string]bool{
+			"intel_avx":  true,
+			"intel_avx2": true,
+		},
 	},
 	{
 		Name:         "h1.2xlarge",
@@ -1738,9 +2017,10 @@ var Types = []Type{
 			"us-east-2": 0.55,
 			"us-west-2": 0.55,
 		},
-		Generation: "current",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "current",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "h1.4xlarge",
@@ -1753,9 +2033,10 @@ var Types = []Type{
 			"us-east-2": 1.1,
 			"us-west-2": 1.1,
 		},
-		Generation: "current",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "current",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "h1.8xlarge",
@@ -1768,9 +2049,10 @@ var Types = []Type{
 			"us-east-2": 2.2,
 			"us-west-2": 2.2,
 		},
-		Generation: "current",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "current",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "h1.16xlarge",
@@ -1783,9 +2065,10 @@ var Types = []Type{
 			"us-east-2": 4.4,
 			"us-west-2": 4.4,
 		},
-		Generation: "current",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "current",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "i3.large",
@@ -1810,9 +2093,10 @@ var Types = []Type{
 			"us-west-1":      0.172,
 			"us-west-2":      0.156,
 		},
-		Generation: "current",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "current",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "i3.xlarge",
@@ -1837,9 +2121,10 @@ var Types = []Type{
 			"us-west-1":      0.344,
 			"us-west-2":      0.312,
 		},
-		Generation: "current",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "current",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "i3.2xlarge",
@@ -1864,9 +2149,10 @@ var Types = []Type{
 			"us-west-1":      0.688,
 			"us-west-2":      0.624,
 		},
-		Generation: "current",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "current",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "i3.4xlarge",
@@ -1891,9 +2177,10 @@ var Types = []Type{
 			"us-west-1":      1.376,
 			"us-west-2":      1.248,
 		},
-		Generation: "current",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "current",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "i3.8xlarge",
@@ -1918,9 +2205,10 @@ var Types = []Type{
 			"us-west-1":      2.752,
 			"us-west-2":      2.496,
 		},
-		Generation: "current",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "current",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "i3.16xlarge",
@@ -1945,9 +2233,10 @@ var Types = []Type{
 			"us-west-1":      5.504,
 			"us-west-2":      4.992,
 		},
-		Generation: "current",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "current",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "d2.xlarge",
@@ -1971,9 +2260,10 @@ var Types = []Type{
 			"us-west-1":      0.781,
 			"us-west-2":      0.69,
 		},
-		Generation: "current",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "current",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "d2.2xlarge",
@@ -1997,9 +2287,10 @@ var Types = []Type{
 			"us-west-1":      1.563,
 			"us-west-2":      1.38,
 		},
-		Generation: "current",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "current",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "d2.4xlarge",
@@ -2023,9 +2314,10 @@ var Types = []Type{
 			"us-west-1":      3.125,
 			"us-west-2":      2.76,
 		},
-		Generation: "current",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "current",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 	{
 		Name:         "d2.8xlarge",
@@ -2049,8 +2341,9 @@ var Types = []Type{
 			"us-west-1":      6.25,
 			"us-west-2":      5.52,
 		},
-		Generation: "current",
-		Virt:       "HVM",
-		NVMe:       false,
+		Generation:  "current",
+		Virt:        "HVM",
+		NVMe:        false,
+		CPUFeatures: map[string]bool{},
 	},
 }

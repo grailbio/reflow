@@ -84,6 +84,13 @@ func init() {
 			SpotOk: typ.Generation == "current" && !strings.HasPrefix(typ.Name, "t2."),
 			NVMe:   typ.NVMe,
 		}
+		for key, ok := range typ.CPUFeatures {
+			if !ok {
+				continue
+			}
+			// Allocate one feature per VCPU.
+			instanceTypes[typ.Name].Resources[key] = float64(typ.VCPU)
+		}
 	}
 }
 

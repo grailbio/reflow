@@ -26,6 +26,8 @@ The columns displayed by the instance listing are:
 	mem     the amount of instance memory (GiB)
 	cpu     the number of instance VCPUs
 	price   the hourly on-demand price of the instance in the selected region
+	cpu features
+			a set of CPU features supported by this instance type
 	flags   a set of flags:
 	            ebs    when the instance supports EBS optimization
 	            old    when the instance is not of the current generation`
@@ -63,9 +65,18 @@ The columns displayed by the instance listing are:
 		if typ.Generation != "current" {
 			flags = append(flags, "old")
 		}
-		fmt.Fprintf(&tw, "%s\t\t%.2f\t%d\t%.2f\t{%s}\n",
+		var features []string
+		for feature, ok := range typ.CPUFeatures {
+			if !ok {
+				continue
+			}
+			features = append(features, feature)
+		}
+		sort.Strings(features)
+		fmt.Fprintf(&tw, "%s\t\t%.2f\t%d\t%.2f\t{%s}\t{%s}\n",
 			typ.Name, typ.Memory,
 			typ.VCPU, typ.Price[*regionFlag],
+			strings.Join(features, ","),
 			strings.Join(flags, ","))
 	}
 }
