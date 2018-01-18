@@ -494,7 +494,14 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 					e.Type = types.Errorf("image must be a string")
 					return
 				}
-			case "mem", "cpu", "disk":
+			case "cpu":
+				switch d.Type.Kind {
+				case types.IntKind, types.FloatKind:
+				default:
+					e.Type = types.Errorf("%s must be integer or floating point", ident)
+					return
+				}
+			case "mem", "disk":
 				if d.Type.Kind != types.IntKind {
 					e.Type = types.Errorf("%s must be an integer", ident)
 					return
@@ -768,7 +775,13 @@ func (e *Expr) initResources(sess *Session, env *types.Env) error {
 		}
 		ident := d.Pat.Ident
 		switch d.Pat.Ident {
-		case "mem", "cpu", "disk":
+		case "cpu":
+			switch d.Type.Kind {
+			case types.IntKind, types.FloatKind:
+			default:
+				return fmt.Errorf("%s must be integer or floating point", ident)
+			}
+		case "mem", "disk":
 			if d.Type.Kind != types.IntKind {
 				return fmt.Errorf("%s must be an integer", ident)
 			}

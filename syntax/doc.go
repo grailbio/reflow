@@ -92,7 +92,7 @@ annoations, each of which takes a list of declarations.
 
 	@requires(...)                     // resource requirement annotation,
 	                                   // takes declarations mem int,
-	                                   // cpu int, disk int,
+	                                   // cpu int or cpu float, disk int,
 	                                   // cpufeatures[string, and wide
 	                                   // bool. They indicate resource
 	                                   // requirements for computing the

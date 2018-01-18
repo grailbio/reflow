@@ -1144,7 +1144,15 @@ func makeResources(env *values.Env) reflow.Resources {
 		if v == nil {
 			return 0
 		}
-		return float64(v.(*big.Int).Uint64())
+		switch arg := v.(type) {
+		case *big.Int:
+			return float64(arg.Uint64())
+		case *big.Float:
+			f64, _ := arg.Float64()
+			return f64
+		default:
+			panic("invalid type")
+		}
 	}
 	resources := reflow.Resources{
 		"mem":  f64("mem"),

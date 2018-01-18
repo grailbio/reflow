@@ -16,7 +16,7 @@ import (
 
 var requirementsType = types.Struct(
 	&types.Field{"mem", types.Int},
-	&types.Field{"cpu", types.Int},
+	&types.Field{"cpu", types.Float},
 	&types.Field{"disk", types.Int},
 	&types.Field{"wide", types.Bool})
 
@@ -61,9 +61,9 @@ func TestRequirements(t *testing.T) {
 		var expect reflow.Requirements
 		expect.Min = reflow.Resources{
 			"mem":  float64(val["mem"].(*big.Int).Uint64()),
-			"cpu":  float64(val["cpu"].(*big.Int).Uint64()),
 			"disk": float64(val["disk"].(*big.Int).Uint64()),
 		}
+		expect.Min["cpu"], _ = val["cpu"].(*big.Float).Float64()
 		for _, feature := range val["cpufeatures"].(values.List) {
 			expect.Min[feature.(string)] = expect.Min["cpu"]
 		}
