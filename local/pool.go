@@ -135,6 +135,14 @@ func (p *Pool) Start() error {
 		"mem": math.Floor(float64(info.MemTotal) * 0.95),
 		"cpu": float64(info.NCPU),
 	}
+	features, err := cpuFeatures()
+	if err != nil {
+		return err
+	}
+	for _, feature := range features {
+		// Add one feature per CPU.
+		p.resources[feature] = p.resources["cpu"]
+	}
 	root := filepath.Join(p.Prefix, p.Dir)
 	if err := os.MkdirAll(root, 0777); err != nil {
 		log.Printf("mkdir %s: %v", root, err)
