@@ -13,6 +13,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"html/template"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -127,25 +128,42 @@ func (s *instanceState) Unavailable(config instanceConfig) {
 	s.mu.Unlock()
 }
 
-// Max returns the maximum instance config that could
-// ever be available.
-func (s *instanceState) Max() instanceConfig {
-	return s.configs[0]
+// Available tells whether the provided resources are potentially
+// available as an EC2 instance.
+func (s *instanceState) Available(need reflow.Resources) bool {
+	for _, config := range s.configs {
+		if need.LessEqualAll(config.Resources) {
+			return true
+		}
+	}
+	return false
 }
 
-// MaxAvailable returns the maximum instance config currently
-// believed to be available. Spot restricts instances to those that
-// may be launched via EC2 spot market.
-func (s *instanceState) MaxAvailable(spot bool) (instanceConfig, bool) {
+// MaxAvailable returns the "largest" instance type that has at least
+// the required resources and is also believed to be currently
+// available. Spot restricts instances to those that may be launched
+// via EC2 spot market. MaxAvailable uses (Resources).ScoredDistance
+// to determine the largest instance type.
+func (s *instanceState) MaxAvailable(need reflow.Resources, spot bool) (instanceConfig, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	var (
+		best     instanceConfig
+		distance float64 = -math.MaxFloat64
+	)
 	for _, config := range s.configs {
 		if time.Since(s.unavailable[config.Type]) < s.sleepTime || (spot && !config.SpotOk) {
 			continue
 		}
-		return config, true
+		if !config.Resources.Available(need) {
+			continue
+		}
+		if d := config.Resources.ScaledDistance(need); d > distance {
+			distance = d
+			best = config
+		}
 	}
-	return instanceConfig{}, false
+	return best, best.Resources.Available(need)
 }
 
 // MinAvailable returns the cheapest instance type that has at least
@@ -153,25 +171,25 @@ func (s *instanceState) MaxAvailable(spot bool) (instanceConfig, bool) {
 // available. Spot restricts instances to those that may be launched
 // via EC2 spot market.
 func (s *instanceState) MinAvailable(need reflow.Resources, spot bool) (instanceConfig, bool) {
-	best, ok := s.MaxAvailable(spot)
-	if !ok {
-		return instanceConfig{}, ok
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, candidate := range s.configs {
-		if time.Since(s.unavailable[candidate.Type]) < s.sleepTime {
+	var (
+		best      instanceConfig
+		bestPrice float64 = math.MaxFloat64
+	)
+	for _, config := range s.configs {
+		if time.Since(s.unavailable[config.Type]) < s.sleepTime || (spot && !config.SpotOk) {
 			continue
 		}
-		price := candidate.Price[s.region]
-		if price == 0 {
+		if !config.Resources.Available(need) {
 			continue
 		}
-		if (!spot || candidate.SpotOk) && need.LessEqualAll(candidate.Resources) && price < best.Price[s.region] {
-			best = candidate
+		if price, ok := config.Price[s.region]; ok && price < bestPrice {
+			bestPrice = price
+			best = config
 		}
 	}
-	return best, true
+	return best, best.Resources.Available(need)
 }
 
 func (s *instanceState) Type(typ string) (instanceConfig, bool) {

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -69,10 +70,6 @@ type Cluster struct {
 	// Authenticator authenticates the ECR repository that stores the
 	// Reflowlet container.
 	Authenticator ecrauth.Interface
-	// Type specifies the instance types used for this cluster.
-	// If no type is specified, the cluster picks an instance type that
-	// best matches the resource requirements of the requested allocs.
-	Type string
 	// Tag is the tag that's attached instance types created by this cluster.
 	Tag string
 	// Labels is the set of labels that should be associated with newly created instances.
@@ -176,10 +173,9 @@ func (c *Cluster) Init() error {
 // are spun up to handle the allocation.
 func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error) {
 	c.Log.Debugf("allocate %s", req)
-	if t := c.instanceState.Max(); !t.Resources.Available(req.Min) {
+	if !c.instanceState.Available(req.Min) {
 		return nil, errors.E(errors.ResourcesExhausted,
-			errors.Errorf("requested resources %s exceeds maximum available instance type %s %s",
-				req, t.Type, t.Resources))
+			errors.Errorf("requested resources %s not satisfiable by any available instance type", req))
 	}
 
 	if c.Size() > 0 {
@@ -273,56 +269,42 @@ func (c *Cluster) loop() {
 		var instances map[string]*ec2.Instance
 		c.File.Unmarshal(&instances)
 		n := len(instances)
-		var need reflow.Resources
 		var needPoll bool
-		maxInstance, ok := c.instanceState.MaxAvailable(c.Spot)
-		if !ok {
-			c.Log.Printf("no instance types are currently available")
-			needPoll = true
-			goto sleep
-		}
-		for _, w := range waiters {
-			if maxInstance.Resources.LessAny(w.Min) {
-				// We can't satisfy the minimum requirements of this waiter. Drop it.
-				c.Log.Printf("no instance types can currently satisfy resource requirements %v", w.Min)
-			} else if w.Wide {
-				// This is in the case of "wide" requests.
-				// In these cases we simply opt for the biggest allowable instance type.
-				// TODO(marius): this should be more sophisticated, relying on profile data
-				// or otherwise deploy somewhat conservative heuristics.
-				need = maxInstance.Resources
-			} else {
-				need.Add(need, w.Requirements.Max)
+		// Here we try to pack resource requests. First, we order each
+		// request by the "magnitude" of the request (as defined by
+		// (Resources).ScaledDistance) and then greedily pack the requests
+		// until there is no instance type that can accomodate them.
+		sort.Slice(waiters, func(i, j int) bool {
+			return waiters[i].Min.ScaledDistance(nil) < waiters[j].Min.ScaledDistance(nil)
+		})
+		var todo []instanceConfig
+		for i := 0; i < len(waiters); {
+			var need reflow.Resources
+			need.Add(need, waiters[i].Min)
+			i++
+			best, ok := c.instanceState.MinAvailable(need, c.Spot)
+			if !ok {
+				c.Log.Printf("no currently available instance type can satisfy resource requirements %v", waiters[i-1].Min)
+				continue
 			}
+			for wbest := (instanceConfig{}); i < len(waiters) && ok; i, best = i+1, wbest {
+				need.Add(need, waiters[i].Min)
+				wbest, ok = c.instanceState.MinAvailable(need, c.Spot)
+			}
+			todo = append(todo, best)
 		}
-		if len(waiters) > 0 && need.IsZeroAll() {
+		if len(waiters) > 0 && len(todo) == 0 {
 			c.Log.Print("resource requirements are unsatisfiable by current instance selection")
 			needPoll = true
 			goto sleep
 		}
-		for pending.LessAny(need) && npending < maxPending && n+npending < c.MaxInstances {
-			var best instanceConfig
-			if c.Type != "" {
-				best, ok = c.instanceState.Type(c.Type)
-				if !ok {
-					c.Log.Printf("requested instance type %s is currently unavailable", c.Type)
-					needPoll = true
-					break
-				}
-			} else {
-				// TODO(marius): set disk sizes dynamically
-				// TODO(marius): use a more sophisticated scoring scheme to pick instance types
-				best, ok = c.instanceState.MinAvailable(need, c.Spot)
-				if !ok {
-					c.Log.Printf("no instance types matching requirements %s are currently available", need)
-					needPoll = true
-					break
-				}
-			}
-			pending.Add(pending, best.Resources)
+		for len(todo) > 0 && npending < maxPending && n+npending < c.MaxInstances {
+			var config instanceConfig
+			config, todo = todo[0], todo[1:]
+			pending.Add(pending, config.Resources)
 			npending++
-			c.Log.Debugf("launch %v%v need%v pending%v", best.Type, best.Resources, need, pending)
-			go launch(best, best.Price[c.Region])
+			c.Log.Debugf("launch %v%v pending%v", config.Type, config.Resources, pending)
+			go launch(config, config.Price[c.Region])
 		}
 	sleep:
 		var pollch <-chan time.Time
