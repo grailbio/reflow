@@ -1,7 +1,3 @@
-// Copyright 2018 GRAIL, Inc. All rights reserved.
-// Use of this source code is governed by the Apache 2.0
-// license that can be found in the LICENSE file.
-
 // THIS FILE WAS AUTOMATICALLY GENERATED. DO NOT EDIT.
 
 package instances
@@ -416,13 +412,15 @@ var Types = []Type{
 		Memory:       8.000000,
 		Price: map[string]float64{
 			"eu-west-1": 0.107,
+			"eu-west-2": 0.111,
 			"eu-west-3": 0.112,
 			"us-east-1": 0.096,
+			"us-west-1": 0.112,
 			"us-west-2": 0.096,
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 	},
 	{
 		Name:         "m5.xlarge",
@@ -431,13 +429,15 @@ var Types = []Type{
 		Memory:       16.000000,
 		Price: map[string]float64{
 			"eu-west-1": 0.214,
+			"eu-west-2": 0.222,
 			"eu-west-3": 0.224,
 			"us-east-1": 0.192,
+			"us-west-1": 0.224,
 			"us-west-2": 0.192,
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 	},
 	{
 		Name:         "m5.2xlarge",
@@ -446,13 +446,15 @@ var Types = []Type{
 		Memory:       32.000000,
 		Price: map[string]float64{
 			"eu-west-1": 0.428,
+			"eu-west-2": 0.444,
 			"eu-west-3": 0.448,
 			"us-east-1": 0.384,
+			"us-west-1": 0.448,
 			"us-west-2": 0.384,
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 	},
 	{
 		Name:         "m5.4xlarge",
@@ -461,13 +463,15 @@ var Types = []Type{
 		Memory:       64.000000,
 		Price: map[string]float64{
 			"eu-west-1": 0.856,
+			"eu-west-2": 0.888,
 			"eu-west-3": 0.896,
 			"us-east-1": 0.768,
+			"us-west-1": 0.896,
 			"us-west-2": 0.768,
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 	},
 	{
 		Name:         "m5.12xlarge",
@@ -476,13 +480,15 @@ var Types = []Type{
 		Memory:       192.000000,
 		Price: map[string]float64{
 			"eu-west-1": 2.568,
+			"eu-west-2": 2.664,
 			"eu-west-3": 2.688,
 			"us-east-1": 2.304,
+			"us-west-1": 2.688,
 			"us-west-2": 2.304,
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 	},
 	{
 		Name:         "m5.24xlarge",
@@ -491,13 +497,15 @@ var Types = []Type{
 		Memory:       384.000000,
 		Price: map[string]float64{
 			"eu-west-1": 5.136,
+			"eu-west-2": 5.328,
 			"eu-west-3": 5.376,
 			"us-east-1": 4.608,
+			"us-west-1": 5.376,
 			"us-west-2": 4.608,
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 	},
 	{
 		Name:         "m4.large",
@@ -746,8 +754,10 @@ var Types = []Type{
 		Memory:       4.000000,
 		Price: map[string]float64{
 			"eu-west-1": 0.096,
+			"eu-west-2": 0.101,
 			"eu-west-3": 0.101,
 			"us-east-1": 0.085,
+			"us-west-1": 0.106,
 			"us-west-2": 0.085,
 		},
 		Generation: "current",
@@ -761,8 +771,10 @@ var Types = []Type{
 		Memory:       8.000000,
 		Price: map[string]float64{
 			"eu-west-1": 0.192,
+			"eu-west-2": 0.202,
 			"eu-west-3": 0.202,
 			"us-east-1": 0.17,
+			"us-west-1": 0.212,
 			"us-west-2": 0.17,
 		},
 		Generation: "current",
@@ -776,8 +788,10 @@ var Types = []Type{
 		Memory:       16.000000,
 		Price: map[string]float64{
 			"eu-west-1": 0.384,
+			"eu-west-2": 0.404,
 			"eu-west-3": 0.404,
 			"us-east-1": 0.34,
+			"us-west-1": 0.424,
 			"us-west-2": 0.34,
 		},
 		Generation: "current",
@@ -791,8 +805,10 @@ var Types = []Type{
 		Memory:       32.000000,
 		Price: map[string]float64{
 			"eu-west-1": 0.768,
+			"eu-west-2": 0.808,
 			"eu-west-3": 0.808,
 			"us-east-1": 0.68,
+			"us-west-1": 0.848,
 			"us-west-2": 0.68,
 		},
 		Generation: "current",
@@ -806,8 +822,10 @@ var Types = []Type{
 		Memory:       72.000000,
 		Price: map[string]float64{
 			"eu-west-1": 1.728,
+			"eu-west-2": 1.818,
 			"eu-west-3": 1.818,
 			"us-east-1": 1.53,
+			"us-west-1": 1.908,
 			"us-west-2": 1.53,
 		},
 		Generation: "current",
@@ -821,8 +839,10 @@ var Types = []Type{
 		Memory:       144.000000,
 		Price: map[string]float64{
 			"eu-west-1": 3.456,
+			"eu-west-2": 3.636,
 			"eu-west-3": 3.636,
 			"us-east-1": 3.06,
+			"us-west-1": 3.816,
 			"us-west-2": 3.06,
 		},
 		Generation: "current",

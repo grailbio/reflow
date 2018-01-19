@@ -158,7 +158,7 @@ func main() {
 		g.Printf("	},\n")
 		g.Printf("	Generation: %q,\n", e.Generation)
 		g.Printf("	Virt: %q,\n", virt)
-		g.Printf("	NVMe: %v,\n", strings.HasPrefix(e.Type, "c5."))
+		g.Printf("	NVMe: %v,\n", strings.HasPrefix(e.Type, "c5.") || strings.HasPrefix(e.Type, "m5."))
 		g.Printf("},\n")
 	}
 	g.Printf("}\n")
