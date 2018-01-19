@@ -28,6 +28,11 @@ func (c *Cmd) doc(ctx context.Context, args ...string) {
 	if err != nil {
 		c.Fatal(err)
 	}
+	f, err := m.Flags(sess, sess.Values)
+	if err != nil {
+		c.Fatal(err)
+	}
+
 	if params := m.Params(); len(params) > 0 {
 		fmt.Println("Parameters")
 		fmt.Println()
@@ -35,7 +40,12 @@ func (c *Cmd) doc(ctx context.Context, args ...string) {
 			if p.Required {
 				fmt.Printf("val %s %s\n", p.Ident, p.Type)
 			} else {
-				fmt.Printf("val %s %s = <default>\n", p.Ident, p.Type)
+				fl := f.Lookup(p.Ident)
+				if fl != nil {
+					fmt.Printf("val %s %s = %v\n", p.Ident, p.Type, fl.DefValue)
+				} else {
+					fmt.Printf("val %s %s = <default>\n", p.Ident, p.Type)
+				}
 			}
 			c.printdoc(p.Doc, "")
 		}
