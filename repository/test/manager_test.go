@@ -39,7 +39,7 @@ func TestManager(t *testing.T) {
 	defer cleanup()
 	file1, file2 := mustInstall(t, r1, "test1"), mustInstall(t, r2, "test2")
 	var m repository.Manager
-	m.PendingBytes = repository.NewLimits(1)
+	m.PendingTransfers = repository.NewLimits(1)
 	m.Stat = repository.NewLimits(1)
 	if err := m.Transfer(ctx, r2, r1, file1, file2); err != nil {
 		t.Fatal(err)
@@ -56,7 +56,7 @@ func TestLimits(t *testing.T) {
 	r1, r2, cleanup := mustRepositories(t)
 	defer cleanup()
 	var m repository.Manager
-	m.PendingBytes = repository.NewLimits(5)
+	m.PendingTransfers = repository.NewLimits(1)
 	m.Stat = repository.NewLimits(1)
 
 	file1, file2 := mustInstall(t, r1, "test1"), mustInstall(t, r1, "test2")

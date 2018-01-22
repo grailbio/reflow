@@ -92,12 +92,12 @@ level.`
 	}
 
 	transferer := &repository.Manager{
-		Log:          c.Log.Tee(nil, "transferer: "),
-		PendingBytes: repository.NewLimits(transferLimit),
-		Stat:         repository.NewLimits(statLimit),
+		Log:              c.Log.Tee(nil, "transferer: "),
+		PendingTransfers: repository.NewLimits(c.transferLimit()),
+		Stat:             repository.NewLimits(statLimit),
 	}
 	if repo != nil {
-		transferer.PendingBytes.Set(repo.URL().String(), int(^uint(0)>>1))
+		transferer.PendingTransfers.Set(repo.URL().String(), int(^uint(0)>>1))
 	}
 	go transferer.Report(ctx, time.Minute)
 

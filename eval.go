@@ -134,7 +134,7 @@ type EvalConfig struct {
 // String returns a human-readable form of the evaluation configuration.
 func (e EvalConfig) String() string {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "executor %T transferer %T", e.Executor, e.Transferer)
+	fmt.Fprintf(&b, "executor %+v transferer %+v", e.Executor, e.Transferer)
 	var flags []string
 	if e.NoCacheExtern {
 		flags = append(flags, "nocacheextern")

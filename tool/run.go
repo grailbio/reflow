@@ -243,12 +243,12 @@ retriable.`
 		c.Fatal(err)
 	}
 	transferer := &repository.Manager{
-		Log:          c.Log.Tee(nil, "transferer: "),
-		PendingBytes: repository.NewLimits(transferLimit),
-		Stat:         repository.NewLimits(statLimit),
+		Log:              c.Log.Tee(nil, "transferer: "),
+		PendingTransfers: repository.NewLimits(c.transferLimit()),
+		Stat:             repository.NewLimits(statLimit),
 	}
 	if repo != nil {
-		transferer.PendingBytes.Set(repo.URL().String(), int(^uint(0)>>1))
+		transferer.PendingTransfers.Set(repo.URL().String(), int(^uint(0)>>1))
 	}
 	if c.Log.At(log.DebugLevel) {
 		go transferer.Report(ctx, time.Minute)
@@ -351,12 +351,12 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		c.Fatal(err)
 	}
 	transferer := &repository.Manager{
-		Log:          c.Log.Tee(nil, "transferer: "),
-		PendingBytes: repository.NewLimits(transferLimit),
-		Stat:         repository.NewLimits(statLimit),
+		Log:              c.Log.Tee(nil, "transferer: "),
+		PendingTransfers: repository.NewLimits(c.transferLimit()),
+		Stat:             repository.NewLimits(statLimit),
 	}
 	if repo != nil {
-		transferer.PendingBytes.Set(repo.URL().String(), int(^uint(0)>>1))
+		transferer.PendingTransfers.Set(repo.URL().String(), int(^uint(0)>>1))
 	}
 	go transferer.Report(ctx, time.Minute)
 	dir := config.localDir

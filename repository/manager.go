@@ -24,10 +24,6 @@ const (
 	// minTimeout defines the smallest acceptable timeout.
 	// This helps to give wiggle room for small data transfers.
 	minTimeout = 30 * time.Second
-
-	// The minimum file size for the purposes of reservation.
-	// This is used to limit file transfer concurrency.
-	minSize = 500 << 20
 )
 
 // Limits stores a default limits and maintains a set of overrides by
@@ -40,6 +36,10 @@ type Limits struct {
 // NewLimits returns a new Limits with a default value.
 func NewLimits(def int) *Limits {
 	return &Limits{def: def, limits: map[string]int{}}
+}
+
+func (l *Limits) String() string {
+	return fmt.Sprintf("limits{def:%d overrides:%v}", l.def, l.limits)
 }
 
 // Set sets limit v for key k.
@@ -69,12 +69,12 @@ type Manager struct {
 	// Log is used to report manager status.
 	Log *log.Logger
 
-	// PendingBytes defines limits for the number of outstanding
-	// bytes a repository (keyed by URL) may have in transfer.
+	// PendingTransfers defines limits for the number of outstanding
+	// transfers a repository (keyed by URL) may have in flight.
 	// The limit is used separately for transmit and receive traffic.
 	// It is not possible currently to set different limits for the two
 	// directions.
-	PendingBytes *Limits
+	PendingTransfers *Limits
 
 	// Stat defines limits for the number of stat operations that
 	// may be issued concurrently to any given repository.
@@ -83,6 +83,10 @@ type Manager struct {
 	mu             sync.Mutex
 	src, dst, stat map[string]*limiter.Limiter
 	pending        map[string]stat
+}
+
+func (m *Manager) String() string {
+	return fmt.Sprintf("manager{pending:%s stat:%s}", m.PendingTransfers, m.Stat)
 }
 
 // Report reports transfer status to m.Logger at each interval.
@@ -102,11 +106,10 @@ func (m *Manager) Report(ctx context.Context, interval time.Duration) {
 			var entries []string
 			m.mu.Lock()
 			for u, stat := range m.pending {
-				lim := m.PendingBytes.Limit(u)
+				lim := m.PendingTransfers.Limit(u)
 				entries = append(entries, fmt.Sprintf(
-					"%s: files:%d send:%s/%s recv:%s/%s", u, stat.files,
-					data.Size(stat.send), data.Size(lim),
-					data.Size(stat.recv), data.Size(lim)))
+					"%s: files:%d/%d send:%s recv:%s",
+					u, stat.files, lim, data.Size(stat.send), data.Size(stat.recv)))
 			}
 			m.mu.Unlock()
 			for _, line := range entries {
@@ -174,8 +177,8 @@ func (m *Manager) NeedTransfer(ctx context.Context, dst reflow.Repository, files
 
 func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, files ...reflow.File) error {
 	var (
-		lx = m.limiter(dst, &m.dst, m.PendingBytes)
-		ly = m.limiter(src, &m.src, m.PendingBytes)
+		lx = m.limiter(dst, &m.dst, m.PendingTransfers)
+		ly = m.limiter(src, &m.src, m.PendingTransfers)
 		ux = key(dst)
 		uy = key(src)
 	)
@@ -187,24 +190,11 @@ func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, file
 	for i := range files {
 		file := files[i]
 		n := int(file.Size)
-		nx, ny := n, n
-		if nx < minSize {
-			nx = minSize
-		}
-		if lim := m.PendingBytes.Limit(ux); lim < nx {
-			nx = lim
-		}
-		if err := lx.Acquire(ctx, nx); err != nil {
+		if err := lx.Acquire(ctx, 1); err != nil {
 			return err
 		}
-		if ny < minSize {
-			ny = minSize
-		}
-		if lim := m.PendingBytes.Limit(uy); lim < ny {
-			ny = lim
-		}
-		if err := ly.Acquire(ctx, ny); err != nil {
-			lx.Release(nx)
+		if err := ly.Acquire(ctx, 1); err != nil {
+			lx.Release(1)
 			return err
 		}
 		g.Go(func() error {
@@ -225,8 +215,8 @@ func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, file
 				err = errors.E(err, errors.Errorf("error transferring object %v", file.ID))
 			}
 			cancel()
-			ly.Release(ny)
-			lx.Release(nx)
+			ly.Release(1)
+			lx.Release(1)
 			m.updateStats(dst, -1, 0, -n)
 			m.updateStats(src, -1, -n, 0)
 			return err
