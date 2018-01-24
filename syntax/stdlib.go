@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
@@ -22,7 +23,8 @@ import (
 	"github.com/grailbio/reflow/values"
 )
 
-type systemFunc struct {
+// SystemFunc is utility to define a reflow intrinsic.
+type SystemFunc struct {
 	Module string
 	Id     string
 	Doc    string
@@ -31,7 +33,8 @@ type systemFunc struct {
 	Do     func(loc values.Location, args []values.T) (values.T, error)
 }
 
-func (s systemFunc) Apply(loc values.Location, args []values.T) (values.T, error) {
+// Apply applied the intrinsic with the given arguments.
+func (s SystemFunc) Apply(loc values.Location, args []values.T) (values.T, error) {
 	args = append([]values.T{}, args...)
 	var (
 		deps  []*reflow.Flow
@@ -72,11 +75,13 @@ func (s systemFunc) Apply(loc values.Location, args []values.T) (values.T, error
 	}, nil
 }
 
-func (s systemFunc) Digest() digest.Digest {
+// Digest computes the digest of the intrinsic.
+func (s SystemFunc) Digest() digest.Digest {
 	return reflow.Digester.FromString("$/" + s.Module + s.Id)
 }
 
-func (s systemFunc) Decl() *Decl {
+// Decl returns the intrinsic as a reflow declaration.
+func (s SystemFunc) Decl() *Decl {
 	return &Decl{
 		Kind:    DeclAssign,
 		Comment: s.Doc,
@@ -98,7 +103,7 @@ func Stdlib() (*types.Env, *values.Env) {
 		venv.Bind(sym, v)
 	}
 
-	funcs := []systemFunc{
+	funcs := []SystemFunc{
 		{
 			Id:   "file",
 			Type: types.Func(types.File, &types.Field{"url", types.String}),
@@ -255,10 +260,11 @@ func Stdlib() (*types.Env, *values.Env) {
 	return tenv, venv
 }
 
+var mu sync.Mutex
 var lib = map[string]*ModuleImpl{}
 
 var testDecls = []*Decl{
-	systemFunc{
+	SystemFunc{
 		Id:     "Assert",
 		Module: "test",
 		Doc:    "Assert fails if any passed (boolean) value is false.",
@@ -278,7 +284,7 @@ var testDecls = []*Decl{
 			return values.Unit, nil
 		},
 	}.Decl(),
-	systemFunc{
+	SystemFunc{
 		Id:     "All",
 		Module: "test",
 		Doc:    "All returns true if every passed (boolean) value is true.",
@@ -308,7 +314,7 @@ func coerceFilesetToDir(v values.T) (values.T, error) {
 }
 
 var dirsDecls = []*Decl{
-	systemFunc{
+	SystemFunc{
 		Id:     "Groups",
 		Module: "dirs",
 		Doc: "Groups assigns each path in a directory to a group according " +
@@ -344,7 +350,7 @@ var dirsDecls = []*Decl{
 			return v, nil
 		},
 	}.Decl(),
-	systemFunc{
+	SystemFunc{
 		Id:     "Make",
 		Module: "dirs",
 		Force:  true,
@@ -360,7 +366,7 @@ var dirsDecls = []*Decl{
 			return dir, nil
 		},
 	}.Decl(),
-	systemFunc{
+	SystemFunc{
 		Id:     "Pick",
 		Module: "dirs",
 		Doc: "Pick returns the first file in a directory matching a glob pattern. " +
@@ -382,7 +388,7 @@ var dirsDecls = []*Decl{
 			return nil, errors.Errorf("dirs.Pick: no files matched %s", pat)
 		},
 	}.Decl(),
-	systemFunc{
+	SystemFunc{
 		Id:     "Files",
 		Module: "dirs",
 		Doc:    "Files returns a sorted (by filename) list of files from a directory.",
@@ -402,7 +408,7 @@ var dirsDecls = []*Decl{
 			return files, nil
 		},
 	}.Decl(),
-	systemFunc{
+	SystemFunc{
 		Id:     "Copy",
 		Module: "dirs",
 		Doc:    "Copy copies the directory to an extern location.",
@@ -428,7 +434,7 @@ var dirsDecls = []*Decl{
 			}, nil
 		},
 	}.Decl(),
-	systemFunc{
+	SystemFunc{
 		Id:     "Fileset",
 		Module: "dirs",
 		Doc:    "Fileset coerces a fileset into a dir.",
@@ -459,7 +465,7 @@ func coerceFilesetToFile(v values.T) (values.T, error) {
 }
 
 var filesDecls = []*Decl{
-	systemFunc{
+	SystemFunc{
 		Id:     "Copy",
 		Module: "files",
 		Doc:    "Copy copies the file to an extern location.",
@@ -485,7 +491,7 @@ var filesDecls = []*Decl{
 			}, nil
 		},
 	}.Decl(),
-	systemFunc{
+	SystemFunc{
 		Id:     "Fileset",
 		Module: "files",
 		Doc:    "Fileset coerces a fileset into a file.",
@@ -505,7 +511,7 @@ var filesDecls = []*Decl{
 }
 
 var regexpDecls = []*Decl{
-	systemFunc{
+	SystemFunc{
 		Id:     "Groups",
 		Module: "regexp",
 		Doc: "Groups matches a string with a regular expression and returns a list " +
@@ -531,7 +537,7 @@ var regexpDecls = []*Decl{
 			return list, nil
 		},
 	}.Decl(),
-	systemFunc{
+	SystemFunc{
 		Id:     "Replace",
 		Module: "regexp",
 		Doc: "Replace returns a copy of src, replacing matches of the regular " +
@@ -553,7 +559,7 @@ var regexpDecls = []*Decl{
 }
 
 var stringsDecls = []*Decl{
-	systemFunc{
+	SystemFunc{
 		Id:     "Split",
 		Module: "strings",
 		Doc:    "Split splits the string s by separator sep.",
@@ -570,7 +576,7 @@ var stringsDecls = []*Decl{
 			return list, nil
 		},
 	}.Decl(),
-	systemFunc{
+	SystemFunc{
 		Id:     "Sort",
 		Module: "strings",
 		Doc:    "Sort sorts a list of strings in lexicographic order.",
@@ -586,7 +592,7 @@ var stringsDecls = []*Decl{
 			return sorted, nil
 		},
 	}.Decl(),
-	systemFunc{
+	SystemFunc{
 		Id:     "FromInt",
 		Module: "strings",
 		Force:  true,
@@ -599,7 +605,7 @@ var stringsDecls = []*Decl{
 			return stringVal, nil
 		},
 	}.Decl(),
-	systemFunc{
+	SystemFunc{
 		Id:     "FromFloat",
 		Module: "strings",
 		Force:  true,
@@ -617,7 +623,7 @@ var stringsDecls = []*Decl{
 }
 
 var pathDecls = []*Decl{
-	systemFunc{
+	SystemFunc{
 		Id:     "Base",
 		Module: "path",
 		Doc:    "Base returns the last element of path.",
@@ -627,7 +633,7 @@ var pathDecls = []*Decl{
 			return path.Base(args[0].(string)), nil
 		},
 	}.Decl(),
-	systemFunc{
+	SystemFunc{
 		Id:     "Dir",
 		Module: "path",
 		Doc: "Dir returns all but the last element of path. The result is " +
@@ -644,7 +650,7 @@ var pathDecls = []*Decl{
 			return dir, nil
 		},
 	}.Decl(),
-	systemFunc{
+	SystemFunc{
 		Id:     "Ext",
 		Module: "path",
 		Doc:    "Ext returns the file name extension of path.",
@@ -654,7 +660,7 @@ var pathDecls = []*Decl{
 			return path.Ext(args[0].(string)), nil
 		},
 	}.Decl(),
-	systemFunc{
+	SystemFunc{
 		Id:     "Join",
 		Module: "path",
 		Doc: "Join joins a number of path elements into a single path. " +
@@ -678,7 +684,7 @@ var pathDecls = []*Decl{
 }
 
 var filesetsDecls = []*Decl{
-	systemFunc{
+	SystemFunc{
 		Id:     "Dir",
 		Module: "filesets",
 		Doc:    "Dir returns a fileset from a directory.",
@@ -691,7 +697,7 @@ var filesetsDecls = []*Decl{
 			return coerceToFileset(types.Dir, args[0]), nil
 		},
 	}.Decl(),
-	systemFunc{
+	SystemFunc{
 		Id:     "File",
 		Module: "filesets",
 		Doc:    "File returns a fileset from a file.",
