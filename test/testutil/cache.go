@@ -212,7 +212,7 @@ func Exists(e *reflow.Eval, keys ...digest.Digest) bool {
 		panic("exists must be provided with at least one key")
 	}
 	for _, key := range keys {
-		fsid, err := e.Assoc.Get(context.Background(), assoc.Fileset, key)
+		_, fsid, err := e.Assoc.Get(context.Background(), assoc.Fileset, key)
 		if err != nil {
 			if !errors.Is(errors.NotExist, err) {
 				unexpected(err)
@@ -237,7 +237,7 @@ func Exists(e *reflow.Eval, keys ...digest.Digest) bool {
 // Value returns the fileset stored for the provided key in the cache
 // configured in Eval e.
 func Value(e *reflow.Eval, key digest.Digest) reflow.Fileset {
-	fsid, err := e.Assoc.Get(context.Background(), assoc.Fileset, key)
+	key, fsid, err := e.Assoc.Get(context.Background(), assoc.Fileset, key)
 	if err != nil {
 		unexpected(err)
 	}

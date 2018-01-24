@@ -11,6 +11,8 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -50,7 +52,11 @@ The resulting configuration can be examined with "reflow config"`
 	}
 	v, _ := base[config.Assoc].(string)
 	if v != "" {
-		c.Fatalf("assoc already set up: %v", v)
+		parts := strings.Split(v, ",")
+		if len(parts) != 2 || parts[0] != "dynamodb" || parts[1] != table {
+			c.Fatalf("assoc already set up: %v", v)
+		}
+		c.Log.Printf("assoc already set up; updating schemas")
 	}
 	sess, err := c.Config.AWS()
 	if err != nil {
@@ -58,7 +64,8 @@ The resulting configuration can be examined with "reflow config"`
 	}
 
 	c.Log.Printf("creating DynamoDB table %s", table)
-	_, err = dynamodb.New(sess).CreateTable(&dynamodb.CreateTableInput{
+	db := dynamodb.New(sess)
+	_, err = db.CreateTable(&dynamodb.CreateTableInput{
 		AttributeDefinitions: []*dynamodb.AttributeDefinition{
 			{
 				AttributeName: aws.String("ID"),
@@ -84,6 +91,81 @@ The resulting configuration can be examined with "reflow config"`
 		c.Log.Printf("dynamodb table %s already exists", table)
 	} else {
 		c.Log.Printf("created DynamoDB table %s", table)
+	}
+	const indexName = "ID4-ID-index"
+	var describe *dynamodb.DescribeTableOutput
+	start := time.Now()
+	for {
+		describe, err = db.DescribeTable(&dynamodb.DescribeTableInput{
+			TableName: aws.String(table),
+		})
+		if err != nil {
+			c.Fatal(err)
+		}
+		status := *describe.Table.TableStatus
+		if status == "ACTIVE" {
+			break
+		}
+
+		if time.Since(start) > time.Minute {
+			c.Fatal("waited for table to become active for too long; try again later")
+		}
+		c.Log.Printf("waiting for table to become active; current status: %v", status)
+		time.Sleep(4 * time.Second)
+	}
+	var exists bool
+	for _, index := range describe.Table.GlobalSecondaryIndexes {
+		if *index.IndexName == indexName {
+			exists = true
+			break
+		}
+	}
+	if exists {
+		c.Log.Printf("dynamodb index %s already exists", indexName)
+	} else {
+		// Create a secondary index to look up keys by their ID4-prefix.
+		_, err = db.UpdateTable(&dynamodb.UpdateTableInput{
+			TableName: aws.String(table),
+			AttributeDefinitions: []*dynamodb.AttributeDefinition{
+				{
+					AttributeName: aws.String("ID"),
+					AttributeType: aws.String("S"),
+				},
+				// DynamoDB has to know about the attribute type to index it
+				{
+					AttributeName: aws.String("ID4"),
+					AttributeType: aws.String("S"),
+				},
+			},
+			GlobalSecondaryIndexUpdates: []*dynamodb.GlobalSecondaryIndexUpdate{
+				{
+					Create: &dynamodb.CreateGlobalSecondaryIndexAction{
+						IndexName: aws.String(indexName),
+						KeySchema: []*dynamodb.KeySchemaElement{
+							{
+								KeyType:       aws.String("HASH"),
+								AttributeName: aws.String("ID4"),
+							},
+							{
+								KeyType:       aws.String("RANGE"),
+								AttributeName: aws.String("ID"),
+							},
+						},
+						Projection: &dynamodb.Projection{
+							ProjectionType: aws.String("ALL"),
+						},
+						ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+							ReadCapacityUnits:  aws.Int64(int64(*readCap)),
+							WriteCapacityUnits: aws.Int64(int64(*writeCap)),
+						},
+					},
+				},
+			},
+		})
+		if err != nil {
+			c.Fatalf("error creating secondary index: %v", err)
+		}
+		c.Log.Printf("created secondary index %s", indexName)
 	}
 
 	base[config.Assoc] = fmt.Sprintf("dynamodb,%s", table)

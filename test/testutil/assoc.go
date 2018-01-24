@@ -46,11 +46,11 @@ func (a *inmemoryAssoc) Put(ctx context.Context, kind assoc.Kind, expect digest.
 	return nil
 }
 
-func (a *inmemoryAssoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (digest.Digest, error) {
+func (a *inmemoryAssoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (digest.Digest, digest.Digest, error) {
 	key := assocKey{kind, k}
 	v, ok := a.assocs[key]
 	if !ok {
-		return digest.Digest{}, errors.E(errors.NotExist, errors.New("key does not exist"))
+		return k, digest.Digest{}, errors.E(errors.NotExist, errors.New("key does not exist"))
 	}
-	return v, nil
+	return k, v, nil
 }

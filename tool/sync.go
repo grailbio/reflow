@@ -40,7 +40,7 @@ are not also in the fileset.`
 	if err != nil {
 		c.Fatal(err)
 	}
-	fsid, err := ass.Get(ctx, assoc.Fileset, id)
+	id, fsid, err := ass.Get(ctx, assoc.Fileset, id)
 	if err != nil {
 		c.Fatal(err)
 	}

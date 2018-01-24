@@ -95,32 +95,76 @@ func (a *Assoc) Put(ctx context.Context, kind assoc.Kind, expect, k, v digest.Di
 // returns an error flagged errors.NotExist when no such mapping
 // exists. Lookup also modifies the item's last-accessed time, which
 // can be used for LRU object garbage collection.
-func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (digest.Digest, error) {
+//
+// Get expands abbreviated keys by making use of a DynamoDB index.
+func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (digest.Digest, digest.Digest, error) {
+	var v digest.Digest
 	if kind != assoc.Fileset {
-		return digest.Digest{}, errors.E(errors.NotSupported, errors.Errorf("mappings of kind %v are not supported", kind))
+		return k, v, errors.E(errors.NotSupported, errors.Errorf("mappings of kind %v are not supported", kind))
 	}
 	if err := a.Limiter.Acquire(ctx, 1); err != nil {
-		return digest.Digest{}, err
+		return k, v, err
 	}
 	defer a.Limiter.Release(1)
-	resp, err := a.DB.GetItemWithContext(ctx, &dynamodb.GetItemInput{
-		Key: map[string]*dynamodb.AttributeValue{
-			"ID": {
-				S: aws.String(k.String()),
+	var item *dynamodb.AttributeValue
+	if k.IsAbbrev() {
+		resp, err := a.DB.Query(&dynamodb.QueryInput{
+			TableName:              aws.String(a.TableName),
+			IndexName:              aws.String("ID4-ID-index"),
+			KeyConditionExpression: aws.String("ID4 = :id4"),
+			ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+				":id4": {S: aws.String(k.HexN(4))},
 			},
-		},
-		TableName: aws.String(a.TableName),
-	})
-	if err != nil {
-		return digest.Digest{}, err
+		})
+		if err != nil {
+			return k, v, err
+		}
+		expanded := make(map[digest.Digest]*dynamodb.AttributeValue)
+		for _, it := range resp.Items {
+			v := it["ID"]
+			if v == nil || v.S == nil {
+				continue
+			}
+			kit, err := reflow.Digester.Parse(*v.S)
+			if err != nil {
+				log.Debugf("invalid dynamodb entry %v", it)
+				continue
+			}
+			if kit.Expands(k) {
+				expanded[kit] = it["Value"]
+			}
+		}
+		switch len(expanded) {
+		case 0:
+		case 1:
+			for k1, v1 := range expanded {
+				k = k1
+				item = v1
+			}
+		default:
+			return k, v, errors.E("lookup", k, errors.Invalid, errors.New("more than one key matched"))
+		}
+	} else {
+		resp, err := a.DB.GetItemWithContext(ctx, &dynamodb.GetItemInput{
+			Key: map[string]*dynamodb.AttributeValue{
+				"ID": {
+					S: aws.String(k.String()),
+				},
+			},
+			TableName: aws.String(a.TableName),
+		})
+		if err != nil {
+			return k, v, err
+		}
+		item = resp.Item["Value"]
 	}
-	item := resp.Item["Value"]
 	if item == nil || item.S == nil {
-		return digest.Digest{}, errors.E("lookup", k, errors.NotExist)
+		return k, v, errors.E("lookup", k, errors.NotExist)
 	}
-	v, err := reflow.Digester.Parse(*item.S)
+	var err error
+	v, err = reflow.Digester.Parse(*item.S)
 	if err != nil {
-		return digest.Digest{}, errors.E("lookup", k, err)
+		return k, v, errors.E("lookup", k, err)
 	}
 	_, err = a.DB.UpdateItemWithContext(ctx, &dynamodb.UpdateItemInput{
 		Key: map[string]*dynamodb.AttributeValue{
@@ -138,5 +182,5 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 	if err != nil {
 		log.Errorf("dynamodb: update %v: %v", k, err)
 	}
-	return v, nil
+	return k, v, nil
 }

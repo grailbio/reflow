@@ -1148,7 +1148,7 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 	// then perform precise read repair.
 	for i, key := range keys {
 		ctx, cancel := context.WithTimeout(ctx, e.CacheLookupTimeout)
-		fsid, err = e.Assoc.Get(ctx, assoc.Fileset, key)
+		key, fsid, err = e.Assoc.Get(ctx, assoc.Fileset, key)
 		cancel()
 		if err != nil {
 			if !errors.Is(errors.NotExist, err) {

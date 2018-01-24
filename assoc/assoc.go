@@ -33,8 +33,9 @@ type Assoc interface {
 
 	// Get returns the digest associated with key digest k and the
 	// provided kind. Get returns an errors.NotExist when no such
-	// mapping exists.
-	Get(ctx context.Context, kind Kind, k digest.Digest) (digest.Digest, error)
+	// mapping exists. Get expands the provided key when it is abbreviated,
+	// and returns the expanded key when appropriate.
+	Get(ctx context.Context, kind Kind, k digest.Digest) (kexp, v digest.Digest, err error)
 }
 
 // Delete deletes the key k unconditionally from the provided assoc.

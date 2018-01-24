@@ -199,7 +199,7 @@ func (c *Cmd) printCacheInfo(ctx context.Context, w io.Writer, id digest.Digest)
 	if err != nil {
 		c.Fatal(err)
 	}
-	fsid, err := ass.Get(ctx, assoc.Fileset, id)
+	id, fsid, err := ass.Get(ctx, assoc.Fileset, id)
 	switch {
 	case err == nil:
 		repo, err := c.Config.Repository()
