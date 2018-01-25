@@ -260,8 +260,20 @@ func Stdlib() (*types.Env, *values.Env) {
 	return tenv, venv
 }
 
-var mu sync.Mutex
-var lib = map[string]*ModuleImpl{}
+var (
+	mu  sync.Mutex
+	lib = map[string]*ModuleImpl{}
+)
+
+// Modules returns the names of the available systems modules.
+func Modules() (names []string) {
+	mu.Lock()
+	for name := range lib {
+		names = append(names, name)
+	}
+	mu.Unlock()
+	return names
+}
 
 var testDecls = []*Decl{
 	SystemFunc{

@@ -21,6 +21,13 @@ func (c *Cmd) doc(ctx context.Context, args ...string) {
 	help := "Doc displays documentation for Reflow modules."
 	c.Parse(flags, args, help, "doc path")
 
+	if flags.NArg() == 0 {
+		fmt.Println("Reflow's system modules are:")
+		for _, name := range syntax.Modules() {
+			fmt.Printf("	$/%s\n", name)
+		}
+		return
+	}
 	if flags.NArg() != 1 {
 		flags.Usage()
 	}
