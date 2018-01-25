@@ -12,6 +12,7 @@ import (
 	"os"
 
 	"github.com/grailbio/reflow/syntax"
+	"github.com/grailbio/reflow/types"
 	"v.io/x/lib/textutil"
 )
 
@@ -42,7 +43,11 @@ func (c *Cmd) doc(ctx context.Context, args ...string) {
 			} else {
 				fl := f.Lookup(p.Ident)
 				if fl != nil {
-					fmt.Printf("val %s %s = %v\n", p.Ident, p.Type, fl.DefValue)
+					if p.Type.Equal(types.String) {
+						fmt.Printf("val %s %s = %q\n", p.Ident, p.Type, fl.DefValue)
+					} else {
+						fmt.Printf("val %s %s = %v\n", p.Ident, p.Type, fl.DefValue)
+					}
 				} else {
 					fmt.Printf("val %s %s = <default>\n", p.Ident, p.Type)
 				}
