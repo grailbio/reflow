@@ -221,6 +221,9 @@ func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, file
 			}
 			ctx, cancel := context.WithTimeout(ctx, timeout)
 			err := Transfer(ctx, dst, src, file.ID)
+			if err != nil {
+				err = errors.E(err, errors.Errorf("error transferring object %v", file.ID))
+			}
 			cancel()
 			ly.Release(ny)
 			lx.Release(nx)

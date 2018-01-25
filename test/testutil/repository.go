@@ -23,34 +23,41 @@ import (
 //go:generate stringer -type=RepositoryCallKind
 
 // InmemoryRepository is an in-memory repository used for testing.
-type inmemoryRepository struct {
+type InmemoryRepository struct {
 	mu    sync.Mutex
 	files map[digest.Digest][]byte
 }
 
 // NewInmemoryRepository returns a new repository that stores objects
 // in memory.
-func NewInmemoryRepository() reflow.Repository {
-	return &inmemoryRepository{
+func NewInmemoryRepository() *InmemoryRepository {
+	return &InmemoryRepository{
 		files: map[digest.Digest][]byte{},
 	}
 }
 
-func (r *inmemoryRepository) get(k digest.Digest) []byte {
+func (r *InmemoryRepository) get(k digest.Digest) []byte {
 	r.mu.Lock()
 	b := r.files[k]
 	r.mu.Unlock()
 	return b
 }
 
-func (r *inmemoryRepository) set(k digest.Digest, b []byte) {
+func (r *InmemoryRepository) set(k digest.Digest, b []byte) {
 	r.mu.Lock()
 	r.files[k] = b
 	r.mu.Unlock()
 }
 
+// Delete removes the key id from this repository.
+func (r *InmemoryRepository) Delete(_ context.Context, id digest.Digest) {
+	r.mu.Lock()
+	delete(r.files, id)
+	r.mu.Unlock()
+}
+
 // Stat returns metadata for the blob named by id.
-func (r *inmemoryRepository) Stat(_ context.Context, id digest.Digest) (reflow.File, error) {
+func (r *InmemoryRepository) Stat(_ context.Context, id digest.Digest) (reflow.File, error) {
 	b := r.get(id)
 	if b == nil {
 		return reflow.File{}, errors.E("stat", id, errors.NotExist)
@@ -59,7 +66,7 @@ func (r *inmemoryRepository) Stat(_ context.Context, id digest.Digest) (reflow.F
 }
 
 // Get returns the blob named by id.
-func (r *inmemoryRepository) Get(_ context.Context, id digest.Digest) (io.ReadCloser, error) {
+func (r *InmemoryRepository) Get(_ context.Context, id digest.Digest) (io.ReadCloser, error) {
 	b := r.get(id)
 	if b == nil {
 		return nil, errors.E("get", id, errors.NotExist)
@@ -68,7 +75,7 @@ func (r *inmemoryRepository) Get(_ context.Context, id digest.Digest) (io.ReadCl
 }
 
 // Put installs the blob rd and returns its digest.
-func (r *inmemoryRepository) Put(_ context.Context, rd io.Reader) (digest.Digest, error) {
+func (r *InmemoryRepository) Put(_ context.Context, rd io.Reader) (digest.Digest, error) {
 	b, err := ioutil.ReadAll(rd)
 	if err != nil {
 		return digest.Digest{}, err
@@ -79,7 +86,7 @@ func (r *inmemoryRepository) Put(_ context.Context, rd io.Reader) (digest.Digest
 }
 
 // Collect removes any object not in the liveset.
-func (r *inmemoryRepository) Collect(_ context.Context, live reflow.Liveset) error {
+func (r *InmemoryRepository) Collect(_ context.Context, live reflow.Liveset) error {
 	r.mu.Lock()
 	for k := range r.files {
 		if !live.Contains(k) {
@@ -91,17 +98,17 @@ func (r *inmemoryRepository) Collect(_ context.Context, live reflow.Liveset) err
 }
 
 // WriteTo is not supported.
-func (r *inmemoryRepository) WriteTo(_ context.Context, id digest.Digest, u *url.URL) error {
+func (r *InmemoryRepository) WriteTo(_ context.Context, id digest.Digest, u *url.URL) error {
 	return errors.E("writeto", id, u.String(), errors.NotSupported)
 }
 
 // ReadFrom is not supported.
-func (r *inmemoryRepository) ReadFrom(_ context.Context, id digest.Digest, u *url.URL) error {
+func (r *InmemoryRepository) ReadFrom(_ context.Context, id digest.Digest, u *url.URL) error {
 	return errors.E("readfrom", id, u.String(), errors.NotSupported)
 }
 
 // URL returns a nil URL.
-func (r *inmemoryRepository) URL() *url.URL {
+func (r *InmemoryRepository) URL() *url.URL {
 	return nil
 }
 

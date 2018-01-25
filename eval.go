@@ -421,8 +421,11 @@ func (e *Eval) Do(ctx context.Context) error {
 						seen[file] = true
 					}
 					e.LogFlow(ctx, f)
-					e.transfer(ctx, f)
-					e.returnch <- f
+					if err := e.transfer(ctx, f); err != nil {
+						e.errors <- err
+					} else {
+						e.returnch <- f
+					}
 				}(f)
 
 			case FlowReady:
@@ -1162,9 +1165,16 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 			e.Log.Errorf("unmarshal %v: %v", fsid, err)
 		}
 	}
+	// Nothing was found, so there is no read repair to do.
+	// Fail the lookup early.
+	if which < 0 {
+		e.lookupFailed(f)
+		return
+	}
 	// Make sure all of the files are present in the repository.
 	// If they are not, we consider this a cache miss.
-	switch missing, err := missing(ctx, e.Repository, fs.Files()...); {
+	missing, err := missing(ctx, e.Repository, fs.Files()...)
+	switch {
 	case err != nil:
 		e.Log.Errorf("missing %v: %v", fs, err)
 	case len(missing) != 0:
@@ -1176,7 +1186,6 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 			errors.NotExist, "cache.Lookup",
 			errors.Errorf("missing %d files (%s)", len(missing), data.Size(total)))
 	}
-
 	if err == nil && e.RecomputeEmpty && fs.AnyEmpty() {
 		e.Log.Debugf("recomputing empty value for %v", f)
 	} else if err == nil {
@@ -1220,7 +1229,7 @@ func (e *Eval) needTransfer(ctx context.Context, f *Flow) ([]File, error) {
 // transfer performs data transfers a node's dependent values. this
 // is only done for execs and externs, thus its dependencies are
 // guaranteed to contain Fileset dependencies directly.
-func (e *Eval) transfer(ctx context.Context, f *Flow) {
+func (e *Eval) transfer(ctx context.Context, f *Flow) error {
 	fs := Fileset{List: make([]Fileset, len(f.Deps))}
 	for i := range f.Deps {
 		fs.List[i] = f.Deps[i].Value.(Fileset)
@@ -1228,12 +1237,12 @@ func (e *Eval) transfer(ctx context.Context, f *Flow) {
 	err := e.Transferer.Transfer(ctx, e.Executor.Repository(), e.Repository, fs.Files()...)
 	if err == nil {
 		e.Mutate(f, FlowReady)
-		return
+		return nil
 	}
 	e.Log.Errorf("cache transfer %v error: %v", f, err)
-	// We mark the node failed. Errors.Unavailable is considered a transient error,
-	// so the underlying runner should restart evaluation.
-	e.Mutate(f, FlowDone, errors.E(errors.Unavailable, "cache.Transfer", err))
+	// Errors.Unavailable is considered a transient error, so the
+	// underlying runner should restart evaluation.
+	return errors.E(errors.Unavailable, "cache.Transfer", err)
 }
 
 // exec performs and waits for an exec with the given config.
@@ -1870,9 +1879,9 @@ func missing(ctx context.Context, r Repository, files ...File) ([]File, error) {
 	g, gctx := errgroup.WithContext(ctx)
 	for i, file := range files {
 		i, file := i, file
-		g.Go(func() (err error) {
+		g.Go(func() error {
 			ctx, cancel := context.WithTimeout(gctx, 10*time.Second)
-			_, err = r.Stat(ctx, file.ID)
+			_, err := r.Stat(ctx, file.ID)
 			cancel()
 			if err == nil {
 				exists[i] = true

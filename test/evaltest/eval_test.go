@@ -279,6 +279,41 @@ func TestCacheLookupBottomup(t *testing.T) {
 	}
 }
 
+func TestCacheLookupMissing(t *testing.T) {
+	intern := flow.Intern("internurl")
+	exec := flow.Exec("image", "command", testutil.Resources, intern)
+
+	e := testutil.Executor{Have: testutil.Resources}
+	e.Init()
+	repo := testutil.NewInmemoryRepository()
+	e.Repo = testutil.NewInmemoryRepository()
+	var cache testutil.WaitCache
+	cache.Init()
+	eval := reflow.NewEval(exec, reflow.EvalConfig{
+		Executor:           &e,
+		CacheMode:          reflow.CacheRead | reflow.CacheWrite,
+		Assoc:              testutil.NewInmemoryAssoc(),
+		Repository:         repo,
+		Transferer:         testutil.Transferer,
+		BottomUp:           true,
+		CacheLookupTimeout: 100 * time.Millisecond,
+	})
+	testutil.WriteCache(eval, intern.Digest(), "a", "b")
+	// Make sure the assoc and fileset exists, but not all of the objects.
+	testutil.WriteCache(eval, exec.Digest(), "x", "y", "z")
+	repo.Delete(context.Background(), reflow.Digester.FromString("x"))
+
+	rc := testutil.EvalAsync(context.Background(), eval)
+	e.Ok(exec, testutil.Files("x", "y", "z"))
+	r := <-rc
+	if r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if !e.Equiv(exec) {
+		t.Error("wrong set of expected flows")
+	}
+}
+
 func TestNoCacheExtern(t *testing.T) {
 	for _, bottomup := range []bool{false, true} {
 		intern := flow.Intern("internurl")
