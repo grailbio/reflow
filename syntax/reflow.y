@@ -82,7 +82,7 @@ type typearg struct {
 
 %type	<decllist>		defs defs1 commadefs  paramdef paramdefs 
 %type	<decl>		val valdef typedef def  commadef
-%type	<expr>		expr factor term keyspace exprblock ifelseblock
+%type	<expr>		expr  term  keyspace exprblock ifelseblock
 %type	<exprlist>	 listargs  listappendargs
 %type	<exprmap>	mapargs
 %type	<comprclauses>	comprclauses
@@ -114,9 +114,10 @@ type typearg struct {
 %left '<' '>' tokLE tokGE tokNE tokEqEq
 %left '+' '-' '|' '^'
 %left '*' '/' '%' '&' tokLSH tokRSH
-%left '('
-%left '.' '['
+%left unary
+%right '.' '[' ']' '(' ')'
 %nonassoc apply
+%left deref
 
 %%
 
@@ -439,9 +440,7 @@ idents:
 
 // Expressions.
 
-expr: factor
-|	expr '(' applyargs commaOk ')'
-	{$$ = &Expr{Position: $1.Position, Kind: ExprApply, Left: $1, Fields: $3}}
+expr: term
 |	expr tokOrOr expr
 	{$$ = &Expr{Position: $1.Position, Kind: ExprBinop, Op: "||", Left: $1, Right: $3}}
 |	expr tokAndAnd expr
@@ -478,15 +477,15 @@ expr: factor
 	{$$ = &Expr{Position: $1.Position, Kind: ExprBinop, Op: "~>", Left: $1, Right: $3}}
 |	tokIf expr ifelseblock tokElse ifelseblock
 	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprCond, Cond: $2, Left: $3, Right: $5}}
-|	expr '.' tokIdent 
-	{$$ = &Expr{Position: $1.Position, Kind: ExprDeref, Left: $1, Ident: $3.Ident}}
 |	expr '[' expr ']'
 	{$$ = &Expr{Position: $1.Position, Kind: ExprIndex, Left: $1, Right: $3}}
-
-factor: term
-|	'!' factor	
+|	expr '(' applyargs commaOk ')'  
+	{$$ = &Expr{Position: $1.Position, Kind: ExprApply, Left: $1, Fields: $3}}
+|	expr '.' tokIdent   %prec deref
+	{$$ = &Expr{Position: $1.Position, Kind: ExprDeref, Left: $1, Ident: $3.Ident}}
+|	'!' expr %prec unary
 	{$$ = &Expr{Position: $1.Position, Kind: ExprUnop, Op: "!", Left: $2}}
-|	'-' factor
+|	'-' expr %prec unary
 	{$$ = &Expr{Position: $1.Position, Kind: ExprUnop, Op: "-", Left: $2}}
 
 term:

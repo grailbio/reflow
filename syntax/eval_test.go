@@ -175,6 +175,7 @@ func TestEval(t *testing.T) {
 	progs := []string{
 		"testdata/test1.rf",
 		"testdata/arith.rf",
+		"testdata/prec.rf",
 		"testdata/missingnewline.rf",
 		"testdata/strings.rf",
 		"testdata/path.rf",

@@ -1,0 +1,8 @@
+
+
+func x(y int) = y == 1
+
+val TestApply = !x(2)
+val TestDeref = !{x: x(2)}.x
+
+val TestArith = 2*3+4 == (2*3)+4
