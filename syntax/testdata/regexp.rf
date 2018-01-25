@@ -7,3 +7,5 @@ val TestGroups = {
 }
 
 val TestReplace = regexp.Replace("foo bar", " (.*)", " baz") == "foo baz"
+
+val TestMatch = regexp.Match("foo bar", "^foo") && !(regexp.Match("blah", "^foo"))

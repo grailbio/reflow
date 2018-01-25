@@ -538,6 +538,19 @@ var regexpDecls = []*Decl{
 		},
 	}.Decl(),
 	SystemFunc{
+		Id:     "Match",
+		Module: "regexp",
+		Doc:    "Match checks whether a regular expression matches a string.",
+		Type: types.Func(types.Bool,
+			&types.Field{Name: "str", T: types.String},
+			&types.Field{Name: "regexp", T: types.String}),
+		Do: func(loc values.Location, args []values.T) (values.T, error) {
+			str, raw := args[0].(string), args[1].(string)
+			return regexp.MatchString(raw, str)
+		},
+	}.Decl(),
+
+	SystemFunc{
 		Id:     "Replace",
 		Module: "regexp",
 		Doc: "Replace returns a copy of src, replacing matches of the regular " +
