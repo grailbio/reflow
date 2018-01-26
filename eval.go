@@ -4,6 +4,8 @@
 
 package reflow
 
+//go:generate stringer -type=Mutation
+
 import (
 	"bufio"
 	"bytes"
