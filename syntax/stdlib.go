@@ -602,6 +602,46 @@ var stringsDecls = []*Decl{
 		},
 	}.Decl(),
 	SystemFunc{
+		Id:     "Join",
+		Module: "strings",
+		Doc:    "Join concatenates a list of strings into a single string using the provided separator.",
+		Type: types.Func(types.String,
+			&types.Field{Name: "strs", T: types.List(types.String)},
+			&types.Field{Name: "sep", T: types.String}),
+		Do: func(loc values.Location, args []values.T) (values.T, error) {
+			strs, sep := args[0].(values.List), args[1].(string)
+			gostrs := make([]string, len(strs))
+			for i := range gostrs {
+				gostrs[i] = strs[i].(string)
+			}
+			return strings.Join(gostrs, sep), nil
+		},
+	}.Decl(),
+	SystemFunc{
+		Id:     "HasPrefix",
+		Module: "strings",
+		Doc:    "HasPrefix tests whether the string s begins with prefix.",
+		Type: types.Func(types.Bool,
+			&types.Field{Name: "s", T: types.String},
+			&types.Field{Name: "prefix", T: types.String}),
+		Do: func(loc values.Location, args []values.T) (values.T, error) {
+			s, prefix := args[0].(string), args[1].(string)
+			return strings.HasPrefix(s, prefix), nil
+		},
+	}.Decl(),
+	SystemFunc{
+		Id:     "HasSuffix",
+		Module: "strings",
+		Doc:    "HasSuffix tests whether the string s ends with suffix.",
+		Type: types.Func(types.Bool,
+			&types.Field{Name: "s", T: types.String},
+			&types.Field{Name: "suffix", T: types.String}),
+		Do: func(loc values.Location, args []values.T) (values.T, error) {
+			s, suffix := args[0].(string), args[1].(string)
+			return strings.HasSuffix(s, suffix), nil
+		},
+	}.Decl(),
+	SystemFunc{
 		Id:     "Sort",
 		Module: "strings",
 		Doc:    "Sort sorts a list of strings in lexicographic order.",
