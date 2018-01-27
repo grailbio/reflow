@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -43,6 +44,8 @@ const (
 	ec2MaxFilter      = 200
 	statePollInterval = 10 * time.Second
 )
+
+var zeroResources = reflow.Resources{"cpu": 0, "mem": 0, "disk": 0}
 
 // A Cluster implements a runner.Cluster backed by EC2. The cluster
 // is stateful (stored by a local state.File), and expands with
@@ -277,8 +280,34 @@ func (c *Cluster) loop() {
 		sort.Slice(waiters, func(i, j int) bool {
 			return waiters[i].Min.ScaledDistance(nil) < waiters[j].Min.ScaledDistance(nil)
 		})
+		s := make([]string, len(waiters))
+		for i, w := range waiters {
+			s[i] = fmt.Sprintf("waiter%d%s", i, w.Min)
+		}
+		c.Log.Debugf("pending%s %s", pending, strings.Join(s, ", "))
+		// First skip waiters that are already getting their resources
+		// satisfied.
+		//
+		// TODO(marius): this should take into account the actual
+		// granularity of the pending instances. This doesn't matter too
+		// much since allocation is ordered by size, and thus we'll make
+		// progress since no instances smaller than the smallest allocation
+		// are ever launched. But it could be wasteful if there's a lot of
+		// churn.
+		var (
+			i       int
+			howmuch reflow.Resources
+		)
+		for i < len(waiters) {
+			howmuch.Add(howmuch, waiters[i].Min)
+			if !pending.Available(howmuch) {
+				break
+			}
+			i++
+		}
+		needMore := len(waiters) > 0 && i != len(waiters)
 		var todo []instanceConfig
-		for i := 0; i < len(waiters); {
+		for i < len(waiters) {
 			var need reflow.Resources
 			need.Add(need, waiters[i].Min)
 			i++
@@ -287,13 +316,18 @@ func (c *Cluster) loop() {
 				c.Log.Printf("no currently available instance type can satisfy resource requirements %v", waiters[i-1].Min)
 				continue
 			}
-			for wbest := (instanceConfig{}); i < len(waiters) && ok; i, best = i+1, wbest {
+			for i < len(waiters) {
 				need.Add(need, waiters[i].Min)
-				wbest, ok = c.instanceState.MinAvailable(need, c.Spot)
+				wbest, ok := c.instanceState.MinAvailable(need, c.Spot)
+				if !ok {
+					break
+				}
+				best = wbest
+				i++
 			}
 			todo = append(todo, best)
 		}
-		if len(waiters) > 0 && len(todo) == 0 {
+		if needMore && len(todo) == 0 {
 			c.Log.Print("resource requirements are unsatisfiable by current instance selection")
 			needPoll = true
 			goto sleep
@@ -326,24 +360,28 @@ func (c *Cluster) loop() {
 				continue
 			}
 			c.add(inst.Instance())
-			var ws []*waiter
-			available := inst.Config.Resources
+			var (
+				ws        []*waiter
+				available = inst.Config.Resources
+				nnotify   int
+			)
 			for _, w := range waiters {
 				if w.ctx.Err() != nil {
 					continue
 				}
-				if w.Min.LessEqualAll(available) {
+				if available.Available(w.Min) {
 					var tmp reflow.Resources
 					tmp.Min(w.Max, available)
 					available.Sub(available, tmp)
 					w.Notify()
+					nnotify++
 				} else {
 					ws = append(ws, w)
 				}
 			}
 			waiters = ws
-			c.Log.Debugf("added instance %s resources%s pending%s npending:%d waiters:%d",
-				inst.Config.Type, inst.Config.Resources, pending, npending, len(waiters))
+			c.Log.Debugf("added instance %s resources%s pending%s available%s npending:%d waiters:%d notified:%d",
+				inst.Config.Type, inst.Config.Resources, pending, available, npending, len(waiters), nnotify)
 		case w := <-c.wait:
 			var ws []*waiter
 			for _, w := range waiters {

@@ -438,11 +438,12 @@ func (e ExecInspect) Runtime() time.Duration {
 // of Resources represents the resources with zeros for all labels.
 type Resources map[string]float64
 
-// String renders a Resources.
+// String renders a Resources. All nonzero-valued labels are included;
+// mem, cpu, and disk are always included regardless of their value.
 func (r Resources) String() string {
 	var b bytes.Buffer
 	b.WriteString("{")
-	fmt.Fprintf(&b, "mem:%s cpu:%.1g disk:%s", data.Size(r["mem"]), r["cpu"], data.Size(r["disk"]))
+	fmt.Fprintf(&b, "mem:%s cpu:%g disk:%s", data.Size(r["mem"]), r["cpu"], data.Size(r["disk"]))
 	var keys []string
 	for key := range r {
 		switch key {
@@ -453,6 +454,9 @@ func (r Resources) String() string {
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
+		if r[key] == 0 {
+			continue
+		}
 		fmt.Fprintf(&b, " %s:%g", key, r[key])
 	}
 	b.WriteString("}")
@@ -548,72 +552,8 @@ func (r Resources) ScaledDistance(u Resources) float64 {
 		math.Abs(float64(r["cpu"])-float64(u["cpu"]))*cpuScaling
 }
 
-// LessAny tells whether r contains fewer resources than s, along
-// any dimension.
-func (r Resources) LessAny(s Resources) bool {
-	for key, val := range s {
-		if r[key] < val {
-			return true
-		}
-	}
-	return false
-}
-
-// LessEqualAny tells whether r contains fewer resources or equal
-// resources to s, along any dimension.
-func (r Resources) LessEqualAny(s Resources) bool {
-	for key, val := range s {
-		if r[key] <= val {
-			return true
-		}
-	}
-	return false
-}
-
-// LessAll tells whether r contains fewer resources than s, along
-// all dimensions.
-func (r Resources) LessAll(s Resources) bool {
-	for key, val := range s {
-		if r[key] >= val {
-			return false
-		}
-	}
-	return true
-}
-
-// LessEqualAll tells whether r contains fewer resources or equal
-// resources to s, along all dimensions.
-func (r Resources) LessEqualAll(s Resources) bool {
-	for key, val := range s {
-		if r[key] > val {
-			return false
-		}
-	}
-	return true
-}
-
-// IsZeroAll tells whether Resources r is zero in all dimensions.
-func (r Resources) IsZeroAll() bool {
-	for _, val := range r {
-		if val != 0 {
-			return false
-		}
-	}
-	return true
-}
-
-// IsZeroAny tells whether Resources r is zero in any dimension.
-func (r Resources) IsZeroAny() bool {
-	for _, val := range r {
-		if val == 0 {
-			return true
-		}
-	}
-	return r["mem"] == 0 || r["cpu"] == 0 || r["disk"] == 0
-}
-
-// Equal tells whether the resources r and s are equal
-// in all keys.
+// Equal tells whether the resources r and s are equal in all dimensions
+// of both r and s.
 func (r Resources) Equal(s Resources) bool {
 	for key, val := range s {
 		if r[key] != val {
@@ -637,11 +577,6 @@ func (r Resources) Equal(s Resources) bool {
 type Requirements struct {
 	Min, Max Resources
 	Wide     bool
-}
-
-// IsZero tells whether there are zero requirements.
-func (r Requirements) IsZero() bool {
-	return r.Min.IsZeroAll()
 }
 
 // can fit any of the discrete resources added.

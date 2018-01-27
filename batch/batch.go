@@ -250,7 +250,7 @@ func (r *Run) flow() (*reflow.Flow, *types.T, error) {
 		v = syntax.Force(v, maintyp)
 		switch v := v.(type) {
 		case *reflow.Flow:
-			if v.Requirements().IsZero() {
+			if v.Requirements().Equal(reflow.Requirements{}) {
 				return nil, nil, fmt.Errorf("flow does not have resource requirements; add a @requires annotation to val Main")
 			}
 			return v, maintyp, nil
@@ -294,7 +294,7 @@ type Batch struct {
 	Runs map[string]*Run
 	// Admitter is a rate limiter to control the rate of new evaluations.
 	// This can be used to prevent "thundering herds" against systems
-	// like S3.
+	// like S3. Admitter should be set prior to running the batch.
 	Admitter *rate.Limiter
 
 	file   *state.File
@@ -308,7 +308,6 @@ type Batch struct {
 //
 // Init also upgrades old state files.
 func (b *Batch) Init(reset bool) error {
-	b.Admitter = rate.NewLimiter(rate.Every(5*time.Second), 1)
 	f, err := os.Open(filepath.Join(b.Dir, configPath))
 	if err != nil {
 		return err

@@ -41,7 +41,7 @@ poll:
 		select {
 		case <-ticker.C:
 			need := e.Need()
-			if need.IsZero() {
+			if need.Equal(reflow.Requirements{}) {
 				continue poll
 			}
 			n++

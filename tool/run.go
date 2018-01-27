@@ -368,7 +368,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		Log:           c.Log.Tee(nil, "executor: "),
 	}
 	resources := config.resources
-	if resources.IsZeroAll() {
+	if resources.Equal(nil) {
 		info, err := client.Info(context.Background())
 		if err != nil {
 			log.Fatal(err)

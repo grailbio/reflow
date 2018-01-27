@@ -132,7 +132,7 @@ func (s *instanceState) Unavailable(config instanceConfig) {
 // available as an EC2 instance.
 func (s *instanceState) Available(need reflow.Resources) bool {
 	for _, config := range s.configs {
-		if need.LessEqualAll(config.Resources) {
+		if config.Resources.Available(need) {
 			return true
 		}
 	}

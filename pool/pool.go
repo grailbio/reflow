@@ -218,16 +218,17 @@ func Allocate(ctx context.Context, pool Pool, req reflow.Requirements, labels La
 		if pick == nil {
 			return nil, errors.E(errors.Unavailable, errUnavailable)
 		}
-		// Pick the smallest of max and what's available. If any resource
-		// dimension is left empty, we grab the whole alloc so that we
-		// don't unnecessarily leave resources on the table; they can
-		// become useful later in execution, and it leaves the rest of the
-		// offer unusable anyway.
+		// Pick the smallest of max and what's available. If memory, disk,
+		// or CPU are left zero, we grab the whole alloc so that we don't
+		// unnecessarily leave resources on the table; they can become
+		// useful later in execution, and it leaves the rest of the offer
+		// unusable anyway. We do the same if it's a wide request.
 		avail := pick.Available()
 		var want reflow.Resources
 		want.Min(req.Max, avail)
 		var tmp reflow.Resources
-		if tmp.Sub(avail, want).LessAny(nil) {
+		tmp.Sub(avail, want)
+		if tmp["cpu"] <= 0 || tmp["mem"] <= 0 || tmp["disk"] <= 0 || req.Wide {
 			want.Set(avail)
 		}
 		meta := AllocMeta{Want: want, Labels: labels}
@@ -259,7 +260,7 @@ func Pick(offers []Offer, min, max reflow.Resources) Offer {
 	var distance float64
 	for _, offer := range offers {
 		switch {
-		case offer.Available().LessAny(min):
+		case !offer.Available().Available(min):
 			continue
 		case pick == nil:
 			pick = offer

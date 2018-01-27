@@ -179,7 +179,7 @@ func (c *Cmd) printRunInfo(ctx context.Context, w io.Writer, id digest.Digest) b
 	if state.AllocID != "" {
 		fmt.Fprintf(w, "\talloc:\t%s\n", state.AllocID)
 	}
-	if !state.AllocInspect.Resources.IsZeroAll() {
+	if !state.AllocInspect.Resources.Equal(nil) {
 		fmt.Fprintf(w, "\tresources:\t%s\n", state.AllocInspect.Resources)
 	}
 	if state.Err != nil {

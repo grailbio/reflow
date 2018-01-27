@@ -724,10 +724,8 @@ func (e *Eval) wait(ctx context.Context) (err error) {
 func (e *Eval) returnFlow(f *Flow) {
 	delete(e.pending, f)
 	e.needCollect = true
-	if !f.Reserved.IsZeroAll() {
-		e.available.Add(e.available, f.Reserved)
-		e.Mutate(f, Unreserve(f.Reserved))
-	}
+	e.available.Add(e.available, f.Reserved)
+	e.Mutate(f, Unreserve(f.Reserved))
 	if f.Tracked && f.State == FlowDone {
 		e.needLog = append(e.needLog, f)
 	}
@@ -1765,7 +1763,7 @@ func (s *Stealer) Admit(max Resources) <-chan *Flow {
 func (s *Stealer) admit(f *Flow) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.c == nil || s.max.IsZeroAll() || s.max.LessAny(f.Resources) {
+	if s.c == nil || !s.max.Available(f.Resources) {
 		return false
 	}
 	s.max = Resources{}
