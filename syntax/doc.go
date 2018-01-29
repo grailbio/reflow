@@ -71,6 +71,8 @@ expressions, d1, d2, .. are declarations; t1, t2, .. are types):
 	                                   // the given clauses (see below)
 	e1 ~> e2                           // force evaluation of e1, ignore its result, then evaluate e2.
 	flatten(e1)                        // flatten a list of lists into a single list
+	trace(e1)                          // trace expression e1: evaluate it, print it to console,
+	                                   // and return it. Can be used for debugging.
 
 A comprehension clause is one of the following:
 

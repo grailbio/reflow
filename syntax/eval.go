@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"math/big"
+	"os"
 	"runtime/debug"
 	"strings"
 
@@ -622,6 +623,20 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 				return vs[0], nil
 			}, e.Left)
+		case "trace":
+			left, err := e.Left.eval(sess, env, ident)
+			if err != nil {
+				return nil, err
+			}
+			left = Force(left, e.Left.Type)
+			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+				// TODO(marius): let the evaluator pass down a logger here.
+				if ident != "" {
+					ident = "(" + ident + ")"
+				}
+				fmt.Fprintf(os.Stderr, "%s%s: %s\n", e.Position, ident, values.Sprint(vs[0], e.Left.Type))
+				return vs[0], nil
+			}, tval{e.Left.Type, left})
 		}
 	case ExprRequires:
 		req, err := e.evalRequirements(sess, env, ident)

@@ -190,7 +190,7 @@ func (e *Expr) digest(w io.Writer, env *values.Env) {
 		switch e.Op {
 		default:
 			panic("bad builtin " + e.Op)
-		case "len", "unzip", "panic", "map", "list", "flatten", "delay":
+		case "len", "unzip", "panic", "map", "list", "flatten", "delay", "trace":
 			e.Left.digest(w, env)
 		case "zip":
 			e.Right.digest(w, env)

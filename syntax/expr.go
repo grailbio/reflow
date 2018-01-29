@@ -743,6 +743,8 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			}
 		case "delay":
 			e.Type = e.Left.Type.Assign(nil)
+		case "trace":
+			e.Type = e.Left.Type.Assign(nil)
 		}
 	case ExprRequires:
 		if err := e.initResources(sess, env); err != nil {
