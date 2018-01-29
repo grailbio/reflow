@@ -200,6 +200,93 @@ resulting in <code>[(2, "a"), (2, "b"), (2, "c"), (4, "a"), (4, "b"), (4, "c")]<
   </dd>
 </dl>
 
+## Builtins
+
+Reflow provides a number of builtin functions. They provide special semantics 
+or typing that cannot be expressed in core Reflow.
+
+### Data structure length: `len`
+
+Builtin `len` evaluates to the length of the underlying data structure:
+
+- `len` of a file evaluates to the size of the file in bytes;
+- `len` of a directory returns the number of entries in the directory;
+- `len` of a list returns the number of entries in the list;
+- `len` of a map returns the number of entries in the map.
+
+### Numeric coercion: `int`, `float`
+
+Builtins `int` and `float` coerces floating point numbers to integers
+and vice versa.
+
+### Tupling and untupling: `zip`, `unzip`
+
+Builtin `zip` takes two lists and returns a new list of tuples 
+consisting of elements from each.
+Builtin `unzip` is `zip`'s inverse: 
+given a list of tuples, it returns two lists of elements,
+each from a different tuple position.
+
+### Flattening lists: `flatten`
+
+Builtin `flatten` concatenates all the elements in a list of lists.
+
+### Map coercion: `map`
+
+Builtin `map` converts its argument to a map.
+Given a list of tuples, a map is constructed by 
+taking the first element of the tuple as a keys 
+and the second element as values.
+Given a directory, a map is constructed using 
+the directory's paths as keys with its files as values.
+
+### List coercion: `list`
+
+Builtin `list` converts its argument to a list.
+Given a map, `list` returns a list of tuples,
+where the first element of the tuple are 
+the map's keys and the second its values.
+Given a directory, `list` returns a list of tuples
+of paths and files.
+
+### Runtime errors: `panic`
+
+Builtin `panic` halts execution with a (string) message.
+Panic is used to indicate a runtime error.
+
+### Sequencing: `~>`
+
+The expression
+
+	e1 ~> e2
+
+forces expression `e1` to be evaluated before `e2`.
+Since Reflow has lazy evaluation semantics 
+(see [Evaluation Semantics](#evaluation-semantics) below),
+evaluation is usually sequenced only when there is a data dependency
+between the two expressions `e1` and `e2`.
+The `~>` operator allows the user to override this behavior by
+introducing a new control dependency.
+This can be useful when there are external dependencies between 
+`e1` and `e2` that are not witnessed by their data dependencies.
+
+### Trace debugging: `trace`
+
+Builtin `trace` forces its argument, 
+pretty-prints it to standard error along with the source-code position 
+of the `trace` expression; the value is then returned.
+Trace is useful for debugging:
+for example, the following prints the size of a file as it is evaluated.
+
+	val f = exec(image, cpu, mem) (out file) {"
+		some_complicated_command >{{out}}
+	"}
+
+	val g = {
+		val input = trace(f)
+		exec(...) {" {{ nput}} "}
+	}
+
 ## Modules
 
 Every Reflow (".rf") file is a _module_. Modules are reusable
@@ -284,6 +371,7 @@ can be queried by `reflow run module -help`, for example:
 	("notok", "hello", 123)
 	%
 
+<a id='evaluation-semantics'></a>
 ## Evaluation semantics
 
 Reflow evaluates its programs similar to dataflow languages:
