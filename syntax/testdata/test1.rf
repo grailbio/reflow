@@ -1,4 +1,5 @@
 val test = make("$/test")
+val strings = make("$/strings")
 
 val TestStruct = {
 	a := 1
@@ -35,6 +36,13 @@ val TestCompr4 = {
 	expect := ["b", "c", "e", "f", "g", "h"]
 	test.All([x == y | (x, y) <- zip(xy, expect)])
 }
+
+// This tests that digesting works properly when intermediate
+// results are delayed.
+val TestCompr5 =
+	test.All([x < 2 | x <- [delay(1), delay(2), delay(3), delay(4)], if x < 2])
+val TestCompr6 =
+	test.All([y < 2 && strings.FromInt(y) == x | (x, y) <- ["1": delay(1), "2": delay(2), "3": delay(3), "4": delay(4)], if y < 2])
 
 val TestDestructure = {
 	tup := (1,2,3,"ok")

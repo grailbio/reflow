@@ -556,7 +556,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}, e.Left)
 		case "flatten":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
-				return e.flatten(sess, env, ident, vs[0].(values.List), types.List(e.Type.Elem))
+				return e.flatten(sess, env, ident, vs[0].(values.List), types.List(e.Type.Elem), stdEvalK)
 			}, e.Left)
 		case "map":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
@@ -831,9 +831,8 @@ func (e *Expr) evalUnop(vs []values.T) (values.T, error) {
 	}
 }
 
-func (e *Expr) evalCompr(sess *Session, env *values.Env, ident string, begin int) (values.T, error) {
-	// The clause expression is captured directly.
-	var k evalK = func(e *Expr, env *values.Env, dw io.Writer) {
+func (e *Expr) evalComprK(sess *Session, env *values.Env, ident string, begin int) evalK {
+	return func(e *Expr, env *values.Env, dw io.Writer) {
 		e.digest1(dw)
 		// TODO: make sure we compute the same digest for the single-clause case.
 		//	(and test this)
@@ -854,10 +853,16 @@ func (e *Expr) evalCompr(sess *Session, env *values.Env, ident string, begin int
 		}
 		e.ComprExpr.digest(dw, env2)
 	}
+}
+
+func (e *Expr) evalCompr(sess *Session, env *values.Env, ident string, begin int) (values.T, error) {
+	// The clause expression is captured directly.
+	k := e.evalComprK(sess, env, ident, begin)
 	clause := e.ComprClauses[begin]
 	return k.Continue(e, sess, env, ident, func(vs []values.T) (values.T, error) {
 		var (
 			list values.List
+			// elem *types.T
 			last = begin == len(e.ComprClauses)-1
 		)
 		switch clause.Kind {
@@ -893,7 +898,14 @@ func (e *Expr) evalCompr(sess *Session, env *values.Env, ident string, begin int
 					env2 := env.Push()
 					for id, matcher := range clause.Pat.Matchers() {
 						tup := values.Tuple{k, v}
-						w, err := coerceMatch(tup, types.Tuple(&types.Field{T: clause.Expr.Type.Index}, &types.Field{T: clause.Expr.Type.Elem}), matcher.Path())
+						w, err := coerceMatch(
+							tup,
+							types.Tuple(
+								&types.Field{T: clause.Expr.Type.Index},
+								&types.Field{T: clause.Expr.Type.Elem},
+							),
+							matcher.Path(),
+						)
 						if err != nil {
 							return nil, err
 						}
@@ -913,8 +925,6 @@ func (e *Expr) evalCompr(sess *Session, env *values.Env, ident string, begin int
 					}
 					list = append(list, ev)
 				}
-
-				return list, nil
 			}
 		case ComprFilter:
 			if !vs[0].(bool) {
@@ -932,7 +942,7 @@ func (e *Expr) evalCompr(sess *Session, env *values.Env, ident string, begin int
 		if last {
 			return list, nil
 		}
-		return e.flatten(sess, env, ident, list, types.List(e.Type.Elem))
+		return e.flatten(sess, env, ident, list, e.Type, k)
 	}, clause.Expr)
 }
 
@@ -945,12 +955,12 @@ func (e *Expr) k(sess *Session, env *values.Env, ident string, k func(vs []value
 	return stdEvalK.Continue(e, sess, env, ident, k, subs...)
 }
 
-func (e *Expr) flatten(sess *Session, env *values.Env, ident string, list values.List, t *types.T) (values.T, error) {
+func (e *Expr) flatten(sess *Session, env *values.Env, ident string, list values.List, t *types.T, k evalK) (values.T, error) {
 	tvals := make([]interface{}, len(list))
 	for i := range list {
 		tvals[i] = tval{t, list[i]}
 	}
-	return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+	return k.Continue(e, sess, env, ident, func(vs []values.T) (values.T, error) {
 		var list values.List
 		for _, v := range vs {
 			for _, el := range v.(values.List) {
