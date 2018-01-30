@@ -40,7 +40,7 @@ func (c *Cmd) doc(ctx context.Context, args ...string) {
 		fmt.Println()
 		for _, p := range params {
 			if p.Required {
-				fmt.Printf("val %s %s\n", p.Ident, p.Type)
+				fmt.Printf("val %s %s (required)\n", p.Ident, p.Type)
 			} else {
 				fmt.Printf("val %s %s = %s\n", p.Ident, p.Type, p.Expr.Abbrev())
 			}
