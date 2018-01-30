@@ -1050,6 +1050,121 @@ func (e *Expr) String() string {
 	return b.String()
 }
 
+// BinopPrec stores the precedence of binary operators
+// as specified in the grammar. These are used to render
+// expressions with proper parenthesization.
+var binopPrec = map[string]int{
+	"||": 2,
+	"&&": 3,
+	"<":  4, ">": 4, "<=": 4, ">=": 4, "!=": 4, "==": 4,
+	"+": 5, "-": 5, "|": 5, "^": 5,
+	"*": 6, "/": 6, "%": 6, "&": 6, "<<": 6, ">>": 6,
+}
+
+// Prec returns the precedence of expression e. If it is not a binary
+// op, its precedence is 0.
+func (e *Expr) prec() int {
+	if e.Kind != ExprBinop {
+		return 0
+	}
+	prec, ok := binopPrec[e.Op]
+	if !ok {
+		panic("undefined precedence for binop " + e.Op)
+	}
+	return prec
+}
+
+// Abbrev shows an "abbreviated" pretty-printed version of expression e.
+// These are useful when showing expression values in documentary output;
+// but they do not necessarily parse. Abbrev strips unnecessary parentheses
+// from arithmetic expressions.
+func (e *Expr) Abbrev() string {
+	switch e.Kind {
+	case ExprError, ExprThunk:
+		return "<error>"
+	case ExprIdent:
+		return e.Ident
+	case ExprBinop:
+		right := e.Right.Abbrev()
+		if l, r := e.prec(), e.Right.prec(); r <= l && l != 0 && r != 0 {
+			right = "(" + right + ")"
+		}
+		return e.Left.Abbrev() + " " + e.Op + " " + right
+	case ExprUnop:
+		return e.Op + e.Left.Abbrev()
+	case ExprApply:
+		fields := make([]string, len(e.Fields))
+		for i := range fields {
+			fields[i] = e.Fields[i].Abbrev()
+		}
+		return fmt.Sprintf("%s(%s)", e.Left.Abbrev(), strings.Join(fields, ", "))
+	case ExprConst:
+		// Constant expressions are always constructed with a type.
+		return values.Sprint(e.Val, e.Type)
+	case ExprAscribe:
+		// TODO(marius): this doesn't have concrete syntax
+		return e.Left.Abbrev()
+	case ExprBlock:
+		// TODO(marius):
+		return fmt.Sprintf("{...; %s}", e.Left.Abbrev())
+	case ExprFunc:
+		return "<func>"
+	case ExprTuple:
+		fields := make([]string, len(e.Fields))
+		for i := range fields {
+			fields[i] = e.Fields[i].Abbrev()
+		}
+		return "(" + strings.Join(fields, ", ") + ")"
+	case ExprStruct:
+		fields := make([]string, len(e.Fields))
+		for i := range fields {
+			fields[i] = e.Fields[i].Name + ":" + e.Fields[i].Abbrev()
+		}
+		return "{" + strings.Join(fields, ", ") + ")"
+	case ExprList:
+		elems := make([]string, len(e.List))
+		for i := range elems {
+			elems[i] = e.List[i].Abbrev()
+		}
+		return "[" + strings.Join(elems, ", ") + "]"
+	case ExprMap:
+		var elems []string
+		for ke, ve := range e.Map {
+			elems = append(elems, fmt.Sprintf("%s: %s", ke.Abbrev(), ve.Abbrev()))
+		}
+		return "[" + strings.Join(elems, ", ") + "]"
+	case ExprExec:
+		return "<exec>"
+	case ExprCond:
+		return fmt.Sprintf("if %s { %s } else { %s }", e.Cond.Abbrev(), e.Left.Abbrev(), e.Right.Abbrev())
+	case ExprDeref:
+		return e.Left.Abbrev() + "." + e.Ident
+	case ExprIndex:
+		return fmt.Sprintf("%s[%s]", e.Left.Abbrev(), e.Right.Abbrev())
+	case ExprCompr:
+		return "<compr>"
+	case ExprMake:
+		return "<make>"
+	case ExprBuiltin:
+		var b bytes.Buffer
+		b.WriteString(e.Op)
+		b.WriteString("(")
+		if e.Left != nil {
+			b.WriteString(e.Left.Abbrev())
+		}
+		if e.Right != nil {
+			b.WriteString(", ")
+			b.WriteString(e.Right.Abbrev())
+		}
+		b.WriteString(")")
+		return b.String()
+	case ExprRequires:
+		return "<requires>"
+	default:
+		panic("unhandled expression " + e.String())
+	}
+}
+
 func (e *Expr) identOr(alt string) string {
 	switch e.Kind {
 	case ExprIdent:

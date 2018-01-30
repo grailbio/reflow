@@ -12,7 +12,6 @@ import (
 	"os"
 
 	"github.com/grailbio/reflow/syntax"
-	"github.com/grailbio/reflow/types"
 	"v.io/x/lib/textutil"
 )
 
@@ -36,11 +35,6 @@ func (c *Cmd) doc(ctx context.Context, args ...string) {
 	if err != nil {
 		c.Fatal(err)
 	}
-	f, err := m.Flags(sess, sess.Values)
-	if err != nil {
-		c.Fatal(err)
-	}
-
 	if params := m.Params(); len(params) > 0 {
 		fmt.Println("Parameters")
 		fmt.Println()
@@ -48,16 +42,7 @@ func (c *Cmd) doc(ctx context.Context, args ...string) {
 			if p.Required {
 				fmt.Printf("val %s %s\n", p.Ident, p.Type)
 			} else {
-				fl := f.Lookup(p.Ident)
-				if fl != nil {
-					if p.Type.Equal(types.String) {
-						fmt.Printf("val %s %s = %q\n", p.Ident, p.Type, fl.DefValue)
-					} else {
-						fmt.Printf("val %s %s = %v\n", p.Ident, p.Type, fl.DefValue)
-					}
-				} else {
-					fmt.Printf("val %s %s = <default>\n", p.Ident, p.Type)
-				}
+				fmt.Printf("val %s %s = %s\n", p.Ident, p.Type, p.Expr.Abbrev())
 			}
 			c.printdoc(p.Doc, "")
 		}

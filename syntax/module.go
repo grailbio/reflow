@@ -22,6 +22,7 @@ type Param struct {
 	Ident    string
 	Type     *types.T
 	Doc      string
+	Expr     *Expr
 	Required bool
 }
 
@@ -34,6 +35,8 @@ type Module interface {
 	// ParamErr type-checks parameter types, returning an error on failure.
 	ParamErr(env *types.Env) error
 	// Flags returns the set of flags provided by this module.
+	// Note that not all modules may have parameters that are supported
+	// by the regular flag types. These return an error.
 	Flags(sess *Session, env *values.Env) (*flag.FlagSet, error)
 	// FlagEnv adds flags from the FlagSet to value environment env.
 	// The FlagSet should be produced by Module.Flags.
@@ -383,6 +386,10 @@ func (m *ModuleImpl) Params() []Param {
 	for i, p := range m.ParamDecls {
 		params[i].Type = p.Type
 		params[i].Doc = p.Comment
+		// We include the whole expression here, and leave it up
+		// the caller to make sense of which identifiers go where.
+		// (We can't do better, since that would require evaluation.)
+		params[i].Expr = p.Expr
 		switch p.Kind {
 		case DeclDeclare:
 			params[i].Ident = p.Ident
