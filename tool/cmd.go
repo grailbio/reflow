@@ -20,7 +20,7 @@ func (c *Cmd) Parse(fs *flag.FlagSet, args []string, help, usage string) {
 		fmt.Fprintln(os.Stderr, "usage: reflow "+usage)
 		fmt.Fprintln(os.Stderr, "Flags:")
 		fs.PrintDefaults()
-		os.Exit(2)
+		c.Exit(2)
 	}
 
 	if err := fs.Parse(args); err != nil {
@@ -33,6 +33,6 @@ func (c *Cmd) Parse(fs *flag.FlagSet, args []string, help, usage string) {
 		fmt.Fprintln(os.Stderr)
 		fmt.Fprintln(os.Stderr, "Flags:")
 		fs.PrintDefaults()
-		os.Exit(0)
+		c.Exit(0)
 	}
 }

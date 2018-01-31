@@ -160,7 +160,7 @@ retriable.`
 	// In the case where a flow is immediate, we print the result and quit.
 	if er.Flow.Op == reflow.OpVal {
 		c.Println(sprintval(er.Flow.Value, er.Type))
-		os.Exit(0)
+		c.Exit(0)
 	}
 
 	// Construct a unique name for this run, used to identify this invocation
@@ -233,7 +233,7 @@ retriable.`
 
 	// Default case: execute on cluster with shared cache.
 	// TODO: get rid of profile here
-	cluster := c.cluster()
+	cluster := c.cluster(c.status.Group("ec2cluster"))
 	assoc, err := c.Config.Assoc()
 	if err != nil {
 		c.Fatal(err)
@@ -243,7 +243,7 @@ retriable.`
 		c.Fatal(err)
 	}
 	transferer := &repository.Manager{
-		Log:              c.Log.Tee(nil, "transferer: "),
+		Status:           c.status.Group("transfers"),
 		PendingTransfers: repository.NewLimits(c.transferLimit()),
 		Stat:             repository.NewLimits(statLimit),
 	}
@@ -261,6 +261,7 @@ retriable.`
 			Assoc:      assoc,
 			CacheMode:  c.Config.CacheMode(),
 			Transferer: transferer,
+			Status:     c.status.Group(runID.Short()),
 		},
 		Type:    er.Type,
 		Labels:  make(pool.Labels),
@@ -310,12 +311,12 @@ retriable.`
 			// Error that occured during evaluation. Probably not recoverable.
 			// TODO(marius): if this was caused by an underyling exit (from a tool)
 			// then propagate this here.
-			os.Exit(11)
+			c.Exit(11)
 		}
 		if errors.Restartable(run.Err) {
-			os.Exit(10)
+			c.Exit(10)
 		}
-		os.Exit(1)
+		c.Exit(1)
 	}
 }
 
@@ -347,7 +348,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		c.Fatal(err)
 	}
 	transferer := &repository.Manager{
-		Log:              c.Log.Tee(nil, "transferer: "),
+		Status:           c.status.Group("transfers"),
 		PendingTransfers: repository.NewLimits(c.transferLimit()),
 		Stat:             repository.NewLimits(statLimit),
 	}
@@ -421,6 +422,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		Repository: repo,
 		Assoc:      assoc,
 		CacheMode:  c.Config.CacheMode(),
+		Status:     c.status.Group(runID.Short()),
 	}
 	config.Configure(&evalConfig)
 	if config.trace {
@@ -430,7 +432,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	var wg wg.WaitGroup
 	ctx, bgcancel := reflow.WithBackground(ctx, &wg)
 	if config.hybrid != "" {
-		cluster := c.cluster()
+		cluster := c.cluster(c.status.Group("ec2cluster"))
 		if err != nil {
 			c.Fatal(err)
 		}
@@ -446,19 +448,19 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	if err = eval.Do(ctx); err != nil {
 		c.Errorln(err)
 		if errors.Restartable(err) {
-			os.Exit(10)
+			c.Exit(10)
 		}
-		os.Exit(1)
+		c.Exit(1)
 	}
 	c.waitForCacheWrites(&wg, 10*time.Minute)
 	bgcancel()
 	if err := eval.Err(); err != nil {
 		c.Errorln(err)
-		os.Exit(11)
+		c.Exit(11)
 	}
 	eval.LogSummary(c.Log)
 	c.Println(sprintval(eval.Value(), typ))
-	os.Exit(0)
+	c.Exit(0)
 }
 
 // rundir returns the directory that stores run state, creating it if necessary.

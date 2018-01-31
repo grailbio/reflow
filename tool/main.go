@@ -9,7 +9,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
+	golog "log"
 	"net/http"
 	"os"
 	"runtime/pprof"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/config"
+	"github.com/grailbio/reflow/internal/status"
 	"github.com/grailbio/reflow/log"
 )
 
@@ -53,10 +56,16 @@ type Cmd struct {
 	// Intro is an additional introduction printed after the standard one.
 	Intro string
 
+	// The standard output and error as defined by this command;
+	// these are wrapped through a status writer so that output is
+	// properly interleaved.
+	Stdout, Stderr io.Writer
+
 	configFlags    map[string]*string
 	httpFlag       string
 	cpuProfileFlag string
 	logFlag        string
+	status         *status.Status
 
 	onexits []func()
 
@@ -151,7 +160,7 @@ func (c *Cmd) usage(flags *flag.FlagSet) {
 	}
 	fmt.Fprintln(os.Stderr, "Global flags:")
 	flags.PrintDefaults()
-	os.Exit(2)
+	c.Exit(2)
 }
 
 // Main parses command line flags and then invokes the requested
@@ -170,7 +179,7 @@ func (c *Cmd) Main() {
 			fmt.Fprintln(os.Stderr)
 			fmt.Fprintln(os.Stderr, c.Intro)
 		}
-		os.Exit(2)
+		c.Exit(2)
 	}
 	fn := c.commands()[flags.Arg(0)]
 	if fn == nil {
@@ -189,7 +198,16 @@ func (c *Cmd) Main() {
 	default:
 		c.Fatalf("unrecognized log level %v", c.logFlag)
 	}
-	log.Std.Level = level
+	c.status = new(status.Status)
+	reporter := make(status.Reporter)
+	c.Stdout = reporter.Wrap(os.Stdout)
+	c.Stderr = reporter.Wrap(os.Stderr)
+	go reporter.Go(os.Stderr, c.status)
+	c.onexit(reporter.Stop)
+
+	// Set the system wide logger with the same level and output
+	// as the one that's threaded through Cmd.
+	log.Std = log.New(golog.New(c.Stderr, "", golog.LstdFlags), level)
 	c.Log = log.Std
 
 	// Define logs as configured by flags.
@@ -237,12 +255,6 @@ func (c *Cmd) Main() {
 		defer pprof.StopCPUProfile()
 	}
 
-	defer func() {
-		for _, fn := range c.onexits {
-			fn()
-		}
-	}()
-
 	c.Log.Debug("reflow version ", c.version())
 
 	ctx := context.Background()
@@ -251,45 +263,55 @@ func (c *Cmd) Main() {
 	// with "-"); thus flag.Args()[1:] contains all the flags and
 	// arguments for the command in flags.Arg[0].
 	fn(c, ctx, flags.Args()[1:]...)
+	c.Exit(0)
 }
 
 // Fatal formats a message in the manner of fmt.Print, prints it to
 // stderr, and then exits the tool.
 func (c *Cmd) Fatal(v ...interface{}) {
-	fmt.Fprintln(os.Stderr, v...)
-	os.Exit(1)
+	fmt.Fprintln(c.Stderr, v...)
+	c.Exit(1)
 }
 
 // Fatalf formats a message in the manner of fmt.Printf, prints it to
 // stderr, and then exits the tool.
 func (c *Cmd) Fatalf(format string, v ...interface{}) {
-	fmt.Fprintf(os.Stderr, format, v...)
-	fmt.Fprintln(os.Stderr)
-	os.Exit(1)
+	fmt.Fprintf(c.Stderr, format, v...)
+	fmt.Fprintln(c.Stderr)
+	c.Exit(1)
 }
 
 // Errorln formats a message in the manner of fmt.Println and prints it
 // to stderr.
 func (c Cmd) Errorln(v ...interface{}) {
-	fmt.Fprintln(os.Stderr, v...)
+	fmt.Fprintln(c.Stderr, v...)
 }
 
 // Errorf formats a message in the manner of fmt.Printf and prints it
 // to stderr.
 func (c *Cmd) Errorf(format string, v ...interface{}) {
-	fmt.Fprintf(os.Stderr, format, v...)
+	fmt.Fprintf(c.Stderr, format, v...)
 }
 
 // Println formats a message in the manner of fmt.Println and prints
 // it to stdout.
 func (c *Cmd) Println(v ...interface{}) {
-	fmt.Println(v...)
+	fmt.Fprintln(c.Stdout, v...)
 }
 
 // Printf formats a message in the manner of fmt.Printf and prints it
 // to stdout.
 func (c *Cmd) Printf(format string, v ...interface{}) {
-	fmt.Printf(format, v...)
+	fmt.Fprintf(c.Stdout, format, v...)
+}
+
+// Exit causes the command to exit with the provided status code.
+// Exit ensures that command teardown is properly handled.
+func (c *Cmd) Exit(code int) {
+	for _, fn := range c.onexits {
+		fn()
+	}
+	os.Exit(code)
 }
 
 // Flags initializes and returns the FlagSet used by this Cmd instance.
@@ -305,7 +327,7 @@ func (c *Cmd) Flags() *flag.FlagSet {
 		c.flags.StringVar(&c.ConfigFile, "config", c.DefaultConfigFile, "path to configuration file; otherwise use default (builtin) config")
 		c.flags.StringVar(&c.httpFlag, "http", "", "run a diagnostic HTTP server on this port")
 		c.flags.StringVar(&c.cpuProfileFlag, "cpuprofile", "", "capture a CPU profile and deposit it to the provided path")
-		c.flags.StringVar(&c.logFlag, "log", "info", "set the log level: off, error, info, debug")
+		c.flags.StringVar(&c.logFlag, "log", "error", "set the log level: off, error, info, debug")
 		// Add flags to override configuration.
 		c.configFlags = make(map[string]*string)
 		for _, key := range config.AllKeys {

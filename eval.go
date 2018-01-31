@@ -25,6 +25,7 @@ import (
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/bloomlive"
+	"github.com/grailbio/reflow/internal/status"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/values"
 	"github.com/willf/bloom"
@@ -88,6 +89,9 @@ type EvalConfig struct {
 	// An (optional) logger to which the evaluation transcript is printed.
 	Log *log.Logger
 
+	// Status gets evaluation status reports.
+	Status *status.Group
+
 	// An (optional) logger to print evaluation trace.
 	Trace *log.Logger
 
@@ -134,7 +138,7 @@ type EvalConfig struct {
 // String returns a human-readable form of the evaluation configuration.
 func (e EvalConfig) String() string {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "executor %+v transferer %+v", e.Executor, e.Transferer)
+	fmt.Fprintf(&b, "executor %T transferer %T", e.Executor, e.Transferer)
 	var flags []string
 	if e.NoCacheExtern {
 		flags = append(flags, "nocacheextern")
@@ -205,6 +209,10 @@ type Eval struct {
 	totalTime time.Duration
 	// Informational channels for printing status.
 	needLog []*Flow
+
+	// these maintain status printing state
+	begin                           time.Time
+	prevStateCounts, prevByteCounts counters
 
 	wakeupch chan bool
 
@@ -346,9 +354,9 @@ func (e *Eval) Err() error {
 // repository (e.g., S3).
 func (e *Eval) Do(ctx context.Context) error {
 	e.Log.Debugf("evaluating with configuration: %s", e.EvalConfig)
-	begin := time.Now()
+	e.begin = time.Now()
 	defer func() {
-		e.totalTime = time.Since(begin)
+		e.totalTime = time.Since(e.begin)
 	}()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -422,6 +430,7 @@ func (e *Eval) Do(ctx context.Context) error {
 						f.TransferSize += data.Size(file.Size)
 						seen[file] = true
 					}
+					e.Mutate(f, Refresh) // TransferSize is updated
 					e.LogFlow(ctx, f)
 					if err := e.transfer(ctx, f); err != nil {
 						e.errors <- err
@@ -687,38 +696,61 @@ func (e *Eval) wait(ctx context.Context) (err error) {
 		case err := <-e.errors:
 			return err
 		case <-e.ticker.C:
-			if !e.Log.At(log.DebugLevel) {
-				break
-			}
-			var states [FlowMax][]*Flow
-			for v := e.root.Visitor(); v.Walk(); v.Visit() {
-				if f := v.Parent; f != nil {
-					// Push the parent's children but not the parent itself,
-					// otherwise it looks like we're reporting maps twice.
-					for _, dep := range f.Deps {
-						v.Push(dep)
-					}
-				}
-				states[v.State] = append(states[v.State], v.Flow)
-			}
-			var s []string
-			for _, state := range stateStatusOrder {
-				n, tasks := accumulate(states[state])
-				if n > 0 {
-					s = append(s, fmt.Sprintf("%s:%d<%s>", FlowState(state).Name(), n, tasks))
-				}
-			}
-			if printAllTasks {
-				for state := FlowInit; state < FlowMax; state++ {
-					e.Log.Printf("state %v (%d):", state, len(states[state]))
-					for _, f := range states[state] {
-						e.Log.Printf("	%v", f)
-					}
-				}
-			}
-			e.Log.Debugf("eval live:%d(%s) %s", e.nlive, e.livebytes, strings.Join(s[:], " "))
+			e.reportStatus()
 		}
 	}
+}
+
+func (e *Eval) reportStatus() {
+	if e.Status == nil {
+		return
+	}
+	var stateCounts, byteCounts counters
+	for v := e.root.Visitor(); v.Walk(); v.Visit() {
+		if f := v.Parent; f != nil {
+			// Push the parent's children but not the parent itself,
+			// otherwise it looks like we're reporting maps twice.
+			for _, dep := range f.Deps {
+				v.Push(dep)
+			}
+		}
+		switch v.Op {
+		case OpExec, OpIntern, OpExtern:
+		default:
+			continue
+		}
+		switch v.State {
+		case FlowTransfer:
+			byteCounts.Incr(v.State, v.Ident, int(v.TransferSize))
+			fallthrough
+		case FlowReady, FlowDone, FlowTODO, FlowRunning:
+			stateCounts.Incr(v.State, v.Ident, 1)
+		}
+	}
+	e.prevStateCounts, e.prevByteCounts = stateCounts, byteCounts
+	var b bytes.Buffer
+	elapsed := time.Since(e.begin)
+	var dur string
+	switch {
+	case elapsed < 10*time.Minute:
+		dur = round(elapsed).String()
+	case elapsed < time.Hour:
+		dur = fmt.Sprintf("%dm", int(elapsed.Minutes()))
+	default:
+		dur = fmt.Sprintf("%dh%dm", int(elapsed.Hours()), int(elapsed.Minutes()-60*elapsed.Hours()))
+	}
+	fmt.Fprintf(&b, "elapsed: %s", dur)
+	for _, state := range []FlowState{FlowRunning, FlowTransfer, FlowReady} {
+		n := stateCounts.N(state)
+		if n == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, ", %s:%d", humanState[state], n)
+	}
+	fmt.Fprintf(&b, ", completed: %d/%d",
+		stateCounts.N(FlowDone),
+		stateCounts.N(FlowDone)+stateCounts.N(FlowRunning)+stateCounts.N(FlowTransfer)+stateCounts.N(FlowTODO))
+	e.Status.Print(b.String())
 }
 
 func (e *Eval) returnFlow(f *Flow) {
@@ -1403,6 +1435,8 @@ const (
 	Decr
 	// Cached is the mutation that sets the flow's flag.
 	Cached
+	// Refresh is the mutation that refreshes the status of the flow node.
+	Refresh
 )
 
 // Mutate safely applies a set of mutations vis-a-vis the garbage
@@ -1417,6 +1451,10 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 		e.Trace.Printf("mutate %s: %v", f, strings.Join(strs, ", "))
 	}
 	e.muGC.RLock()
+	var (
+		prevState, thisState FlowState
+		refresh              bool
+	)
 	for _, mut := range muts {
 		switch arg := mut.(type) {
 		case error:
@@ -1424,6 +1462,8 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 				f.Err = errors.Recover(arg)
 			}
 		case FlowState:
+			prevState = f.State
+			thisState = arg
 			f.State = arg
 		case Fileset:
 			f.Value = values.T(arg)
@@ -1439,6 +1479,8 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 				e.decr(f)
 			case Cached:
 				f.Cached = true
+			case Refresh:
+				refresh = true
 			}
 		case Reserve:
 			f.Reserved.Add(f.Reserved, Resources(arg))
@@ -1449,6 +1491,54 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 		}
 	}
 	e.muGC.RUnlock()
+	// Update task status, if applicable.
+	if e.Status == nil {
+		return
+	}
+	switch f.Op {
+	case OpExec, OpIntern, OpExtern:
+	default:
+		return
+	}
+	if prevState < FlowTransfer && thisState >= FlowTransfer && f.Status == nil {
+		// TODO(marius): digest? fmt("%-*s %s", n, ident, f.Digest().Short())
+		f.Status = e.Status.Start(f.Ident)
+	}
+	if f.Status == nil || (!refresh && prevState == thisState) {
+		return
+	}
+	switch f.State {
+	case FlowDone:
+		if f.Err != nil {
+			f.Status.Printf("%s error %v", f.Op, f.Err)
+		} else {
+			switch f.Op {
+			case OpExtern:
+				f.Status.Print("extern done")
+			case OpExec, OpIntern:
+				f.Status.Printf("%s done %s", f.Op, data.Size(f.Value.(Fileset).Size()))
+			}
+		}
+		f.Status.Done()
+		f.Status = nil
+	case FlowRunning:
+		switch f.Op {
+		case OpExtern:
+			f.Status.Printf("extern %s %s", f.URL, data.Size(f.Deps[0].Value.(Fileset).Size()))
+		case OpIntern:
+			f.Status.Printf("intern %s", f.URL)
+		case OpExec:
+			f.Status.Printf("exec %s", abbrevCmd(f))
+		}
+	case FlowTransfer:
+		if f.TransferSize == 0 {
+			f.Status.Print("transfer")
+		} else {
+			f.Status.Printf("transfer %s", data.Size(f.TransferSize))
+		}
+	case FlowReady:
+		f.Status.Print("waiting")
+	}
 }
 
 const (
@@ -1465,20 +1555,7 @@ var statusPrinters = [maxOp]struct {
 	debug func(io.Writer, *Flow)
 }{
 	OpExec: {
-		run: func(w io.Writer, f *Flow) {
-			argv := make([]interface{}, len(f.Argstrs))
-			for i := range f.Argstrs {
-				argv[i] = f.Argstrs[i]
-			}
-			cmd := fmt.Sprintf(f.Cmd, argv...)
-			// Special case: if we start with a command with an absolute path,
-			// abbreviate to basename.
-			cmd = strings.TrimSpace(cmd)
-			cmd = trimpath(cmd)
-			cmd = trimspace(cmd)
-			cmd = abbrev(cmd, nabbrev)
-			fmt.Fprintf(w, "%s %s", leftabbrev(f.Image, nabbrevImage), cmd)
-		},
+		run: func(w io.Writer, f *Flow) { io.WriteString(w, abbrevCmd(f)) },
 		debug: func(w io.Writer, f *Flow) {
 			argv := make([]interface{}, len(f.Argstrs))
 			for i := range f.Argstrs {
@@ -1676,10 +1753,12 @@ func (e *Eval) LogFlow(ctx context.Context, f *Flow) {
 			pr.debug(newPrefixWriter(&b, "\t"), f)
 		}
 	}
-	e.Log.Print(b.String())
-	if !e.Log.At(log.DebugLevel) {
-		return
+	if f.Err != nil {
+		e.Log.Print(b.String())
+	} else {
+		e.Log.Debug(b.String())
 	}
+
 	// We perform debug logging for successful flows with a debug
 	// printer and also for cache transfers, where having extra
 	// digest information is helpful.
@@ -1697,7 +1776,11 @@ func (e *Eval) LogFlow(ctx context.Context, f *Flow) {
 	if pr.debug != nil {
 		pr.debug(newPrefixWriter(&b, "\t"), f)
 	}
-	e.Log.Debug(b.String())
+	if f.Err != nil {
+		e.Log.Print(b.String())
+	} else {
+		e.Log.Debug(b.String())
+	}
 }
 
 func accumulate(flows []*Flow) (int, string) {
@@ -1905,4 +1988,59 @@ func missing(ctx context.Context, r Repository, files ...File) ([]File, error) {
 		}
 	}
 	return files, nil
+}
+
+type counters [FlowMax]map[string]int
+
+func (c *counters) Incr(state FlowState, name string, n int) {
+	if c[state] == nil {
+		c[state] = make(map[string]int)
+	}
+	c[state][name] += n
+}
+
+func (c counters) Equal(d counters) bool {
+	return equal(c, d) && equal(d, c)
+}
+
+func (c counters) N(state FlowState) int {
+	var n int
+	for _, v := range c[state] {
+		n += v
+	}
+	return n
+}
+
+func equal(c, d counters) bool {
+	for state := range c {
+		cc, dc := c[state], d[state]
+		for key, val := range cc {
+			if val != dc[key] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+var humanState = map[FlowState]string{
+	FlowRunning:  "running",
+	FlowTransfer: "transferring",
+	FlowReady:    "waiting",
+}
+
+func abbrevCmd(f *Flow) string {
+
+	argv := make([]interface{}, len(f.Argstrs))
+	for i := range f.Argstrs {
+		argv[i] = f.Argstrs[i]
+	}
+	cmd := fmt.Sprintf(f.Cmd, argv...)
+	// Special case: if we start with a command with an absolute path,
+	// abbreviate to basename.
+	cmd = strings.TrimSpace(cmd)
+	cmd = trimpath(cmd)
+	cmd = trimspace(cmd)
+	cmd = abbrev(cmd, nabbrev)
+	return fmt.Sprintf("%s %s", leftabbrev(f.Image, nabbrevImage), cmd)
 }

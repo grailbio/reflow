@@ -39,7 +39,7 @@ func Dial(u *url.URL) (reflow.Repository, error) {
 	defer mu.Unlock()
 	key := u.String()
 	if clients[key] == nil {
-		clients[key] = &client.Client{rest.NewClient(HTTPClient, u, nil)}
+		clients[key] = &client.Client{Client: rest.NewClient(HTTPClient, u, nil)}
 	}
 	return clients[key], nil
 }

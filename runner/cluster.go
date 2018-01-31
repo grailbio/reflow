@@ -20,6 +20,7 @@ type Cluster interface {
 	// Allocate reserves an alloc of at least min, and at most max resources.
 	// The cluster may scale elastically in order to meet this demand.
 	// Labels are passed down to the underlying pool.
+	// Progress is reported to the provided status object.
 	Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error)
 }
 

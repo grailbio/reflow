@@ -43,7 +43,7 @@ func newExec(id digest.Digest, config reflow.ExecConfig) *Exec {
 func (e *Exec) ID() digest.Digest { return e.id }
 
 // URI is not implemented
-func (e *Exec) URI() string { panic("not implemented") }
+func (e *Exec) URI() string { return "testexec" }
 
 // Value rendezvous the result (value or error) of this exec.
 func (e *Exec) Result(ctx context.Context) (reflow.Result, error) {

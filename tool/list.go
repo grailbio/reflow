@@ -8,7 +8,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
 	"text/tabwriter"
 
 	"github.com/grailbio/base/data"
@@ -35,7 +34,7 @@ The columns displayed by list are:
 	)
 	c.Parse(flags, args, help, "list [-a] [[-n] alloc]")
 	args = flags.Args()
-	cluster := c.cluster()
+	cluster := c.cluster(nil)
 	var entries []interface{}
 
 	if len(args) == 0 {
@@ -113,7 +112,7 @@ The columns displayed by list are:
 		c.Fatal(err)
 	}
 	var tw tabwriter.Writer
-	tw.Init(os.Stdout, 4, 4, 1, ' ', 0)
+	tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 	defer tw.Flush()
 	for i := range inspects {
 		// TODO(marius): print creation times here

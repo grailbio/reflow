@@ -8,7 +8,6 @@ import (
 	"context"
 	"flag"
 	"io"
-	"os"
 )
 
 func (c *Cmd) logs(ctx context.Context, args ...string) {
@@ -31,7 +30,7 @@ func (c *Cmd) logs(ctx context.Context, args ...string) {
 	if n.Kind != execName {
 		c.Fatal("%s: not an exec URI", arg)
 	}
-	cluster := c.cluster()
+	cluster := c.cluster(nil)
 	alloc, err := cluster.Alloc(ctx, n.AllocID)
 	if err != nil {
 		c.Fatalf("alloc %s: %s", n.AllocID, err)
@@ -44,7 +43,7 @@ func (c *Cmd) logs(ctx context.Context, args ...string) {
 	if err != nil {
 		c.Fatalf("logs %s: %s", exec.URI(), err)
 	}
-	_, err = io.Copy(os.Stdout, rc)
+	_, err = io.Copy(c.Stdout, rc)
 	rc.Close()
 	if err != nil {
 		c.Fatal(err)

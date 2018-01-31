@@ -172,7 +172,6 @@ func (r *Runner) Do(ctx context.Context) bool {
 	if r.Created.IsZero() {
 		r.Created = time.Now()
 	}
-
 	switch r.Phase {
 	case Init:
 		if err := r.Allocate(ctx); err != nil {

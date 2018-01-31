@@ -32,6 +32,7 @@ import (
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/ecrauth"
+	"github.com/grailbio/reflow/internal/status"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/pool/client"
@@ -110,6 +111,9 @@ type Cluster struct {
 	Immortal bool
 	// CloudConfig is merged into the instance's cloudConfig before launching.
 	CloudConfig cloudConfig
+
+	// Status is used to report cluster and instance status.
+	Status *status.Group
 
 	instanceState *instanceState
 	pools         map[string]pool.Pool
@@ -236,10 +240,11 @@ func (c *Cluster) need(ctx context.Context, req reflow.Requirements) <-chan stru
 func (c *Cluster) loop() {
 	const maxPending = 5
 	var (
-		waiters  []*waiter
-		pending  reflow.Resources
-		npending int
-		done     = make(chan *instance)
+		waiters       []*waiter
+		pending       reflow.Resources
+		npending      int
+		done          = make(chan *instance)
+		instanceCount = make(map[string]int)
 	)
 	launch := func(config instanceConfig, price float64) {
 		i := &instance{
@@ -264,7 +269,11 @@ func (c *Cluster) loop() {
 			Immortal:        c.Immortal,
 			CloudConfig:     c.CloudConfig,
 		}
+		n := instanceCount[config.Type]
+		instanceCount[config.Type] = n + 1
+		i.Task = c.Status.Startf("%s", config.Type)
 		i.Go(context.Background())
+		i.Task.Done()
 		done <- i
 	}
 
@@ -313,7 +322,8 @@ func (c *Cluster) loop() {
 			i++
 			best, ok := c.instanceState.MinAvailable(need, c.Spot)
 			if !ok {
-				c.Log.Printf("no currently available instance type can satisfy resource requirements %v", waiters[i-1].Min)
+				w := waiters[i-1]
+				c.Log.Debugf("no currently available instance type can satisfy resource requirements %v", w.Min)
 				continue
 			}
 			for i < len(waiters) {
@@ -345,6 +355,11 @@ func (c *Cluster) loop() {
 		if needPoll {
 			pollch = time.After(time.Minute)
 		}
+		if npending > 0 {
+			c.Status.Printf("%d instances, pending%s", n, pending)
+		} else {
+			c.Status.Printf("%d instances", n)
+		}
 		select {
 		case <-pollch:
 		case inst := <-done:
@@ -353,7 +368,7 @@ func (c *Cluster) loop() {
 			switch {
 			case inst.Err() == nil:
 			case errors.Is(errors.Unavailable, inst.Err()):
-				c.Log.Printf("instance type %s unavailable in region %s: %v", inst.Config.Type, c.Region, inst.Err())
+				c.Log.Debugf("instance type %s unavailable in region %s: %v", inst.Config.Type, c.Region, inst.Err())
 				c.instanceState.Unavailable(inst.Config)
 				fallthrough
 			default:
@@ -515,7 +530,7 @@ func (c *Cluster) reconcile() error {
 				}
 				switch *inst.State.Name {
 				case "shutting-down", "terminated", "stopping", "stopped":
-					c.Log.Printf("marking instance %s down: %s", *inst.InstanceId, *inst.State.Name)
+					c.Log.Debugf("marking instance %s down: %s", *inst.InstanceId, *inst.State.Name)
 				default:
 					live[*inst.InstanceId] = true
 				}

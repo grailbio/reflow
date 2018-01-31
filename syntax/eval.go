@@ -633,11 +633,14 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}
 			left = Force(left, e.Left.Type)
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
-				// TODO(marius): let the evaluator pass down a logger here.
 				if ident != "" {
 					ident = "(" + ident + ")"
 				}
-				fmt.Fprintf(os.Stderr, "%s%s: %s\n", e.Position, ident, values.Sprint(vs[0], e.Left.Type))
+				stderr := sess.Stderr
+				if stderr == nil {
+					stderr = os.Stderr
+				}
+				fmt.Fprintf(stderr, "%s%s: %s\n", e.Position, ident, values.Sprint(vs[0], e.Left.Type))
 				return vs[0], nil
 			}, tval{e.Left.Type, left})
 		case "range":

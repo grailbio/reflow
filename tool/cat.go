@@ -8,7 +8,6 @@ import (
 	"context"
 	"flag"
 	"io"
-	"os"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
@@ -44,7 +43,7 @@ func (c *Cmd) cat(ctx context.Context, args ...string) {
 		if err != nil {
 			c.Fatalf("get %s: %v", id, err)
 		}
-		_, err = io.Copy(os.Stdout, rc)
+		_, err = io.Copy(c.Stdout, rc)
 		if err != nil {
 			c.Fatalf("read %s: %v", id, err)
 		}

@@ -14,6 +14,7 @@ import (
 	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/internal/status"
 	"github.com/grailbio/reflow/log"
 	"golang.org/x/sync/errgroup"
 )
@@ -79,6 +80,9 @@ type Manager struct {
 	// Stat defines limits for the number of stat operations that
 	// may be issued concurrently to any given repository.
 	Stat *Limits
+
+	// Status is used to report active transfers to.
+	Status *status.Group
 
 	mu             sync.Mutex
 	src, dst, stat map[string]*limiter.Limiter
@@ -186,6 +190,25 @@ func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, file
 		ux, uy = uy, ux
 		lx, ly = ly, lx
 	}
+	// TODO(marius): these can result in really long task titles;
+	// find a way to shorten them.
+	task := m.Status.Startf("%s->%s", description(src), description(dst))
+	defer task.Done()
+	var total int64
+	for _, file := range files {
+		total += file.Size
+	}
+	var (
+		mu                      sync.Mutex
+		doneFiles, pendingFiles int
+		doneBytes, pendingBytes int64
+	)
+	update := func() {
+		task.Printf("done: %d (%s), pending: %d (%s), waiting: %d (%s)",
+			doneFiles, data.Size(doneBytes), pendingFiles, data.Size(pendingBytes),
+			len(files)-doneFiles-pendingFiles, data.Size(total-doneBytes-pendingBytes))
+	}
+	update()
 	g, ctx := errgroup.WithContext(ctx)
 	for i := range files {
 		file := files[i]
@@ -209,11 +232,21 @@ func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, file
 			if timeout < minTimeout {
 				timeout = minTimeout
 			}
+			mu.Lock()
+			pendingFiles++
+			pendingBytes += file.Size
+			update()
+			mu.Unlock()
 			ctx, cancel := context.WithTimeout(ctx, timeout)
 			err := Transfer(ctx, dst, src, file.ID)
 			if err != nil {
 				err = errors.E(err, errors.Errorf("error transferring object %v", file.ID))
 			}
+			mu.Lock()
+			pendingFiles--
+			pendingBytes -= file.Size
+			update()
+			mu.Unlock()
 			cancel()
 			ly.Release(1)
 			lx.Release(1)
@@ -252,6 +285,23 @@ func (m *Manager) limiter(r reflow.Repository, lim *map[string]*limiter.Limiter,
 	l := (*lim)[u]
 	m.mu.Unlock()
 	return l
+}
+
+func description(r reflow.Repository) string {
+	type shortStringer interface {
+		ShortString() string
+	}
+	type stringer interface {
+		String() string
+	}
+	switch arg := r.(type) {
+	case shortStringer:
+		return arg.ShortString()
+	case stringer:
+		return arg.String()
+	default:
+		return key(r)
+	}
 }
 
 func key(r reflow.Repository) string {

@@ -47,6 +47,19 @@ type Repository struct {
 	Prefix string
 }
 
+// String returns the repository URL.
+func (r *Repository) String() string {
+	return fmt.Sprintf("s3r://%s/%s", r.Bucket, r.Prefix)
+}
+
+func (r *Repository) ShortString() string {
+	s := "s3:" + r.Bucket
+	if r.Prefix != "" {
+		s += "/" + r.Prefix
+	}
+	return s
+}
+
 // Stat queries the repository for object metadata.
 func (r *Repository) Stat(ctx context.Context, id digest.Digest) (reflow.File, error) {
 	resp, err := r.Client.HeadObject(&s3.HeadObjectInput{

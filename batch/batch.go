@@ -18,7 +18,6 @@ import (
 	golog "log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -26,6 +25,7 @@ import (
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/internal/status"
 	"github.com/grailbio/reflow/lang"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
@@ -96,6 +96,9 @@ type Run struct {
 	// State stores the runner state of this run.
 	State runner.State `json:"-"`
 
+	// Status receives status updates from batch execution.
+	Status *status.Task
+
 	batch *Batch
 	log   *log.Logger
 }
@@ -111,6 +114,7 @@ type Run struct {
 // Go commits the run state at every phase transition so that progress
 // should never be lost.
 func (r *Run) Go(ctx context.Context, initWG *sync.WaitGroup) error {
+	defer r.Status.Done()
 	flow, typ, err := r.flow()
 	if err != nil {
 		return err
@@ -178,10 +182,12 @@ func (r *Run) Go(ctx context.Context, initWG *sync.WaitGroup) error {
 	for ok := true; ok; {
 		ok = run.Do(ctx)
 		r.State = run.State
+		r.Status.Print(run.State)
 		r.log.Debugf("run %s: state: %v", r.ID, run.State)
 		r.batch.commit(r)
 	}
 	if run.Err != nil {
+		r.Status.Printf("error %v", run.Err)
 		return run.Err
 	}
 	return nil
@@ -288,6 +294,10 @@ type Batch struct {
 	// primary workers are allocated from Cluster.
 	ClusterAux runner.Cluster
 
+	// Status is the status group used to report batch status;
+	// individual run statuses are reported as tasks in the group.
+	Status *status.Group
+
 	reflow.EvalConfig
 
 	// Runs is the set of runs managed by this batch.
@@ -357,6 +367,7 @@ func (b *Batch) Run(ctx context.Context) error {
 			wg.Add(1)
 		}
 	}
+	b.Status.Printf("remaining: %d", len(b.Runs))
 	for _, run := range b.Runs {
 		go func(run *Run) {
 			err := run.Go(ctx, &wg)
@@ -371,19 +382,15 @@ func (b *Batch) Run(ctx context.Context) error {
 		}(run)
 	}
 	n := 0
-	tick := time.NewTicker(10 * time.Second)
-	defer tick.Stop()
 	for n < len(b.Runs) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-done:
+			b.Status.Printf("remaining: %d", len(b.Runs)-n)
 			n++
-		case <-tick.C:
-			b.logReport()
 		}
 	}
-	b.logReport()
 	return nil
 }
 
@@ -421,6 +428,8 @@ func (b *Batch) read() error {
 		run.Args = attrs
 		run.Argv = fields[len(header):]
 		run.Program = b.config.Program
+		run.Status = b.Status.Start(run.RunID.Short())
+		run.Status.Print("waiting")
 		run.batch = b
 		b.states[id], err = state.Open(filepath.Join(b.Rundir, run.RunID.Hex()))
 		if err != nil {
@@ -458,16 +467,4 @@ func (b *Batch) commit(run *Run) {
 			b.Log.Errorf("marshal %s: %v", run.ID, err)
 		}
 	}
-}
-
-func (b *Batch) logReport() {
-	var phases [runner.MaxPhase]int
-	for _, run := range b.Runs {
-		phases[run.State.Phase]++
-	}
-	var counts [runner.MaxPhase]string
-	for i, n := range phases {
-		counts[i] = fmt.Sprintf("%s:%d", strings.ToLower(runner.Phase(i).String()), n)
-	}
-	b.Log.Debugf("%s", strings.Join(counts[:], " "))
 }

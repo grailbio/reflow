@@ -10,7 +10,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 
 	"github.com/grailbio/reflow/config"
@@ -86,6 +85,6 @@ modified and overriden:
 			c.Fatal(err)
 		}
 	}
-	os.Stdout.Write(data)
-	fmt.Println()
+	c.Stdout.Write(data)
+	c.Println()
 }

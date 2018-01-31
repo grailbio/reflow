@@ -54,7 +54,7 @@ func (c *Cmd) eval(args []string) (evalResult, error) {
 		flags.Usage = func() {
 			fmt.Fprintf(os.Stderr, "usage of %s:\n", file)
 			flags.PrintDefaults()
-			os.Exit(2)
+			c.Exit(2)
 		}
 		flags.Parse(args)
 		flags.VisitAll(func(f *flag.Flag) {
@@ -71,6 +71,7 @@ func (c *Cmd) eval(args []string) (evalResult, error) {
 	case ".rf":
 		er.V1 = true
 		sess := syntax.NewSession()
+		sess.Stderr = c.Stderr
 		m, err := sess.Open(file)
 		if err != nil {
 			return evalResult{}, err
@@ -92,7 +93,7 @@ func (c *Cmd) eval(args []string) (evalResult, error) {
 		flags.Usage = func() {
 			fmt.Fprintf(os.Stderr, "usage of %s:\n", file)
 			flags.PrintDefaults()
-			os.Exit(2)
+			c.Exit(2)
 		}
 		flags.Parse(args)
 		env := sess.Values.Push()

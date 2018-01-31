@@ -36,7 +36,7 @@ func (c *Cmd) images(ctx context.Context, args ...string) {
 	programFlags.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage of %s:\n", programPath)
 		programFlags.PrintDefaults()
-		os.Exit(2)
+		c.Exit(2)
 	}
 	err = programFlags.Parse(flags.Args()[1:])
 	if err != nil {

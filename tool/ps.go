@@ -8,7 +8,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
 	"path"
 	"sort"
 	"strings"
@@ -58,7 +57,7 @@ printed on the console.`
 	if flags.NArg() != 0 {
 		flags.Usage()
 	}
-	cluster := c.cluster()
+	cluster := c.cluster(nil)
 	allocsCtx, allocsCancel := context.WithTimeout(ctx, 5*time.Second)
 	allocs := pool.Allocs(allocsCtx, cluster, c.Log)
 	allocsCancel()
@@ -107,7 +106,7 @@ printed on the console.`
 		return infos[i].Created.Before(infos[j].Created)
 	})
 	var tw tabwriter.Writer
-	tw.Init(os.Stdout, 4, 4, 1, ' ', 0)
+	tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 	defer tw.Flush()
 	for _, info := range infos {
 		var layout = time.Kitchen

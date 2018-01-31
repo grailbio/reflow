@@ -101,7 +101,10 @@ func (a *clientAlloc) Repository() reflow.Repository {
 	if err != nil {
 		panic(err)
 	}
-	return &repositoryclient.Client{c}
+	return &repositoryclient.Client{
+		Client: c,
+		Short:  a.ID(),
+	}
 }
 
 // Keepalive issues a keepalive request to a remote alloc.

@@ -7,9 +7,7 @@ package tool
 import (
 	"context"
 	"flag"
-	"fmt"
 	"io"
-	"os"
 
 	"github.com/grailbio/reflow/syntax"
 	"v.io/x/lib/textutil"
@@ -21,9 +19,9 @@ func (c *Cmd) doc(ctx context.Context, args ...string) {
 	c.Parse(flags, args, help, "doc path")
 
 	if flags.NArg() == 0 {
-		fmt.Println("Reflow's system modules are:")
+		c.Println("Reflow's system modules are:")
 		for _, name := range syntax.Modules() {
-			fmt.Printf("	$/%s\n", name)
+			c.Printf("	$/%s\n", name)
 		}
 		return
 	}
@@ -36,42 +34,42 @@ func (c *Cmd) doc(ctx context.Context, args ...string) {
 		c.Fatal(err)
 	}
 	if params := m.Params(); len(params) > 0 {
-		fmt.Println("Parameters")
-		fmt.Println()
+		c.Println("Parameters")
+		c.Println()
 		for _, p := range params {
 			if p.Required {
-				fmt.Printf("val %s %s (required)\n", p.Ident, p.Type)
+				c.Printf("val %s %s (required)\n", p.Ident, p.Type)
 			} else {
-				fmt.Printf("val %s %s = %s\n", p.Ident, p.Type, p.Expr.Abbrev())
+				c.Printf("val %s %s = %s\n", p.Ident, p.Type, p.Expr.Abbrev())
 			}
 			c.printdoc(p.Doc, "")
 		}
-		fmt.Println()
+		c.Println()
 	}
 
-	fmt.Println("Declarations")
-	fmt.Println()
+	c.Println("Declarations")
+	c.Println()
 	for _, f := range m.Type().Aliases {
-		fmt.Printf("type %s %s\n", f.Name, f.T)
+		c.Printf("type %s %s\n", f.Name, f.T)
 		c.printdoc(m.Doc(f.Name), "\n")
 	}
 	for _, f := range m.Type().Fields {
-		fmt.Printf("val %s %s\n", f.Name, f.T)
+		c.Printf("val %s %s\n", f.Name, f.T)
 		c.printdoc(m.Doc(f.Name), "\n")
 	}
 }
 
 func (c *Cmd) printdoc(doc string, nl string) {
 	if doc == "" {
-		fmt.Printf("%s", nl)
+		c.Printf("%s", nl)
 		return
 	}
-	pw := textutil.PrefixLineWriter(os.Stdout, "    ")
+	pw := textutil.PrefixLineWriter(c.Stdout, "    ")
 	ww := textutil.NewUTF8WrapWriter(pw, 80)
 	if _, err := io.WriteString(ww, doc); err != nil {
 		c.Fatal(err)
 	}
 	ww.Flush()
 	pw.Flush()
-	fmt.Printf("%s", nl)
+	c.Printf("%s", nl)
 }

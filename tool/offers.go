@@ -8,7 +8,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
 	"text/tabwriter"
 )
 
@@ -19,13 +18,13 @@ func (c *Cmd) offers(ctx context.Context, args ...string) {
 	if flags.NArg() != 0 {
 		flags.Usage()
 	}
-	cluster := c.cluster()
+	cluster := c.cluster(nil)
 	offers, err := cluster.Offers(ctx)
 	if err != nil {
 		c.Fatal(err)
 	}
 	var tw tabwriter.Writer
-	tw.Init(os.Stdout, 4, 4, 1, ' ', 0)
+	tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 	defer tw.Flush()
 	for _, offer := range offers {
 		fmt.Fprintf(&tw, "%s\t%s\n", offer.ID(), offer.Available())

@@ -31,6 +31,7 @@ import (
 	"github.com/grailbio/reflow/ec2cluster/instances"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/ecrauth"
+	"github.com/grailbio/reflow/internal/status"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/pool/client"
@@ -230,6 +231,7 @@ type instance struct {
 	SshKey          string
 	Immortal        bool
 	CloudConfig     cloudConfig
+	Task            *status.Task
 
 	userData string
 	err      error
@@ -248,6 +250,7 @@ func (i *instance) Instance() *ec2.Instance {
 
 // Go launches an instance, and returns when it fails or the context is done.
 // On success (i.Err() == nil), the returned instance is in running state.
+// Launch status is reported to the instance's task, if any.
 func (i *instance) Go(ctx context.Context) {
 	const maxTries = 5
 	type stateT int
@@ -280,6 +283,7 @@ func (i *instance) Go(ctx context.Context) {
 			if !i.Spot {
 				break
 			}
+			i.Task.Print("probing for EC2 capacity")
 			// 20 instances should be a good margin for spot.
 			var ok bool
 			ok, i.err = i.ec2HasCapacity(ctx, 20)
@@ -287,17 +291,20 @@ func (i *instance) Go(ctx context.Context) {
 				i.err = errors.E(errors.Unavailable, errors.New("ec2 capacity is likely exhausted"))
 			}
 		case stateLaunch:
+			i.Task.Print("launching EC2 instance")
 			id, i.err = i.launch(ctx)
 			if i.err != nil {
+				i.Task.Printf("launch error: %v", i.err)
 				i.Log.Errorf("instance launch error: %v", i.err)
 			} else {
 				spot := ""
 				if i.Spot {
 					spot = "spot "
 				}
-				i.Log.Printf("launched %sinstance %v: %s%s", spot, id, i.Config.Type, i.Config.Resources)
+				i.Task.Title(id)
+				i.Task.Print("launched")
+				i.Log.Debugf("launched %sinstance %v: %s%s", spot, id, i.Config.Type, i.Config.Resources)
 			}
-
 		case stateTag:
 			input := &ec2.CreateTagsInput{
 				Resources: []*string{aws.String(id)},
@@ -308,6 +315,7 @@ func (i *instance) Go(ctx context.Context) {
 			}
 			_, i.err = i.EC2.CreateTags(input)
 		case stateWait:
+			i.Task.Print("waiting for instance to become ready")
 			i.err = i.EC2.WaitUntilInstanceRunning(&ec2.DescribeInstancesInput{
 				InstanceIds: []*string{aws.String(id)},
 			})
@@ -328,6 +336,7 @@ func (i *instance) Go(ctx context.Context) {
 				}
 			}
 		case stateOffers:
+			i.Task.Print("waiting for reflowlet to become available")
 			var pool pool.Pool
 			pool, i.err = client.New(fmt.Sprintf("https://%s:9000/v1/", dns), i.HTTPClient, nil /*log.New(os.Stderr, "client: ", 0)*/)
 			if i.err != nil {
@@ -395,9 +404,13 @@ func (i *instance) Go(ctx context.Context) {
 		d *= time.Duration(2)
 	}
 	if i.err != nil {
+		i.Task.Print(i.err)
 		return
 	}
 	i.err = ctx.Err()
+	if i.err == nil {
+		i.Task.Print("instance ready")
+	}
 }
 
 func (i *instance) launch(ctx context.Context) (string, error) {
@@ -565,6 +578,7 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 			SecurityGroupIds: []*string{aws.String(i.SecurityGroup)},
 		},
 	}
+	i.Task.Printf("requesting spot instances with bid of %s", *params.SpotPrice)
 	resp, err := i.EC2.RequestSpotInstances(params)
 	if err != nil {
 		return "", err
@@ -576,6 +590,7 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 	if reqid == "" {
 		return "", errors.Errorf("ec2.requestspotinstances: empty request id")
 	}
+	i.Task.Printf("awaiting fulfillment of spot request %s", reqid)
 	i.Log.Debugf("waiting for spot fullfillment for instance type %v: %s", i.Config.Type, reqid)
 	// Also set a timeout context in case the AWS API is stuck.
 	toctx, cancel := context.WithTimeout(ctx, time.Minute+10*time.Second)
@@ -599,6 +614,7 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 	if id == "" {
 		return "", errors.Errorf("ec2.describespotinstancerequests: missing instance ID")
 	}
+	i.Task.Printf("spot request %s fulfilled", reqid)
 	i.Log.Debugf("ec2 spot request %s fulfilled", reqid)
 	return id, nil
 }

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,9 @@ import (
 // A Session is a compiler session. It's responsible for opening,
 // parsing and type checking modules.
 type Session struct {
+	// Stdout and stderr is the writer to which standard output and error are written.
+	Stdout, Stderr io.Writer
+
 	Types  *types.Env
 	Values *values.Env
 

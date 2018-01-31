@@ -21,6 +21,14 @@ import (
 // implementing the Repository REST API.
 type Client struct {
 	*rest.Client
+	Short string
+}
+
+func (c *Client) ShortString() string {
+	if c.Short != "" {
+		return c.Short
+	}
+	return c.String()
 }
 
 func (c *Client) String() string {

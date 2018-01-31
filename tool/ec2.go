@@ -8,7 +8,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -55,7 +54,7 @@ The columns displayed by the instance listing are:
 		}
 	})
 	var tw tabwriter.Writer
-	tw.Init(os.Stdout, 4, 4, 1, ' ', 0)
+	tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 	defer tw.Flush()
 	for _, typ := range types {
 		var flags []string

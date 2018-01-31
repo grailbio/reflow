@@ -31,7 +31,7 @@ The user may exit the terminal by typing 'exit'/'quit'`
 		c.Fatalf("%s: not an exec URI", arg)
 	}
 
-	cluster := c.cluster()
+	cluster := c.cluster(nil)
 	alloc, err := cluster.Alloc(ctx, n.AllocID)
 	if err != nil {
 		c.Fatalf("alloc %s: %s", n.AllocID, err)
@@ -62,7 +62,7 @@ The user may exit the terminal by typing 'exit'/'quit'`
 	go func() {
 		io.Copy(rwc, sr)
 	}()
-	_, err = io.Copy(os.Stdout, rwc)
+	_, err = io.Copy(c.Stdout, rwc)
 	if err != nil {
 		c.Fatalf("%s: %s", n.ID, err)
 	}

@@ -81,7 +81,7 @@ level.`
 	if err != nil {
 		c.Fatal(err)
 	}
-	cluster := c.cluster()
+	cluster := c.cluster(c.status.Group("ec2cluster"))
 	repo, err := c.Config.Repository()
 	if err != nil {
 		c.Fatal(err)
@@ -90,9 +90,8 @@ level.`
 	if err != nil {
 		c.Fatal(err)
 	}
-
 	transferer := &repository.Manager{
-		Log:              c.Log.Tee(nil, "transferer: "),
+		Status:           c.status.Group("transfers"),
 		PendingTransfers: repository.NewLimits(c.transferLimit()),
 		Stat:             repository.NewLimits(statLimit),
 	}
@@ -100,7 +99,10 @@ level.`
 		transferer.PendingTransfers.Set(repo.URL().String(), int(^uint(0)>>1))
 	}
 	go transferer.Report(ctx, time.Minute)
-
+	wd, err := os.Getwd()
+	if err != nil {
+		c.Log.Error(err)
+	}
 	b := &batch.Batch{
 		EvalConfig: reflow.EvalConfig{
 			Log:            c.Log,
@@ -116,6 +118,7 @@ level.`
 		Rundir:  c.rundir(),
 		User:    user,
 		Cluster: cluster,
+		Status:  c.status.Groupf("batch %s", wd),
 	}
 	b.Dir, err = os.Getwd()
 	if err != nil {
@@ -150,7 +153,7 @@ level.`
 	c.waitForCacheWrites(&wg, 20*time.Minute)
 	bgcancel()
 	if err != nil {
-		os.Exit(1)
+		c.Exit(1)
 	}
 }
 
@@ -182,7 +185,7 @@ See runbatch -help for information about Reflow's batching mechanism.`
 	}
 	sort.Strings(ids)
 	var tw tabwriter.Writer
-	tw.Init(os.Stdout, 4, 4, 1, ' ', 0)
+	tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 	defer tw.Flush()
 
 	for _, id := range ids {
@@ -227,7 +230,7 @@ The columns displayed by listbatch are:
 	}
 	sort.Strings(ids)
 	var tw tabwriter.Writer
-	tw.Init(os.Stdout, 4, 4, 1, ' ', 0)
+	tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 	defer tw.Flush()
 
 	for _, id := range ids {

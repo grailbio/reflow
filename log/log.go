@@ -161,20 +161,51 @@ func (l *Logger) Tee(out Outputter, prefix string) *Logger {
 	}
 }
 
-// Std is the standard logger.
+// Std is the standard global logger.
+// It is used by the package level logging functions.
 var Std = New(log.New(os.Stderr, "", log.LstdFlags), InfoLevel)
 
-// The following are convenience functions to call on
-// common methods on the Std logger.
-var (
-	Print  = Std.Print
-	Printf = Std.Printf
-	Error  = Std.Error
-	Errorf = Std.Errorf
-	Debug  = Std.Debug
-	Debugf = Std.Debugf
-	At     = Std.At
-)
+// Print formats a message in the manner of fmt.Sprint and logs
+// it to the standard logger.
+func Print(v ...interface{}) {
+	Std.Print(v...)
+}
+
+// Printf formats a message in the manner of fmt.Sprintf and
+// logs it to the standard logger.
+func Printf(format string, args ...interface{}) {
+	Std.Printf(format, args...)
+}
+
+// Error formats a message in the manner of fmt.Sprint and
+// logs it to the standard (error) logger.
+func Error(v ...interface{}) {
+	Std.Error(v...)
+}
+
+// Errorf formats a message in the manner of fmt.Sprintf and
+// logs it to the standard (error) logger.
+func Errorf(format string, args ...interface{}) {
+	Std.Errorf(format, args...)
+}
+
+// Debug formats a message in the manner of fmt.Sprint and
+// logs it to the standard (debug) logger.
+func Debug(v ...interface{}) {
+	Std.Debug(v...)
+}
+
+// Debugf formats a message in the manner of fmt.Sprintf and
+// logs it to the standard (debug) logger.
+func Debugf(format string, args ...interface{}) {
+	Std.Debugf(format, args...)
+}
+
+// At returns true when the standard logger is at or above the
+// provided level.
+func At(level Level) bool {
+	return Std.At(level)
+}
 
 // Fatal formats a message in the manner of fmt.Print, outputs it to
 // the standard outputter (always), and then calls os.Exit(1).

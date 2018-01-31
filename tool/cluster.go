@@ -7,10 +7,13 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/ec2cluster"
+	"github.com/grailbio/reflow/internal/status"
 	repositoryhttp "github.com/grailbio/reflow/repository/http"
 	reflows3 "github.com/grailbio/reflow/repository/s3"
 	"github.com/grailbio/reflow/runner"
@@ -31,10 +34,15 @@ type needer interface {
 // such global registration altogether. The current way of doing this
 // also ties the binary to specific implementations (e.g., s3), which
 // should be avoided.
-func (c *Cmd) cluster() runner.Cluster {
+func (c *Cmd) cluster(status *status.Group) runner.Cluster {
 	cluster, err := c.Config.Cluster()
 	if err != nil {
 		c.Fatal(err)
+	}
+	if ec2cluster, ok := cluster.(*ec2cluster.Cluster); ok {
+		ec2cluster.Status = status
+	} else {
+		log.Print("not a ec2cluster!")
 	}
 	sess, err := c.Config.AWS()
 	if err != nil {
