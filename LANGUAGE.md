@@ -287,6 +287,15 @@ for example, the following prints the size of a file as it is evaluated.
 		exec(...) {" {{ nput}} "}
 	}
 
+### Ranging: `range`
+
+Builtin `range` produces a list of integers in the provided range (exclusive).
+For example, the following expressions are equivalent:
+
+	range(0, 5) == [0, 1, 2, 3, 4]
+	range(0, 1) == [0]
+	range(0, 0) == []
+
 ## Modules
 
 Every Reflow (".rf") file is a _module_. Modules are reusable

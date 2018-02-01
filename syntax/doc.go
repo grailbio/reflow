@@ -73,6 +73,7 @@ expressions, d1, d2, .. are declarations; t1, t2, .. are types):
 	flatten(e1)                        // flatten a list of lists into a single list
 	trace(e1)                          // trace expression e1: evaluate it, print it to console,
 	                                   // and return it. Can be used for debugging.
+	range(e1, e2)                      // produce a list of integers with the range of the two expressions.
 
 A comprehension clause is one of the following:
 
