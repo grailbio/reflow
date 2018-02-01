@@ -70,6 +70,29 @@ val TestMapIndex = {
 	m["ok"] == 123
 }
 
+val TestMapKeysInteger = {
+	m := [1: "one", 2: "two"]
+	m[1] == "one" && m[2] == "two"
+}
+
+/*
+	We can't test this because we don't have an executor setup. TODO(marius): fix this
+	It does work in local testing:
+	% reflow run -local /tmp/map.rf
+	2018/02/01 10:52:44 run ID: 5d17a69a
+	true
+val TestMapKeysFile = {
+	m := [file("/dev/null"): {filetype: "devnull"}]
+	m[file("/dev/null")].filetype == "devnull"
+}
+*/
+
+val TestMapBoolKeys = {
+	m := [true: 1, false: 0]
+	n := m+[false:1]
+	m[true]*m[false] == 0 && n[true]*n[false] == 1
+}
+
 val TestLen =
 	len([1,2,3,4]) == 4
 

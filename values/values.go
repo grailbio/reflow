@@ -54,14 +54,72 @@ type Tuple []T
 // List is the type of list values.
 type List []T
 
+type mapEntry struct{ Key, Value T }
+
+// Map is the type of map values. It uses a Go map as a hash table
+// based on the key's digest, which in turn stores a list of entries
+// that share the same hash bucket.
+type Map map[digest.Digest][]mapEntry
+
+// Lookup looks up the provided key in map m. The caller must provide
+// the key's digest which is used as a hash.
+func (m Map) Lookup(d digest.Digest, key T) T {
+	for _, entry := range m[d] {
+		if Equal(entry.Key, key) {
+			return entry.Value
+		}
+	}
+	return nil
+}
+
+// Insert inserts the provided key-value pair into the map,
+// overriding any previous definiton of the key. The caller
+// must provide the digest which is used as a hash.
+func (m Map) Insert(d digest.Digest, key, value T) {
+	for i, entry := range m[d] {
+		if Equal(key, entry.Key) {
+			m[d] = append(m[d][:i], m[d][i+1:]...)
+			break
+		}
+	}
+	m[d] = append(m[d], mapEntry{key, value})
+}
+
+// Len returns the total number of entries in the map.
+func (m Map) Len() int {
+	var n int
+	for _, entries := range m {
+		n += len(entries)
+	}
+	return n
+}
+
+// Each enumerates all key-value pairs in map m.
+func (m Map) Each(fn func(k, v T)) {
+	for _, entries := range m {
+		for _, entry := range entries {
+			fn(entry.Key, entry.Value)
+		}
+	}
+}
+
+// MakeMap is a convenient way to construct a from a set of key-value pairs.
+func MakeMap(kt *types.T, kvs ...T) Map {
+	if len(kvs)%2 != 0 {
+		panic("uneven makemap")
+	}
+	m := make(Map)
+	for i := 0; i < len(kvs); i += 2 {
+		m.Insert(Digest(kvs[i], kt), kvs[i], kvs[i+1])
+	}
+	return m
+}
+
 // Struct is the type of struct values.
 type Struct map[string]T
 
 // Module is the type of module values.
 type Module map[string]T
-
-// Map is the type of map values.
-type Map map[T]T
 
 // File is the type of file values.
 type File struct {
@@ -164,9 +222,11 @@ func Sprint(v T, t *types.T) string {
 		return fmt.Sprintf("[%v]", strings.Join(elems, ", "))
 	case types.MapKind:
 		var keys, values []string
-		for k, v := range v.(Map) {
-			keys = append(keys, Sprint(k, t.Index))
-			values = append(values, Sprint(v, t.Elem))
+		for _, entries := range v.(Map) {
+			for _, entry := range entries {
+				keys = append(keys, Sprint(entry.Key, t.Index))
+				values = append(values, Sprint(entry.Value, t.Elem))
+			}
 		}
 		elems := make([]string, len(keys))
 		for i := range keys {
@@ -271,10 +331,12 @@ func WriteDigest(w io.Writer, v T, t *types.T) {
 		}
 	case types.MapKind:
 		m := v.(Map)
-		writeLength(w, len(m))
+		writeLength(w, m.Len())
 		var keys []T
-		for k := range m {
-			keys = append(keys, k)
+		for _, entries := range m {
+			for _, entry := range entries {
+				keys = append(keys, entry.Key)
+			}
 		}
 		// Sort the map so that it produces a consistent digest. We sort
 		// its keys by their digest because the values may not yet be
@@ -288,7 +350,7 @@ func WriteDigest(w io.Writer, v T, t *types.T) {
 		})
 		for _, k := range keys {
 			WriteDigest(w, k, t.Index)
-			WriteDigest(w, m[k], t.Elem)
+			WriteDigest(w, m.Lookup(Digest(k, t.Index), k), t.Elem)
 		}
 	case types.TupleKind:
 		writeLength(w, len(t.Fields))

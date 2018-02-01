@@ -61,12 +61,12 @@ func Force(v values.T, t *types.T) values.T {
 			r    = newResolver(copy, t)
 			kvs  []kpvp
 		)
-		for k := range m {
+		m.Each(func(k, v values.T) {
 			kk := Force(k, t.Index)
-			vv := Force(m[k], t.Elem)
+			vv := Force(v, t.Elem)
 			kv := kpvp{&kk, &vv}
 			kvs = append(kvs, kv)
-		}
+		})
 		sort.Slice(kvs, func(i, j int) bool {
 			var (
 				di = values.Digest(*kvs[i].K, t.Index)
@@ -80,7 +80,7 @@ func Force(v values.T, t *types.T) values.T {
 		}
 		return r.Resolve(func() {
 			for _, kv := range kvs {
-				copy[*kv.K] = *kv.V
+				copy.Insert(values.Digest(*kv.K, t.Index), *kv.K, *kv.V)
 			}
 		})
 	case types.TupleKind:

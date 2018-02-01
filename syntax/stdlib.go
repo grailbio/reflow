@@ -355,11 +355,11 @@ var dirsDecls = []*Decl{
 				}
 				v[path] = file
 			}
-			v := make(values.Map)
+			m := make(values.Map)
 			for key, group := range groups {
-				v[key] = group
+				m.Insert(values.Digest(key, types.String), key, group)
 			}
-			return v, nil
+			return m, nil
 		},
 	}.Decl(),
 	SystemFunc{
@@ -372,9 +372,9 @@ var dirsDecls = []*Decl{
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
 			m := args[0].(values.Map)
 			dir := make(values.Dir)
-			for path, file := range m {
+			m.Each(func(path, file values.T) {
 				dir[path.(string)] = file.(values.File)
-			}
+			})
 			return dir, nil
 		},
 	}.Decl(),

@@ -57,7 +57,7 @@ func TestEvalSimple(t *testing.T) {
 			},
 		},
 		{`["foo": 123, "bar": 999]`, types.Map(types.String, types.Int),
-			values.Map{"foo": values.NewInt(123), "bar": values.NewInt(999)}},
+			values.MakeMap(types.String, "foo", values.NewInt(123), "bar", values.NewInt(999))},
 		{`if "foo" == "bar" { "no" } else { "yes" }`, types.String, "yes"},
 		{`{x := {a: "blah", b:321};  x.a }`, types.String, "blah"},
 		{`(func(x, y string) => x+y)("hello", "world")`, types.String, "helloworld"},

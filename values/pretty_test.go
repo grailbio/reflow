@@ -10,6 +10,14 @@ import (
 	"github.com/grailbio/reflow/types"
 )
 
+func makeMap(entries map[string]string) Map {
+	m := make(Map)
+	for k, v := range entries {
+		m.Insert(Digest(k, types.String), k, v)
+	}
+	return m
+}
+
 func TestPretty(t *testing.T) {
 	for _, c := range []struct {
 		v T
@@ -25,7 +33,7 @@ func TestPretty(t *testing.T) {
 			`{a: 123, b: ("ok", 321)}`,
 		},
 		{
-			Map{"a": "b"},
+			makeMap(map[string]string{"a": "b"}),
 			types.Map(types.String, types.String),
 			`["a": "b"]`,
 		},

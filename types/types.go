@@ -252,7 +252,9 @@ func List(elem *T) *T {
 
 // Map returns a new map type with the given index and element types.
 func Map(index, elem *T) *T {
-	if index.Kind != StringKind {
+	switch index.Kind {
+	case StringKind, IntKind, FloatKind, BoolKind, FileKind:
+	default:
 		return Errorf("%v is not a valid map key type", index)
 	}
 	return Promote(&T{Kind: MapKind, Index: index, Elem: elem})

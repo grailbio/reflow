@@ -215,15 +215,15 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 		}
 		return e.k(sess, env, ident,
 			func(vs []values.T) (values.T, error) {
-				v := make(values.Map)
-				for i := range vs {
-					var err error
-					v[vs[i]], err = e.Map[sortedKeys[i]].eval(sess, env, ident)
+				m := make(values.Map)
+				for i, k := range vs {
+					v, err := e.Map[sortedKeys[i]].eval(sess, env, ident)
 					if err != nil {
 						return nil, err
 					}
+					m.Insert(values.Digest(k, e.Type.Index), k, v)
 				}
-				return v, nil
+				return m, nil
 			},
 			keys...)
 	case ExprExec:
@@ -438,8 +438,9 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 		}, e.Left)
 	case ExprIndex:
 		return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
-			v, ok := vs[0].(values.Map)[vs[1]]
-			if !ok {
+			m, k := vs[0].(values.Map), vs[1]
+			v := m.Lookup(values.Digest(k, e.Left.Type.Index), k)
+			if v == nil {
 				return nil, fmt.Errorf("key %s not found", values.Sprint(vs[1], e.Right.Type))
 			}
 			return v, nil
@@ -505,7 +506,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 					return values.NewInt(int64(len(list))), nil
 				case types.MapKind:
 					m := vs[0].(values.Map)
-					return values.NewInt(int64(len(m))), nil
+					return values.NewInt(int64(m.Len())), nil
 				default:
 					panic("bug")
 				}
@@ -580,7 +581,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 						return e.k(sess, env, ident, func(keys []values.T) (values.T, error) {
 							m := make(values.Map)
 							for i, v := range tuples {
-								m[keys[i]] = v.(values.Tuple)[1]
+								m.Insert(values.Digest(keys[i], e.Left.Type.Elem.Fields[0].T), keys[i], v.(values.Tuple)[1])
 							}
 							return m, nil
 						}, keys...)
@@ -589,7 +590,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 					m := make(values.Map)
 					d := vs[0].(values.Dir)
 					for k, v := range d {
-						m[k] = v
+						m.Insert(values.Digest(k, types.String), k, v)
 					}
 					return m, nil
 				default:
@@ -601,9 +602,9 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				var list values.List
 				switch e.Left.Type.Kind {
 				case types.MapKind:
-					for k, v := range vs[0].(values.Map) {
+					vs[0].(values.Map).Each(func(k, v values.T) {
 						list = append(list, values.Tuple{k, v})
-					}
+					})
 				case types.DirKind:
 					for k, v := range vs[0].(values.Dir) {
 						list = append(list, values.Tuple{k, v})
@@ -741,12 +742,12 @@ func (e *Expr) evalBinop(vs []values.T) (values.T, error) {
 			return values.List(append(append(make(values.List, 0, len(left)+len(right)), left...), right...)), nil
 		case types.MapKind:
 			m := make(values.Map)
-			for k, v := range left.(values.Map) {
-				m[k] = v
-			}
-			for k, v := range right.(values.Map) {
-				m[k] = v
-			}
+			left.(values.Map).Each(func(k, v values.T) {
+				m.Insert(values.Digest(k, e.Left.Type.Index), k, v)
+			})
+			right.(values.Map).Each(func(k, v values.T) {
+				m.Insert(values.Digest(k, e.Right.Type.Index), k, v)
+			})
 			return m, nil
 		default:
 			panic("bug")
@@ -908,11 +909,13 @@ func (e *Expr) evalCompr(sess *Session, env *values.Env, ident string, begin int
 				}
 			case types.MapKind:
 				left := vs[0].(values.Map)
-				for k, v := range left {
+				var err error
+				left.Each(func(k, v values.T) {
 					env2 := env.Push()
 					for id, matcher := range clause.Pat.Matchers() {
 						tup := values.Tuple{k, v}
-						w, err := coerceMatch(
+						var w values.T
+						w, err = coerceMatch(
 							tup,
 							types.Tuple(
 								&types.Field{T: clause.Expr.Type.Index},
@@ -921,23 +924,23 @@ func (e *Expr) evalCompr(sess *Session, env *values.Env, ident string, begin int
 							matcher.Path(),
 						)
 						if err != nil {
-							return nil, err
+							return
 						}
 						env2.Bind(id, w)
 					}
-					var (
-						err error
-						ev  values.T
-					)
+					var ev values.T
 					if last {
 						ev, err = e.ComprExpr.eval(sess, env2, ident)
 					} else {
 						ev, err = e.evalCompr(sess, env2, ident, begin+1)
 					}
 					if err != nil {
-						return nil, err
+						return
 					}
 					list = append(list, ev)
+				})
+				if err != nil {
+					return nil, err
 				}
 			}
 		case ComprFilter:
