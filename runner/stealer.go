@@ -9,9 +9,14 @@ import (
 	"time"
 
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/internal/wg"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 )
+
+// Give a generous cache write timeout to workers,
+// since these are asynchronous.
+const cacheWriteTimeout = time.Hour
 
 // Stealer is a work-stealer. It periodically queries additional
 // resource requirements from an Eval, attempts to allocate
@@ -61,7 +66,21 @@ poll:
 				wcancel()
 			}()
 			go func() {
-				w.Go(wctx)
+				var wg wg.WaitGroup
+				ctx, bgcancel := reflow.WithBackground(wctx, &wg)
+				w.Go(ctx)
+				waitc := wg.C()
+				select {
+				case <-waitc:
+				default:
+					s.Log.Debug("waiting for cache writes to complete")
+					select {
+					case <-waitc:
+					case <-time.After(cacheWriteTimeout):
+						s.Log.Errorf("some cache writes still pending after timeout %s", cacheWriteTimeout)
+					}
+				}
+				bgcancel()
 				wcancel()
 				alloc.Free(context.Background())
 			}()

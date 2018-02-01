@@ -25,9 +25,9 @@ import (
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/internal/ctxwg"
 	"github.com/grailbio/reflow/internal/ec2authenticator"
 	"github.com/grailbio/reflow/internal/iputil"
+	"github.com/grailbio/reflow/internal/wg"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
@@ -278,7 +278,7 @@ retriable.`
 		run.AllocID = config.alloc
 		run.Phase = runner.Eval
 	}
-	var wg ctxwg.WaitGroup
+	var wg wg.WaitGroup
 	ctx, bgcancel := reflow.WithBackground(ctx, &wg)
 	statefile, err := state.Open(base)
 	if err != nil {
@@ -302,11 +302,7 @@ retriable.`
 	} else {
 		c.Println(run.Result)
 	}
-	ctx, cancel = context.WithTimeout(ctx, 10*time.Minute)
-	c.Log.Debugf("waiting for cache writes to complete")
-	if err := wg.Wait(ctx); err != nil {
-		c.Log.Errorf("some cache writes still pending: %v", err)
-	}
+	c.waitForCacheWrites(&wg, 10*time.Minute)
 	bgcancel()
 	cancel()
 	if run.Err != nil {
@@ -431,7 +427,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		evalConfig.Trace = c.Log
 	}
 	eval := reflow.NewEval(flow, evalConfig)
-	var wg ctxwg.WaitGroup
+	var wg wg.WaitGroup
 	ctx, bgcancel := reflow.WithBackground(ctx, &wg)
 	if config.hybrid != "" {
 		cluster := c.cluster()
@@ -454,13 +450,8 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		}
 		os.Exit(1)
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-	c.Log.Debugf("waiting for cache writes to complete")
-	if err := wg.Wait(ctx); err != nil {
-		c.Log.Errorf("some cache writes still pending: %v", err)
-	}
+	c.waitForCacheWrites(&wg, 10*time.Minute)
 	bgcancel()
-	cancel()
 	if err := eval.Err(); err != nil {
 		c.Errorln(err)
 		os.Exit(11)
@@ -489,4 +480,18 @@ func (c *Cmd) rundir() string {
 // runbase returns the base path for the run with the provided name
 func (c Cmd) runbase(id digest.Digest) string {
 	return filepath.Join(c.rundir(), id.Hex())
+}
+
+func (c Cmd) waitForCacheWrites(wg *wg.WaitGroup, timeout time.Duration) {
+	waitc := wg.C()
+	select {
+	case <-waitc:
+	default:
+		c.Log.Debugf("waiting for cache writes to complete")
+		select {
+		case <-waitc:
+		case <-time.After(timeout):
+			c.Log.Errorf("some cache writes still pending after timeout %v", timeout)
+		}
+	}
 }

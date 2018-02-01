@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/grailbio/reflow"
-	"github.com/grailbio/reflow/internal/ctxwg"
+	"github.com/grailbio/reflow/internal/wg"
 	"github.com/grailbio/reflow/test/flow"
 	"github.com/grailbio/reflow/test/testutil"
 )
@@ -48,7 +48,7 @@ func TestWorker(t *testing.T) {
 
 	ctx := context.Background()
 	rc := testutil.EvalAsync(ctx, eval)
-	var wg ctxwg.WaitGroup
+	var wg wg.WaitGroup
 	wg.Add(1)
 	go func() {
 		w.Go(ctx)
@@ -81,13 +81,13 @@ func TestWorker(t *testing.T) {
 		tf.Ok(e.Repository(), e2.Repository(), testutil.File(fmt.Sprint(i+1)))
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, idleTime*time.Duration(2))
-	defer cancel()
 	// TODO(marius): figure out how to not rely on real time here;
 	// this takes way too long and can fail even when there are no
 	// bugs.
-	if err := wg.Wait(ctx); err != nil {
-		t.Errorf("idle worker failed to die: %v", err)
+	select {
+	case <-wg.C():
+	case <-time.After(idleTime * time.Duration(2)):
+		t.Error("idle worker failed to die")
 	}
 
 	r := <-rc

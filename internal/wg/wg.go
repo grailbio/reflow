@@ -2,13 +2,10 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-// Package ctxwg implements a context-enabled WaitGroup.
-package ctxwg
+// Package wg implements a channel-enabled WaitGroup.
+package wg
 
-import (
-	"context"
-	"sync"
-)
+import "sync"
 
 // A WaitGroup waits for a collection of goroutines to finish. The main
 // goroutine calls Add to set the number of goroutines to wait for. Then each
@@ -57,13 +54,14 @@ func (w *WaitGroup) Done() {
 	w.Add(-1)
 }
 
-// Wait blocks until the WaitGroup counter is zero, or the context
-// is done.
-func (w *WaitGroup) Wait(ctx context.Context) error {
+// C returns a channel that is closed when the waitgroup count is 0.
+func (w *WaitGroup) C() <-chan struct{} {
 	w.mu.Lock()
 	if w.n == 0 {
 		w.mu.Unlock()
-		return nil
+		c := make(chan struct{})
+		close(c)
+		return c
 	}
 	c := w.waitc
 	if c == nil {
@@ -71,10 +69,5 @@ func (w *WaitGroup) Wait(ctx context.Context) error {
 		w.waitc = c
 	}
 	w.mu.Unlock()
-	select {
-	case <-c:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return c
 }

@@ -17,7 +17,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/batch"
 	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/internal/ctxwg"
+	"github.com/grailbio/reflow/internal/wg"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/runner"
 )
@@ -141,19 +141,14 @@ level.`
 			run.State.Reset()
 		}
 	}
-	var wg ctxwg.WaitGroup
+	var wg wg.WaitGroup
 	ctx, bgcancel := reflow.WithBackground(ctx, &wg)
 	err = b.Run(ctx)
 	if err != nil {
 		c.Log.Errorf("batch failed with error %v", err)
 	}
-	c.Log.Debugf("waiting for cache writes to complete")
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Minute)
-	if err := wg.Wait(ctx); err != nil {
-		c.Log.Errorf("some cache writes still pending: %v", err)
-	}
+	c.waitForCacheWrites(&wg, 20*time.Minute)
 	bgcancel()
-	cancel()
 	if err != nil {
 		os.Exit(1)
 	}
