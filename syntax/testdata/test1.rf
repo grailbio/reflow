@@ -169,3 +169,8 @@ val TestCommaOks = {
 	)
 	true
 }
+
+val TestRange = {
+	func eq(x, y [int]) bool = test.All([x == y | (x, y) <- zip(x, y)])
+	eq(range(1, 2), [1]) && eq(range(0, 4), [0,1,2,3]) && len(range(0, 5000)) == 5000
+}

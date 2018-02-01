@@ -752,6 +752,14 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			e.Type = e.Left.Type.Assign(nil)
 		case "trace":
 			e.Type = e.Left.Type.Assign(nil)
+		case "range":
+			if e.Left.Type.Kind != types.IntKind {
+				e.Type = types.Errorf("range expects an integer, not %s", e.Left.Type)
+			} else if e.Right.Type.Kind != types.IntKind {
+				e.Type = types.Errorf("range expects an integer, not %s", e.Right.Type)
+			} else {
+				e.Type = types.List(types.Int)
+			}
 		}
 	case ExprRequires:
 		if err := e.initResources(sess, env); err != nil {
@@ -1056,9 +1064,9 @@ func (e *Expr) String() string {
 var binopPrec = map[string]int{
 	"||": 2,
 	"&&": 3,
-	"<":  4, ">": 4, "<=": 4, ">=": 4, "!=": 4, "==": 4,
-	"+": 5, "-": 5, "|": 5, "^": 5,
-	"*": 6, "/": 6, "%": 6, "&": 6, "<<": 6, ">>": 6,
+	"<":  5, ">": 5, "<=": 5, ">=": 5, "!=": 5, "==": 5,
+	"+": 6, "-": 6, "|": 6, "^": 6,
+	"*": 7, "/": 7, "%": 7, "&": 7, "<<": 7, ">>": 7,
 }
 
 // Prec returns the precedence of expression e. If it is not a binary

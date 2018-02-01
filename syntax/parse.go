@@ -177,6 +177,8 @@ var identTokens = map[string]int{
 
 	"type": tokType,
 
+	"range": tokRange,
+
 	// Reserved identifiers:
 	"force":   tokReserved,
 	"switch":  tokReserved,

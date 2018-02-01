@@ -23,6 +23,8 @@ import (
 var (
 	coerceExecOutputDigest = reflow.Digester.FromString("grail.com/reflow/syntax.Eval.coerceExecOutput")
 	sequenceDigest         = reflow.Digester.FromString("grail.com/reflow/syntax.Eval.~>")
+
+	one = big.NewInt(1)
 )
 
 // Eval evaluates the expression e and returns its value (or error).
@@ -637,6 +639,18 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				fmt.Fprintf(os.Stderr, "%s%s: %s\n", e.Position, ident, values.Sprint(vs[0], e.Left.Type))
 				return vs[0], nil
 			}, tval{e.Left.Type, left})
+		case "range":
+			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+				left, right := vs[0].(*big.Int), vs[1].(*big.Int)
+				if left.Cmp(right) > 0 {
+					return nil, errors.New("invalid range")
+				}
+				var list values.List
+				for i := new(big.Int).Set(left); i.Cmp(right) < 0; i.Add(i, one) {
+					list = append(list, new(big.Int).Set(i))
+				}
+				return list, nil
+			}, e.Left, e.Right)
 		}
 	case ExprRequires:
 		req, err := e.evalRequirements(sess, env, ident)
