@@ -14,6 +14,7 @@ import (
 	golog "log"
 	"net/http"
 	"os"
+	"os/signal"
 	"runtime/pprof"
 	"sort"
 
@@ -257,7 +258,18 @@ func (c *Cmd) Main() {
 
 	c.Log.Debug("reflow version ", c.version())
 
-	ctx := context.Background()
+	// Create a context and cancel it if we receive an interrupt.
+	// The second interrupt we receive results in a hard exit.
+	ctx, cancel := context.WithCancel(context.Background())
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, os.Interrupt)
+	go func() {
+		<-sigc
+		cancel()
+		c.Errorln("cleaning up...")
+		<-sigc
+		c.Exit(1)
+	}()
 	// Note that the flag package stops parsing flags after the first
 	// non-flag argument (i.e., the first argument that does not begin
 	// with "-"); thus flag.Args()[1:] contains all the flags and

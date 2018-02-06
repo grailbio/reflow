@@ -1208,7 +1208,9 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 	missing, err := missing(ctx, e.Repository, fs.Files()...)
 	switch {
 	case err != nil:
-		e.Log.Errorf("missing %v: %v", fs, err)
+		if err != ctx.Err() {
+			e.Log.Errorf("missing %v: %v", fs, err)
+		}
 	case len(missing) != 0:
 		var total int64
 		for _, file := range missing {

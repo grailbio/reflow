@@ -480,7 +480,7 @@ func is(kind Kind, e *Error) bool {
 // be usefully retried.
 func Transient(err error) bool {
 	switch Recover(err).Kind {
-	case Canceled, Timeout, Temporary, TooManyTries, Unavailable:
+	case Timeout, Temporary, TooManyTries, Unavailable:
 		return true
 	default:
 		return false

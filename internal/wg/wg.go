@@ -71,3 +71,11 @@ func (w *WaitGroup) C() <-chan struct{} {
 	w.mu.Unlock()
 	return c
 }
+
+// N returns the current number of waiters.
+func (w *WaitGroup) N() int {
+	w.mu.Lock()
+	n := w.n
+	w.mu.Unlock()
+	return n
+}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/limiter"
@@ -179,8 +180,13 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 			":one":  {N: aws.String("1")},
 		},
 	})
-	if err != nil {
-		log.Errorf("dynamodb: update %v: %v", k, err)
+	if err != nil && err != ctx.Err() {
+		awserr, ok := err.(awserr.Error)
+		// The AWS SDK decides to override context cancellation
+		// with its own non-standard error. Thanks Obama.
+		if !ok || awserr.Code() != "RequestCanceled" {
+			log.Errorf("dynamodb: update %v: %v", k, err)
+		}
 	}
 	return k, v, nil
 }

@@ -489,7 +489,11 @@ func (c Cmd) waitForCacheWrites(wg *wg.WaitGroup, timeout time.Duration) {
 	select {
 	case <-waitc:
 	default:
-		c.Log.Debugf("waiting for cache writes to complete")
+		n := wg.N()
+		if n == 0 {
+			return
+		}
+		c.Log.Debugf("waiting for %d cache writes to complete", n)
 		select {
 		case <-waitc:
 		case <-time.After(timeout):
