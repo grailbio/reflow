@@ -22,11 +22,41 @@ var (
 		&Field{Name: "b", T: String},
 		&Field{Name: "c", T: Tuple(&Field{T: Int}, &Field{T: String})},
 		&Field{Name: "d", T: String})
+
+	mty1 = Module(
+		[]*Field{
+			&Field{Name: "a", T: Int},
+			&Field{Name: "b", T: String},
+			&Field{Name: "c", T: Tuple(&Field{T: Int}, &Field{T: String})},
+		},
+		nil,
+	)
+	mty2 = Module(
+		[]*Field{
+			&Field{Name: "a", T: Int},
+			&Field{Name: "d", T: String},
+			&Field{Name: "c", T: Tuple(&Field{T: Int}, &Field{T: String})},
+		},
+		nil,
+	)
+	mty12 = Module(
+		[]*Field{
+			&Field{Name: "a", T: Int},
+			&Field{Name: "b", T: String},
+			&Field{Name: "c", T: Tuple(&Field{T: Int}, &Field{T: String})},
+			&Field{Name: "d", T: String},
+		},
+		nil,
+	)
 )
 
 func TestUnify(t *testing.T) {
 	u := ty1.Unify(ty2)
 	if got, want := u.String(), "{a int, c (int, string)}"; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	u = mty1.Unify(mty2)
+	if got, want := u.String(), "module{a int, c (int, string)}"; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
@@ -39,6 +69,15 @@ func TestSub(t *testing.T) {
 		t.Errorf("%s is a subtype of %s", ty12, ty1)
 	}
 	if !ty12.Sub(ty2) {
+		t.Errorf("%s is a subtype of %s", ty12, ty2)
+	}
+	if mty1.Sub(mty2) {
+		t.Errorf("%s is not a subtype of %s", ty1, ty2)
+	}
+	if !mty12.Sub(mty1) {
+		t.Errorf("%s is a subtype of %s", ty12, ty1)
+	}
+	if !mty12.Sub(mty2) {
 		t.Errorf("%s is a subtype of %s", ty12, ty2)
 	}
 }

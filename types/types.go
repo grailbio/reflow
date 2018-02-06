@@ -534,7 +534,7 @@ func (t *T) Unify(u *T) *T {
 			}
 		}
 		return Func(t.Elem.Unify(u.Elem), t.Fields...)
-	case StructKind, ModuleKind:
+	case StructKind:
 		tfields := t.FieldMap()
 		var fields []*Field
 		for _, uf := range u.Fields {
@@ -548,6 +548,22 @@ func (t *T) Unify(u *T) *T {
 			return Errorf("%s %v and %v have no fields in common", t.Kind, t, u)
 		}
 		return Struct(fields...)
+	case ModuleKind:
+		tfields := t.FieldMap()
+		var fields []*Field
+		for _, uf := range u.Fields {
+			tty := tfields[uf.Name]
+			if tty == nil {
+				continue
+			}
+			fields = append(fields, &Field{Name: uf.Name, T: tty.Unify(uf.T)})
+		}
+		if len(fields) == 0 {
+			return Errorf("%s %v and %v have no fields in common", t.Kind, t, u)
+		}
+		// TODO(marius): unify type aliases too. Now we just drop them and
+		// this could lead to perplexing type errors.
+		return Module(fields, nil)
 	}
 }
 
