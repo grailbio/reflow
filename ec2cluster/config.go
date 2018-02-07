@@ -62,6 +62,9 @@ type Config struct {
 	// DiskSpace determines the amount of EBS disk space to allocate for
 	// each node, in gigabytes.
 	DiskSpace int `yaml:"diskspace"`
+	// DiskSlices is the number of EBS volumes to use. When DiskSlices > 1,
+	// the volumes are arranged in a RAID0 array to increase throughput.
+	DiskSlices int `yaml:"diskslices"`
 	// AMI defines the AMI to use when launching new instances. CoreOS
 	// is assumed.
 	AMI string `yaml:"ami"`
@@ -172,6 +175,7 @@ func (c *Config) Cluster() (runner.Cluster, error) {
 		MaxInstances:    c.MaxInstances,
 		DiskType:        c.DiskType,
 		DiskSpace:       c.DiskSpace,
+		DiskSlices:      c.DiskSlices,
 		AMI:             c.AMI,
 		SshKey:          c.SshKey,
 		KeyName:         c.KeyName,

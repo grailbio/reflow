@@ -209,6 +209,7 @@ func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, file
 			len(files)-doneFiles-pendingFiles, data.Size(total-doneBytes-pendingBytes))
 	}
 	update()
+	start := time.Now()
 	g, ctx := errgroup.WithContext(ctx)
 	for i := range files {
 		file := files[i]
@@ -255,7 +256,18 @@ func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, file
 			return err
 		})
 	}
-	return g.Wait()
+	err := g.Wait()
+	if err != nil {
+		task.Print(err)
+		return err
+	}
+	dur := time.Since(start)
+	if dur.Seconds() < 1 {
+		return nil
+	}
+	m.Log.Debugf("completed transfer of %s in %s (%s/s)", data.Size(total), data.Size(total/int64(dur.Seconds())))
+	task.Printf("complete: %s at %s/s", data.Size(total), data.Size(total/int64(dur.Seconds())))
+	return nil
 }
 
 func (m *Manager) updateStats(r reflow.Repository, files, send, recv int) {

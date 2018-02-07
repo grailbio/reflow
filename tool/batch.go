@@ -94,6 +94,7 @@ level.`
 		Status:           c.status.Group("transfers"),
 		PendingTransfers: repository.NewLimits(c.transferLimit()),
 		Stat:             repository.NewLimits(statLimit),
+		Log:              c.Log,
 	}
 	if repo != nil {
 		transferer.PendingTransfers.Set(repo.URL().String(), int(^uint(0)>>1))

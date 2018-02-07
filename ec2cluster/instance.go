@@ -48,6 +48,14 @@ import (
 // be a little shy of 2%.
 const memoryDiscount = 0.05 + 0.02
 
+// the smallest acceptable disk sizes per EBS volume type.
+var minDiskSizes = map[string]uint64{
+	// EBS does not allow you to create ST1 volumes smaller than 500GiB.
+	"st1": 500,
+	// 214 is the smallest disk size that yields maximum throughput.
+	"gp2": 214,
+}
+
 // instanceConfig represents a instance configuration.
 type instanceConfig struct {
 	// Type is the EC2 instance type to be launched.
@@ -226,6 +234,7 @@ type instance struct {
 	Price           float64
 	EBSType         string
 	EBSSize         uint64
+	NEBS            int
 	AMI             string
 	KeyName         string
 	SshKey          string
@@ -252,6 +261,18 @@ func (i *instance) Instance() *ec2.Instance {
 // On success (i.Err() == nil), the returned instance is in running state.
 // Launch status is reported to the instance's task, if any.
 func (i *instance) Go(ctx context.Context) {
+	if i.NEBS < 1 {
+		i.NEBS = 1
+	}
+	if min, ok := minDiskSizes[i.EBSType]; ok {
+		if i.EBSSize < min {
+			i.EBSSize = min
+		}
+		nmin := int(i.EBSSize / min)
+		if i.NEBS > nmin {
+			i.NEBS = nmin
+		}
+	}
 	const maxTries = 5
 	type stateT int
 	const (
@@ -462,15 +483,18 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 	c.AppendUnit(cloudUnit{Name: "update-engine.service", Command: "stop"})
 	c.AppendUnit(cloudUnit{Name: "locksmithd.service", Command: "stop"})
 
-	// Configure the disk.
-	deviceName := "xvdb"
-	if i.Config.NVMe {
-		deviceName = "nvme1n1"
-	}
-	c.AppendUnit(cloudUnit{
-		Name:    fmt.Sprintf("format-%s.service", deviceName),
-		Command: "start",
-		Content: tmpl(`
+	// Configure the disks.
+	var deviceName string
+	switch i.NEBS {
+	case 0, 1:
+		deviceName = "xvdb"
+		if i.Config.NVMe {
+			deviceName = "nvme1n1"
+		}
+		c.AppendUnit(cloudUnit{
+			Name:    fmt.Sprintf("format-%s.service", deviceName),
+			Command: "start",
+			Content: tmpl(`
 			[Unit]
 			Description=Format /dev/{{.name}}
 			After=dev-{{.name}}.device
@@ -481,7 +505,34 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 			ExecStart=/usr/sbin/wipefs -f /dev/{{.name}}
 			ExecStart=/usr/sbin/mkfs.ext4 -F /dev/{{.name}}
 		`, args{"name": deviceName}),
-	})
+		})
+	default:
+		deviceName = "md0"
+		devices := make([]string, i.NEBS)
+		for idx := range devices {
+			if i.Config.NVMe {
+				devices[idx] = fmt.Sprintf("nvme%dn1", idx+1)
+			} else {
+				devices[idx] = fmt.Sprintf("xvd%c", 'b'+idx)
+			}
+		}
+		c.AppendUnit(cloudUnit{
+			Name:    fmt.Sprintf("format-%s.service", deviceName),
+			Command: "start",
+			Content: tmpl(`
+			[Unit]
+			Description=Format /dev/{{.md}}
+			After={{range $_, $name :=  .devices}}dev-{{$name}}.device {{end}}
+			Requires={{range $_, $name := .devices}}dev-{{$name}}.device {{end}}
+			[Service]
+			Type=oneshot
+			RemainAfterExit=yes
+			ExecStart=/usr/sbin/mdadm --create --run --verbose /dev/{{.md}} --level=0 --chunk=256 --name=reflow --raid-devices={{.devices|len}} {{range $_, $name := .devices}}/dev/{{$name}} {{end}}
+			ExecStart=/usr/sbin/mkfs.ext4 -F /dev/{{.md}}
+		`, args{"devices": devices, "md": deviceName}),
+		})
+	}
+
 	c.AppendUnit(cloudUnit{
 		Name:    "mnt-data.mount",
 		Command: "start",
@@ -544,33 +595,12 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 		SpotPrice:  aws.String(fmt.Sprintf("%.3f", i.Price)),
 
 		LaunchSpecification: &ec2.RequestSpotLaunchSpecification{
-			ImageId:      aws.String(i.AMI),
-			EbsOptimized: aws.Bool(i.Config.EBSOptimized),
-			InstanceType: aws.String(i.Config.Type),
-
-			BlockDeviceMappings: []*ec2.BlockDeviceMapping{
-				{
-					// The root device for the OS, Docker images, etc.
-					DeviceName: aws.String("/dev/xvda"),
-					Ebs: &ec2.EbsBlockDevice{
-						DeleteOnTermination: aws.Bool(true),
-						VolumeSize:          aws.Int64(200),
-						VolumeType:          aws.String("gp2"),
-					},
-				},
-				{
-					// The data device used for all Reflow data.
-					DeviceName: aws.String("/dev/xvdb"),
-					Ebs: &ec2.EbsBlockDevice{
-						DeleteOnTermination: aws.Bool(true),
-						VolumeSize:          aws.Int64(int64(i.EBSSize)),
-						VolumeType:          aws.String(i.EBSType),
-					},
-				},
-			},
-
-			KeyName:  nonemptyString(i.KeyName),
-			UserData: aws.String(i.userData),
+			ImageId:             aws.String(i.AMI),
+			EbsOptimized:        aws.Bool(i.Config.EBSOptimized),
+			InstanceType:        aws.String(i.Config.Type),
+			BlockDeviceMappings: i.ebsDeviceMappings(),
+			KeyName:             nonemptyString(i.KeyName),
+			UserData:            aws.String(i.userData),
 
 			IamInstanceProfile: &ec2.IamInstanceProfileSpecification{
 				Arn: aws.String(i.InstanceProfile),
@@ -707,29 +737,10 @@ func (i *instance) ec2HasCapacity(ctx context.Context, n int) (bool, error) {
 
 func (i *instance) ec2RunInstance() (string, error) {
 	params := &ec2.RunInstancesInput{
-		ImageId:  aws.String(i.AMI),
-		MaxCount: aws.Int64(int64(1)),
-		MinCount: aws.Int64(int64(1)),
-		BlockDeviceMappings: []*ec2.BlockDeviceMapping{
-			{
-				// The root device for the OS, Docker images, etc.
-				DeviceName: aws.String("/dev/xvda"),
-				Ebs: &ec2.EbsBlockDevice{
-					DeleteOnTermination: aws.Bool(true),
-					VolumeSize:          aws.Int64(200),
-					VolumeType:          aws.String("gp2"),
-				},
-			},
-			{
-				// The data device used for all Reflow data.
-				DeviceName: aws.String("/dev/xvdb"),
-				Ebs: &ec2.EbsBlockDevice{
-					DeleteOnTermination: aws.Bool(true),
-					VolumeSize:          aws.Int64(int64(i.EBSSize)),
-					VolumeType:          aws.String(i.EBSType),
-				},
-			},
-		},
+		ImageId:               aws.String(i.AMI),
+		MaxCount:              aws.Int64(int64(1)),
+		MinCount:              aws.Int64(int64(1)),
+		BlockDeviceMappings:   i.ebsDeviceMappings(),
 		ClientToken:           aws.String(newID()),
 		DisableApiTermination: aws.Bool(false),
 		DryRun:                aws.Bool(false),
@@ -746,6 +757,7 @@ func (i *instance) ec2RunInstance() (string, error) {
 		UserData:         aws.String(i.userData),
 		SecurityGroupIds: []*string{aws.String(i.SecurityGroup)},
 	}
+	i.Log.Debugf("EC2RunInstances %v", params)
 	resv, err := i.EC2.RunInstances(params)
 	if err != nil {
 		return "", err
@@ -754,6 +766,35 @@ func (i *instance) ec2RunInstance() (string, error) {
 		return "", fmt.Errorf("expected 1 instance; got %d", n)
 	}
 	return *resv.Instances[0].InstanceId, nil
+}
+
+// ebsDeviceMappings returns the set of device mappings requested by
+// this instance. When i.NEBS > 1, it requests multiple devices which
+// are then RAIDed together. We assume that the first mapping,
+// device xvda is reserved as a system device.
+func (i *instance) ebsDeviceMappings() []*ec2.BlockDeviceMapping {
+	mappings := []*ec2.BlockDeviceMapping{
+		{
+			// The root device for the OS, Docker images, etc.
+			DeviceName: aws.String("/dev/xvda"),
+			Ebs: &ec2.EbsBlockDevice{
+				DeleteOnTermination: aws.Bool(true),
+				VolumeSize:          aws.Int64(200),
+				VolumeType:          aws.String("gp2"),
+			},
+		},
+	}
+	for idx := 0; idx < i.NEBS; idx++ {
+		mappings = append(mappings, &ec2.BlockDeviceMapping{
+			DeviceName: aws.String(fmt.Sprintf("/dev/xvd%c", 'b'+idx)),
+			Ebs: &ec2.EbsBlockDevice{
+				DeleteOnTermination: aws.Bool(true),
+				VolumeSize:          aws.Int64(int64(i.EBSSize) / int64(i.NEBS)),
+				VolumeType:          aws.String(i.EBSType),
+			},
+		})
+	}
+	return mappings
 }
 
 func newID() string {

@@ -108,6 +108,7 @@ func (r *Repository) Get(ctx context.Context, id digest.Digest) (io.ReadCloser, 
 func (r *Repository) GetFile(ctx context.Context, id digest.Digest, w io.WriterAt) (int64, error) {
 	d := s3manager.NewDownloaderWithClient(r.Client, func(d *s3manager.Downloader) {
 		d.Concurrency = s3concurrency
+		d.PartSize = s3minpartsize
 	})
 	return d.Download(w, &s3.GetObjectInput{
 		Bucket: aws.String(r.Bucket),

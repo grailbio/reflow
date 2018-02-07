@@ -98,6 +98,9 @@ type Cluster struct {
 	DiskType string
 	// DiskSpace is the number of GiB of disk space to allocate for each node.
 	DiskSpace int
+	// DiskSlices is the number of EBS volumes that are used. When DiskSlices > 1,
+	// they are arranged in a RAID0 array to increase throughput.
+	DiskSlices int
 	// AMI is the VM image used to launch new instances.
 	AMI string
 	// The config for this Reflow instantiation. Used to provide configs to
@@ -263,6 +266,7 @@ func (c *Cluster) loop() {
 			Price:           price,
 			EBSType:         c.DiskType,
 			EBSSize:         uint64(config.Resources["disk"]) >> 30,
+			NEBS:            c.DiskSlices,
 			AMI:             c.AMI,
 			SshKey:          c.SshKey,
 			KeyName:         c.KeyName,
