@@ -173,6 +173,12 @@ func (c *Cmd) usage(flags *flag.FlagSet) {
 //
 // Main should only be called once.
 func (c *Cmd) Main() {
+	if c.Stdout == nil {
+		c.Stdout = os.Stdout
+	}
+	if c.Stderr == nil {
+		c.Stderr = os.Stderr
+	}
 	flags := c.Flags()
 	if flags.NArg() == 0 {
 		fmt.Fprintln(os.Stderr, intro)
