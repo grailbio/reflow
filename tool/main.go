@@ -13,6 +13,8 @@ import (
 	"io/ioutil"
 	golog "log"
 	"net/http"
+	// Global pprof handlers for all instantiations of the tool.
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"runtime/pprof"
