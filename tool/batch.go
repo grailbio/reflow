@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"text/tabwriter"
 	"time"
@@ -67,6 +68,7 @@ level.`
 	nocacheexternFlag := flags.Bool("nocacheextern", false, "don't cache extern ops")
 	recomputeemptyFlag := flags.Bool("recomputeempty", false, "recompute empty cache values")
 	evalStrategy := flags.String("eval", "topdown", "evaluation strategy")
+	invalidateFlag := flags.String("invalidate", "", "regular expression for node identifiers that should be invalidated")
 
 	c.Parse(flags, args, help, "runbatch [-retry] [-reset] [flags]")
 	if flags.NArg() != 0 {
@@ -76,6 +78,16 @@ level.`
 	case "topdown", "bottomup":
 	default:
 		c.Fatalf("invalid evaluation strategy %s", *evalStrategy)
+	}
+	var invalidate func(f *reflow.Flow) bool
+	if *invalidateFlag != "" {
+		re, err := regexp.Compile(*invalidateFlag)
+		if err != nil {
+			c.Fatalf("invalid invalidation expression: %v", err)
+		}
+		invalidate = func(f *reflow.Flow) bool {
+			return re.MatchString(f.Ident)
+		}
 	}
 	user, err := c.Config.User()
 	if err != nil {
@@ -115,6 +127,7 @@ level.`
 			Transferer:     transferer,
 			GC:             *gcFlag,
 			BottomUp:       *evalStrategy == "bottomup",
+			Invalidate:     invalidate,
 		},
 		Rundir:  c.rundir(),
 		User:    user,

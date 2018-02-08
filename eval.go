@@ -133,6 +133,10 @@ type EvalConfig struct {
 	// After the timeout expires, a cache lookup is considered
 	// a miss.
 	CacheLookupTimeout time.Duration
+
+	// Invalidate is a function that determines whether or not f's cached
+	// results should be invalidated.
+	Invalidate func(f *Flow) bool
 }
 
 // String returns a human-readable form of the evaluation configuration.
@@ -882,6 +886,18 @@ func (e *Eval) dirty(f *Flow) bool {
 	return false
 }
 
+// valid tells whether f's cached results should be considered valid.
+func (e *Eval) valid(f *Flow) bool {
+	if e.Invalidate == nil {
+		return true
+	}
+	invalid := e.Invalidate(f)
+	if invalid {
+		e.Log.Debugf("invalidated %v", f)
+	}
+	return !invalid
+}
+
 // todo adds to e.list the set of ready Flows in f.
 func (e *Eval) todo(f *Flow) {
 	if f == nil {
@@ -1095,6 +1111,11 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 // source repository. CacheWrite returns nil on success, or else the first error
 // encountered.
 func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo Repository) error {
+	switch f.Op {
+	case OpIntern, OpExtern, OpExec:
+	default:
+		return nil
+	}
 	// We currently only cache fileset values.
 	fs, ok := f.Value.(Fileset)
 	if !ok {
@@ -1149,7 +1170,7 @@ func (e *Eval) lookupFailed(f *Flow) {
 
 // lookup performs a cache lookup of node f.
 func (e *Eval) lookup(ctx context.Context, f *Flow) {
-	if !e.CacheMode.Reading() || e.NoCacheExtern && (f.Op == OpExtern || f == e.root) {
+	if !e.valid(f) || !e.CacheMode.Reading() || e.NoCacheExtern && (f.Op == OpExtern || f == e.root) {
 		e.lookupFailed(f)
 		return
 	}

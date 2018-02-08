@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"time"
 
@@ -56,6 +57,7 @@ type runConfig struct {
 	nocacheextern  bool
 	recomputeempty bool
 	eval           string
+	invalidate     string
 }
 
 func (r *runConfig) Flags(flags *flag.FlagSet) {
@@ -70,6 +72,7 @@ func (r *runConfig) Flags(flags *flag.FlagSet) {
 	flags.BoolVar(&r.nocacheextern, "nocacheextern", false, "don't cache extern ops")
 	flags.BoolVar(&r.recomputeempty, "recomputeempty", false, "recompute empty cache values")
 	flags.StringVar(&r.eval, "eval", "topdown", "evaluation strategy")
+	flags.StringVar(&r.invalidate, "invalidate", "", "regular expression for node identifiers that should be invalidated")
 }
 
 func (r *runConfig) Err() error {
@@ -95,6 +98,12 @@ func (r *runConfig) Err() error {
 			return errors.New("-resources can only be used in local mode")
 		}
 	}
+	if r.invalidate != "" {
+		_, err := regexp.Compile(r.invalidate)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -105,6 +114,12 @@ func (r *runConfig) Configure(c *reflow.EvalConfig) {
 	c.GC = r.gc
 	c.RecomputeEmpty = r.recomputeempty
 	c.BottomUp = r.eval == "bottomup"
+	if r.invalidate != "" {
+		re := regexp.MustCompile(r.invalidate)
+		c.Invalidate = func(f *reflow.Flow) bool {
+			return re.MatchString(f.Ident)
+		}
+	}
 }
 
 func (c *Cmd) run(ctx context.Context, args ...string) {

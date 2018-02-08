@@ -168,9 +168,6 @@ func TestCacheWrite(t *testing.T) {
 		if got, want := testutil.Value(eval, exec.Digest()), execValue; !testutil.Exists(eval, exec.CacheKeys()...) || !got.Equal(want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
-		if got, want := testutil.Value(eval, pullup.Digest()), execValue; !got.Equal(want) {
-			t.Errorf("got %v, want %v", got, want)
-		}
 	}
 }
 
