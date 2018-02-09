@@ -484,6 +484,10 @@ func (e *s3Exec) download(ctx context.Context, dl *s3manager.Downloader, bucket,
 	digestingFiles.Add(1)
 	file, err := e.staging.Install(f.Name())
 	digestingFiles.Add(-1)
+	if err == nil && file.Size != size {
+		err = errors.E(errors.Integrity,
+			errors.Errorf("expected size %d does not match actual size %d", size, file.Size))
+	}
 	if err != nil {
 		e.log.Errorf("install s3://%s/%s: %v", bucket, key, err)
 	} else {
