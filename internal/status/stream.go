@@ -20,7 +20,7 @@ const (
 	minSimpleReportingPeriod = time.Minute
 )
 
-var maxTime = time.Unix(1<<63-1, 0)
+var minDisplayInterval = 50 * time.Millisecond
 
 type result struct {
 	n   int
@@ -150,6 +150,8 @@ func (r Reporter) displayTerm(w io.Writer, term *term, status *Status) {
 		// Take a snapshot of all the values to be rendered. The 0th value
 		// in each group is the group toplevel status. We then accomodate
 		// for our height budget by trimming task statuses (oldest first).
+		// We coalesce tasks with the same status to the first mention of
+		// the task.
 		var snapshot [][]Value
 		for _, g := range groups {
 			v := g.Value()
@@ -157,9 +159,18 @@ func (r Reporter) displayTerm(w io.Writer, term *term, status *Status) {
 			if v.Status == "" && len(tasks) == 0 {
 				continue
 			}
+			statuses := make(map[string]int)
 			values := []Value{v}
 			for _, task := range tasks {
-				values = append(values, task.Value())
+				value := task.Value()
+				if i, ok := statuses[value.Status]; ok {
+					values[i].Count++
+					values[i].LastBegin = value.Begin
+				} else {
+					value.Count = 1
+					statuses[value.Status] = len(values)
+					values = append(values, value)
+				}
 			}
 			snapshot = append(snapshot, values)
 		}
@@ -202,15 +213,21 @@ func (r Reporter) displayTerm(w io.Writer, term *term, status *Status) {
 			var maxtitle, maxvalue, maxtime int
 			for i, v := range tasks {
 				elapsed := now.Sub(v.Begin)
-				elapsed -= elapsed % time.Second
-				rows[i] = row{
+				row := row{
 					title:   v.Title,
 					value:   v.Status,
-					elapsed: elapsed.String(),
+					elapsed: round(elapsed).String(),
 				}
-				maxtitle = max(maxtitle, len(rows[i].title))
-				maxvalue = max(maxvalue, len(rows[i].value))
-				maxtime = max(maxtime, len(rows[i].elapsed))
+				if v.Count > 1 {
+					row.title += fmt.Sprintf("[%d]", v.Count)
+					if lastElapsed := round(now.Sub(v.LastBegin)); elapsed-lastElapsed > time.Minute {
+						row.elapsed = fmt.Sprintf("%s-%s", lastElapsed, row.elapsed)
+					}
+				}
+				maxtitle = max(maxtitle, len(row.title))
+				maxvalue = max(maxvalue, len(row.value))
+				maxtime = max(maxtime, len(row.elapsed))
+				rows[i] = row
 			}
 			if trim := 2 + maxtitle + 3 + maxvalue + 2 + maxtime - width; trim > 0 {
 				if trim > maxvalue {
@@ -311,4 +328,8 @@ func trim(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+func round(d time.Duration) time.Duration {
+	return d - d%time.Second
 }

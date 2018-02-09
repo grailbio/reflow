@@ -244,6 +244,8 @@ func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, file
 				err = errors.E(err, errors.Errorf("error transferring object %v", file.ID))
 			}
 			mu.Lock()
+			doneFiles++
+			doneBytes += file.Size
 			pendingFiles--
 			pendingBytes -= file.Size
 			update()
@@ -265,7 +267,7 @@ func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, file
 	if dur.Seconds() < 1 {
 		return nil
 	}
-	m.Log.Debugf("completed transfer of %s in %s (%s/s)", data.Size(total), data.Size(total/int64(dur.Seconds())))
+	m.Log.Debugf("completed transfer of %s in %s (%s/s)", data.Size(total), dur, data.Size(total/int64(dur.Seconds())))
 	task.Printf("complete: %s at %s/s", data.Size(total), data.Size(total/int64(dur.Seconds())))
 	return nil
 }
@@ -299,6 +301,8 @@ func (m *Manager) limiter(r reflow.Repository, lim *map[string]*limiter.Limiter,
 	return l
 }
 
+const maxDescription = 20
+
 func description(r reflow.Repository) string {
 	type shortStringer interface {
 		ShortString() string
@@ -306,14 +310,19 @@ func description(r reflow.Repository) string {
 	type stringer interface {
 		String() string
 	}
+	var s string
 	switch arg := r.(type) {
 	case shortStringer:
-		return arg.ShortString()
+		s = arg.ShortString()
 	case stringer:
-		return arg.String()
+		s = arg.String()
 	default:
-		return key(r)
+		s = key(r)
 	}
+	if len(s) > maxDescription {
+		s = s[:maxDescription-1] + ".."
+	}
+	return s
 }
 
 func key(r reflow.Repository) string {

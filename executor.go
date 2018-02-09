@@ -443,7 +443,9 @@ type Resources map[string]float64
 func (r Resources) String() string {
 	var b bytes.Buffer
 	b.WriteString("{")
-	fmt.Fprintf(&b, "mem:%s cpu:%g disk:%s", data.Size(r["mem"]), r["cpu"], data.Size(r["disk"]))
+	if r["mem"] != 0 || r["cpu"] != 0 || r["disk"] != 0 {
+		fmt.Fprintf(&b, "mem:%s cpu:%g disk:%s", data.Size(r["mem"]), r["cpu"], data.Size(r["disk"]))
+	}
 	var keys []string
 	for key := range r {
 		switch key {

@@ -30,6 +30,8 @@ const expiry = 10 * time.Second
 type Value struct {
 	Title, Status string
 	Begin, End    time.Time
+	LastBegin     time.Time
+	Count         int
 }
 
 // A Task is a single unit of work. It has a title, a beginning and
