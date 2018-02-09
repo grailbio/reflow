@@ -118,10 +118,12 @@ type Cluster struct {
 	// Status is used to report cluster and instance status.
 	Status *status.Group
 
-	instanceState *instanceState
-	pools         map[string]pool.Pool
-	pending       []*instance
-	wait          chan *waiter
+	instanceState   *instanceState
+	instanceConfigs map[string]instanceConfig
+	pools           map[string]pool.Pool
+	pending         []*instance
+	wait            chan *waiter
+	reconciled      chan struct{}
 }
 
 type waiter struct {
@@ -160,16 +162,19 @@ func (c *Cluster) Init() error {
 
 	// Construct the set of legal instances and set available disk space.
 	var instances []instanceConfig
+	c.instanceConfigs = make(map[string]instanceConfig)
 	for _, config := range instanceTypes {
+		config.Resources["disk"] = float64(c.DiskSpace << 30)
 		if c.InstanceTypes == nil || c.InstanceTypes[config.Type] {
-			config.Resources["disk"] = float64(c.DiskSpace << 30)
 			instances = append(instances, config)
 		}
+		c.instanceConfigs[config.Type] = config
 	}
 	if len(instances) == 0 {
 		return errors.New("no configured instance types")
 	}
 	c.instanceState = newInstanceState(instances, 5*time.Minute, c.Region)
+	c.reconciled = make(chan struct{}, 1)
 
 	c.update()
 	go c.maintain()
@@ -294,10 +299,20 @@ func (c *Cluster) loop() {
 			return waiters[i].Min.ScaledDistance(nil) < waiters[j].Min.ScaledDistance(nil)
 		})
 		s := make([]string, len(waiters))
-		for i, w := range waiters {
-			s[i] = fmt.Sprintf("waiter%d%s", i, w.Min)
+		if c.Log.At(log.DebugLevel) {
+			for i, w := range waiters {
+				s[i] = fmt.Sprintf("waiter%d%s", i, w.Min)
+			}
+			c.Log.Debugf("pending%s %s", pending, strings.Join(s, ", "))
 		}
-		c.Log.Debugf("pending%s %s", pending, strings.Join(s, ", "))
+		var total, waiting reflow.Resources
+		for _, w := range waiters {
+			waiting.Add(waiting, w.Min)
+		}
+		for _, instance := range instances {
+			total.Add(total, c.instanceConfigs[*instance.InstanceType].Resources)
+		}
+
 		// First skip waiters that are already getting their resources
 		// satisfied.
 		//
@@ -359,12 +374,9 @@ func (c *Cluster) loop() {
 		if needPoll {
 			pollch = time.After(time.Minute)
 		}
-		if npending > 0 {
-			c.Status.Printf("%d instances, pending%s", n, pending)
-		} else {
-			c.Status.Printf("%d instances", n)
-		}
+		c.Status.Printf("%d instances, total%s, waiting%s, pending%s", n, total, waiting, pending)
 		select {
+		case <-c.reconciled:
 		case <-pollch:
 		case inst := <-done:
 			pending.Sub(pending, inst.Config.Resources)
@@ -548,6 +560,10 @@ func (c *Cluster) reconcile() error {
 		}
 	}
 	c.remove(dead...)
+	select {
+	case c.reconciled <- struct{}{}:
+	default:
+	}
 	return nil
 }
 
