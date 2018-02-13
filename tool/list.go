@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"text/tabwriter"
+	"time"
 
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/traverse"
@@ -125,11 +126,13 @@ The columns displayed by list are:
 				inspect.Config.Resources["cpu"], data.Size(inspect.Config.Resources["disk"]),
 				inspect.Config.Ident, sprintURI(entries[i]))
 		case pool.AllocInspect:
-			fmt.Fprintf(&tw, "%s\t%s\t%g\t%s\t%s\t%s\n",
+			expires := time.Until(inspect.Expires)
+			expires = round(expires)
+			fmt.Fprintf(&tw, "%s\t%s\t%g\t%s\t%s\t%s\t%s\n",
 				"", /*TODO(marius): print whether it's active or zombie*/
 				data.Size(inspect.Resources["mem"]),
 				inspect.Resources["cpu"], data.Size(inspect.Resources["disk"]),
-				inspect.Meta.Owner, sprintURI(entries[i]))
+				expires, inspect.Meta.Owner, sprintURI(entries[i]))
 		default:
 			panic("unknown inspect type")
 		}
