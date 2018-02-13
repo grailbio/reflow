@@ -163,12 +163,13 @@ func (r Reporter) displayTerm(w io.Writer, term *term, status *Status) {
 			values := []Value{v}
 			for _, task := range tasks {
 				value := task.Value()
-				if i, ok := statuses[value.Status]; ok {
+				key := value.Title + value.Status
+				if i, ok := statuses[key]; ok {
 					values[i].Count++
 					values[i].LastBegin = value.Begin
 				} else {
 					value.Count = 1
-					statuses[value.Status] = len(values)
+					statuses[key] = len(values)
 					values = append(values, value)
 				}
 			}
