@@ -443,8 +443,14 @@ type Resources map[string]float64
 func (r Resources) String() string {
 	var b bytes.Buffer
 	b.WriteString("{")
+	r.writeResources(&b)
+	b.WriteString("}")
+	return b.String()
+}
+
+func (r Resources) writeResources(b *bytes.Buffer) {
 	if r["mem"] != 0 || r["cpu"] != 0 || r["disk"] != 0 {
-		fmt.Fprintf(&b, "mem:%s cpu:%g disk:%s", data.Size(r["mem"]), r["cpu"], data.Size(r["disk"]))
+		fmt.Fprintf(b, "mem:%s cpu:%g disk:%s", data.Size(r["mem"]), r["cpu"], data.Size(r["disk"]))
 	}
 	var keys []string
 	for key := range r {
@@ -459,10 +465,8 @@ func (r Resources) String() string {
 		if r[key] == 0 {
 			continue
 		}
-		fmt.Fprintf(&b, " %s:%g", key, r[key])
+		fmt.Fprintf(b, " %s:%g", key, r[key])
 	}
-	b.WriteString("}")
-	return b.String()
 }
 
 // Available tells if s resources are available from r.
@@ -570,37 +574,68 @@ func (r Resources) Equal(s Resources) bool {
 	return true
 }
 
-// Requirements stores a range of resource requirements. Minimum
-// requirements indicate the smallest acceptable unit of resources,
-// while max is the maximum (total) amount of useful resources.
-// Wide indicates whether the computation is "wide" - that is, some
-// multiple of the minimum resource requirements can usefully
-// be employed.
+// Requirements stores resource requirements, comprising the minimum
+// amount of acceptable resources and a width.
 type Requirements struct {
-	Min, Max Resources
-	Wide     bool
+	// Min is the smallest amount of resources that must be allocated
+	// to satisfy the requirements.
+	Min Resources
+	// Width is the width of the requirements. A width of zero indicates
+	// a "narrow" job: minimum describes the exact resources needed.
+	// Widths greater than zero are "wide" requests: they require some
+	// multiple of the minimum requirement. The distinction between a
+	// width of zero and a width of one is a little subtle: width
+	// represents the smallest acceptable width, and thus a width of 1
+	// can be taken as a hint to allocate a higher multiple of the
+	// minimum requirements, whereas a width of 0 represents a precise
+	// requirement: allocating any more is likely to be wasteful.
+	Width int
 }
 
-// can fit any of the discrete resources added.
+// Wide returns whether these requirements represent a
+// wide resource request.
+func (r *Requirements) Wide() bool {
+	return r.Width > 0
+}
+
+// AddParallel adds the provided resources s to the requirements,
+// and also increases the requirement's width by one.
+func (r *Requirements) AddParallel(s Resources) {
+	r.Min.Max(r.Min, s)
+	r.Width++
+}
+
+// AddSerial adds the provided resources s to the requirements.
+func (r *Requirements) AddSerial(s Resources) {
+	r.Min.Max(r.Min, s)
+}
+
+// Max is the maximum amount of resources represented by this
+// resource request.
+func (r *Requirements) Max() Resources {
+	var max Resources
+	max.Scale(r.Min, float64(1+r.Width))
+	return max
+}
+
+// Add adds the provided requirements s to the requirements r.
+// R's minimum requirements are set to the larger of the two;
+// the two widths are added.
 func (r *Requirements) Add(s Requirements) {
 	r.Min.Max(r.Min, s.Min)
-	r.Max.Max(r.Max, s.Max)
-	r.Wide = r.Wide || s.Wide
+	r.Width += s.Width
 }
 
 // Equal reports whether r and s represent the same requirements.
 func (r Requirements) Equal(s Requirements) bool {
-	return r.Min.Equal(s.Min) && r.Min.Equal(s.Min) && r.Wide == s.Wide
+	return r.Min.Equal(s.Min) && r.Width == s.Width
 }
 
 // String renders a human-readable representation of r.
 func (r Requirements) String() string {
-	s := fmt.Sprintf("min%s", r.Min)
-	if !r.Min.Equal(r.Max) {
-		s += fmt.Sprintf(" max%s", r.Max)
-	}
-	if r.Wide {
-		return s + " wide"
+	s := r.Min.String()
+	if r.Width > 1 {
+		return s + fmt.Sprintf("#%d", r.Width)
 	}
 	return s
 }

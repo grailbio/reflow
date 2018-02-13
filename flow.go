@@ -347,9 +347,9 @@ func (f *Flow) Requirements() (req Requirements) {
 	switch f.Op {
 	case OpMap:
 		req.Add(f.MapFlow.Requirements())
-		req.Wide = true
+		req.Width = 1 // We set it to wide; we can't assume how wide.
 	case OpExec:
-		req.Add(Requirements{f.Resources, f.Resources, false})
+		req.AddSerial(f.Resources)
 	case OpRequirements:
 		req.Add(f.FlowRequirements)
 	}
@@ -452,8 +452,8 @@ func (f *Flow) DebugString() string {
 	case OpCoerce:
 		fmt.Fprintf(b, "coerce<%s>(", dstr)
 	case OpRequirements:
-		fmt.Fprintf(b, "requirements<%s>(min(%s), max(%s)",
-			dstr, f.FlowRequirements.Min, f.FlowRequirements.Max)
+		fmt.Fprintf(b, "requirements<%s>(min(%s), width(%d)",
+			dstr, f.FlowRequirements.Min, f.FlowRequirements.Width)
 	case OpData:
 		fmt.Fprintf(b, "data<%s>(%s)", dstr, Digester.FromBytes(f.Data))
 	}

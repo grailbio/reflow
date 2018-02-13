@@ -678,7 +678,7 @@ func (e *Eval) wait(ctx context.Context) (err error) {
 					}
 				}
 				if !admitted {
-					need.Add(Requirements{v.Resources, v.Resources, false})
+					need.AddParallel(v.Resources)
 				}
 			}
 		}

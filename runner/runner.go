@@ -22,13 +22,12 @@ import (
 
 const (
 	pollInterval     = 10 * time.Second
-	allocTimeout     = 5 * time.Minute
 	keepaliveTimeout = 10 * time.Second
 	maxTries         = 10
 )
 
 var minResources = reflow.Resources{"cpu": 1, "mem": 500 << 20, "disk": 1 << 30}
-var minRequirements = reflow.Requirements{minResources, minResources, false}
+var minRequirements = reflow.Requirements{Min: minResources}
 
 // Phase enumerates the possible phases of a run.
 type Phase int

@@ -51,8 +51,8 @@ func TestRequirements(t *testing.T) {
 		res1 = reflow.Resources{"mem": 10, "cpu": 5, "disk": 1}
 		res2 = reflow.Resources{"mem": 20, "cpu": 3, "disk": 1}
 	)
-	req.Add(reflow.Requirements{res1, res1, false})
-	req.Add(reflow.Requirements{res2, res2, false})
+	req.AddSerial(res1)
+	req.AddSerial(res2)
 	if got, want := req.Min, (reflow.Resources{"mem": 20, "cpu": 5, "disk": 1}); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}

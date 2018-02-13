@@ -67,8 +67,9 @@ func TestRequirements(t *testing.T) {
 		for _, feature := range val["cpufeatures"].(values.List) {
 			expect.Min[feature.(string)] = expect.Min["cpu"]
 		}
-		expect.Max = expect.Min
-		expect.Wide = val["wide"].(bool)
+		if val["wide"].(bool) {
+			expect.Width = 1
+		}
 		if !req.Equal(expect) {
 			t.Errorf("%s: got %s, want %s", test, req, expect)
 		}

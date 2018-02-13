@@ -122,8 +122,9 @@ type Cluster struct {
 	instanceConfigs map[string]instanceConfig
 	pools           map[string]pool.Pool
 	pending         []*instance
-	wait            chan *waiter
 	reconciled      chan struct{}
+
+	wait chan *waiter
 }
 
 type waiter struct {
@@ -186,7 +187,16 @@ func (c *Cluster) Init() error {
 // boundaries form this cluster. If an existing instance can serve
 // the request, it is returned immediately; otherwise new instance(s)
 // are spun up to handle the allocation.
-func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error) {
+func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (alloc pool.Alloc, err error) {
+	task := c.Status.Startf("allocate %s", req)
+	defer func() {
+		if err != nil {
+			task.Print(err)
+		} else {
+			task.Print("alloc ", alloc.ID())
+		}
+		task.Done()
+	}()
 	c.Log.Debugf("allocate %s", req)
 	if !c.instanceState.Available(req.Min) {
 		return nil, errors.E(errors.ResourcesExhausted,
@@ -203,12 +213,12 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 		}
 		c.Log.Debugf("failed to allocate from existing pool: %v; provisioning from EC2", err)
 	}
-
+	task.Print("provisioning new instance")
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ticker := time.NewTicker(20 * time.Second)
 	defer ticker.Stop()
-	needch := c.need(ctx, req)
+	needch := c.allocate(ctx, req)
 	for {
 		select {
 		case <-ctx.Done():
@@ -222,7 +232,7 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 			}
 			c.Log.Errorf("failed to allocate from pool: %v; provisioning new instances", err)
 			// We didn't get it--try again!
-			needch = c.need(ctx, req)
+			needch = c.allocate(ctx, req)
 		case <-ticker.C:
 			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			alloc, err := pool.Allocate(ctx, c, req, labels)
@@ -234,7 +244,7 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 	}
 }
 
-func (c *Cluster) need(ctx context.Context, req reflow.Requirements) <-chan struct{} {
+func (c *Cluster) allocate(ctx context.Context, req reflow.Requirements) <-chan struct{} {
 	w := &waiter{
 		Requirements: req,
 		ctx:          ctx,
@@ -248,11 +258,10 @@ func (c *Cluster) need(ctx context.Context, req reflow.Requirements) <-chan stru
 func (c *Cluster) loop() {
 	const maxPending = 5
 	var (
-		waiters       []*waiter
-		pending       reflow.Resources
-		npending      int
-		done          = make(chan *instance)
-		instanceCount = make(map[string]int)
+		waiters  []*waiter
+		pending  reflow.Resources
+		npending int
+		done     = make(chan *instance)
 	)
 	launch := func(config instanceConfig, price float64) {
 		i := &instance{
@@ -278,8 +287,6 @@ func (c *Cluster) loop() {
 			Immortal:        c.Immortal,
 			CloudConfig:     c.CloudConfig,
 		}
-		n := instanceCount[config.Type]
-		instanceCount[config.Type] = n + 1
 		i.Task = c.Status.Startf("%s", config.Type)
 		i.Go(context.Background())
 		i.Task.Done()
@@ -307,10 +314,13 @@ func (c *Cluster) loop() {
 		}
 		var total, waiting reflow.Resources
 		for _, w := range waiters {
-			waiting.Add(waiting, w.Min)
+			waiting.Add(waiting, w.Max())
 		}
+		var totalPrice float64
 		for _, instance := range instances {
-			total.Add(total, c.instanceConfigs[*instance.InstanceType].Resources)
+			config := c.instanceConfigs[*instance.InstanceType]
+			total.Add(total, config.Resources)
+			totalPrice += config.Price[c.Region]
 		}
 
 		// First skip waiters that are already getting their resources
@@ -337,22 +347,37 @@ func (c *Cluster) loop() {
 		var todo []instanceConfig
 		for i < len(waiters) {
 			var need reflow.Resources
-			need.Add(need, waiters[i].Min)
+			w := waiters[i]
+			need.Add(need, w.Min)
 			i++
 			best, ok := c.instanceState.MinAvailable(need, c.Spot)
 			if !ok {
-				w := waiters[i-1]
 				c.Log.Debugf("no currently available instance type can satisfy resource requirements %v", w.Min)
 				continue
 			}
-			for i < len(waiters) {
-				need.Add(need, waiters[i].Min)
-				wbest, ok := c.instanceState.MinAvailable(need, c.Spot)
-				if !ok {
-					break
+			// For wide requests, we simply try to find the largest available
+			// instance that will support some portion of the load. We don't
+			// pack more waiters. The workers will attempt to allocate the
+			// whole instance anyway.
+			if w.Width > 0 {
+				for j := 1; j < w.Width; j++ {
+					need.Add(need, w.Min)
+					wbest, ok := c.instanceState.MinAvailable(need, c.Spot)
+					if !ok {
+						break
+					}
+					best = wbest
 				}
-				best = wbest
-				i++
+			} else {
+				for i < len(waiters) {
+					need.Add(need, waiters[i].Min)
+					wbest, ok := c.instanceState.MinAvailable(need, c.Spot)
+					if !ok {
+						break
+					}
+					best = wbest
+					i++
+				}
 			}
 			todo = append(todo, best)
 		}
@@ -374,7 +399,17 @@ func (c *Cluster) loop() {
 		if needPoll {
 			pollch = time.After(time.Minute)
 		}
-		c.Status.Printf("%d instances, total%s, waiting%s, pending%s", n, total, waiting, pending)
+		instanceTypes := make(map[string]int)
+		for _, instance := range instances {
+			instanceTypes[*instance.InstanceType]++
+		}
+		var counts []string
+		for typ, n := range instanceTypes {
+			counts = append(counts, fmt.Sprintf("%s:%d", typ, n))
+		}
+		sort.Strings(counts)
+		c.Status.Printf("%d instances: %s (<=$%.1f/hr), total%s, waiting%s, pending%s",
+			n, strings.Join(counts, ","), totalPrice, total, waiting, pending)
 		select {
 		case <-c.reconciled:
 		case <-pollch:
@@ -402,7 +437,7 @@ func (c *Cluster) loop() {
 				}
 				if available.Available(w.Min) {
 					var tmp reflow.Resources
-					tmp.Min(w.Max, available)
+					tmp.Min(w.Max(), available)
 					available.Sub(available, tmp)
 					w.Notify()
 					nnotify++

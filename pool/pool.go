@@ -214,7 +214,7 @@ func Allocate(ctx context.Context, pool Pool, req reflow.Requirements, labels La
 		if err != nil {
 			return nil, err
 		}
-		pick := Pick(offers, req.Min, req.Max)
+		pick := Pick(offers, req.Min, req.Max())
 		if pick == nil {
 			return nil, errors.E(errors.Unavailable, errUnavailable)
 		}
@@ -225,10 +225,10 @@ func Allocate(ctx context.Context, pool Pool, req reflow.Requirements, labels La
 		// unusable anyway. We do the same if it's a wide request.
 		avail := pick.Available()
 		var want reflow.Resources
-		want.Min(req.Max, avail)
+		want.Min(req.Max(), avail)
 		var tmp reflow.Resources
 		tmp.Sub(avail, want)
-		if tmp["cpu"] <= 0 || tmp["mem"] <= 0 || tmp["disk"] <= 0 || req.Wide {
+		if tmp["cpu"] <= 0 || tmp["mem"] <= 0 || tmp["disk"] <= 0 || req.Wide() {
 			want.Set(avail)
 		}
 		meta := AllocMeta{Want: want, Labels: labels}

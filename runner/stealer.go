@@ -46,9 +46,7 @@ poll:
 			}
 			n++
 			s.Log.Debugf("need %v; starting new task stealing worker", need)
-			actx, acancel := context.WithTimeout(ctx, allocTimeout)
-			alloc, err := s.Cluster.Allocate(actx, need, s.Labels)
-			acancel()
+			alloc, err := s.Cluster.Allocate(ctx, need, s.Labels)
 			if err != nil {
 				continue poll
 			}

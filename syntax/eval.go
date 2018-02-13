@@ -691,9 +691,9 @@ func (e *Expr) evalRequirements(sess *Session, env *values.Env, ident string) (r
 		}
 	}
 	req.Min = makeResources(env2)
-	req.Max = req.Min
-	if v := env2.Value("wide"); v != nil {
-		req.Wide = v.(bool)
+	if v := env2.Value("wide"); v != nil && v.(bool) {
+		// TODO(marius): allow the user to pass down the desired width
+		req.Width = 1
 	}
 	return req, nil
 }
