@@ -111,7 +111,6 @@ level.`
 	if repo != nil {
 		transferer.PendingTransfers.Set(repo.URL().String(), int(^uint(0)>>1))
 	}
-	go transferer.Report(ctx, time.Minute)
 	wd, err := os.Getwd()
 	if err != nil {
 		c.Log.Error(err)

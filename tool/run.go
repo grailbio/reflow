@@ -266,9 +266,6 @@ retriable.`
 	if repo != nil {
 		transferer.PendingTransfers.Set(repo.URL().String(), int(^uint(0)>>1))
 	}
-	if c.Log.At(log.DebugLevel) {
-		go transferer.Report(ctx, time.Minute)
-	}
 	run := runner.Runner{
 		Flow: er.Flow,
 		EvalConfig: reflow.EvalConfig{
@@ -372,7 +369,6 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	if repo != nil {
 		transferer.PendingTransfers.Set(repo.URL().String(), int(^uint(0)>>1))
 	}
-	go transferer.Report(ctx, time.Minute)
 	dir := config.localDir
 	if config.dir != "" {
 		dir = config.dir

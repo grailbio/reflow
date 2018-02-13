@@ -426,6 +426,9 @@ func (e *Error) UnmarshalJSON(b []byte) error {
 // err1 is an *Error with a non-nil Err field, Match recurs to check
 // that the two errors chain of underlying errors also match.
 func Match(err1, err2 error) bool {
+	if err1 == err2 {
+		return true
+	}
 	e2 := Recover(err2)
 	e1, ok := err1.(*Error)
 	if !ok {

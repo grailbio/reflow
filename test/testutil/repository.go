@@ -119,6 +119,7 @@ type RepositoryCallKind int
 const (
 	RepositoryGet RepositoryCallKind = iota
 	RepositoryPut
+	RepositoryStat
 	RepositoryWriteTo
 	RepositoryReadFrom
 )
@@ -134,6 +135,7 @@ type RepositoryCall struct {
 	ArgReadError error
 
 	ReplyID         digest.Digest
+	ReplyFile       reflow.File
 	ReplyErr        error
 	ReplyReadCloser io.ReadCloser
 }
@@ -268,3 +270,102 @@ func (*panicRepository) URL() *url.URL { panic("not implemented") }
 // PanicRepository is an unimplemented repository.
 // It panics on each call.
 var PanicRepository reflow.Repository = &panicRepository{}
+
+type repositoryCallKey struct {
+	Kind RepositoryCallKind
+	Arg  digest.Digest
+}
+
+// WaitRepository is a repository implementation for testing
+// that lets the caller rendeszvous calls so that concurrency
+// can be controlled.
+type WaitRepository struct {
+	url   *url.URL
+	mu    sync.Mutex
+	calls map[repositoryCallKey]chan RepositoryCall
+}
+
+// NewWaitRepository creates a new WaitRespository with the
+// provided URL. If the URL is invalid, NewWaitRepository will
+// panic.
+func NewWaitRepository(rawurl string) *WaitRepository {
+	w := &WaitRepository{
+		calls: make(map[repositoryCallKey]chan RepositoryCall),
+	}
+	var err error
+	w.url, err = url.Parse(rawurl)
+	if err != nil {
+		panic(err)
+	}
+	return w
+}
+
+// Collect is not supported by WaitRepository.
+func (w *WaitRepository) Collect(context.Context, reflow.Liveset) error {
+	panic("not implemented")
+}
+
+// Stat waits for another caller to rendeszvous and then returns the caller's reply.
+func (w *WaitRepository) Stat(ctx context.Context, id digest.Digest) (reflow.File, error) {
+	select {
+	case reply := <-w.Call(RepositoryStat, id):
+		return reply.ReplyFile, reply.ReplyErr
+	case <-ctx.Done():
+		return reflow.File{}, ctx.Err()
+	}
+}
+
+// Get waits for another caller to rendeszvous and then returns the caller's reply.
+func (w *WaitRepository) Get(ctx context.Context, id digest.Digest) (io.ReadCloser, error) {
+	select {
+	case reply := <-w.Call(RepositoryGet, id):
+		return reply.ReplyReadCloser, reply.ReplyErr
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// Put reads the contents of r, waits for another caller to rendeszvous
+// and then returns the caller's reply.
+func (w *WaitRepository) Put(ctx context.Context, r io.Reader) (digest.Digest, error) {
+	dw := reflow.Digester.NewWriter()
+	if _, err := io.Copy(dw, r); err != nil {
+		return digest.Digest{}, err
+	}
+	id := dw.Digest()
+	select {
+	case reply := <-w.Call(RepositoryPut, id):
+		return id, reply.ReplyErr
+	case <-ctx.Done():
+		return digest.Digest{}, ctx.Err()
+	}
+}
+
+// WriteTo is not supported by WaitRepository.
+func (w *WaitRepository) WriteTo(_ context.Context, id digest.Digest, u *url.URL) error {
+	return errors.E("writeto", id, u.String(), errors.NotSupported)
+}
+
+// ReadFrom is not supported by WaitRepository.
+func (w *WaitRepository) ReadFrom(_ context.Context, id digest.Digest, u *url.URL) error {
+	return errors.E("readfrom", id, u.String(), errors.NotSupported)
+}
+
+// URL returns the repository's URL.
+func (w *WaitRepository) URL() *url.URL {
+	return w.url
+}
+
+// Call rendeszvous with another caller. The returned channel
+// is used to reply to the call.
+func (w *WaitRepository) Call(kind RepositoryCallKind, digest digest.Digest) chan RepositoryCall {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	key := repositoryCallKey{kind, digest}
+	call := w.calls[key]
+	if call == nil {
+		call = make(chan RepositoryCall)
+		w.calls[key] = call
+	}
+	return call
+}

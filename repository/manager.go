@@ -56,9 +56,90 @@ func (l *Limits) Limit(k string) int {
 	return l.def
 }
 
-// stat is used to keep track of pending transfer statistics.
+type transferStatus int
+
+const (
+	// Waiting indicates that the transfer is queued.
+	waiting transferStatus = iota
+	// Transferring indicates that the transfer is currently being performed.
+	transferring
+	// Done indicates the transfer is complete.
+	done
+	maxStatus
+)
+
+// Stat stores file transfer statistics.
 type stat struct {
-	files, send, recv int
+	// Size is the total size of all the files in the transfer.
+	Size int64
+	// N is the number of files in the transfer.
+	N int64
+}
+
+func (s stat) String() string {
+	return fmt.Sprintf("%d %s", s.N, data.Size(s.Size))
+}
+
+// Sub returns the stat of s subtracted by t.
+func (s stat) Sub(t stat) stat {
+	return stat{
+		Size: s.Size - t.Size,
+		N:    s.N - t.N,
+	}
+}
+
+// Add returns the state of s added to t.
+func (s stat) Add(t stat) stat {
+	return stat{
+		Size: s.Size + t.Size,
+		N:    s.N + t.N,
+	}
+}
+
+// IsZero tells whether stat s is zero.
+func (s stat) IsZero() bool {
+	return s.Size == 0 && s.N == 0
+}
+
+// TransferStats keep track of transfer stats by status.
+type transferStat [maxStatus]stat
+
+// Pending returns whether this stat has any non-done entries.
+func (t *transferStat) Pending() bool {
+	return (*t)[waiting].IsZero() && (*t)[transferring].IsZero()
+}
+
+// Update updates the transferStat t with stat in the given status.
+//
+// TODO(marius): report transfer rates also
+func (t *transferStat) Update(status transferStatus, stat stat) {
+	if status > waiting {
+		(*t)[status-1] = (*t)[status-1].Sub(stat)
+	}
+	(*t)[status] = (*t)[status].Add(stat)
+}
+
+func (t transferStat) String() string {
+	return fmt.Sprintf("done: %s, transferring: %s, waiting: %s", t[done], t[transferring], t[waiting])
+}
+
+// Task represents a single transfer task. It is used to
+// provide a status.Task for a single transfer.
+type task struct {
+	*status.Task
+	transferStat
+}
+
+// A transfer represents a single file transfer from a source
+// to a destination repository.
+type transfer struct {
+	Err error
+	C   chan struct{}
+}
+
+type transferKey struct {
+	Dest string
+	File reflow.File
 }
 
 // A Manager is used to transfer objects between repositories while
@@ -84,43 +165,16 @@ type Manager struct {
 	// Status is used to report active transfers to.
 	Status *status.Group
 
-	mu             sync.Mutex
+	mu sync.Mutex
+
 	src, dst, stat map[string]*limiter.Limiter
-	pending        map[string]stat
-}
 
-func (m *Manager) String() string {
-	return fmt.Sprintf("manager{pending:%s stat:%s}", m.PendingTransfers, m.Stat)
-}
+	// tasks represents the current transfer tasks, rolled up by src->dst.
+	tasks map[string]*task
 
-// Report reports transfer status to m.Logger at each interval.
-func (m *Manager) Report(ctx context.Context, interval time.Duration) {
-	if !m.Log.At(log.DebugLevel) {
-		return
-	}
-	t := time.NewTicker(interval)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			// We accumulate these first so we don't print under lock.
-			// (Loggers may block.)
-			var entries []string
-			m.mu.Lock()
-			for u, stat := range m.pending {
-				lim := m.PendingTransfers.Limit(u)
-				entries = append(entries, fmt.Sprintf(
-					"%s: files:%d/%d send:%s recv:%s",
-					u, stat.files, lim, data.Size(stat.send), data.Size(stat.recv)))
-			}
-			m.mu.Unlock()
-			for _, line := range entries {
-				m.Log.Debug(line)
-			}
-		}
-	}
+	managerStat transferStat
+
+	transfers map[transferKey]*transfer
 }
 
 // Transfer transmits a set of files between two repositories,
@@ -190,40 +244,44 @@ func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, file
 		ux, uy = uy, ux
 		lx, ly = ly, lx
 	}
-	// TODO(marius): these can result in really long task titles;
-	// find a way to shorten them.
-	task := m.Status.Startf("%s->%s", description(src), description(dst))
-	defer task.Done()
-	var total int64
+	var total stat
 	for _, file := range files {
-		total += file.Size
+		total.Size += file.Size
+		total.N++
 	}
-	var (
-		mu                      sync.Mutex
-		doneFiles, pendingFiles int
-		doneBytes, pendingBytes int64
-	)
-	update := func() {
-		task.Printf("done: %d (%s), pending: %d (%s), waiting: %d (%s)",
-			doneFiles, data.Size(doneBytes), pendingFiles, data.Size(pendingBytes),
-			len(files)-doneFiles-pendingFiles, data.Size(total-doneBytes-pendingBytes))
-	}
-	update()
 	start := time.Now()
 	g, ctx := errgroup.WithContext(ctx)
 	for i := range files {
 		file := files[i]
-		n := int(file.Size)
+		transfer, claimed := m.claim(dst, src, file)
+		if !claimed {
+			g.Go(func() error {
+				// TODO(marius): this approach may tie together unrelated
+				// contexts; if one is cancelled, the other dependent transfers
+				// are also cancelled even though their contexts would permit the
+				// computation to proceed. Fix this.
+				select {
+				case <-transfer.C:
+					return transfer.Err
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			})
+			continue
+		}
+		m.updateStats(src, dst, waiting, stat{file.Size, 1})
 		if err := lx.Acquire(ctx, 1); err != nil {
+			m.done(dst, src, file, err)
 			return err
 		}
 		if err := ly.Acquire(ctx, 1); err != nil {
 			lx.Release(1)
+			m.done(dst, src, file, err)
 			return err
 		}
 		g.Go(func() error {
-			m.updateStats(dst, 1, 0, n)
-			m.updateStats(src, 1, n, 0)
+			stat := stat{file.Size, 1}
+			m.updateStats(src, dst, transferring, stat)
 			// Note: this is too coarse grained. It means that
 			// for large objects, we end up waiting a long time
 			// to detect stalled transfers. Instead, we should enforce
@@ -233,56 +291,50 @@ func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, file
 			if timeout < minTimeout {
 				timeout = minTimeout
 			}
-			mu.Lock()
-			pendingFiles++
-			pendingBytes += file.Size
-			update()
-			mu.Unlock()
 			ctx, cancel := context.WithTimeout(ctx, timeout)
 			err := Transfer(ctx, dst, src, file.ID)
 			if err != nil {
-				err = errors.E(err, errors.Errorf("error transferring object %v", file.ID))
+				err = errors.E("transfer", file.ID, err)
 			}
-			mu.Lock()
-			doneFiles++
-			doneBytes += file.Size
-			pendingFiles--
-			pendingBytes -= file.Size
-			update()
-			mu.Unlock()
+			m.updateStats(src, dst, done, stat)
 			cancel()
 			ly.Release(1)
 			lx.Release(1)
-			m.updateStats(dst, -1, 0, -n)
-			m.updateStats(src, -1, -n, 0)
+			m.done(dst, src, file, err)
 			return err
 		})
 	}
 	err := g.Wait()
 	if err != nil {
-		task.Print(err)
 		return err
 	}
 	dur := time.Since(start)
 	if dur.Seconds() < 1 {
 		return nil
 	}
-	m.Log.Debugf("completed transfer of %s in %s (%s/s)", data.Size(total), dur, data.Size(total/int64(dur.Seconds())))
-	task.Printf("complete: %s at %s/s", data.Size(total), data.Size(total/int64(dur.Seconds())))
+	m.Log.Debugf("completed transfer of %s in %s (%s/s)", data.Size(total.Size), dur, data.Size(total.Size/int64(dur.Seconds())))
 	return nil
 }
 
-func (m *Manager) updateStats(r reflow.Repository, files, send, recv int) {
-	u := key(r)
+func (m *Manager) updateStats(src, dst reflow.Repository, status transferStatus, stat stat) {
+	k := key(src) + key(dst)
 	m.mu.Lock()
-	s := m.pending[u]
-	s.files += files
-	s.send += send
-	s.recv += recv
-	if m.pending == nil {
-		m.pending = map[string]stat{}
+	t := m.tasks[k]
+	if t == nil {
+		t = &task{Task: m.Status.Startf("%s->%s", description(src), description(dst))}
+		if m.tasks == nil {
+			m.tasks = make(map[string]*task)
+		}
+		m.tasks[k] = t
 	}
-	m.pending[u] = s
+	t.Update(status, stat)
+	t.Print(t)
+	if t.Pending() {
+		t.Done()
+		delete(m.tasks, k)
+	}
+	m.managerStat.Update(status, stat)
+	m.Status.Print(m.managerStat)
 	m.mu.Unlock()
 }
 
@@ -299,6 +351,37 @@ func (m *Manager) limiter(r reflow.Repository, lim *map[string]*limiter.Limiter,
 	l := (*lim)[u]
 	m.mu.Unlock()
 	return l
+}
+
+// Claim attempts to claim ownership of the transfer of the provided
+// file from the given source to the given destination. Claim returns
+// a fresh transfer and true when the claim is successful; it returns
+// a current transfer and false when the transfer was not
+// successfully claimed. This provides a mechanism for "single
+// flighting" concurrent transfers.
+func (m *Manager) claim(dst, src reflow.Repository, file reflow.File) (*transfer, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.transfers == nil {
+		m.transfers = make(map[transferKey]*transfer)
+	}
+	key := transferKey{key(dst), file}
+	if t := m.transfers[key]; t != nil {
+		return t, false
+	}
+	t := &transfer{C: make(chan struct{})}
+	m.transfers[key] = t
+	return t, true
+}
+
+func (m *Manager) done(dst, src reflow.Repository, file reflow.File, err error) {
+	m.mu.Lock()
+	key := transferKey{key(dst), file}
+	t := m.transfers[key]
+	delete(m.transfers, key)
+	m.mu.Unlock()
+	t.Err = err
+	close(t.C)
 }
 
 const maxDescription = 20
