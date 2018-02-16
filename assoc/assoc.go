@@ -27,8 +27,9 @@ type Assoc interface {
 	// Put associates the digest v with the key digest k of the provided
 	// kind. If expect is nonzero, Put performs a compare-and-set,
 	// erroring with errors.Precondition if the expected current value
-	// was not equal to expect. Zero values indicate that the association
-	// is to be deleted.
+	// was not equal to expect. If expect is zero, Put only creates a
+	// new entry if one does not already exists at the given key. Zero
+	// values indicate that the association is to be deleted.
 	Put(ctx context.Context, kind Kind, expect, k, v digest.Digest) error
 
 	// Get returns the digest associated with key digest k and the

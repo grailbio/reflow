@@ -463,6 +463,9 @@ func Match(err1, err2 error) bool {
 // indeterminate kind Other. In the case an error has kind Other, the
 // chain is traversed until a non-Other error is encountered.
 func Is(kind Kind, err error) bool {
+	if err == nil {
+		return false
+	}
 	return is(kind, Recover(err))
 }
 

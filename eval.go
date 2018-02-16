@@ -1251,7 +1251,9 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 		go func() {
 			for _, key := range keys {
 				if err := e.Assoc.Put(bgctx, assoc.Fileset, digest.Digest{}, key, fsid); err != nil {
-					e.Log.Errorf("assoc write for read repair %v %v: %v", f, key, err)
+					if !errors.Is(errors.Precondition, err) {
+						e.Log.Errorf("assoc write for read repair %v %v: %v", f, key, err)
+					}
 				}
 			}
 			bgctx.Complete()

@@ -769,7 +769,7 @@ func (f *Flow) PhysicalDigest() digest.Digest {
 	}
 	w := Digester.NewWriter()
 	for _, dep := range f.Deps {
-		if dep.State != FlowDone {
+		if dep.State != FlowDone || dep.Err != nil {
 			return digest.Digest{}
 		}
 		dep.Value.(Fileset).WriteDigest(w)

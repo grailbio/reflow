@@ -49,7 +49,10 @@ func (a *Assoc) Put(ctx context.Context, kind assoc.Kind, expect, k, v digest.Di
 		conditionExpression       *string
 		expressionAttributeValues map[string]*dynamodb.AttributeValue
 	)
-	if !expect.IsZero() {
+	switch {
+	case expect.IsZero() && !v.IsZero():
+		conditionExpression = aws.String("attribute_not_exists(ID)")
+	case !expect.IsZero():
 		conditionExpression = aws.String("Value = :expect")
 		expressionAttributeValues = map[string]*dynamodb.AttributeValue{
 			":expect": {S: aws.String(expect.String())},
@@ -89,6 +92,17 @@ func (a *Assoc) Put(ctx context.Context, kind assoc.Kind, expect, k, v digest.Di
 		},
 		TableName: aws.String(a.TableName),
 	})
+	if err == nil {
+		return nil
+	}
+	awserr, ok := err.(awserr.Error)
+	if !ok {
+		return err
+	}
+	switch awserr.Code() {
+	case "ConditionalCheckFailedException":
+		return errors.E(errors.Precondition, err)
+	}
 	return err
 }
 
