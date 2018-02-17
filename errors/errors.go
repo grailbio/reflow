@@ -168,6 +168,14 @@ type Error struct {
 	Err error
 }
 
+type timeout interface {
+	Timeout() bool
+}
+
+type temporary interface {
+	Temporary() bool
+}
+
 // E is used to construct errors. E constructs errors from a set of
 // arguments; each of which must be one of the following types:
 //
@@ -241,26 +249,17 @@ func E(args ...interface{}) error {
 		if e.Kind != Other {
 			break
 		}
-		switch err := e.Err.(type) {
-		case interface {
-			Timeout() bool
-		}:
-			if err.Timeout() {
-				e.Kind = Timeout
-			}
-		case interface {
-			Temporary() bool
-		}:
-			if err.Temporary() {
-				e.Kind = Temporary
-			}
-		default:
-			switch {
-			case err == context.Canceled:
-				e.Kind = Canceled
-			case os.IsNotExist(err):
-				e.Kind = NotExist
-			}
+		if err, ok := e.Err.(temporary); ok && err.Temporary() {
+			e.Kind = Temporary
+		}
+		if err, ok := e.Err.(timeout); ok && err.Timeout() {
+			e.Kind = Timeout
+		}
+		if e.Err == context.Canceled {
+			e.Kind = Canceled
+		}
+		if os.IsNotExist(e.Err) {
+			e.Kind = NotExist
 		}
 	}
 	return e
