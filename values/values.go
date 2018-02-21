@@ -253,7 +253,7 @@ func Sprint(v T, t *types.T) string {
 		for i, f := range t.Fields {
 			elems[i] = fmt.Sprintf("val %s = %s", f.Name, Sprint(s[f.Name], f.T))
 		}
-		return fmt.Sprintf("module{%s}", t.Kind, strings.Join(elems, "; "))
+		return fmt.Sprintf("module{%s}", strings.Join(elems, "; "))
 	case types.FuncKind:
 		return fmt.Sprintf("func(?)")
 	default:

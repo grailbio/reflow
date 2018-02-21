@@ -109,7 +109,7 @@ func TestValuePullup(t *testing.T) {
 
 func TestValueN(t *testing.T) {
 	if got, want := vlist.N(), 4; got != want {
-		t.Errorf("got %v, want %v")
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
 
