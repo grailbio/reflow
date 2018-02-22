@@ -55,6 +55,7 @@ func main() {
 			"setup-ec2":            setupEC2,
 			"setup-s3-repository":  setupS3Repository,
 			"setup-dynamodb-assoc": setupDynamoDBAssoc,
+			"migrate":              migrate,
 		},
 	}
 	cmd.Flags().Parse(os.Args[1:])

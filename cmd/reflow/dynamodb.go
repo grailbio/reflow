@@ -21,19 +21,20 @@ import (
 	"github.com/grailbio/reflow/tool"
 )
 
+// Default provisioned capacities for DynamoDB.
+const (
+	writecap = 10
+	readcap  = 20
+)
+
 func setupDynamoDBAssoc(c *tool.Cmd, ctx context.Context, args ...string) {
 	flags := flag.NewFlagSet("setup-dynamodb-assoc", flag.ExitOnError)
-	var (
-		writeCap = flags.Int("writecap", 10, "dynamodb provisioned write capacity")
-		readCap  = flags.Int("readcap", 20, "dynamodb provisioned read capacity")
-	)
 	help := `Setup-dynamodb-assoc provisions a table in AWS's DynamoDB service and
 modifies Reflow's configuration to use this table as its assoc.
 
 By default the DynamoDB table is configured with a provisoned
-capacity of 10 writes/sec and 20 reads/sec. This can be overriden
-with the flags -writecap and -readcap, or else modified through the
-AWS console after configuration.
+capacity of 10 writes/sec and 20 reads/sec. This can be 
+modified through the AWS console after configuration.
 
 The resulting configuration can be examined with "reflow config"`
 	c.Parse(flags, args, help, "setup-dynamodb-assoc tablename")
@@ -58,11 +59,22 @@ The resulting configuration can be examined with "reflow config"`
 		}
 		c.Log.Printf("assoc already set up; updating schemas")
 	}
+	configureDynamoDBAssoc(c, ctx, table)
+	base[config.Assoc] = fmt.Sprintf("dynamodb,%s", table)
+	b, err = config.Marshal(base)
+	if err != nil {
+		c.Fatal(err)
+	}
+	if err := ioutil.WriteFile(c.ConfigFile, b, 0666); err != nil {
+		c.Fatal(err)
+	}
+}
+
+func configureDynamoDBAssoc(c *tool.Cmd, ctx context.Context, table string) {
 	sess, err := c.Config.AWS()
 	if err != nil {
 		c.Fatal(err)
 	}
-
 	c.Log.Printf("creating DynamoDB table %s", table)
 	db := dynamodb.New(sess)
 	_, err = db.CreateTable(&dynamodb.CreateTableInput{
@@ -79,8 +91,8 @@ The resulting configuration can be examined with "reflow config"`
 			},
 		},
 		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(int64(*readCap)),
-			WriteCapacityUnits: aws.Int64(int64(*writeCap)),
+			ReadCapacityUnits:  aws.Int64(readcap),
+			WriteCapacityUnits: aws.Int64(writecap),
 		},
 		TableName: aws.String(table),
 	})
@@ -155,8 +167,8 @@ The resulting configuration can be examined with "reflow config"`
 							ProjectionType: aws.String("ALL"),
 						},
 						ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
-							ReadCapacityUnits:  aws.Int64(int64(*readCap)),
-							WriteCapacityUnits: aws.Int64(int64(*writeCap)),
+							ReadCapacityUnits:  aws.Int64(int64(readcap)),
+							WriteCapacityUnits: aws.Int64(int64(writecap)),
 						},
 					},
 				},
@@ -166,14 +178,5 @@ The resulting configuration can be examined with "reflow config"`
 			c.Fatalf("error creating secondary index: %v", err)
 		}
 		c.Log.Printf("created secondary index %s", indexName)
-	}
-
-	base[config.Assoc] = fmt.Sprintf("dynamodb,%s", table)
-	b, err = config.Marshal(base)
-	if err != nil {
-		c.Fatal(err)
-	}
-	if err := ioutil.WriteFile(c.ConfigFile, b, 0666); err != nil {
-		c.Fatal(err)
 	}
 }
