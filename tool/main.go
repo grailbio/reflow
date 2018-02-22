@@ -192,7 +192,11 @@ func (c *Cmd) Main() {
 	if fn == nil {
 		flags.Usage()
 	}
-	var level log.Level
+	var (
+		level     log.Level
+		logflags  int
+		logprefix = "reflow: "
+	)
 	switch c.logFlag {
 	case "off":
 		level = log.OffLevel
@@ -205,6 +209,10 @@ func (c *Cmd) Main() {
 	default:
 		c.Fatalf("unrecognized log level %v", c.logFlag)
 	}
+	if level > log.InfoLevel {
+		logflags = golog.LstdFlags
+		logprefix = ""
+	}
 	c.status = new(status.Status)
 	reporter := make(status.Reporter)
 	c.Stdout = reporter.Wrap(os.Stdout)
@@ -214,7 +222,7 @@ func (c *Cmd) Main() {
 
 	// Set the system wide logger with the same level and output
 	// as the one that's threaded through Cmd.
-	log.Std = log.New(golog.New(c.Stderr, "", golog.LstdFlags), level)
+	log.Std = log.New(golog.New(c.Stderr, logprefix, logflags), level)
 	c.Log = log.Std
 
 	// Define logs as configured by flags.
@@ -345,7 +353,7 @@ func (c *Cmd) Flags() *flag.FlagSet {
 		c.flags.StringVar(&c.ConfigFile, "config", c.DefaultConfigFile, "path to configuration file; otherwise use default (builtin) config")
 		c.flags.StringVar(&c.httpFlag, "http", "", "run a diagnostic HTTP server on this port")
 		c.flags.StringVar(&c.cpuProfileFlag, "cpuprofile", "", "capture a CPU profile and deposit it to the provided path")
-		c.flags.StringVar(&c.logFlag, "log", "error", "set the log level: off, error, info, debug")
+		c.flags.StringVar(&c.logFlag, "log", "info", "set the log level: off, error, info, debug")
 		// Add flags to override configuration.
 		c.configFlags = make(map[string]*string)
 		for _, key := range config.AllKeys {
