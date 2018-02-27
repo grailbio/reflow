@@ -41,7 +41,7 @@ func init() {
 				// In this case we're dealing with a marshaled certificate.
 				s, ok := v.(string)
 				if !ok {
-					return nil, fmt.Errorf("expected key %s to be a string, not %T", v)
+					return nil, fmt.Errorf("expected key %s to be a string, not %T", httpsca, v)
 				}
 				cert, err := newCert([]byte(s))
 				if err != nil {

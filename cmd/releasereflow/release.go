@@ -81,7 +81,7 @@ ENTRYPOINT ["/reflowlet"]
 	cmd = command("docker", "push", image)
 	log.Printf("pushing image to %s", image)
 	if err := cmd.Run(); err != nil {
-		log.Fatal("push reflowlet image: %v", err)
+		log.Fatalf("push reflowlet image: %v", err)
 	}
 	pkg, err := build.Default.Import(*reflow, "", build.FindOnly)
 	if err != nil {
