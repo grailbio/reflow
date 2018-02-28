@@ -10,6 +10,8 @@
 package ec2metadataconfig
 
 import (
+	"sync"
+
 	awspkg "github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds"
@@ -21,36 +23,46 @@ import (
 func init() {
 	config.Register(config.AWS, "ec2metadata", "", "use EC2/IAM role credentials",
 		func(cfg config.Config, arg string) (config.Config, error) {
-			return &aws{cfg}, nil
+			return &aws{Config: cfg}, nil
 		},
 	)
 }
 
 type aws struct {
 	config.Config
+
+	docOnce sync.Once
+	sess    *session.Session
+	doc     ec2metadata.EC2InstanceIdentityDocument
+	creds   *credentials.Credentials
+	err     error
 }
 
-func (*aws) AWS() (*session.Session, error) {
-	sess, err := session.NewSession()
-	if err != nil {
-		return nil, err
+func (a *aws) get() {
+	a.sess, a.err = session.NewSession()
+	if a.err != nil {
+		return
 	}
-	metaClient := ec2metadata.New(sess)
+	metaClient := ec2metadata.New(a.sess)
 	provider := &ec2rolecreds.EC2RoleProvider{Client: metaClient}
-	creds := credentials.NewCredentials(provider)
-	doc, err := metaClient.GetInstanceIdentityDocument()
-	if err != nil {
-		return nil, err
+	a.creds = credentials.NewCredentials(provider)
+	a.doc, a.err = metaClient.GetInstanceIdentityDocument()
+}
+
+func (a *aws) AWS() (*session.Session, error) {
+	a.docOnce.Do(a.get)
+	if a.err != nil {
+		return nil, a.err
 	}
-	sess, err = session.NewSession(&awspkg.Config{
-		Credentials: creds,
-		// TODO(marius): what if region and (*Config).Region conflict?
-		Region: awspkg.String(doc.Region),
+	return session.NewSession(&awspkg.Config{
+		Credentials: a.creds,
+		Region:      awspkg.String(a.doc.Region),
 	})
-	if err != nil {
-		return nil, err
-	}
-	return sess, err
+}
+
+func (a *aws) AWSRegion() (string, error) {
+	a.docOnce.Do(a.get)
+	return a.doc.Region, a.err
 }
 
 func (*aws) AWSCreds() (*credentials.Credentials, error) {
