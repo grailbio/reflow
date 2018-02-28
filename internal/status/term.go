@@ -122,7 +122,14 @@ func isTerminal(fd uintptr) bool {
 	return err == 0
 }
 
-type winsize struct{ Height, Width uint16 }
+type winsize struct {
+	Height, Width uint16
+	// We pad the struct to give us plenty of headroom. (In practice,
+	// darwin only has 8 additional bytes.) The proper way to do this
+	// would be to use cgo to get the proper struct definition, but I'd
+	// like to avoid this if possible.
+	Pad [128]byte
+}
 
 func getWinsize(fd uintptr) (*winsize, error) {
 	w := new(winsize)
