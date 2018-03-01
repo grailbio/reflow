@@ -52,6 +52,8 @@ func (e *Expr) Digest(env *values.Env) digest.Digest {
 	return w.Digest()
 }
 
+var zero34 = make([]byte, 34)
+
 func (e *Expr) digest(w io.Writer, env *values.Env) {
 	switch e.Kind {
 	case ExprAscribe:
@@ -59,7 +61,13 @@ func (e *Expr) digest(w io.Writer, env *values.Env) {
 		return
 	}
 
-	digest.WriteDigest(w, exprDigest[e.Kind])
+	// TODO(marius): fix later.
+	// We need to write a zero digest for reflow to maintain backward compatibility.
+	// Since digest.WriteDigest no longer allows crypto.Hash of type 0 to be passed
+	// to it, we are writing directly 34 zeros which is the size of a SHA256 digest.
+	if _, err := w.Write(zero34); err != nil {
+		panic(err)
+	}
 	switch e.Kind {
 	case ExprIdent:
 		writeN(w, env.Level(e.Ident))
@@ -212,7 +220,10 @@ func (e *Expr) digest1(w io.Writer) {
 		return
 	}
 
-	digest.WriteDigest(w, exprDigest[e.Kind])
+	// TODO(marius): fix later. Same hack in digest() elsewhere in this file.
+	if _, err := w.Write(zero34); err != nil {
+		panic(err)
+	}
 	switch e.Kind {
 	case ExprIdent:
 		io.WriteString(w, e.Ident)
