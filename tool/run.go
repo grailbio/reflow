@@ -334,8 +334,12 @@ retriable.`
 }
 
 func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID digest.Digest, flow *reflow.Flow, typ *types.T) {
+	addr := os.Getenv("DOCKER_HOST")
+	if addr == "" {
+		addr = "unix:///var/run/docker.sock"
+	}
 	client, err := dockerclient.NewClient(
-		"unix:///var/run/docker.sock", "1.22", /*client.DefaultVersion*/
+		addr, "1.22", /*client.DefaultVersion*/
 		nil, map[string]string{"user-agent": "reflow"})
 	if err != nil {
 		c.Fatal(err)

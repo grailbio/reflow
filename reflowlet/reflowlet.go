@@ -87,8 +87,12 @@ func (s *Server) ListenAndServe() error {
 	if err != nil {
 		return err
 	}
+	addr := os.Getenv("DOCKER_HOST")
+	if addr == "" {
+		addr = "unix:///var/run/docker.sock"
+	}
 	client, err := dockerclient.NewClient(
-		"unix:///var/run/docker.sock", dockerclient.DefaultVersion,
+		addr, dockerclient.DefaultVersion,
 		nil, map[string]string{"user-agent": "reflow"})
 	if err != nil {
 		return err
