@@ -3,6 +3,6 @@
 package main
 
 const (
-	version   = "0.6"
-	reflowlet = "grailbio/reflowlet:1519329028"
+	version   = "0.6.1"
+	reflowlet = "grailbio/reflowlet:1519922459"
 )
