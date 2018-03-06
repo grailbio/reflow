@@ -281,7 +281,7 @@ inline for clarity.
 	// names the expression that's evaluated by "reflow run" -- the
 	// entry point of the computation. Second, we've defined Main to be
 	// a block. A block is an expression that contains one or more
-	// definitions followed by an expression. The value a block is the
+	// definitions followed by an expression. The value of a block is the
 	// final expression. Finally, Main contains a @requires annotation.
 	// This instructs Reflow how many resources to reserve for the work
 	// being done. Note that, because Reflow is able to distribute work,
@@ -312,7 +312,7 @@ others are not.
 	    First is the identifier "Main". This names the expression that's evaluated by
 	    "reflow run" -- the entry point of the computation. Second, we've defined Main
 	    to be a block. A block is an expression that contains one or more definitions
-	    followed by an expression. The value a block is the final expression. Finally,
+	    followed by an expression. The value of a block is the final expression. Finally,
 	    Main contains a @requires annotation. This instructs Reflow how many resources
 	    to reserve for the work being done. Note that, because Reflow is able to
 	    distribute work, if a single instance is too small to execute fully in parallel,
