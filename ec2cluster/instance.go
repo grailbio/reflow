@@ -237,6 +237,7 @@ type instance struct {
 	NEBS            int
 	AMI             string
 	KeyName         string
+	SpotProbeDepth  int
 	SshKey          string
 	Immortal        bool
 	CloudConfig     cloudConfig
@@ -301,13 +302,13 @@ func (i *instance) Go(ctx context.Context) {
 	for state < stateDone && ctx.Err() == nil {
 		switch state {
 		case stateCapacity:
-			if !i.Spot {
+			if !i.Spot || i.SpotProbeDepth == 0 {
 				break
 			}
 			i.Task.Print("probing for EC2 capacity")
 			// 20 instances should be a good margin for spot.
 			var ok bool
-			ok, i.err = i.ec2HasCapacity(ctx, 20)
+			ok, i.err = i.ec2HasCapacity(ctx, i.SpotProbeDepth)
 			if i.err == nil && !ok {
 				i.err = errors.E(errors.Unavailable, errors.New("ec2 capacity is likely exhausted"))
 			}

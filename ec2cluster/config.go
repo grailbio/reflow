@@ -82,6 +82,10 @@ type Config struct {
 	// Immortal determines whether instances should be made immortal.
 	Immortal bool `yaml:"immortal,omitempty"`
 
+	// SpotProbeDepth determines the depth of the capacity probing used
+	// to determine whether spot instances are likely to be available.
+	SpotProbeDepth int `yaml:"spotprobedepth,omitempty"`
+
 	// CloudConfig stores a cloud config that is merged into ec2cluster's
 	// cloud config. It is merged before the reflowlet unit is added, so
 	// the user has an opportunity to introduce additional systemd units.
@@ -179,6 +183,7 @@ func (c *Config) Cluster() (runner.Cluster, error) {
 		AMI:             c.AMI,
 		SshKey:          c.SshKey,
 		KeyName:         c.KeyName,
+		SpotProbeDepth:  c.SpotProbeDepth,
 		Immortal:        c.Immortal,
 		CloudConfig:     c.CloudConfig,
 	}

@@ -601,7 +601,7 @@ When it completes, an approximately 17GiB BAM file is deposited to s3:
 	% aws s3 ls s3://marius-test-bucket/HG00103.bam
 	2017-10-24 20:25:48 18752460252 HG00103.bam
 
-## A note on Reflow's cluster manager
+## A note on Reflow's EC2 cluster manager
 
 Reflow comes with a built-in cluster manager, which is responsible
 for elastically increasing or decreasing required compute resources.
@@ -610,6 +610,11 @@ and account limits, and uses these to launch the most appropriate set
 of instances for a given job. When instances become idle, they will
 terminate themselves if they are idle for more than 10 minutes; idle
 instances are reused when possible.
+
+The cluster manager may be configured under the "ec2cluster" key in 
+Reflow's configuration. Its parameters are documented by
+[godoc](https://godoc.org/github.com/grailbio/reflow/ec2cluster#Config).
+(Formal documentation is forthcoming.)
 
 ## Documentation
 

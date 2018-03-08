@@ -114,6 +114,8 @@ type Cluster struct {
 	Immortal bool
 	// CloudConfig is merged into the instance's cloudConfig before launching.
 	CloudConfig cloudConfig
+	// SpotProbeDepth is the probing depth for spot instance capacity checks.
+	SpotProbeDepth int
 
 	// Status is used to report cluster and instance status.
 	Status *status.Group
@@ -284,6 +286,7 @@ func (c *Cluster) loop() {
 			AMI:             c.AMI,
 			SshKey:          c.SshKey,
 			KeyName:         c.KeyName,
+			SpotProbeDepth:  c.SpotProbeDepth,
 			Immortal:        c.Immortal,
 			CloudConfig:     c.CloudConfig,
 		}
