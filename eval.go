@@ -1792,6 +1792,9 @@ func (e *Eval) LogFlow(ctx context.Context, f *Flow) {
 	}
 	b.Reset()
 	fmt.Fprintf(&b, "%s %v %s:\n", f.Ident, f.Digest().Short(), f.Position)
+	if f.Op == OpExec {
+		fmt.Fprintf(&b, "\tresources: %s\n", f.Resources)
+	}
 	for _, key := range f.CacheKeys() {
 		fmt.Fprintf(&b, "\t%s\n", key)
 	}
