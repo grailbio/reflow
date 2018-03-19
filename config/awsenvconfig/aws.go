@@ -7,6 +7,7 @@
 package awsenvconfig
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -125,7 +126,31 @@ func (c *credentialsSession) AWSRegion() (string, error) {
 
 func (c *credentialsSession) AWS() (*session.Session, error) {
 	c.sessionOnce.Do(func() {
-		c.session, c.err = session.NewSession()
+		// session.NewSession() uses a chain provider that looks for
+		// credentials first in the environment variables, then in shared
+		// credential locations (e.g. ~/.aws/config.yaml), then at remote
+		// credential providers (EC2 or ECS roles, ...).  We do not want
+		// remote credential providers here, as the credentials are
+		// then temporary and cannot be passed to reflowlets,
+		// see https://github.com/grailbio/reflow/issues/29.
+		// That's why we have a custom chain provider here, without
+		// the remote credential providers.
+		credProvider := &credentials.ChainProvider{
+			VerboseErrors: true,
+			Providers: []credentials.Provider{
+				&credentials.EnvProvider{},
+				&credentials.SharedCredentialsProvider{},
+			},
+		}
+		// We do a retrieval here to catch NoCredentialProviders errors
+		// early on.
+		if _, err := credProvider.Retrieve(); err != nil {
+			c.err = fmt.Errorf("failed to retrieve AWS credentials: %v", err)
+			return
+		}
+		c.session, c.err = session.NewSession(&aws.Config{
+			Credentials: credentials.NewCredentials(credProvider),
+		})
 	})
 	return c.session, c.err
 }
