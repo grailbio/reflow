@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/url"
 	"path"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -22,15 +23,19 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/liveset"
+	"github.com/grailbio/reflow/log"
 )
 
 const (
 	objectsPath = "objects"
 	uploadsPath = "uploads"
 
-	s3minpartsize = 100 << 20
-	s3maxpartsize = 2 * s3minpartsize
-	s3concurrency = 20
+	s3minpartsize      = 100 << 20
+	s3maxpartsize      = 2 * s3minpartsize
+	s3concurrency      = 20
+	s3maxlistkeys      = 1000
+	s3maxdeleteobjects = 1000
 )
 
 // Repository implements an S3-backed Repository. Objects are stored
@@ -190,8 +195,93 @@ func (r *Repository) ReadFrom(_ context.Context, id digest.Digest, u *url.URL) e
 }
 
 // Collect is not supported on S3.
-func (r *Repository) Collect(ctx context.Context, live reflow.Liveset) error {
+func (r *Repository) Collect(ctx context.Context, live liveset.Liveset) error {
 	return errors.E("collect", errors.NotSupported)
+}
+
+// CollectWithThreshold removes from this repository any objects which are not in the
+// liveset and which have not been accessed more recently than the liveset's
+// threshold time
+func (r *Repository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+	log.Debug("Collecting repository")
+	params := s3.ListObjectsV2Input{
+		Bucket:    aws.String(r.Bucket),
+		MaxKeys:   aws.Int64(s3maxlistkeys),
+		Prefix:    aws.String(path.Join(r.Prefix, objectsPath)),
+		Delimiter: aws.String(""),
+	}
+
+	objectsCheckedCount := int64(0)
+	liveObjectsCount := int64(0)
+	afterThresholdCount := int64(0)
+	collectedCount := int64(0)
+	totalBytesCollected := int64(0)
+	start := time.Now()
+
+	// The objects we want to delete
+	deleteObjects := s3.Delete{
+		Objects: make([]*s3.ObjectIdentifier, 0, s3maxdeleteobjects),
+	}
+	err := r.Client.ListObjectsV2PagesWithContext(ctx, &params,
+		func(page *s3.ListObjectsV2Output, lastPage bool) bool {
+			for _, object := range page.Contents {
+				// Get the digest for this object
+				d, err := reflow.Digester.Parse(path.Base(*object.Key))
+				if err != nil {
+					log.Errorf("Invalid s3 entry %v", object)
+					continue
+				}
+
+				objectsCheckedCount++
+				if objectsCheckedCount%10000 == 0 {
+					// This can take a long time, we want to know it's doing something
+					log.Debugf("Checking object %d in repository", objectsCheckedCount)
+				}
+				if live.Contains(d) {
+					liveObjectsCount++
+				} else if object.LastModified.After(threshold) {
+					afterThresholdCount++
+				} else {
+					// Stick this on our delete queue
+					deleteObjects.Objects = append(deleteObjects.Objects, &s3.ObjectIdentifier{Key: object.Key})
+
+					// If we reach enough objects do a batch delete on them
+					if len(deleteObjects.Objects) == cap(deleteObjects.Objects) && !dryRun {
+						_, err = r.Client.DeleteObjectsWithContext(ctx,
+							&s3.DeleteObjectsInput{Bucket: aws.String(r.Bucket), Delete: &deleteObjects})
+						if err != nil {
+							log.Errorf("error calling DeleteObjectsWithContext (%s)", err)
+						}
+						deleteObjects.Objects = deleteObjects.Objects[:0]
+					}
+					collectedCount++
+					totalBytesCollected += *object.Size
+				}
+			}
+			return true
+		})
+
+	// Delete any objects that may still be in the queue
+	if len(deleteObjects.Objects) > 0 && !dryRun {
+		_, err := r.Client.DeleteObjectsWithContext(ctx,
+			&s3.DeleteObjectsInput{Bucket: aws.String(r.Bucket), Delete: &deleteObjects})
+		if err != nil {
+			log.Errorf("error calling DeleteObjectsWithContext (%s)", err)
+		}
+	}
+
+	// Print what happened
+	log.Debugf("Time to collect %s: %s", r.Bucket, time.Since(start))
+	log.Debugf("Checked %d objects, %d were live, %d were after the threshold.",
+		objectsCheckedCount, liveObjectsCount, afterThresholdCount)
+	action := "would have been"
+	if !dryRun {
+		action = "were"
+	}
+	log.Printf("%d of %d objects (%.2f%%) and %d bytes %s collected",
+		collectedCount, objectsCheckedCount, float64(collectedCount)/float64(objectsCheckedCount)*100, totalBytesCollected, action)
+
+	return err
 }
 
 // URL returns the URL for this repository. It is of the form:

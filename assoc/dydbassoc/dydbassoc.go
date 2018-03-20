@@ -9,6 +9,8 @@ package dydbassoc
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -19,6 +21,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/liveset"
 	"github.com/grailbio/reflow/log"
 )
 
@@ -35,7 +38,7 @@ type Assoc struct {
 }
 
 // Put associates the digest v with the key digest k in the dynamodb
-// table. DynamoDB condtional expressions are used to implement
+// table. DynamoDB conditional expressions are used to implement
 // compare-and-swap when expect is nonzero.
 func (a *Assoc) Put(ctx context.Context, kind assoc.Kind, expect, k, v digest.Digest) error {
 	if kind != assoc.Fileset {
@@ -203,4 +206,129 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 		}
 	}
 	return k, v, nil
+}
+
+func (a *Assoc) delete(ctx context.Context, id string) error {
+	if err := a.Limiter.Acquire(ctx, 1); err != nil {
+		return err
+	}
+	defer a.Limiter.Release(1)
+
+	// TODO (cbain) use their batch interface to delete up to 25 at a time
+	_, err := a.DB.DeleteItemWithContext(ctx, &dynamodb.DeleteItemInput{
+		Key: map[string]*dynamodb.AttributeValue{
+			"ID": {
+				S: aws.String(id),
+			},
+		},
+		TableName: aws.String(a.TableName),
+	})
+	return err
+}
+
+// CollectWithThreshold removes from this Assoc any objects whose keys are not in the
+// liveset and have not been accessed more recently than the liveset's threshold
+func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+	log.Debug("Collecting association")
+	scanner := newScanner(a)
+
+	var resultsLock sync.Mutex
+	itemsCheckedCount := int64(0)
+	liveItemsCount := int64(0)
+	afterThresholdCount := int64(0)
+	itemsCollectedCount := int64(0)
+	start := time.Now()
+
+	err := scanner.Scan(ctx, ItemsHandlerFunc(func(items Items) error {
+		for _, item := range items {
+			itemAccessTime := int64(0)
+			var err error
+			if item["LastAccessTime"] != nil {
+				itemAccessTime, err = strconv.ParseInt(*item["LastAccessTime"].N, 10, 64)
+				if err != nil {
+					return fmt.Errorf("invalid dynamodb entry %v", item)
+				}
+			}
+			d, err := reflow.Digester.Parse(*item["ID"].S)
+			if err != nil {
+				return fmt.Errorf("invalid dynamodb entry %v", item)
+			}
+
+			// Many threads can be calling this, get a lock before tallying results
+			resultsLock.Lock()
+			itemsCheckedCount++
+			if live.Contains(d) {
+				liveItemsCount++
+			} else if time.Unix(itemAccessTime, 0).After(threshold) {
+				afterThresholdCount++
+			} else {
+				if !dryRun {
+					err = a.delete(ctx, *item["ID"].S)
+					if err != nil {
+						return fmt.Errorf("error deleting dynamodb entry with id %s (%s)", *item["ID"].S, err)
+					}
+				}
+				itemsCollectedCount++
+			}
+			resultsLock.Unlock()
+		}
+		return nil
+	}))
+
+	// Print what happened
+	log.Debugf("Time to collect %s: %s", a.TableName, time.Since(start))
+	log.Debugf("Checked %d associations, %d were live, %d were after the threshold.",
+		itemsCheckedCount, liveItemsCount, afterThresholdCount)
+	action := "would have been"
+	if !dryRun {
+		action = "were"
+	}
+	log.Printf("%d of %d associations (%.2f%%) %s collected",
+		itemsCollectedCount, itemsCheckedCount, float64(itemsCollectedCount)/float64(itemsCheckedCount)*100, action)
+
+	return err
+}
+
+// Count returns an estimate of the number of associations in this mapping
+func (a *Assoc) Count(ctx context.Context) (int64, error) {
+	if err := a.Limiter.Acquire(ctx, 1); err != nil {
+		return 0, err
+	}
+	defer a.Limiter.Release(1)
+
+	resp, err := a.DB.DescribeTable(&dynamodb.DescribeTableInput{
+		TableName: aws.String(a.TableName),
+	})
+	if err != nil {
+		return 0, err
+	}
+	return *resp.Table.ItemCount, nil
+}
+
+// Scan calls the handler function for every association in the mapping.
+// Note that the handler function may be called asynchronously from multiple threads.
+func (a *Assoc) Scan(ctx context.Context, mappingHandler assoc.MappingHandler) error {
+	scanner := newScanner(a)
+	return scanner.Scan(ctx, ItemsHandlerFunc(func(items Items) error {
+		for _, item := range items {
+			itemAccessTime := int64(0)
+			var err error
+			if item["LastAccessTime"] != nil {
+				itemAccessTime, err = strconv.ParseInt(*item["LastAccessTime"].N, 10, 64)
+				if err != nil {
+					return fmt.Errorf("invalid dynamodb entry %v", item)
+				}
+			}
+			keyDigest, err := reflow.Digester.Parse(*item["ID"].S)
+			if err != nil {
+				return fmt.Errorf("invalid dynamodb entry %v", item)
+			}
+			valueDigest, err := reflow.Digester.Parse(*item["Value"].S)
+			if err != nil {
+				return fmt.Errorf("invalid dynamodb entry %v", item)
+			}
+			mappingHandler.HandleMapping(keyDigest, valueDigest, time.Unix(itemAccessTime, 0))
+		}
+		return nil
+	}))
 }

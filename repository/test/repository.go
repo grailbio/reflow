@@ -11,9 +11,12 @@ import (
 	"net/url"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/liveset"
 )
 
 //go:generate stringer -type=callType
@@ -42,7 +45,7 @@ type call struct {
 	ReadCloser io.ReadCloser
 	URL        *url.URL
 	File       reflow.File
-	Live       reflow.Liveset
+	Live       liveset.Liveset
 	Err        error
 
 	admitc chan struct{}
@@ -128,7 +131,11 @@ func (r *testRepository) ReadFrom(ctx context.Context, id digest.Digest, u *url.
 
 }
 
-func (r *testRepository) Collect(ctx context.Context, live reflow.Liveset) error {
+func (r *testRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+	return errors.E("collectwiththreshold", errors.NotSupported)
+}
+
+func (r *testRepository) Collect(ctx context.Context, live liveset.Liveset) error {
 	exit := r.enter(&call{Type: callCollect, Live: live})
 	defer exit()
 	return r.Repository.Collect(ctx, live)

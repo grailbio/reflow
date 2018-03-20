@@ -12,7 +12,7 @@ import (
 	"github.com/willf/bloom"
 )
 
-// T implements a reflow.Liveset using a concrete bloom filter.
+// T implements a liveset.Liveset using a concrete bloom filter.
 // The bloom filter stores each digest according to its bytewise
 // representation.
 type T struct {

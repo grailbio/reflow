@@ -11,10 +11,12 @@ import (
 	"io/ioutil"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/liveset"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/test/testutil"
 )
@@ -41,7 +43,11 @@ func (nilRepository) ReadFrom(context.Context, digest.Digest, *url.URL) error {
 	panic("not implemented")
 }
 
-func (nilRepository) Collect(context.Context, reflow.Liveset) error {
+func (nilRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+	panic("not implemented")
+}
+
+func (nilRepository) Collect(context.Context, liveset.Liveset) error {
 	panic("not implemented")
 }
 

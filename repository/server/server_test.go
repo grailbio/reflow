@@ -18,7 +18,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/internal/bloomlive"
+	"github.com/grailbio/reflow/liveset/bloomlive"
 	"github.com/grailbio/reflow/repository/client"
 	"github.com/grailbio/reflow/repository/file"
 	"github.com/grailbio/reflow/rest"

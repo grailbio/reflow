@@ -16,11 +16,13 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/liveset"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository"
 	"golang.org/x/sync/singleflight"
@@ -299,9 +301,16 @@ func (r *Repository) Vacuum(ctx context.Context, repo *Repository) error {
 	return w.Err()
 }
 
+// CollectWithThreshold removes from this repository any objects not in the
+// Liveset and whose creation times are not more recent than the
+// threshold time.
+func (r *Repository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+	return errors.E("collectwiththreshold", errors.NotSupported)
+}
+
 // Collect removes any objects in the repository that are not also in
 // the live set.
-func (r *Repository) Collect(ctx context.Context, live reflow.Liveset) error {
+func (r *Repository) Collect(ctx context.Context, live liveset.Liveset) error {
 	var w walker
 	w.Init(r)
 	var (

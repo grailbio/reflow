@@ -8,24 +8,23 @@ import (
 	"context"
 	"io"
 	"net/url"
+	"time"
 
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/reflow/liveset"
 )
-
-// A Liveset contains a possibly approximate judgement about live
-// objects.
-type Liveset interface {
-	// Contains returns true if the given object definitely is in the
-	// set; it may rarely return true when the object does not.
-	Contains(digest.Digest) bool
-}
 
 // Repository defines an interface used for servicing blobs of
 // data that are named-by-hash.
 type Repository interface {
 	// Collect removes from this repository any objects not in the
 	// Liveset
-	Collect(context.Context, Liveset) error
+	Collect(context.Context, liveset.Liveset) error
+
+	// CollectWithThreshold removes from this repository any objects not in the
+	// Liveset and whose creation times are not more recent than the
+	// threshold time.
+	CollectWithThreshold(context.Context, liveset.Liveset, time.Time, bool) error
 
 	// Stat returns the File metadata for the blob with the given digest.
 	// It returns errors.NotExist if the blob does not exist in this

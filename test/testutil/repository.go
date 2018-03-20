@@ -14,10 +14,12 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/liveset"
 )
 
 //go:generate stringer -type=RepositoryCallKind
@@ -85,8 +87,15 @@ func (r *InmemoryRepository) Put(_ context.Context, rd io.Reader) (digest.Digest
 	return id, nil
 }
 
+// CollectWithThreshold removes from this repository any objects not in the
+// Liveset and whose creation times are not more recent than the
+// threshold time.
+func (r *InmemoryRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+	return errors.E("collectwiththreshold", errors.NotSupported)
+}
+
 // Collect removes any object not in the liveset.
-func (r *InmemoryRepository) Collect(_ context.Context, live reflow.Liveset) error {
+func (r *InmemoryRepository) Collect(_ context.Context, live liveset.Liveset) error {
 	r.mu.Lock()
 	for k := range r.files {
 		if !live.Contains(k) {
@@ -236,8 +245,15 @@ func (r *ExpectRepository) ReadFrom(_ context.Context, id digest.Digest, u *url.
 	return call.ReplyErr
 }
 
+// CollectWithThreshold removes from this repository any objects not in the
+// Liveset and whose creation times are not more recent than the
+// threshold time.
+func (r *ExpectRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+	return errors.E("collectwiththreshold", errors.NotSupported)
+}
+
 // Collect is not supported for the expect repository.
-func (*ExpectRepository) Collect(context.Context, reflow.Liveset) error {
+func (*ExpectRepository) Collect(context.Context, liveset.Liveset) error {
 	return errors.E("collect", errors.NotSupported)
 }
 
@@ -262,7 +278,10 @@ func (*panicRepository) WriteTo(context.Context, digest.Digest, *url.URL) error 
 func (*panicRepository) ReadFrom(context.Context, digest.Digest, *url.URL) error {
 	panic("not implemented")
 }
-func (*panicRepository) Collect(context.Context, reflow.Liveset) error {
+func (*panicRepository) Collect(context.Context, liveset.Liveset) error {
+	panic("not implemented")
+}
+func (*panicRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
 	panic("not implemented")
 }
 func (*panicRepository) URL() *url.URL { panic("not implemented") }
@@ -300,8 +319,15 @@ func NewWaitRepository(rawurl string) *WaitRepository {
 	return w
 }
 
+// CollectWithThreshold removes from this repository any objects not in the
+// Liveset and whose creation times are not more recent than the
+// threshold time.
+func (r *WaitRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+	panic("not implemented")
+}
+
 // Collect is not supported by WaitRepository.
-func (w *WaitRepository) Collect(context.Context, reflow.Liveset) error {
+func (r *WaitRepository) Collect(context.Context, liveset.Liveset) error {
 	panic("not implemented")
 }
 

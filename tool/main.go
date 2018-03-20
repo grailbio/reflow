@@ -99,6 +99,7 @@ var commands = map[string]Func{
 	"rmcache":      (*Cmd).rmcache,
 	"shell":        (*Cmd).shell,
 	"repair":       (*Cmd).repair,
+	"collect":      (*Cmd).collect,
 }
 
 var intro = `The reflow command helps users run Reflow programs, inspect their

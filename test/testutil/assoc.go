@@ -7,10 +7,12 @@ package testutil
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/liveset"
 )
 
 type assocKey struct {
@@ -53,4 +55,24 @@ func (a *inmemoryAssoc) Get(ctx context.Context, kind assoc.Kind, k digest.Diges
 		return k, digest.Digest{}, errors.E(errors.NotExist, errors.New("key does not exist"))
 	}
 	return k, v, nil
+}
+
+// CollectWithThreshold removes from this assoc any objects whose keys are not in the
+// liveset and which have not been accessed more recently than the liveset's
+// threshold time.
+func (a *inmemoryAssoc) CollectWithThreshold(context.Context, liveset.Liveset, time.Time, bool) error {
+	return errors.E("collect", errors.NotSupported)
+}
+
+// Count returns an estimate of the number of associations in this mapping.
+func (a *inmemoryAssoc) Count(ctx context.Context) (int64, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return int64(len(a.assocs)), nil
+}
+
+// Scan calls the handler function for every association in the mapping.
+// Note that the handler function may be called asynchronously from multiple threads.
+func (a *inmemoryAssoc) Scan(ctx context.Context, handler assoc.MappingHandler) error {
+	return errors.E("scan", errors.NotSupported)
 }

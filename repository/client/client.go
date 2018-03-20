@@ -10,10 +10,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/liveset"
 	"github.com/grailbio/reflow/rest"
 )
 
@@ -113,8 +115,15 @@ func (c *Client) ReadFrom(ctx context.Context, id digest.Digest, u *url.URL) err
 	return nil
 }
 
+// CollectWithThreshold removes from this repository any objects not in the
+// Liveset and whose creation times are not more recent than the
+// threshold time.
+func (c *Client) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+	return errors.E("collectwiththreshold", errors.NotSupported)
+}
+
 // Collect instructs the repository collect all objects not in the liveset.
-func (c *Client) Collect(ctx context.Context, live reflow.Liveset) error {
+func (c *Client) Collect(ctx context.Context, live liveset.Liveset) error {
 	call := c.Call("POST", "collect")
 	defer call.Close()
 	code, err := call.DoJSON(ctx, live)
