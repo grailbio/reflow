@@ -7,6 +7,7 @@ package syntax
 import (
 	"log"
 	"sort"
+	"sync"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
@@ -184,18 +185,26 @@ func (r *resolver) Resolve(proc func()) values.T {
 		}
 		return r.v
 	}
+	var once sync.Once
 	writeN(r.dw, int(r.t.Kind))
 	return &reflow.Flow{
 		Op:         reflow.OpK,
 		Deps:       r.deps,
 		FlowDigest: r.dw.Digest(),
 		K: func(vs []values.T) *reflow.Flow {
-			for i := range vs {
-				*r.vps[i] = vs[i]
-			}
-			if proc != nil {
-				proc()
-			}
+			// Initialize the underlying datastructure only once.
+			// This makes it safe to invoke the K multiple times.
+			// Since the underlying computation is deterministic,
+			// we are free to ignore the vs from subsequent
+			// computations.
+			once.Do(func() {
+				for i := range vs {
+					*r.vps[i] = vs[i]
+				}
+				if proc != nil {
+					proc()
+				}
+			})
 			return flow(r.v, r.t)
 		},
 	}
