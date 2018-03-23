@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package local
+package s3walker
 
 import (
 	"context"
@@ -12,8 +12,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 )
 
-// s3Walker traverses s3 keys through a prefix scan.
-type s3Walker struct {
+// S3Walker traverses s3 keys through a prefix scan.
+type S3Walker struct {
 	// S3 is the S3 client to be used.
 	S3 s3iface.S3API
 	// Bucket and Prefix name the location of the scan.
@@ -28,7 +28,7 @@ type s3Walker struct {
 
 // Scan scans the next key; it returns false when no more keys can
 // be scanned, or if there was an error.
-func (w *s3Walker) Scan(ctx context.Context) bool {
+func (w *S3Walker) Scan(ctx context.Context) bool {
 	if w.err != nil {
 		return false
 	}
@@ -60,11 +60,11 @@ func (w *s3Walker) Scan(ctx context.Context) bool {
 }
 
 // Err returns an error, if any.
-func (w *s3Walker) Err() error {
+func (w *S3Walker) Err() error {
 	return w.err
 }
 
 // Object returns the last object that was scanned.
-func (w *s3Walker) Object() *s3.Object {
+func (w *S3Walker) Object() *s3.Object {
 	return w.object
 }

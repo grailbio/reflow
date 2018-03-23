@@ -23,6 +23,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/internal/s3walker"
 	"github.com/grailbio/reflow/liveset"
 	"github.com/grailbio/reflow/log"
 )
@@ -34,7 +35,6 @@ const (
 	s3minpartsize      = 100 << 20
 	s3maxpartsize      = 2 * s3minpartsize
 	s3concurrency      = 20
-	s3maxlistkeys      = 1000
 	s3maxdeleteobjects = 1000
 )
 
@@ -204,15 +204,9 @@ func (r *Repository) Collect(ctx context.Context, live liveset.Liveset) error {
 // threshold time
 func (r *Repository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
 	log.Debug("Collecting repository")
-	params := s3.ListObjectsV2Input{
-		Bucket:    aws.String(r.Bucket),
-		MaxKeys:   aws.Int64(s3maxlistkeys),
-		Prefix:    aws.String(path.Join(r.Prefix, objectsPath)),
-		Delimiter: aws.String(""),
-	}
-
 	objectsCheckedCount := int64(0)
 	liveObjectsCount := int64(0)
+	invalidObjectsCount := int64(0)
 	afterThresholdCount := int64(0)
 	collectedCount := int64(0)
 	totalBytesCollected := int64(0)
@@ -222,46 +216,47 @@ func (r *Repository) CollectWithThreshold(ctx context.Context, live liveset.Live
 	deleteObjects := s3.Delete{
 		Objects: make([]*s3.ObjectIdentifier, 0, s3maxdeleteobjects),
 	}
-	err := r.Client.ListObjectsV2PagesWithContext(ctx, &params,
-		func(page *s3.ListObjectsV2Output, lastPage bool) bool {
-			for _, object := range page.Contents {
-				// Get the digest for this object
-				d, err := reflow.Digester.Parse(path.Base(*object.Key))
-				if err != nil {
-					log.Errorf("Invalid s3 entry %v", object)
-					continue
-				}
 
-				objectsCheckedCount++
-				if objectsCheckedCount%10000 == 0 {
-					// This can take a long time, we want to know it's doing something
-					log.Debugf("Checking object %d in repository", objectsCheckedCount)
-				}
-				if live.Contains(d) {
-					liveObjectsCount++
-				} else if object.LastModified.After(threshold) {
-					afterThresholdCount++
-				} else {
-					// Stick this on our delete queue
-					deleteObjects.Objects = append(deleteObjects.Objects, &s3.ObjectIdentifier{Key: object.Key})
+	w := &s3walker.S3Walker{S3: r.Client, Bucket: r.Bucket, Prefix: path.Join(r.Prefix, objectsPath)}
+	for w.Scan(ctx) {
+		objectsCheckedCount++
+		if objectsCheckedCount%10000 == 0 {
+			// This can take a long time, we want to know it's doing something
+			log.Debugf("Checking object %d in repository", objectsCheckedCount)
+		}
 
-					// If we reach enough objects do a batch delete on them
-					if len(deleteObjects.Objects) == cap(deleteObjects.Objects) && !dryRun {
-						_, err = r.Client.DeleteObjectsWithContext(ctx,
-							&s3.DeleteObjectsInput{Bucket: aws.String(r.Bucket), Delete: &deleteObjects})
-						if err != nil {
-							log.Errorf("error calling DeleteObjectsWithContext (%s)", err)
-						}
-						deleteObjects.Objects = deleteObjects.Objects[:0]
+		key, modified, size := aws.StringValue(w.Object().Key), aws.TimeValue(w.Object().LastModified), aws.Int64Value(w.Object().Size)
+		digest, err := reflow.Digester.Parse(path.Base(key))
+		if err != nil {
+			invalidObjectsCount++
+			log.Errorf("Invalid s3 entry %v", w.Object())
+			continue
+		}
+
+		if live.Contains(digest) {
+			liveObjectsCount++
+		} else if modified.After(threshold) {
+			afterThresholdCount++
+		} else {
+			if !dryRun {
+				// Stick this on our delete queue
+				deleteObjects.Objects = append(deleteObjects.Objects, &s3.ObjectIdentifier{Key: w.Object().Key})
+
+				// If we reach enough objects do a batch delete on them
+				if len(deleteObjects.Objects) == cap(deleteObjects.Objects) {
+					_, err = r.Client.DeleteObjectsWithContext(ctx,
+						&s3.DeleteObjectsInput{Bucket: aws.String(r.Bucket), Delete: &deleteObjects})
+					if err != nil {
+						log.Errorf("error calling DeleteObjectsWithContext (%s)", err)
 					}
-					collectedCount++
-					totalBytesCollected += *object.Size
+					deleteObjects.Objects = deleteObjects.Objects[:0]
 				}
 			}
-			return true
-		})
+			collectedCount++
+			totalBytesCollected += size
+		}
+	}
 
-	// Delete any objects that may still be in the queue
 	if len(deleteObjects.Objects) > 0 && !dryRun {
 		_, err := r.Client.DeleteObjectsWithContext(ctx,
 			&s3.DeleteObjectsInput{Bucket: aws.String(r.Bucket), Delete: &deleteObjects})
@@ -272,8 +267,8 @@ func (r *Repository) CollectWithThreshold(ctx context.Context, live liveset.Live
 
 	// Print what happened
 	log.Debugf("Time to collect %s: %s", r.Bucket, time.Since(start))
-	log.Debugf("Checked %d objects, %d were live, %d were after the threshold.",
-		objectsCheckedCount, liveObjectsCount, afterThresholdCount)
+	log.Debugf("Checked %d objects, %d were live, %d were after the threshold, %d were invalid.",
+		objectsCheckedCount, liveObjectsCount, afterThresholdCount, invalidObjectsCount)
 	action := "would have been"
 	if !dryRun {
 		action = "were"
@@ -281,7 +276,7 @@ func (r *Repository) CollectWithThreshold(ctx context.Context, live liveset.Live
 	log.Printf("%d of %d objects (%.2f%%) and %d bytes %s collected",
 		collectedCount, objectsCheckedCount, float64(collectedCount)/float64(objectsCheckedCount)*100, totalBytesCollected, action)
 
-	return err
+	return w.Err()
 }
 
 // URL returns the URL for this repository. It is of the form:

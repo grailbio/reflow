@@ -15,6 +15,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
+	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/liveset/bloomlive"
 	"github.com/willf/bloom"
 )
@@ -64,15 +65,24 @@ func (c *Cmd) collect(ctx context.Context, args ...string) {
 	itemsScannedCount := int64(0)
 	liveItemCount := int64(0)
 	liveObjectsInFilesets := int64(0)
+	liveObjectsNotInRepository := int64(0)
 
 	start := time.Now()
 	err = a.Scan(ctx, assoc.MappingHandlerFunc(func(k, v digest.Digest, lastAccessTime time.Time) {
 		var s reflow.Fileset
 		live := lastAccessTime.After(threshold)
 		if live {
-			err = unmarshal(ctx, r, v, &s)
-			if err != nil {
-				// If we can't build up the liveset we want to bail now
+			objectErr := unmarshal(ctx, r, v, &s)
+			if objectErr != nil {
+				if errors.Is(errors.NotExist, objectErr) {
+					// If the object doesn't exist in the repository there's no point adding it to the livesets
+					resultsLock.Lock()
+					defer resultsLock.Unlock()
+					itemsScannedCount++
+					liveObjectsNotInRepository++
+					return
+				}
+				// If we can't parse the object for another reason bail now
 				c.Fatal(fmt.Errorf("error parsing fileset %v (%v)", k, err))
 			}
 		}
@@ -100,8 +110,8 @@ func (c *Cmd) collect(ctx context.Context, args ...string) {
 
 	// Some debugging information
 	c.Log.Debugf("Time to scan associations %s", time.Since(start))
-	c.Log.Printf("Scanned %d associations, found %d live associations and %d live objects",
-		itemsScannedCount, liveItemCount, liveObjectsInFilesets)
+	c.Log.Printf("Scanned %d associations, found %d live associations, %d live objects, %d objects not in repository",
+		itemsScannedCount, liveItemCount, liveObjectsInFilesets, liveObjectsNotInRepository)
 
 	// Garbage collect the repository using the values liveset
 	if err = r.CollectWithThreshold(ctx, bloomlive.New(valueFilter), threshold, *dryRunFlag); err != nil {

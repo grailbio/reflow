@@ -25,6 +25,10 @@ import (
 	"github.com/grailbio/reflow/log"
 )
 
+const (
+	dbmaxdeleteobjects = 25
+)
+
 // Assoc implements a DynamoDB-backed Assoc for use in caches.
 // Each association entry is represented by a DynamoDB
 // item with the attributes "ID" and "Value".
@@ -239,6 +243,8 @@ func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, 
 	itemsCollectedCount := int64(0)
 	start := time.Now()
 
+	writeRequests := make([]*dynamodb.WriteRequest, 0, dbmaxdeleteobjects)
+
 	err := scanner.Scan(ctx, ItemsHandlerFunc(func(items Items) error {
 		for _, item := range items {
 			itemAccessTime := int64(0)
@@ -257,15 +263,30 @@ func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, 
 			// Many threads can be calling this, get a lock before tallying results
 			resultsLock.Lock()
 			itemsCheckedCount++
+			if itemsCheckedCount%10000 == 0 {
+				// This can take a long time, we want to know it's doing something
+				log.Debugf("Checking item %d in association", itemsCheckedCount)
+			}
 			if live.Contains(d) {
 				liveItemsCount++
 			} else if time.Unix(itemAccessTime, 0).After(threshold) {
 				afterThresholdCount++
 			} else {
 				if !dryRun {
-					err = a.delete(ctx, *item["ID"].S)
-					if err != nil {
-						return fmt.Errorf("error deleting dynamodb entry with id %s (%s)", *item["ID"].S, err)
+					// Add this item to the items to be deleted
+					wr := &dynamodb.WriteRequest{DeleteRequest: &dynamodb.DeleteRequest{Key: map[string]*dynamodb.AttributeValue{"ID": {S: item["ID"].S}}}}
+					writeRequests = append(writeRequests, wr)
+
+					// See if we have enough to delete
+					if len(writeRequests) == cap(writeRequests) {
+						_, err = a.DB.BatchWriteItem(&dynamodb.BatchWriteItemInput{
+							RequestItems: map[string][]*dynamodb.WriteRequest{a.TableName: writeRequests},
+						})
+						if err != nil {
+							resultsLock.Unlock()
+							return fmt.Errorf("error deleting dynamodb items %v (%s)", writeRequests, err)
+						}
+						writeRequests = writeRequests[:0]
 					}
 				}
 				itemsCollectedCount++
@@ -274,6 +295,16 @@ func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, 
 		}
 		return nil
 	}))
+
+	// Delete any items that may still be in the queue
+	if !dryRun && len(writeRequests) > 0 {
+		_, err = a.DB.BatchWriteItem(&dynamodb.BatchWriteItemInput{
+			RequestItems: map[string][]*dynamodb.WriteRequest{a.TableName: writeRequests},
+		})
+		if err != nil {
+			return fmt.Errorf("error deleting dynamodb items %v (%s)", writeRequests, err)
+		}
+	}
 
 	// Print what happened
 	log.Debugf("Time to collect %s: %s", a.TableName, time.Since(start))

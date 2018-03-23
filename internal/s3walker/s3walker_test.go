@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package local
+package s3walker
 
 import (
 	"context"
@@ -24,7 +24,7 @@ func TestS3Walker(t *testing.T) {
 		client.SetFileContent(key, []byte(key))
 	}
 	ctx := context.Background()
-	w := &s3Walker{S3: client, Bucket: bucket, Prefix: "test/"}
+	w := &S3Walker{S3: client, Bucket: bucket, Prefix: "test/"}
 	var got []string
 	for w.Scan(ctx) {
 		got = append(got, aws.StringValue(w.Object().Key))
@@ -43,7 +43,7 @@ func TestS3WalkerFile(t *testing.T) {
 	const key = "path/to/a/file"
 	client.SetFileContent(key, []byte("contents"))
 	ctx := context.Background()
-	w := &s3Walker{S3: client, Bucket: bucket, Prefix: key}
+	w := &S3Walker{S3: client, Bucket: bucket, Prefix: key}
 	var got []string
 	for w.Scan(ctx) {
 		got = append(got, aws.StringValue(w.Object().Key))

@@ -33,6 +33,7 @@ import (
 	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/internal/s3walker"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository/file"
 	"golang.org/x/sync/errgroup"
@@ -397,7 +398,7 @@ func (e *s3Exec) do(ctx context.Context) error {
 		return nil
 	}
 
-	w := &s3Walker{S3: client, Bucket: bucket, Prefix: prefix}
+	w := &s3walker.S3Walker{S3: client, Bucket: bucket, Prefix: prefix}
 	for w.Scan(ctx) {
 		key, size := aws.StringValue(w.Object().Key), aws.Int64Value(w.Object().Size)
 		if len(key) < nprefix {
