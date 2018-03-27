@@ -32,10 +32,11 @@ const (
 	objectsPath = "objects"
 	uploadsPath = "uploads"
 
-	s3minpartsize      = 100 << 20
-	s3maxpartsize      = 2 * s3minpartsize
-	s3concurrency      = 20
-	s3maxdeleteobjects = 1000
+	s3minpartsize       = 100 << 20
+	s3maxpartsize       = 2 * s3minpartsize
+	s3concurrency       = 20
+	s3maxdeleteobjects  = 1000
+	s3maxdeleteattempts = 6
 )
 
 // Repository implements an S3-backed Repository. Objects are stored
@@ -199,6 +200,29 @@ func (r *Repository) Collect(ctx context.Context, live liveset.Liveset) error {
 	return errors.E("collect", errors.NotSupported)
 }
 
+// deleteObjects deletes objects from the repository's bucket in S3, with exponential backoff
+func (r *Repository) deleteObjects(ctx context.Context, deleteObjects *s3.Delete) error {
+	var err error
+	sleepDuration := 2 * time.Second
+	for attempts := 0; attempts < s3maxdeleteattempts; attempts++ {
+		_, err = r.Client.DeleteObjectsWithContext(ctx,
+			&s3.DeleteObjectsInput{Bucket: aws.String(r.Bucket), Delete: deleteObjects})
+		if err != nil {
+			log.Debugf("calling DeleteObjectsWithContext attempt %d err (%s)", attempts, err)
+			awserr, ok := err.(awserr.Error)
+			if ok && awserr.Code() == "SlowDown" {
+				time.Sleep(sleepDuration)
+				sleepDuration *= 2
+				continue
+			}
+		}
+		// That either succeeded or we got an unknown error
+		return err
+	}
+	// We timed out too many times, return the last error
+	return err
+}
+
 // CollectWithThreshold removes from this repository any objects which are not in the
 // liveset and which have not been accessed more recently than the liveset's
 // threshold time
@@ -244,8 +268,7 @@ func (r *Repository) CollectWithThreshold(ctx context.Context, live liveset.Live
 
 				// If we reach enough objects do a batch delete on them
 				if len(deleteObjects.Objects) == cap(deleteObjects.Objects) {
-					_, err = r.Client.DeleteObjectsWithContext(ctx,
-						&s3.DeleteObjectsInput{Bucket: aws.String(r.Bucket), Delete: &deleteObjects})
+					err = r.deleteObjects(ctx, &deleteObjects)
 					if err != nil {
 						log.Errorf("error calling DeleteObjectsWithContext (%s)", err)
 					}
@@ -258,8 +281,7 @@ func (r *Repository) CollectWithThreshold(ctx context.Context, live liveset.Live
 	}
 
 	if len(deleteObjects.Objects) > 0 && !dryRun {
-		_, err := r.Client.DeleteObjectsWithContext(ctx,
-			&s3.DeleteObjectsInput{Bucket: aws.String(r.Bucket), Delete: &deleteObjects})
+		err := r.deleteObjects(ctx, &deleteObjects)
 		if err != nil {
 			log.Errorf("error calling DeleteObjectsWithContext (%s)", err)
 		}

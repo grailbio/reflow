@@ -26,7 +26,8 @@ import (
 )
 
 const (
-	dbmaxdeleteobjects = 25
+	dbmaxdeleteobjects  = 25
+	dbmaxdeleteattempts = 6
 )
 
 // Assoc implements a DynamoDB-backed Assoc for use in caches.
@@ -212,21 +213,31 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 	return k, v, nil
 }
 
-func (a *Assoc) delete(ctx context.Context, id string) error {
-	if err := a.Limiter.Acquire(ctx, 1); err != nil {
+// deleteItems removes the items from the dynamoDB table, with backoff and retry until they're all deleted
+func (a *Assoc) deleteItems(ctx context.Context, writeRequests []*dynamodb.WriteRequest) error {
+	var err error
+	toWrite := map[string][]*dynamodb.WriteRequest{a.TableName: writeRequests}
+	sleepTime := 2 * time.Second
+	for attempts := 0; attempts < dbmaxdeleteattempts; attempts++ {
+		if err := a.Limiter.Acquire(ctx, 1); err != nil {
+			return err
+		}
+		out, err := a.DB.BatchWriteItemWithContext(ctx, &dynamodb.BatchWriteItemInput{
+			RequestItems: toWrite,
+		})
+		a.Limiter.Release(1)
+		if err == nil && len(out.UnprocessedItems) > 0 {
+			log.Debugf("Tried to delete %d items, %d left to go, attempt %d, sleeping %s",
+				len(toWrite[a.TableName]), len(out.UnprocessedItems[a.TableName]), attempts, sleepTime)
+			time.Sleep(sleepTime)
+			toWrite = out.UnprocessedItems
+			sleepTime *= 2
+			continue
+		}
+		// We either hit an error or processed all our items
 		return err
 	}
-	defer a.Limiter.Release(1)
-
-	// TODO (cbain) use their batch interface to delete up to 25 at a time
-	_, err := a.DB.DeleteItemWithContext(ctx, &dynamodb.DeleteItemInput{
-		Key: map[string]*dynamodb.AttributeValue{
-			"ID": {
-				S: aws.String(id),
-			},
-		},
-		TableName: aws.String(a.TableName),
-	})
+	// We tried too many times and gave up
 	return err
 }
 
@@ -279,9 +290,7 @@ func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, 
 
 					// See if we have enough to delete
 					if len(writeRequests) == cap(writeRequests) {
-						_, err = a.DB.BatchWriteItem(&dynamodb.BatchWriteItemInput{
-							RequestItems: map[string][]*dynamodb.WriteRequest{a.TableName: writeRequests},
-						})
+						err := a.deleteItems(ctx, writeRequests)
 						if err != nil {
 							resultsLock.Unlock()
 							return fmt.Errorf("error deleting dynamodb items %v (%s)", writeRequests, err)
@@ -298,9 +307,7 @@ func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, 
 
 	// Delete any items that may still be in the queue
 	if !dryRun && len(writeRequests) > 0 {
-		_, err = a.DB.BatchWriteItem(&dynamodb.BatchWriteItemInput{
-			RequestItems: map[string][]*dynamodb.WriteRequest{a.TableName: writeRequests},
-		})
+		err := a.deleteItems(ctx, writeRequests)
 		if err != nil {
 			return fmt.Errorf("error deleting dynamodb items %v (%s)", writeRequests, err)
 		}
