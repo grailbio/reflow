@@ -12,12 +12,12 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
-	"html/template"
 	"math"
 	"net/http"
 	"sort"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 	"unicode"
 
@@ -545,6 +545,38 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 			Options=data=writeback
 		`, args{"name": deviceName}),
 	})
+
+	var profile, akey, secret, token string
+	if i.InstanceProfile != "" {
+		profile = fmt.Sprintf("-a %s", i.InstanceProfile)
+	} else {
+		if awscreds, err := i.ReflowConfig.AWSCreds(); err == nil {
+			if c, err := awscreds.Get(); err == nil {
+				akey = fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", c.AccessKeyID)
+				secret = fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", c.SecretAccessKey)
+				token = fmt.Sprintf("AWS_SESSION_TOKEN=%s", c.SessionToken)
+			}
+		}
+	}
+	if akey != "" || profile != "" {
+		c.AppendUnit(cloudUnit{
+			Name:    "aws-xray.service",
+			Enable:  true,
+			Command: "start",
+			Content: tmpl(`
+			[Unit]
+			Description==xray
+			Requires=network.target
+			After=network.target
+			[Service]
+			Environment="{{.aws_access_key_id}}"
+			Environment="{{.aws_secret_access_key}}"
+			Environment="{{.aws_session_token}}"
+			Type=simple
+			ExecStartPre=/usr/bin/wget https://s3.dualstack.us-east-2.amazonaws.com/aws-xray-assets.us-east-2/xray-daemon/aws-xray-daemon-linux-2.x.zip
+			ExecStartPre=/usr/bin/unzip aws-xray-daemon-linux-2.x.zip -d /tmp
+			ExecStart=/tmp/xray {{.profile}} -l debug`, args{"profile": profile, "aws_access_key_id": akey, "aws_secret_access_key": secret, "aws_session_token": token})})
+	}
 
 	// We merge the user's cloud config before appending the reflowlet unit
 	// so that systemd units can be run before the reflowlet.
