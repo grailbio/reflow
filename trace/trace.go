@@ -32,6 +32,7 @@ package trace
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"github.com/grailbio/base/digest"
@@ -51,47 +52,72 @@ const (
 	Transfer
 )
 
+//go:generate stringer -type=Kind
+
 var nopFunc = func() {}
 
-// Span stores the parent-child tuple of IDs that define a trace
-// span. The zero Span struct is the root span.
-type Span struct {
-	Parent, Id digest.Digest
-	Kind       Kind
-}
-
-// Start traces the beginning of a span of the indicated kind, and
-// with the given ID. Start returns a new context for this span:
-// Notes on the context will be associated with fresh span; new spans
-// become children of this span.
-func Start(ctx context.Context, kind Kind, id digest.Digest) (outctx context.Context, done func()) {
+// Start traces the beginning of a span of the indicated kind, name and id.
+// Name is an abbreviated info about the span. Name may be used by trace implementations to
+// display on a UI. Start returns a new context for this span. The returned context should be
+// used to create child spans.  Notes on the context will be associated with fresh span/or annotations
+// on the current span (implementation dependent). Calling done() ends the span.
+func Start(ctx context.Context, kind Kind, id digest.Digest, name string) (outctx context.Context, done func()) {
 	if !On(ctx) {
 		return ctx, nopFunc
 	}
-	// This is ok: the root span is the zero value.
-	span, _ := ctx.Value(spanKey).(Span)
-	span.Parent = span.Id
-	span.Id = id
-	span.Kind = kind
 	t := tracer(ctx)
-	t.Emit(Event{Time: time.Now(), Span: span, Kind: StartEvent})
-	return context.WithValue(ctx, spanKey, span), func() {
-		t.Emit(Event{Time: time.Now(), Span: span, Kind: EndEvent})
+	ctx, _ = t.Emit(ctx, Event{Time: time.Now(), SpanKind: kind, Id: id, Name: name, Kind: StartEvent})
+	return ctx, func() {
+		t.Emit(ctx, Event{Time: time.Now(), SpanKind: kind, Id: id, Name: name, Kind: EndEvent})
 	}
 }
 
-// Note emits the provided key and value as a trace event associated
-// with the span of the provided context.
+// Note emits the provided key and value as a trace event associated with the span of the provided context.
 func Note(ctx context.Context, key string, value interface{}) {
 	if !On(ctx) {
 		return
 	}
-	span, _ := ctx.Value(spanKey).(Span)
 	Emit(ctx, Event{
 		Time:  time.Now(),
-		Span:  span,
 		Kind:  NoteEvent,
 		Key:   key,
 		Value: value,
 	})
+}
+
+// ReadHTTPContext restores the trace context from HTTP headers.
+func ReadHTTPContext(ctx context.Context, h http.Header) context.Context {
+	if !On(ctx) {
+		return ctx
+	}
+	t := tracer(ctx)
+	return t.ReadHTTPContext(ctx, h)
+}
+
+// WriteHTTPContext saves the current trace context to HTTP headers.
+func WriteHTTPContext(ctx context.Context, h *http.Header) {
+	if !On(ctx) {
+		return
+	}
+	t := tracer(ctx)
+	t.WriteHTTPContext(ctx, h)
+}
+
+// CopyTraceContext copies the trace context from src to dst.
+func CopyTraceContext(src, dst context.Context) context.Context {
+	if !On(src) {
+		return dst
+	}
+	t := tracer(src)
+	dst = t.CopyTraceContext(src, dst)
+	return dst
+}
+
+// URL returns the url of the current trace.
+func URL(ctx context.Context) string {
+	if !On(ctx) {
+		return ""
+	}
+	t := tracer(ctx)
+	return t.URL(ctx)
 }

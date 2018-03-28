@@ -565,7 +565,7 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 			Command: "start",
 			Content: tmpl(`
 			[Unit]
-			Description==xray
+			Description=xray
 			Requires=network.target
 			After=network.target
 			[Service]

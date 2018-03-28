@@ -6,7 +6,10 @@ package trace
 
 import (
 	"context"
+	"net/http"
 	"time"
+
+	"github.com/grailbio/base/digest"
 )
 
 // EventKind is the type of trace event.
@@ -17,32 +20,45 @@ const (
 	StartEvent EventKind = iota
 	// EndEvent is the end of a trace span.
 	EndEvent
-	// NoteEvent is a note on the current span.
+	// NoteEvent is an annotation on the current span.
 	NoteEvent
 )
 
 // Event stores a single trace event. Each event must have at least a
-// timestamp, span, and an event kind. Other arguments depend on the
-// event kind.
+// timestamp and an event kind. Other arguments depend on the event kind.
 type Event struct {
 	// Time is the timestamp of the event, generated at the source of
 	// that event.
 	Time time.Time
-	// Span is the span to which this event belongs.
-	Span Span
 	// Kind is the type of event.
 	Kind EventKind
 	// Key stores the key for NoteEvents.
 	Key string
 	// Value stores the value for NoteEvents.
 	Value interface{}
+	// The following fields are set for events of type StartEvent and EndEvent.
+	// Id of the span this event belongs to.
+	Id digest.Digest
+	// Name of the span this belongs to.
+	Name string
+	// Kind of span.
+	SpanKind Kind
 }
 
-// Tracers are sinks for trace events. Tracer implementations should
+// Tracer is a sink for trace events. Tracer implementations should
 // not block: they are called synchronously.
 type Tracer interface {
 	// Emit is called to emit a new event to the tracer.
-	Emit(Event) error
+	// The returned context should be used to create children spans.
+	Emit(context.Context, Event) (context.Context, error)
+	// WriteHTTPContext saves the current trace context to http header.
+	WriteHTTPContext(context.Context, *http.Header)
+	// ReadHTTPContext restores the trace context from http header.
+	ReadHTTPContext(context.Context, http.Header) context.Context
+	// CopyTraceContext copies trace specific metadata from src to dst.
+	CopyTraceContext(src context.Context, dst context.Context) context.Context
+	// URL returns the trace URL for the trace associated with ctx.
+	URL(context.Context) string
 }
 
 // WithTracer returns a context that emits trace events to the
@@ -63,6 +79,6 @@ func tracer(ctx context.Context) Tracer {
 }
 
 // Emit emits a raw event on the tracer affiliated with the provided context.
-func Emit(ctx context.Context, event Event) error {
-	return ctx.Value(tracerKey).(Tracer).Emit(event)
+func Emit(ctx context.Context, event Event) (context.Context, error) {
+	return ctx.Value(tracerKey).(Tracer).Emit(ctx, event)
 }
