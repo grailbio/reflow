@@ -34,7 +34,7 @@ type needer interface {
 // such global registration altogether. The current way of doing this
 // also ties the binary to specific implementations (e.g., s3), which
 // should be avoided.
-func (c *Cmd) cluster(status *status.Group) runner.Cluster {
+func (c *Cmd) Cluster(status *status.Group) runner.Cluster {
 	cluster, err := c.Config.Cluster()
 	if err != nil {
 		c.Fatal(err)

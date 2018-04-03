@@ -13,8 +13,6 @@ import (
 	"io/ioutil"
 	golog "log"
 	"math"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -25,20 +23,15 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/internal/ec2authenticator"
-	"github.com/grailbio/reflow/internal/iputil"
-	"github.com/grailbio/reflow/internal/wg"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/repository"
-	"github.com/grailbio/reflow/repository/file"
-	repositoryserver "github.com/grailbio/reflow/repository/server"
-	"github.com/grailbio/reflow/rest"
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/types"
-	"golang.org/x/net/http2"
+	"github.com/grailbio/reflow/wg"
 )
 
 const maxConcurrentStreams = 2000
@@ -47,7 +40,6 @@ type runConfig struct {
 	localDir       string
 	dir            string
 	local          bool
-	hybrid         string
 	alloc          string
 	gc             bool
 	trace          bool
@@ -62,7 +54,6 @@ type runConfig struct {
 
 func (r *runConfig) Flags(flags *flag.FlagSet) {
 	flags.BoolVar(&r.local, "local", false, "execute flow on the local Docker instance")
-	flags.StringVar(&r.hybrid, "hybrid", "", "execute flow in hybrid local mode; serve repository over the provided port")
 	flags.StringVar(&r.localDir, "localdir", "/tmp/flow", "directory where execution state is stored in local mode")
 	flags.StringVar(&r.dir, "dir", "", "directory where execution state is stored in local mode (alias for local dir for backwards compatibilty)")
 	flags.StringVar(&r.alloc, "alloc", "", "use this alloc to execute program (don't allocate a fresh one)")
@@ -81,7 +72,7 @@ func (r *runConfig) Err() error {
 	default:
 		return fmt.Errorf("invalid evaluation strategy %s", r.eval)
 	}
-	if r.local || r.hybrid != "" {
+	if r.local {
 		if r.alloc != "" {
 			return errors.New("-alloc cannot be used in local mode")
 		}
@@ -89,9 +80,6 @@ func (r *runConfig) Err() error {
 			if err := json.Unmarshal([]byte(r.resourcesFlag), &r.resources); err != nil {
 				return fmt.Errorf("-resources: %s", err)
 			}
-		}
-		if r.local && r.hybrid != "" {
-			return errors.New("only one of -local and -hybrid can be specified at any time")
 		}
 	} else {
 		if r.resourcesFlag != "" {
@@ -126,10 +114,7 @@ func (c *Cmd) run(ctx context.Context, args ...string) {
 	flags := flag.NewFlagSet("run", flag.ExitOnError)
 	help := `Run type checks, then evaluates a Reflow program on the
 cluster specified by the runtime profile. In local mode, run uses the
-locally-available Docker daemon to evaluate the Reflow. In hybrid
-mode, the program is evaluated using the local Docker daemon, but 
-it may allocate work-stealing nodes on the configured cluster in order
-to offload excess work.
+locally-available Docker daemon to evaluate the Reflow. 
 
 If the Reflow program has the suffix ".reflow", it is taken to use
 the legacy syntax; programs with suffixes ".rf" use the modern
@@ -155,7 +140,7 @@ retriable.`
 	var config runConfig
 	config.Flags(flags)
 
-	c.Parse(flags, args, help, "run [-local] [-hybrid addr] [flags] path [args]")
+	c.Parse(flags, args, help, "run [-local] [flags] path [args]")
 	if err := config.Err(); err != nil {
 		c.Errorln(err)
 		flags.Usage()
@@ -164,7 +149,7 @@ retriable.`
 	if flags.NArg() == 0 {
 		flags.Usage()
 	}
-	er, err := c.eval(flags.Args())
+	er, err := c.Eval(flags.Args())
 	if er.V1 && config.gc {
 		log.Errorf("garbage collection disabled for v1 reflows")
 		config.gc = false
@@ -184,7 +169,7 @@ retriable.`
 	c.Log.Printf("run ID: %s", runID.Short())
 
 	// Set up run transcript and log files.
-	base := c.runbase(runID)
+	base := c.Runbase(runID)
 	os.MkdirAll(filepath.Dir(base), 0777)
 	execfile, err := os.Create(base + ".execlog")
 	if err != nil {
@@ -241,14 +226,14 @@ retriable.`
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	if config.local || config.hybrid != "" {
+	if config.local {
 		c.runLocal(ctx, config, execLogger, runID, er.Flow, er.Type)
 		return
 	}
 
 	// Default case: execute on cluster with shared cache.
 	// TODO: get rid of profile here
-	cluster := c.cluster(c.status.Group("ec2cluster"))
+	cluster := c.Cluster(c.Status.Group("ec2cluster"))
 	assoc, err := c.Config.Assoc()
 	if err != nil {
 		c.Fatal(err)
@@ -258,8 +243,8 @@ retriable.`
 		c.Fatal(err)
 	}
 	transferer := &repository.Manager{
-		Status:           c.status.Group("transfers"),
-		PendingTransfers: repository.NewLimits(c.transferLimit()),
+		Status:           c.Status.Group("transfers"),
+		PendingTransfers: repository.NewLimits(c.TransferLimit()),
 		Stat:             repository.NewLimits(statLimit),
 		Log:              c.Log,
 	}
@@ -274,7 +259,7 @@ retriable.`
 			Assoc:      assoc,
 			CacheMode:  c.Config.CacheMode(),
 			Transferer: transferer,
-			Status:     c.status.Group(runID.Short()),
+			Status:     c.Status.Group(runID.Short()),
 		},
 		Type:    er.Type,
 		Labels:  make(pool.Labels),
@@ -316,7 +301,7 @@ retriable.`
 	} else {
 		c.Println(run.Result)
 	}
-	c.waitForCacheWrites(&wg, 10*time.Minute)
+	c.WaitForCacheWrites(&wg, 10*time.Minute)
 	bgcancel()
 	cancel()
 	if run.Err != nil {
@@ -365,8 +350,8 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		c.Fatal(err)
 	}
 	transferer := &repository.Manager{
-		Status:           c.status.Group("transfers"),
-		PendingTransfers: repository.NewLimits(c.transferLimit()),
+		Status:           c.Status.Group("transfers"),
+		PendingTransfers: repository.NewLimits(c.TransferLimit()),
 		Stat:             repository.NewLimits(statLimit),
 		Log:              c.Log,
 	}
@@ -385,6 +370,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		AWSCreds:      creds,
 		Log:           c.Log.Tee(nil, "executor: "),
 	}
+
 	resources := config.resources
 	if resources.Equal(nil) {
 		info, err := client.Info(context.Background())
@@ -399,36 +385,6 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	}
 	x.SetResources(resources)
 
-	if config.hybrid != "" {
-		// In hybrid mode, serve the repository through an HTTP server so that it is
-		// accessible to work stealers.
-		x.FileRepository = &file.Repository{Root: filepath.Join(x.Prefix, x.Dir, "objects")}
-		ip4, err := iputil.ExternalIP4()
-		if err != nil {
-			c.Fatalf("failed to retrieve the machine's IPv4 address: %s", err)
-		}
-		x.FileRepository.RepoURL = &url.URL{
-			Scheme: "https",
-			Host:   ip4.String() + config.hybrid,
-		}
-		http.Handle("/", rest.Handler(repositoryserver.Node{x.FileRepository}, nil))
-		log.Printf("serving repository at %s", x.FileRepository.RepoURL.String())
-		_, serverConfig, err := c.Config.HTTPS()
-		if err != nil {
-			c.Fatal(err)
-		}
-		httpServer := &http.Server{
-			TLSConfig: serverConfig,
-			Addr:      config.hybrid,
-		}
-		http2.ConfigureServer(httpServer, &http2.Server{
-			MaxConcurrentStreams: maxConcurrentStreams,
-		})
-		go func() {
-			log.Fatal(httpServer.ListenAndServeTLS("", ""))
-		}()
-	}
-
 	if err := x.Start(); err != nil {
 		log.Fatal(err)
 	}
@@ -439,7 +395,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		Repository: repo,
 		Assoc:      assoc,
 		CacheMode:  c.Config.CacheMode(),
-		Status:     c.status.Group(runID.Short()),
+		Status:     c.Status.Group(runID.Short()),
 	}
 	config.Configure(&evalConfig)
 	if config.trace {
@@ -448,20 +404,6 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	eval := reflow.NewEval(flow, evalConfig)
 	var wg wg.WaitGroup
 	ctx, bgcancel := reflow.WithBackground(ctx, &wg)
-	if config.hybrid != "" {
-		cluster := c.cluster(c.status.Group("ec2cluster"))
-		if err != nil {
-			c.Fatal(err)
-		}
-		stealer := &runner.Stealer{
-			Cluster: cluster,
-			Log:     c.Log.Tee(nil, "hybrid: "),
-			Labels: pool.Labels{
-				"ID": runID.Hex(),
-			},
-		}
-		go stealer.Go(ctx, eval)
-	}
 	if err = eval.Do(ctx); err != nil {
 		c.Errorln(err)
 		if errors.Restartable(err) {
@@ -469,7 +411,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		}
 		c.Exit(1)
 	}
-	c.waitForCacheWrites(&wg, 10*time.Minute)
+	c.WaitForCacheWrites(&wg, 10*time.Minute)
 	bgcancel()
 	if err := eval.Err(); err != nil {
 		c.Errorln(err)
@@ -497,11 +439,13 @@ func (c *Cmd) rundir() string {
 }
 
 // runbase returns the base path for the run with the provided name
-func (c Cmd) runbase(id digest.Digest) string {
+func (c Cmd) Runbase(id digest.Digest) string {
 	return filepath.Join(c.rundir(), id.Hex())
 }
 
-func (c Cmd) waitForCacheWrites(wg *wg.WaitGroup, timeout time.Duration) {
+// WaitForCacheWrites waits until all the cache writes to complete or timeouts if
+// it takes longer than the specified timeout.
+func (c Cmd) WaitForCacheWrites(wg *wg.WaitGroup, timeout time.Duration) {
 	waitc := wg.C()
 	select {
 	case <-waitc:

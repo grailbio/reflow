@@ -17,7 +17,8 @@ const (
 	cacheOpConcurrency = 512
 )
 
-func (c *Cmd) transferLimit() int {
+// TransferLimit returns the configured transfer limit.
+func (c *Cmd) TransferLimit() int {
 	lim := c.Config.Value("transferlimit")
 	if lim == nil {
 		return defaultTransferLimit

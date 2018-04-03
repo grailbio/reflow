@@ -35,7 +35,7 @@ The columns displayed by list are:
 	)
 	c.Parse(flags, args, help, "list [-a] [[-n] alloc]")
 	args = flags.Args()
-	cluster := c.cluster(nil)
+	cluster := c.Cluster(nil)
 	var entries []interface{}
 
 	if len(args) == 0 {

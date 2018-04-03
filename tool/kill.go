@@ -16,7 +16,7 @@ func (c *Cmd) kill(ctx context.Context, args ...string) {
 	if flags.NArg() == 0 {
 		flags.Usage()
 	}
-	cluster := c.cluster(nil)
+	cluster := c.Cluster(nil)
 	for _, arg := range flags.Args() {
 		n, err := parseName(arg)
 		if err != nil {

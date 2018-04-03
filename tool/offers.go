@@ -18,7 +18,7 @@ func (c *Cmd) offers(ctx context.Context, args ...string) {
 	if flags.NArg() != 0 {
 		flags.Usage()
 	}
-	cluster := c.cluster(nil)
+	cluster := c.Cluster(nil)
 	offers, err := cluster.Offers(ctx)
 	if err != nil {
 		c.Fatal(err)

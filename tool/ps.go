@@ -57,7 +57,7 @@ printed on the console.`
 	if flags.NArg() != 0 {
 		flags.Usage()
 	}
-	cluster := c.cluster(nil)
+	cluster := c.Cluster(nil)
 	allocsCtx, allocsCancel := context.WithTimeout(ctx, 5*time.Second)
 	allocs := pool.Allocs(allocsCtx, cluster, c.Log)
 	allocsCancel()

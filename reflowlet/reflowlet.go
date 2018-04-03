@@ -18,7 +18,7 @@ import (
 	dockerclient "github.com/docker/engine-api/client"
 	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow/config"
-	"github.com/grailbio/reflow/internal/ec2authenticator"
+	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool/server"

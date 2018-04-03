@@ -65,7 +65,7 @@ Abbreviated IDs are expanded where possible.`
 				c.Fatalf("unable to resolve id %s", arg)
 			}
 		case execName:
-			alloc, err := c.cluster(nil).Alloc(ctx, n.AllocID)
+			alloc, err := c.Cluster(nil).Alloc(ctx, n.AllocID)
 			if err != nil {
 				c.Fatal(err)
 			}
@@ -87,7 +87,7 @@ Abbreviated IDs are expanded where possible.`
 			fmt.Fprintln(&tw, arg, "(exec)")
 			c.printExec(ctx, &tw, inspect, result)
 		case allocName:
-			alloc, err := c.cluster(nil).Alloc(ctx, n.AllocID)
+			alloc, err := c.Cluster(nil).Alloc(ctx, n.AllocID)
 			if err != nil {
 				c.Fatal(err)
 			}

@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/grailbio/reflow"
-	"github.com/grailbio/reflow/internal/wg"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
+	"github.com/grailbio/reflow/wg"
 )
 
 // Give a generous cache write timeout to workers,

@@ -89,7 +89,7 @@ supplied via a CSV batch file as in "reflow runbatch".`
 				for i, key := range header {
 					args = append(args, fmt.Sprintf("-%s=%s", key, record[i]))
 				}
-				er, err := c.eval(args)
+				er, err := c.Eval(args)
 				if err != nil {
 					return err
 				}
@@ -102,7 +102,7 @@ supplied via a CSV batch file as in "reflow runbatch".`
 			c.Fatal(err)
 		}
 	} else {
-		er, err := c.eval(flags.Args())
+		er, err := c.Eval(flags.Args())
 		if err != nil {
 			c.Fatal(err)
 		}

@@ -64,11 +64,14 @@ type Cmd struct {
 	// properly interleaved.
 	Stdout, Stderr io.Writer
 
+	// Status object for the current cmd invocation. This is used to continuously update the
+	// progress of the cmd execution.
+	Status *status.Status
+
 	configFlags    map[string]*string
 	httpFlag       string
 	cpuProfileFlag string
 	logFlag        string
-	status         *status.Status
 
 	onexits []func()
 
@@ -217,11 +220,11 @@ func (c *Cmd) Main() {
 		logflags = golog.LstdFlags
 		logprefix = ""
 	}
-	c.status = new(status.Status)
+	c.Status = new(status.Status)
 	reporter := make(status.Reporter)
 	c.Stdout = reporter.Wrap(os.Stdout)
 	c.Stderr = reporter.Wrap(os.Stderr)
-	go reporter.Go(os.Stderr, c.status)
+	go reporter.Go(os.Stderr, c.Status)
 	c.onexit(reporter.Stop)
 
 	// Set the system wide logger with the same level and output

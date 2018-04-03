@@ -18,7 +18,8 @@ import (
 	"github.com/grailbio/reflow/values"
 )
 
-type evalResult struct {
+// EvalResult contains the program Flow, params and args.
+type EvalResult struct {
 	Program string
 	Flow    *reflow.Flow
 	Type    *types.T
@@ -27,28 +28,29 @@ type evalResult struct {
 	V1      bool
 }
 
-// eval evaluates a Reflow program to a Flow.
-func (c *Cmd) eval(args []string) (evalResult, error) {
+// Eval evaluates a Reflow program to a Flow. It can evaluate both legacy(".reflow")
+// and modern(".rf") programs. It interprets flags as module parameters.
+func (c *Cmd) Eval(args []string) (EvalResult, error) {
 	if len(args) == 0 {
-		return evalResult{}, errors.New("no program provided")
+		return EvalResult{}, errors.New("no program provided")
 	}
 	var file string
 	file, args = args[0], args[1:]
-	er := evalResult{Params: make(map[string]string)}
+	er := EvalResult{Params: make(map[string]string)}
 	var err error
 	er.Program, err = filepath.Abs(file)
 	if err != nil {
-		return evalResult{}, err
+		return EvalResult{}, err
 	}
 	switch ext := filepath.Ext(file); ext {
 	case ".reflow":
 		f, err := os.Open(file)
 		if err != nil {
-			return evalResult{}, err
+			return EvalResult{}, err
 		}
 		prog := &lang.Program{File: file, Errors: os.Stderr}
 		if err := prog.ParseAndTypecheck(f); err != nil {
-			return evalResult{}, fmt.Errorf("type error: %s", err)
+			return EvalResult{}, fmt.Errorf("type error: %s", err)
 		}
 		flags := prog.Flags()
 		flags.Usage = func() {
@@ -74,7 +76,7 @@ func (c *Cmd) eval(args []string) (evalResult, error) {
 		sess.Stderr = c.Stderr
 		m, err := sess.Open(file)
 		if err != nil {
-			return evalResult{}, err
+			return EvalResult{}, err
 		}
 		var maintyp *types.T
 		for _, f := range m.Type().Fields {
@@ -84,7 +86,7 @@ func (c *Cmd) eval(args []string) (evalResult, error) {
 			}
 		}
 		if maintyp == nil {
-			return evalResult{}, fmt.Errorf("module %v does not define symbol Main", file)
+			return EvalResult{}, fmt.Errorf("module %v does not define symbol Main", file)
 		}
 		flags, err := m.Flags(sess, sess.Values)
 		if err != nil {
@@ -103,7 +105,7 @@ func (c *Cmd) eval(args []string) (evalResult, error) {
 		}
 		v, err := m.Make(sess, env)
 		if err != nil {
-			return evalResult{}, err
+			return EvalResult{}, err
 		}
 		v = v.(values.Module)["Main"]
 		v = syntax.Force(v, maintyp)
@@ -123,7 +125,7 @@ func (c *Cmd) eval(args []string) (evalResult, error) {
 			return er, nil
 		}
 	default:
-		return evalResult{}, fmt.Errorf("unknown file extension %q", ext)
+		return EvalResult{}, fmt.Errorf("unknown file extension %q", ext)
 	}
 }
 

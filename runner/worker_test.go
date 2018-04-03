@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/grailbio/reflow"
-	"github.com/grailbio/reflow/internal/wg"
 	"github.com/grailbio/reflow/test/flow"
 	"github.com/grailbio/reflow/test/testutil"
+	"github.com/grailbio/reflow/wg"
 )
 
 func TestWorker(t *testing.T) {

@@ -18,9 +18,9 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/batch"
 	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/internal/wg"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/runner"
+	"github.com/grailbio/reflow/wg"
 )
 
 func (c *Cmd) batchrun(ctx context.Context, args ...string) {
@@ -93,7 +93,7 @@ level.`
 	if err != nil {
 		c.Fatal(err)
 	}
-	cluster := c.cluster(c.status.Group("ec2cluster"))
+	cluster := c.Cluster(c.Status.Group("ec2cluster"))
 	repo, err := c.Config.Repository()
 	if err != nil {
 		c.Fatal(err)
@@ -103,8 +103,8 @@ level.`
 		c.Fatal(err)
 	}
 	transferer := &repository.Manager{
-		Status:           c.status.Group("transfers"),
-		PendingTransfers: repository.NewLimits(c.transferLimit()),
+		Status:           c.Status.Group("transfers"),
+		PendingTransfers: repository.NewLimits(c.TransferLimit()),
 		Stat:             repository.NewLimits(statLimit),
 		Log:              c.Log,
 	}
@@ -131,7 +131,7 @@ level.`
 		Rundir:  c.rundir(),
 		User:    user,
 		Cluster: cluster,
-		Status:  c.status.Groupf("batch %s", wd),
+		Status:  c.Status.Groupf("batch %s", wd),
 	}
 	b.Dir, err = os.Getwd()
 	if err != nil {
@@ -163,7 +163,7 @@ level.`
 	if err != nil {
 		c.Log.Errorf("batch failed with error %v", err)
 	}
-	c.waitForCacheWrites(&wg, 20*time.Minute)
+	c.WaitForCacheWrites(&wg, 20*time.Minute)
 	bgcancel()
 	if err != nil {
 		c.Exit(1)
