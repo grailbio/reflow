@@ -330,7 +330,7 @@ var dirsDecls = []*Decl{
 		Id:     "Groups",
 		Module: "dirs",
 		Doc: "Groups assigns each path in a directory to a group according " +
-			"to the passed-in regular expressio, which must have exactly one " +
+			"to the passed-in regular expression, which must have exactly one " +
 			"regexp group. Paths that do not match the expression are filtered out. " +
 			"Group returns a map that maps each group key to a directory of matched values.",
 		Type: types.Func(types.Map(types.String, types.Dir),
