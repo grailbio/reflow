@@ -20,9 +20,9 @@ import (
 	"runtime/pprof"
 	"sort"
 
+	"github.com/grailbio/base/status"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/config"
-	"github.com/grailbio/reflow/internal/status"
 	"github.com/grailbio/reflow/log"
 )
 

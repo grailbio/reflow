@@ -11,9 +11,9 @@ import (
 	"net/http"
 
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/grailbio/base/status"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/ec2cluster"
-	"github.com/grailbio/reflow/internal/status"
 	repositoryhttp "github.com/grailbio/reflow/repository/http"
 	reflows3 "github.com/grailbio/reflow/repository/s3"
 	"github.com/grailbio/reflow/runner"

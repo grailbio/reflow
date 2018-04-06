@@ -23,9 +23,9 @@ import (
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
+	"github.com/grailbio/base/status"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/internal/status"
 	"github.com/grailbio/reflow/lang"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"

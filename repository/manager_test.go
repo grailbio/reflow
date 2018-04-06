@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/grailbio/base/status"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/internal/status"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/test/testutil"
 )

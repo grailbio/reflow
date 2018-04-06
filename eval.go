@@ -22,9 +22,9 @@ import (
 
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/status"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/internal/status"
 	"github.com/grailbio/reflow/liveset/bloomlive"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/values"
