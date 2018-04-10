@@ -42,10 +42,9 @@ type Assoc struct {
 	TableName string
 }
 
-// Put associates the digest v with the key digest k in the dynamodb
-// table. DynamoDB conditional expressions are used to implement
-// compare-and-swap when expect is nonzero.
-func (a *Assoc) Put(ctx context.Context, kind assoc.Kind, expect, k, v digest.Digest) error {
+// Store associates the digest v with the key digest k of the provided kind. If v is zero,
+// k's association will be deleted.
+func (a *Assoc) Store(ctx context.Context, kind assoc.Kind, k, v digest.Digest) error {
 	if kind != assoc.Fileset {
 		return errors.E(errors.NotSupported, errors.Errorf("mappings of kind %v are not supported", kind))
 	}
@@ -53,23 +52,8 @@ func (a *Assoc) Put(ctx context.Context, kind assoc.Kind, expect, k, v digest.Di
 		return err
 	}
 	defer a.Limiter.Release(1)
-	var (
-		conditionExpression       *string
-		expressionAttributeValues map[string]*dynamodb.AttributeValue
-	)
-	switch {
-	case expect.IsZero() && !v.IsZero():
-		conditionExpression = aws.String("attribute_not_exists(ID)")
-	case !expect.IsZero():
-		conditionExpression = aws.String("Value = :expect")
-		expressionAttributeValues = map[string]*dynamodb.AttributeValue{
-			":expect": {S: aws.String(expect.String())},
-		}
-	}
 	if v.IsZero() {
 		_, err := a.DB.DeleteItemWithContext(ctx, &dynamodb.DeleteItemInput{
-			ConditionExpression:       conditionExpression,
-			ExpressionAttributeValues: expressionAttributeValues,
 			Key: map[string]*dynamodb.AttributeValue{
 				"ID": {
 					S: aws.String(k.String()),
@@ -82,8 +66,6 @@ func (a *Assoc) Put(ctx context.Context, kind assoc.Kind, expect, k, v digest.Di
 	k4 := k
 	k4.Truncate(4)
 	_, err := a.DB.PutItemWithContext(ctx, &dynamodb.PutItemInput{
-		ConditionExpression:       conditionExpression,
-		ExpressionAttributeValues: expressionAttributeValues,
 		Item: map[string]*dynamodb.AttributeValue{
 			"ID": {
 				S: aws.String(k.String()),
@@ -100,17 +82,6 @@ func (a *Assoc) Put(ctx context.Context, kind assoc.Kind, expect, k, v digest.Di
 		},
 		TableName: aws.String(a.TableName),
 	})
-	if err == nil {
-		return nil
-	}
-	awserr, ok := err.(awserr.Error)
-	if !ok {
-		return err
-	}
-	switch awserr.Code() {
-	case "ConditionalCheckFailedException":
-		return errors.E(errors.Precondition, err)
-	}
 	return err
 }
 

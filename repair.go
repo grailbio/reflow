@@ -262,7 +262,7 @@ func (r *Repair) Go(ctx context.Context, concurrency int) {
 			for wb := range r.writebacks {
 				r.Log.Printf("write back %s %s %s", wb.Flow.Ident, wb.Flow, wb.Fsid)
 				for _, key := range wb.Flow.CacheKeys() {
-					err := r.Assoc.Put(ctx, assoc.Fileset, digest.Digest{}, key, wb.Fsid)
+					err := r.Assoc.Store(ctx, assoc.Fileset, key, wb.Fsid)
 					switch {
 					case errors.Is(errors.Precondition, err):
 					case err == nil:

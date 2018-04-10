@@ -33,13 +33,10 @@ func NewInmemoryAssoc() assoc.Assoc {
 	}
 }
 
-func (a *inmemoryAssoc) Put(ctx context.Context, kind assoc.Kind, expect digest.Digest, k digest.Digest, v digest.Digest) error {
+func (a *inmemoryAssoc) Store(ctx context.Context, kind assoc.Kind, k, v digest.Digest) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	key := assocKey{kind, k}
-	if !expect.IsZero() && a.assocs[key] != expect {
-		return errors.E(errors.Precondition, errors.Errorf("expected value %v, have %v", expect, a.assocs[key]))
-	}
 	if v.IsZero() {
 		delete(a.assocs, key)
 	} else {

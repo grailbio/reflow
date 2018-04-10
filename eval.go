@@ -1147,7 +1147,7 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo Repository) error {
 	for i := range keys {
 		key := keys[i]
 		g.Go(func() error {
-			return e.Assoc.Put(ctx, assoc.Fileset, digest.Digest{}, key, id)
+			return e.Assoc.Store(ctx, assoc.Fileset, key, id)
 		})
 	}
 	return g.Wait()
@@ -1250,7 +1250,7 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 		bgctx := Background(ctx)
 		go func() {
 			for _, key := range keys {
-				if err := e.Assoc.Put(bgctx, assoc.Fileset, digest.Digest{}, key, fsid); err != nil {
+				if err := e.Assoc.Store(bgctx, assoc.Fileset, key, fsid); err != nil {
 					if !errors.Is(errors.Precondition, err) {
 						e.Log.Errorf("assoc write for read repair %v %v: %v", f, key, err)
 					}

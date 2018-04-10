@@ -67,7 +67,7 @@ func WriteCache(e *reflow.Eval, key digest.Digest, files ...string) {
 	if err != nil {
 		unexpected(err)
 	}
-	if err := e.Assoc.Put(context.Background(), assoc.Fileset, digest.Digest{}, key, fsid); err != nil {
+	if err := e.Assoc.Store(context.Background(), assoc.Fileset, key, fsid); err != nil {
 		unexpected(err)
 	}
 }
