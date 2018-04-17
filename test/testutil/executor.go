@@ -5,8 +5,10 @@
 package testutil
 
 import (
+	"bytes"
 	"context"
 	"io"
+	"io/ioutil"
 	"sync"
 
 	"github.com/grailbio/base/digest"
@@ -69,9 +71,10 @@ func (e *Exec) Wait(ctx context.Context) error {
 	return err
 }
 
-// Logs is not implemented.
+// Logs is a no-op for the test exec.
 func (e *Exec) Logs(ctx context.Context, stdout bool, stderr bool, follow bool) (io.ReadCloser, error) {
-	panic("not implemented")
+	_, err := e.result(ctx)
+	return ioutil.NopCloser(bytes.NewBufferString("")), err
 }
 
 // Shell is not implemented

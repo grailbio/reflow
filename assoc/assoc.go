@@ -22,6 +22,8 @@ const (
 	Fileset Kind = iota
 	// ExecInspect maps exec inspect info (profile, cmd, etc)
 	ExecInspect
+	// Logs maps exec logs files (stdout, stderr).
+	Logs
 )
 
 // MappingHandler is an interface for handling a mapping while scanning.

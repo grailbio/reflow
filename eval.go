@@ -1143,6 +1143,7 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo Repository) error {
 		return err
 	}
 	pid := digest.Digest{}
+	var stdout, stderr digest.Digest
 	if f.Op == OpExec {
 		b := new(bytes.Buffer)
 		enc := json.NewEncoder(b)
@@ -1153,6 +1154,18 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo Repository) error {
 		} else {
 			log.Errorf("encoder marshal profile: %v", err)
 		}
+		if rc, err := f.Exec.Logs(ctx, true, false, false); err == nil {
+			if stdout, err = e.Repository.Put(ctx, rc); err != nil {
+				log.Errorf("repository put stdout: %v", err)
+			}
+			rc.Close()
+		}
+		if rc, err := f.Exec.Logs(ctx, false, true, false); err == nil {
+			if stderr, err = e.Repository.Put(ctx, rc); err != nil {
+				log.Errorf("repository put stderr: %v", err)
+			}
+			rc.Close()
+		}
 	}
 
 	// Write a mapping for each cache key.
@@ -1162,7 +1175,19 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo Repository) error {
 		g.Go(func() error {
 			err := e.Assoc.Store(ctx, assoc.Fileset, key, id)
 			if !pid.IsZero() {
-				err = e.Assoc.Store(ctx, assoc.ExecInspect, key, pid)
+				if err := e.Assoc.Store(ctx, assoc.ExecInspect, key, pid); err != nil {
+					log.Errorf("assoc store execinspect: %v", err)
+				}
+			}
+			if !stdout.IsZero() {
+				if err := e.Assoc.Store(ctx, assoc.Logs, key, stdout); err != nil {
+					log.Errorf("assoc store stdout: %v", err)
+				}
+			}
+			if !stderr.IsZero() {
+				if err := e.Assoc.Store(ctx, assoc.Logs, key, stderr); err != nil {
+					log.Errorf("assoc store stderr: %v", err)
+				}
 			}
 			return err
 		})

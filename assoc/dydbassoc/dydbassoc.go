@@ -48,7 +48,7 @@ type Assoc struct {
 // k's association for (kind,v) will be removed.
 func (a *Assoc) Store(ctx context.Context, kind assoc.Kind, k, v digest.Digest) error {
 	switch kind {
-	case assoc.Fileset, assoc.ExecInspect:
+	case assoc.Fileset, assoc.ExecInspect, assoc.Logs:
 	default:
 		return errors.E(errors.NotSupported, errors.Errorf("mappings of kind %v are not supported", kind))
 	}
@@ -114,6 +114,15 @@ func getUpdateComponents(kind assoc.Kind, k, v digest.Digest) (expr string, av m
 			av[":inspect"] = &dynamodb.AttributeValue{L: []*dynamodb.AttributeValue{&dynamodb.AttributeValue{S: aws.String(v.String())}}}
 			av[":empty_list"] = &dynamodb.AttributeValue{L: []*dynamodb.AttributeValue{}}
 		}
+	case assoc.Logs:
+		switch {
+		case v.IsZero():
+			expr = "REMOVE Logs"
+		default:
+			expr = "SET Logs = list_append(:logs, if_not_exists(Logs, :empty_list))"
+			av[":logs"] = &dynamodb.AttributeValue{L: []*dynamodb.AttributeValue{&dynamodb.AttributeValue{S: aws.String(v.String())}}}
+			av[":empty_list"] = &dynamodb.AttributeValue{L: []*dynamodb.AttributeValue{}}
+		}
 	}
 	return
 }
@@ -127,7 +136,7 @@ func getUpdateComponents(kind assoc.Kind, k, v digest.Digest) (expr string, av m
 func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (digest.Digest, digest.Digest, error) {
 	var v digest.Digest
 	switch kind {
-	case assoc.Fileset, assoc.ExecInspect:
+	case assoc.Fileset, assoc.ExecInspect, assoc.Logs:
 	default:
 		return k, v, errors.E(errors.NotSupported, errors.Errorf("mappings of kind %v are not supported", kind))
 	}
@@ -137,6 +146,8 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 		col = "Value"
 	case assoc.ExecInspect:
 		col = "ExecInspect"
+	case assoc.Logs:
+		col = "Logs"
 	}
 	if err := a.Limiter.Acquire(ctx, 1); err != nil {
 		return k, v, err
@@ -194,7 +205,7 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 		}
 		item = resp.Item[col]
 	}
-	if item == nil || (kind == assoc.Fileset && item.S == nil) || (kind == assoc.ExecInspect && item.L == nil) {
+	if item == nil || (kind == assoc.Fileset && item.S == nil) || (kind == assoc.ExecInspect && item.L == nil) || (kind == assoc.Logs && item.L == nil) {
 		return k, v, errors.E("lookup", k, errors.NotExist)
 	}
 	if item.L != nil {
@@ -403,17 +414,18 @@ func (a *Assoc) Scan(ctx context.Context, mappingHandler assoc.MappingHandler) e
 					return fmt.Errorf("invalid dynamodb entry %v", item)
 				}
 			}
-			keyDigest, err := reflow.Digester.Parse(*item["ID"].S)
+			k, err := reflow.Digester.Parse(*item["ID"].S)
 			if err != nil {
 				return fmt.Errorf("invalid dynamodb entry %v", item)
 			}
 			if item["Value"] != nil {
-				valueDigest, err := reflow.Digester.Parse(*item["Value"].S)
+				v, err := reflow.Digester.Parse(*item["Value"].S)
 				if err != nil {
 					return fmt.Errorf("invalid dynamodb entry %v", item)
 				}
-				mappingHandler.HandleMapping(keyDigest, valueDigest, assoc.Fileset, time.Unix(itemAccessTime, 0))
+				mappingHandler.HandleMapping(k, v, assoc.Fileset, time.Unix(itemAccessTime, 0))
 			}
+
 		}
 		return nil
 	}))
