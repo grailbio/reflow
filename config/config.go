@@ -67,12 +67,13 @@ import (
 
 // The following are the set of keys provisioned by Config.
 const (
-	Logger    = "logger"
-	AWS       = "aws"
-	AWSTool   = "awstool"
-	AWSRegion = "awsregion"
-	User      = "user"
-	HTTPS     = "https"
+	BaseConfig = "base"
+	Logger     = "logger"
+	AWS        = "aws"
+	AWSTool    = "awstool"
+	AWSRegion  = "awsregion"
+	User       = "user"
+	HTTPS      = "https"
 	// Cache is maintained as a key for backwards compatibility purposes.
 	Cache      = "cache"
 	Cluster    = "cluster"
@@ -84,6 +85,7 @@ const (
 // provisioned. Thus, providers for keys later in the list may use
 // configuration provided by providers for keys earlier in the list.
 var AllKeys = []string{
+	BaseConfig,
 	Logger,
 	AWS,
 	AWSTool,

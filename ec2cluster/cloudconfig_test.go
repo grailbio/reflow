@@ -12,11 +12,11 @@ import (
 func TestCloudconfig(t *testing.T) {
 	var c cloudConfig
 	c.CoreOS.Update.RebootStrategy = "off"
-	c.AppendFile(cloudFile{"/tmp/x", "0644", "root", "a test file"})
-	c.AppendUnit(cloudUnit{"reflowlet", "command", true, "unit content"})
+	c.AppendFile(CloudFile{"/tmp/x", "0644", "root", "a test file"})
+	c.AppendUnit(CloudUnit{"reflowlet", "command", true, "unit content"})
 	var d cloudConfig
-	d.AppendUnit(cloudUnit{"xxx", "xxxcommand", false, "xxx content"})
-	d.AppendFile(cloudFile{"/tmp/myfile", "0644", "root", "another test file"})
+	d.AppendUnit(CloudUnit{"xxx", "xxxcommand", false, "xxx content"})
+	d.AppendFile(CloudFile{"/tmp/myfile", "0644", "root", "another test file"})
 	c.Merge(&d)
 	out, err := c.Marshal()
 	if err != nil {

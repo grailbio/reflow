@@ -6,14 +6,18 @@ package ec2cluster
 
 import yaml "gopkg.in/yaml.v2"
 
-type cloudFile struct {
+// CloudFile is a component of the cloudConfig configuration for CoreOS.
+// It represents a file that will be written to the filesystem.
+type CloudFile struct {
 	Path        string `yaml:"path,omitempty"`
 	Permissions string `yaml:"permissions,omitempty"`
 	Owner       string `yaml:"owner,omitempty"`
 	Content     string `yaml:"content,omitempty"`
 }
 
-type cloudUnit struct {
+// CloudUnit is a component of the cloudConfig configuration for CoreOS.
+// It represents a CoreOS unit.
+type CloudUnit struct {
 	Name    string `yaml:"name,omitempty"`
 	Command string `yaml:"command,omitempty"`
 	Enable  bool   `yaml:"enable,omitempty"`
@@ -24,12 +28,12 @@ type cloudUnit struct {
 // accepted by CoreOS. It can be incrementally defined and
 // then rendered by its Marshal method.
 type cloudConfig struct {
-	WriteFiles []cloudFile `yaml:"write_files,omitempty"`
+	WriteFiles []CloudFile `yaml:"write_files,omitempty"`
 	CoreOS     struct {
 		Update struct {
 			RebootStrategy string `yaml:"reboot-strategy,omitempty"`
 		} `yaml:"update,omitempty"`
-		Units []cloudUnit `yaml:"units,omitempty"`
+		Units []CloudUnit `yaml:"units,omitempty"`
 	} `yaml:"coreos,omitempty"`
 	SshAuthorizedKeys []string `yaml:"ssh-authorized-keys,omitempty"`
 }
@@ -52,12 +56,12 @@ func (c *cloudConfig) Merge(d *cloudConfig) {
 }
 
 // AppendFile appends the file f to the cloudConfig c.
-func (c *cloudConfig) AppendFile(f cloudFile) {
+func (c *cloudConfig) AppendFile(f CloudFile) {
 	c.WriteFiles = append(c.WriteFiles, f)
 }
 
 // AppendUnit appends the systemd unit u to the cloudConfig c.
-func (c *cloudConfig) AppendUnit(u cloudUnit) {
+func (c *cloudConfig) AppendUnit(u CloudUnit) {
 	c.CoreOS.Units = append(c.CoreOS.Units, u)
 }
 

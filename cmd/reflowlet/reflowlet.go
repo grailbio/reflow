@@ -23,10 +23,6 @@ import (
 	"github.com/grailbio/reflow/reflowlet"
 )
 
-// maxConcurrentStreams is the number of concurrent http/2 streams we
-// support.
-const maxConcurrentStreams = 20000
-
 func usage() {
 	fmt.Fprintf(os.Stderr, `usage: reflowlet [flags]
 

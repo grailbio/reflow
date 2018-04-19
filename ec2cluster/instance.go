@@ -447,7 +447,7 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 	}
 
 	// /etc/ecrlogin contains the login command for ECR.
-	ecrFile := cloudFile{
+	ecrFile := CloudFile{
 		Path:        "/etc/ecrlogin",
 		Permissions: "0644",
 		Owner:       "root",
@@ -471,7 +471,7 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	c.AppendFile(cloudFile{
+	c.AppendFile(CloudFile{
 		Path:        "/etc/reflowconfig",
 		Permissions: "0644",
 		Owner:       "root",
@@ -481,8 +481,8 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 	// Turn off CoreOS services that would restart or otherwise disrupt
 	// the instances.
 	c.CoreOS.Update.RebootStrategy = "off"
-	c.AppendUnit(cloudUnit{Name: "update-engine.service", Command: "stop"})
-	c.AppendUnit(cloudUnit{Name: "locksmithd.service", Command: "stop"})
+	c.AppendUnit(CloudUnit{Name: "update-engine.service", Command: "stop"})
+	c.AppendUnit(CloudUnit{Name: "locksmithd.service", Command: "stop"})
 
 	// Configure the disks.
 	var deviceName string
@@ -492,7 +492,7 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 		if i.Config.NVMe {
 			deviceName = "nvme1n1"
 		}
-		c.AppendUnit(cloudUnit{
+		c.AppendUnit(CloudUnit{
 			Name:    fmt.Sprintf("format-%s.service", deviceName),
 			Command: "start",
 			Content: tmpl(`
@@ -517,7 +517,7 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 				devices[idx] = fmt.Sprintf("xvd%c", 'b'+idx)
 			}
 		}
-		c.AppendUnit(cloudUnit{
+		c.AppendUnit(CloudUnit{
 			Name:    fmt.Sprintf("format-%s.service", deviceName),
 			Command: "start",
 			Content: tmpl(`
@@ -534,7 +534,7 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 		})
 	}
 
-	c.AppendUnit(cloudUnit{
+	c.AppendUnit(CloudUnit{
 		Name:    "mnt-data.mount",
 		Command: "start",
 		Content: tmpl(`
@@ -559,7 +559,7 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 		}
 	}
 	if akey != "" || profile != "" {
-		c.AppendUnit(cloudUnit{
+		c.AppendUnit(CloudUnit{
 			Name:    "aws-xray.service",
 			Enable:  true,
 			Command: "start",
@@ -582,7 +582,7 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 	// so that systemd units can be run before the reflowlet.
 	c.Merge(&i.CloudConfig)
 
-	c.AppendUnit(cloudUnit{
+	c.AppendUnit(CloudUnit{
 		Name:    "reflowlet.service",
 		Enable:  true,
 		Command: "start",
@@ -602,6 +602,9 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 			ExecStartPre=/bin/bash /etc/ecrlogin
 			ExecStartPre=/usr/bin/docker pull {{.image}}
 			ExecStart=/usr/bin/docker run --rm --name %n --net=host \
+				-e V23_CREDENTIALS=/host/opt/.v23 \
+				-e V23_CREDENTIALS_NO_AGENT=1 \
+				-e V23_CREDENTIALS_NO_LOCK=1 \
 			  -v /:/host \
 			  -v /var/run/docker.sock:/var/run/docker.sock \
 			  -v '/etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt' \
