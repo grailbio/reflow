@@ -20,21 +20,23 @@ type Kind int
 const (
 	// Fileset maps fileset values.
 	Fileset Kind = iota
+	// ExecInspect maps exec inspect info (profile, cmd, etc)
+	ExecInspect
 )
 
 // MappingHandler is an interface for handling a mapping while scanning.
 type MappingHandler interface {
 	// HandleMapping handles a scanned association.
-	HandleMapping(k, v digest.Digest, lastAccessTime time.Time)
+	HandleMapping(k, v digest.Digest, kind Kind, lastAccessTime time.Time)
 }
 
 // MappingHandlerFunc is a convenience type to avoid having to declare a struct
 // to implement the MappingHandler interface.
-type MappingHandlerFunc func(k, v digest.Digest, lastAccessTime time.Time)
+type MappingHandlerFunc func(k, v digest.Digest, kind Kind, lastAccessTime time.Time)
 
 // HandleMapping implements the MappingHandler interface.
-func (h MappingHandlerFunc) HandleMapping(k, v digest.Digest, lastAccessTime time.Time) {
-	h(k, v, lastAccessTime)
+func (h MappingHandlerFunc) HandleMapping(k, v digest.Digest, kind Kind, lastAccessTime time.Time) {
+	h(k, v, kind, lastAccessTime)
 }
 
 // An Assoc is an associative array mapping digests to other digests.
@@ -53,7 +55,7 @@ type Assoc interface {
 
 	// CollectWithThreshold removes from this assoc any objects whose keys are not in the
 	// liveset and which have not been accessed more recently than the threshold time.
-	CollectWithThreshold(context.Context, liveset.Liveset, time.Time, bool) error
+	CollectWithThreshold(context.Context, liveset.Liveset, Kind, time.Time, int64, bool) error
 
 	// Count returns an estimate of the number of associations in this mapping.
 	Count(ctx context.Context) (int64, error)

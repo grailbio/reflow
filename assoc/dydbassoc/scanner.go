@@ -49,9 +49,11 @@ func (s *scanner) Scan(ctx context.Context, h ItemsHandler) error {
 
 				// Do the scan
 				params := &dynamodb.ScanInput{
-					TableName:     aws.String(s.Assoc.TableName),
-					Segment:       aws.Int64(int64(segment)),
-					TotalSegments: aws.Int64(int64(s.SegmentCount)),
+					TableName:                aws.String(s.Assoc.TableName),
+					Segment:                  aws.Int64(int64(segment)),
+					TotalSegments:            aws.Int64(int64(s.SegmentCount)),
+					FilterExpression:         aws.String("attribute_exists(#v)"),
+					ExpressionAttributeNames: map[string]*string{"#v": aws.String("Value")},
 				}
 				if lastEvaluatedKey != nil {
 					params.ExclusiveStartKey = lastEvaluatedKey

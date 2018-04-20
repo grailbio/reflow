@@ -57,7 +57,7 @@ func (a *inmemoryAssoc) Get(ctx context.Context, kind assoc.Kind, k digest.Diges
 // CollectWithThreshold removes from this assoc any objects whose keys are not in the
 // liveset and which have not been accessed more recently than the liveset's
 // threshold time.
-func (a *inmemoryAssoc) CollectWithThreshold(context.Context, liveset.Liveset, time.Time, bool) error {
+func (a *inmemoryAssoc) CollectWithThreshold(context.Context, liveset.Liveset, assoc.Kind, time.Time, int64, bool) error {
 	return errors.E("collect", errors.NotSupported)
 }
 

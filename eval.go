@@ -1142,12 +1142,29 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo Repository) error {
 	if err != nil {
 		return err
 	}
+	pid := digest.Digest{}
+	if f.Op == OpExec {
+		b := new(bytes.Buffer)
+		enc := json.NewEncoder(b)
+		if err = enc.Encode(f.Inspect); err == nil {
+			if pid, err = e.Repository.Put(ctx, b); err != nil {
+				log.Errorf("repository put profile: %v", err)
+			}
+		} else {
+			log.Errorf("encoder marshal profile: %v", err)
+		}
+	}
+
 	// Write a mapping for each cache key.
 	g, ctx := errgroup.WithContext(ctx)
 	for i := range keys {
 		key := keys[i]
 		g.Go(func() error {
-			return e.Assoc.Store(ctx, assoc.Fileset, key, id)
+			err := e.Assoc.Store(ctx, assoc.Fileset, key, id)
+			if !pid.IsZero() {
+				err = e.Assoc.Store(ctx, assoc.ExecInspect, key, pid)
+			}
+			return err
 		})
 	}
 	return g.Wait()

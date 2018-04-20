@@ -10,7 +10,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -23,6 +23,8 @@ import (
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/liveset"
 	"github.com/grailbio/reflow/log"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -43,46 +45,77 @@ type Assoc struct {
 }
 
 // Store associates the digest v with the key digest k of the provided kind. If v is zero,
-// k's association will be deleted.
+// k's association for (kind,v) will be removed.
 func (a *Assoc) Store(ctx context.Context, kind assoc.Kind, k, v digest.Digest) error {
-	if kind != assoc.Fileset {
+	switch kind {
+	case assoc.Fileset, assoc.ExecInspect:
+	default:
 		return errors.E(errors.NotSupported, errors.Errorf("mappings of kind %v are not supported", kind))
 	}
+
 	if err := a.Limiter.Acquire(ctx, 1); err != nil {
 		return err
 	}
 	defer a.Limiter.Release(1)
-	if v.IsZero() {
-		_, err := a.DB.DeleteItemWithContext(ctx, &dynamodb.DeleteItemInput{
-			Key: map[string]*dynamodb.AttributeValue{
-				"ID": {
-					S: aws.String(k.String()),
-				},
-			},
-			TableName: aws.String(a.TableName),
-		})
+	updateExpr, attrValues, attrNames := getUpdateComponents(kind, k, v)
+	input := &dynamodb.UpdateItemInput{
+		Key: map[string]*dynamodb.AttributeValue{
+			"ID": {S: aws.String(k.String())},
+		},
+		UpdateExpression: &updateExpr,
+		TableName:        aws.String(a.TableName),
+	}
+	if len(attrValues) > 0 {
+		input.ExpressionAttributeValues = attrValues
+	}
+	// Expression attribute names have to be used if specified and cannot be empty.
+	if len(attrNames) > 0 {
+		input.ExpressionAttributeNames = attrNames
+	}
+	_, err := a.DB.UpdateItemWithContext(ctx, input)
+	if err == nil {
+		return nil
+	}
+	awserr, ok := err.(awserr.Error)
+	if !ok {
 		return err
 	}
-	k4 := k
-	k4.Truncate(4)
-	_, err := a.DB.PutItemWithContext(ctx, &dynamodb.PutItemInput{
-		Item: map[string]*dynamodb.AttributeValue{
-			"ID": {
-				S: aws.String(k.String()),
-			},
-			"Value": {
-				S: aws.String(v.String()),
-			},
-			"LastAccessTime": {
-				N: aws.String(fmt.Sprint(time.Now().Unix())),
-			},
-			"ID4": {
-				S: aws.String(k4.HexN(4)),
-			},
-		},
-		TableName: aws.String(a.TableName),
-	})
+	switch awserr.Code() {
+	case "ConditionalCheckFailedException":
+		return errors.E(errors.Precondition, err)
+	}
 	return err
+}
+
+func getUpdateComponents(kind assoc.Kind, k, v digest.Digest) (expr string, av map[string]*dynamodb.AttributeValue, an map[string]*string) {
+	av = make(map[string]*dynamodb.AttributeValue)
+	an = make(map[string]*string)
+	switch kind {
+	case assoc.Fileset:
+		k4 := k
+		k4.Truncate(4)
+		switch {
+		case v.IsZero():
+			expr = "REMOVE #v"
+		default:
+			expr = "SET #v = :value, ID4 = :id4, LastAccessTime = :lastaccess"
+			av[":value"] = &dynamodb.AttributeValue{S: aws.String(v.String())}
+			av[":id4"] = &dynamodb.AttributeValue{S: aws.String(k4.HexN(4))}
+			av[":lastaccess"] = &dynamodb.AttributeValue{N: aws.String(fmt.Sprint(time.Now().Unix()))}
+		}
+		// Value is a reserved word. Use a placeholder.
+		an["#v"] = aws.String("Value")
+	case assoc.ExecInspect:
+		switch {
+		case v.IsZero():
+			expr = "REMOVE ExecInspect"
+		default:
+			expr = "SET ExecInspect = list_append(:inspect, if_not_exists(ExecInspect, :empty_list))"
+			av[":inspect"] = &dynamodb.AttributeValue{L: []*dynamodb.AttributeValue{&dynamodb.AttributeValue{S: aws.String(v.String())}}}
+			av[":empty_list"] = &dynamodb.AttributeValue{L: []*dynamodb.AttributeValue{}}
+		}
+	}
+	return
 }
 
 // Lookup returns the digest associated with key digest k. Lookup
@@ -93,8 +126,17 @@ func (a *Assoc) Store(ctx context.Context, kind assoc.Kind, k, v digest.Digest) 
 // Get expands abbreviated keys by making use of a DynamoDB index.
 func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (digest.Digest, digest.Digest, error) {
 	var v digest.Digest
-	if kind != assoc.Fileset {
+	switch kind {
+	case assoc.Fileset, assoc.ExecInspect:
+	default:
 		return k, v, errors.E(errors.NotSupported, errors.Errorf("mappings of kind %v are not supported", kind))
+	}
+	var col string
+	switch kind {
+	case assoc.Fileset:
+		col = "Value"
+	case assoc.ExecInspect:
+		col = "ExecInspect"
 	}
 	if err := a.Limiter.Acquire(ctx, 1); err != nil {
 		return k, v, err
@@ -125,7 +167,7 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 				continue
 			}
 			if kit.Expands(k) {
-				expanded[kit] = it["Value"]
+				expanded[kit] = it[col]
 			}
 		}
 		switch len(expanded) {
@@ -150,10 +192,13 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 		if err != nil {
 			return k, v, err
 		}
-		item = resp.Item["Value"]
+		item = resp.Item[col]
 	}
-	if item == nil || item.S == nil {
+	if item == nil || (kind == assoc.Fileset && item.S == nil) || (kind == assoc.ExecInspect && item.L == nil) {
 		return k, v, errors.E("lookup", k, errors.NotExist)
+	}
+	if item.L != nil {
+		item = item.L[0]
 	}
 	var err error
 	v, err = reflow.Digester.Parse(*item.S)
@@ -184,49 +229,97 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 	return k, v, nil
 }
 
-// deleteItems removes the items from the dynamoDB table, with backoff and retry until they're all deleted
-func (a *Assoc) deleteItems(ctx context.Context, writeRequests []*dynamodb.WriteRequest) error {
-	var err error
-	toWrite := map[string][]*dynamodb.WriteRequest{a.TableName: writeRequests}
-	sleepTime := 2 * time.Second
-	for attempts := 0; attempts < dbmaxdeleteattempts; attempts++ {
-		if err := a.Limiter.Acquire(ctx, 1); err != nil {
-			return err
-		}
-		out, err := a.DB.BatchWriteItemWithContext(ctx, &dynamodb.BatchWriteItemInput{
-			RequestItems: toWrite,
+const updaterConcurrency = 10
+
+// cell identifies a row,col we want to remove.
+type cell struct {
+	K    digest.Digest
+	Kind assoc.Kind
+}
+
+type updater struct {
+	cells chan *cell
+	a     *Assoc
+	rate  int64
+}
+
+func (u *updater) Go(ctx context.Context) error {
+	rl := rate.NewLimiter(rate.Limit(u.rate), 1)
+	g, ctx := errgroup.WithContext(ctx)
+	retries := make(chan *cell, updaterConcurrency+1)
+	for i := 0; i < updaterConcurrency; i++ {
+		g.Go(func() error {
+			for {
+				var c *cell
+				select {
+				case c = <-retries:
+				case c = <-u.cells:
+					if c == nil {
+						return nil
+					}
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				err := rl.Wait(ctx)
+				if err != nil {
+					return err
+				}
+				err = u.a.Store(ctx, c.Kind, c.K, digest.Digest{})
+				if awserr, ok := err.(awserr.Error); ok {
+					switch awserr.Code() {
+					case "ThrottlingException", "ProvisionedThroughputExceededException":
+						time.Sleep(time.Second)
+						// Writes to u.cells can block all threads and deadlock (since we have
+						// an external writer). Write to a separate channel that only the
+						// updater threads know about.
+						retries <- c
+					default:
+						return err
+					}
+				}
+				if err != nil {
+					return err
+				}
+			}
 		})
-		a.Limiter.Release(1)
-		if err == nil && len(out.UnprocessedItems) > 0 {
-			log.Debugf("Tried to delete %d items, %d left to go, attempt %d, sleeping %s",
-				len(toWrite[a.TableName]), len(out.UnprocessedItems[a.TableName]), attempts, sleepTime)
-			time.Sleep(sleepTime)
-			toWrite = out.UnprocessedItems
-			sleepTime *= 2
-			continue
-		}
-		// We either hit an error or processed all our items
-		return err
 	}
-	// We tried too many times and gave up
-	return err
+	return g.Wait()
+}
+
+type counter struct {
+	v int64
+}
+
+func (c *counter) Add(delta int64) {
+	if c == nil {
+		return
+	}
+	atomic.AddInt64(&c.v, delta)
+}
+
+func (c *counter) Get() int64 {
+	if c == nil {
+		return 0
+	}
+	return atomic.LoadInt64(&c.v)
 }
 
 // CollectWithThreshold removes from this Assoc any objects whose keys are not in the
 // liveset and have not been accessed more recently than the liveset's threshold
-func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, kind assoc.Kind, threshold time.Time, rate int64, dryRun bool) error {
 	log.Debug("Collecting association")
 	scanner := newScanner(a)
 
-	var resultsLock sync.Mutex
-	itemsCheckedCount := int64(0)
-	liveItemsCount := int64(0)
-	afterThresholdCount := int64(0)
-	itemsCollectedCount := int64(0)
+	var itemsCheckedCount, liveItemsCount, afterThresholdCount, itemsCollectedCount counter
 	start := time.Now()
 
-	writeRequests := make([]*dynamodb.WriteRequest, 0, dbmaxdeleteobjects)
-
+	updater := &updater{cells: make(chan *cell), a: a, rate: rate}
+	errch := make(chan error)
+	if !dryRun {
+		go func() {
+			errch <- updater.Go(ctx)
+		}()
+	}
 	err := scanner.Scan(ctx, ItemsHandlerFunc(func(items Items) error {
 		for _, item := range items {
 			itemAccessTime := int64(0)
@@ -243,57 +336,39 @@ func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, 
 			}
 
 			// Many threads can be calling this, get a lock before tallying results
-			resultsLock.Lock()
-			itemsCheckedCount++
-			if itemsCheckedCount%10000 == 0 {
+			itemsCheckedCount.Add(1)
+			if itemsCheckedCount.Get()%10000 == 0 {
 				// This can take a long time, we want to know it's doing something
-				log.Debugf("Checking item %d in association", itemsCheckedCount)
+				log.Debugf("Checking item %d in association", itemsCheckedCount.Get())
 			}
 			if live.Contains(d) {
-				liveItemsCount++
+				liveItemsCount.Add(1)
 			} else if time.Unix(itemAccessTime, 0).After(threshold) {
-				afterThresholdCount++
+				afterThresholdCount.Add(1)
 			} else {
 				if !dryRun {
-					// Add this item to the items to be deleted
-					wr := &dynamodb.WriteRequest{DeleteRequest: &dynamodb.DeleteRequest{Key: map[string]*dynamodb.AttributeValue{"ID": {S: item["ID"].S}}}}
-					writeRequests = append(writeRequests, wr)
-
-					// See if we have enough to delete
-					if len(writeRequests) == cap(writeRequests) {
-						err := a.deleteItems(ctx, writeRequests)
-						if err != nil {
-							resultsLock.Unlock()
-							return fmt.Errorf("error deleting dynamodb items %v (%s)", writeRequests, err)
-						}
-						writeRequests = writeRequests[:0]
-					}
+					updater.cells <- &cell{d, kind}
 				}
-				itemsCollectedCount++
+				itemsCollectedCount.Add(1)
 			}
-			resultsLock.Unlock()
 		}
 		return nil
 	}))
-
-	// Delete any items that may still be in the queue
-	if !dryRun && len(writeRequests) > 0 {
-		err := a.deleteItems(ctx, writeRequests)
-		if err != nil {
-			return fmt.Errorf("error deleting dynamodb items %v (%s)", writeRequests, err)
-		}
+	if !dryRun {
+		close(updater.cells)
+		<-errch
 	}
 
 	// Print what happened
 	log.Debugf("Time to collect %s: %s", a.TableName, time.Since(start))
 	log.Debugf("Checked %d associations, %d were live, %d were after the threshold.",
-		itemsCheckedCount, liveItemsCount, afterThresholdCount)
+		itemsCheckedCount.Get(), liveItemsCount.Get(), afterThresholdCount.Get())
 	action := "would have been"
 	if !dryRun {
 		action = "were"
 	}
 	log.Printf("%d of %d associations (%.2f%%) %s collected",
-		itemsCollectedCount, itemsCheckedCount, float64(itemsCollectedCount)/float64(itemsCheckedCount)*100, action)
+		itemsCollectedCount.Get(), itemsCheckedCount.Get(), float64(itemsCollectedCount.Get())/float64(itemsCheckedCount.Get())*100, action)
 
 	return err
 }
@@ -332,11 +407,13 @@ func (a *Assoc) Scan(ctx context.Context, mappingHandler assoc.MappingHandler) e
 			if err != nil {
 				return fmt.Errorf("invalid dynamodb entry %v", item)
 			}
-			valueDigest, err := reflow.Digester.Parse(*item["Value"].S)
-			if err != nil {
-				return fmt.Errorf("invalid dynamodb entry %v", item)
+			if item["Value"] != nil {
+				valueDigest, err := reflow.Digester.Parse(*item["Value"].S)
+				if err != nil {
+					return fmt.Errorf("invalid dynamodb entry %v", item)
+				}
+				mappingHandler.HandleMapping(keyDigest, valueDigest, assoc.Fileset, time.Unix(itemAccessTime, 0))
 			}
-			mappingHandler.HandleMapping(keyDigest, valueDigest, time.Unix(itemAccessTime, 0))
 		}
 		return nil
 	}))

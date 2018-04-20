@@ -32,8 +32,9 @@ func unmarshal(ctx context.Context, repo reflow.Repository, k digest.Digest, v i
 
 func (c *Cmd) collect(ctx context.Context, args ...string) {
 	flags := flag.NewFlagSet("collect", flag.ExitOnError)
-	thresholdFlag := flags.String("threshold", "", "cache entries older than this threshold will be collected")
+	thresholdFlag := flags.String("threshold", "YYYY-MM-DD", "cache entries older than this threshold will be collected")
 	dryRunFlag := flags.Bool("dry-run", true, "when true, reports on what would have been collected without actually removing anything from the cache")
+	rateFlag := flags.Int64("rate", 300, "maximum writes/sec to dynamodb")
 	help := `Collect performs garbage collection of the reflow cache,
 	removing entries that have not been accessed more recently than the
 	provided threshold date.`
@@ -41,6 +42,7 @@ func (c *Cmd) collect(ctx context.Context, args ...string) {
 	c.Parse(flags, args, help, "collect [-threshold date]")
 	threshold, err := time.Parse("2006-01-02", *thresholdFlag)
 	if err != nil {
+		c.Errorln(err)
 		flags.Usage()
 	}
 
@@ -68,7 +70,12 @@ func (c *Cmd) collect(ctx context.Context, args ...string) {
 	liveObjectsNotInRepository := int64(0)
 
 	start := time.Now()
-	err = a.Scan(ctx, assoc.MappingHandlerFunc(func(k, v digest.Digest, lastAccessTime time.Time) {
+	err = a.Scan(ctx, assoc.MappingHandlerFunc(func(k, v digest.Digest, kind assoc.Kind, lastAccessTime time.Time) {
+		switch kind {
+		case assoc.Fileset:
+		default:
+			return
+		}
 		var s reflow.Fileset
 		live := lastAccessTime.After(threshold)
 		if live {
@@ -119,7 +126,7 @@ func (c *Cmd) collect(ctx context.Context, args ...string) {
 	}
 
 	// Garbage collect the association using the keys liveset
-	if err = a.CollectWithThreshold(ctx, bloomlive.New(keyFilter), threshold, *dryRunFlag); err != nil {
+	if err = a.CollectWithThreshold(ctx, bloomlive.New(keyFilter), assoc.Fileset, threshold, *rateFlag, *dryRunFlag); err != nil {
 		c.Fatal(err)
 	}
 }
