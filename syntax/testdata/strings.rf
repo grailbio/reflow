@@ -6,6 +6,11 @@ val TestSort = {
 	eq(strings.Sort(["z", "a", "b"]), ["a", "b", "z"])
 }
 
+val TestSort2 = {
+	val [x] = strings.Sort([delay("a")])
+	x == "a"
+}
+
 val TestFromInt = strings.FromInt(1234567890) == "1234567890"
 val TestFromFloatZero = strings.FromFloat(0.0, 1) == "0"
 val TestFromFloat = strings.FromFloat(1.12121212, 2) == "1.1"
@@ -14,3 +19,4 @@ val TestFromFloat1 = strings.FromFloat(1.23456789012345678, 20) == "1.2345678901
 val TestHasSuffix = strings.HasSuffix("hello world", "orld")
 val TestHasPrefix = strings.HasPrefix("hello world", "hell")
 val TestJoin = strings.Join(["a", "b", "c"], ",") == "a,b,c"
+val TestJoin2 = strings.Join([delay("a")], ",") == "a"

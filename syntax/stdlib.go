@@ -604,6 +604,7 @@ var stringsDecls = []*Decl{
 	SystemFunc{
 		Id:     "Join",
 		Module: "strings",
+		Force:  true, // need full list
 		Doc:    "Join concatenates a list of strings into a single string using the provided separator.",
 		Type: types.Func(types.String,
 			&types.Field{Name: "strs", T: types.List(types.String)},
@@ -644,6 +645,7 @@ var stringsDecls = []*Decl{
 	SystemFunc{
 		Id:     "Sort",
 		Module: "strings",
+		Force:  true, // need full list
 		Doc:    "Sort sorts a list of strings in lexicographic order.",
 		Type: types.Func(types.List(types.String),
 			&types.Field{Name: "strs", T: types.List(types.String)}),
