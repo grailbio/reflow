@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -331,6 +332,7 @@ func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, 
 			errch <- updater.Go(ctx)
 		}()
 	}
+	var mu sync.Mutex
 	err := scanner.Scan(ctx, ItemsHandlerFunc(func(items Items) error {
 		for _, item := range items {
 			itemAccessTime := int64(0)
@@ -346,13 +348,16 @@ func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, 
 				return fmt.Errorf("invalid dynamodb entry %v", item)
 			}
 
-			// Many threads can be calling this, get a lock before tallying results
 			itemsCheckedCount.Add(1)
 			if itemsCheckedCount.Get()%10000 == 0 {
 				// This can take a long time, we want to know it's doing something
 				log.Debugf("Checking item %d in association", itemsCheckedCount.Get())
 			}
-			if live.Contains(d) {
+
+			mu.Lock()
+			contains := live.Contains(d)
+			mu.Unlock()
+			if contains {
 				liveItemsCount.Add(1)
 			} else if time.Unix(itemAccessTime, 0).After(threshold) {
 				afterThresholdCount.Add(1)

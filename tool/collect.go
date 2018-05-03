@@ -79,9 +79,13 @@ func (c *Cmd) collect(ctx context.Context, args ...string) {
 		var s reflow.Fileset
 		live := lastAccessTime.After(threshold)
 		if live {
-			objectErr := unmarshal(ctx, r, v, &s)
-			if objectErr != nil {
-				if errors.Is(errors.NotExist, objectErr) {
+			var err error
+			for i := 0; i < 5; i++ {
+				err = unmarshal(ctx, r, v, &s)
+				if err == nil {
+					break
+				}
+				if errors.Is(errors.NotExist, err) {
 					// If the object doesn't exist in the repository there's no point adding it to the livesets
 					resultsLock.Lock()
 					defer resultsLock.Unlock()
@@ -89,7 +93,13 @@ func (c *Cmd) collect(ctx context.Context, args ...string) {
 					liveObjectsNotInRepository++
 					return
 				}
+				if errors.Transient(err) {
+					continue
+				}
 				// If we can't parse the object for another reason bail now
+				c.Fatal(fmt.Errorf("error parsing fileset %v (%v)", k, err))
+			}
+			if err != nil {
 				c.Fatal(fmt.Errorf("error parsing fileset %v (%v)", k, err))
 			}
 		}

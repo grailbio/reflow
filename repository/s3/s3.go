@@ -101,7 +101,7 @@ func (r *Repository) Get(ctx context.Context, id digest.Digest) (io.ReadCloser, 
 		Key:    aws.String(path.Join(r.Prefix, objectsPath, id.String())),
 	})
 	if err != nil {
-		if err, ok := err.(awserr.Error); ok && err.Code() == "NoSuchKey" || err.Code() == "NoSuchBucket" {
+		if err, ok := err.(awserr.Error); ok && (err.Code() == "NoSuchKey" || err.Code() == "NoSuchBucket") {
 			return nil, errors.E("open", r.URL().String(), id, errors.NotExist)
 		}
 		return nil, err
