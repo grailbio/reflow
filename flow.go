@@ -341,18 +341,26 @@ func (f *Flow) Label(ident string) {
 //
 // TODO(marius): account for static parallelism too.
 func (f *Flow) Requirements() (req Requirements) {
+	return f.requirements(make(map[*Flow]Requirements))
+}
+
+func (f *Flow) requirements(m map[*Flow]Requirements) (req Requirements) {
+	if r, ok := m[f]; ok {
+		return r
+	}
 	for _, ff := range f.Deps {
-		req.Add(ff.Requirements())
+		req.Add(ff.requirements(m))
 	}
 	switch f.Op {
 	case OpMap:
-		req.Add(f.MapFlow.Requirements())
+		req.Add(f.MapFlow.requirements(m))
 		req.Width = 1 // We set it to wide; we can't assume how wide.
 	case OpExec:
 		req.AddSerial(f.Resources)
 	case OpRequirements:
 		req.Add(f.FlowRequirements)
 	}
+	m[f] = req
 	return
 }
 
