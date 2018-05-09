@@ -138,6 +138,11 @@ commands.
 	  securitygroup: <a newly created security group here>
 	  sshkey: <your public SSH key here>
 	https: httpsca,$HOME/.reflow/reflow.pem
+	
+	
+Note: to use your AWS credentials and configurations stored in `~/.aws/`, specify the environment variable `AWS_SDK_LOAD_CONFIG=1` when setting up EC2.
+
+	AWS_SDK_LOAD_CONFIG=1 reflow setup-ec2 
 
 After running `reflow setup-ec2`, we see that Reflow created a new
 security group (associated with the account's default VPC), and
