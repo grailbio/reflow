@@ -11,7 +11,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/grailbio/base/state"
-	"github.com/grailbio/internal/testutil"
+	"github.com/grailbio/testutil"
 )
 
 func TestReconcile(t *testing.T) {
