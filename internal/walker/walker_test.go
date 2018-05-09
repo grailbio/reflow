@@ -11,7 +11,7 @@ import (
 	"sort"
 	"testing"
 
-	"grail.com/testutil"
+	"github.com/grailbio/testutil"
 )
 
 func TestWalker(t *testing.T) {

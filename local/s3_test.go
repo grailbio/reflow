@@ -14,8 +14,8 @@ import (
 	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/repository/file"
+	"github.com/grailbio/testutil"
 	"github.com/grailbio/testutil/s3test"
-	"grail.com/testutil"
 )
 
 type staticS3client struct {

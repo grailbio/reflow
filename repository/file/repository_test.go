@@ -20,8 +20,8 @@ import (
 	"github.com/grailbio/reflow/liveset/bloomlive"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/test/testutil"
+	grailtest "github.com/grailbio/testutil"
 	"github.com/willf/bloom"
-	grailtest "grail.com/testutil"
 )
 
 func mustInstall(t *testing.T, r *Repository, contents string) digest.Digest {

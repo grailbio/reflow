@@ -19,7 +19,7 @@ import (
 	"github.com/grailbio/reflow/repository/file"
 	"github.com/grailbio/reflow/test/flow"
 	"github.com/grailbio/reflow/test/testutil"
-	grailtest "grail.com/testutil"
+	grailtest "github.com/grailbio/testutil"
 )
 
 var maxResources = reflow.Resources{

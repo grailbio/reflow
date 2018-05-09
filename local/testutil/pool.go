@@ -18,7 +18,7 @@ import (
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/pool"
-	"grail.com/testutil"
+	"github.com/grailbio/testutil"
 )
 
 const bashImage = "yikaus/alpine-bash"

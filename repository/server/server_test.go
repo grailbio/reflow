@@ -23,8 +23,8 @@ import (
 	"github.com/grailbio/reflow/repository/file"
 	"github.com/grailbio/reflow/rest"
 	"github.com/grailbio/reflow/test/testutil"
+	grailtest "github.com/grailbio/testutil"
 	"github.com/willf/bloom"
-	grailtest "grail.com/testutil"
 )
 
 const maxBlobSize = 1 << 20

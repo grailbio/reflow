@@ -13,7 +13,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/repository/file"
-	"grail.com/testutil"
+	"github.com/grailbio/testutil"
 )
 
 func mustInstall(t *testing.T, r reflow.Repository, contents string) reflow.File {

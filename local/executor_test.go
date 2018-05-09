@@ -16,7 +16,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/walker"
-	"grail.com/testutil"
+	"github.com/grailbio/testutil"
 )
 
 const (
