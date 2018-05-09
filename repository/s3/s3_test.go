@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/grailbio/reflow"
-	"grail.com/testutil/s3test"
+	"github.com/grailbio/testutil/s3test"
 )
 
 const bucket = "test"

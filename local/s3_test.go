@@ -14,8 +14,8 @@ import (
 	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/repository/file"
+	"github.com/grailbio/testutil/s3test"
 	"grail.com/testutil"
-	"grail.com/testutil/s3test"
 )
 
 type staticS3client struct {
@@ -64,7 +64,7 @@ func TestS3ExecPrefix(t *testing.T) {
 		Map: map[string]reflow.File{},
 	}
 	for _, file := range files {
-		client.SetFileContent(prefix+file, []byte(file))
+		client.SetFile(prefix+file, []byte(file), "unused")
 		val.Map[file] = reflow.File{
 			ID:   reflow.Digester.FromString(file),
 			Size: int64(len(file)),
@@ -118,9 +118,9 @@ func TestS3ExecPath(t *testing.T) {
 	s3, client, repo, cleanup := newS3Test(t, bucket, key)
 	defer cleanup()
 
-	client.SetFileContent(key, []byte(contents))
-	client.SetFileContent(key+"suffix", []byte(contents))
-	client.SetFileContent("someotherfile", []byte("blah"))
+	client.SetFile(key, []byte(contents), "unused")
+	client.SetFile(key+"suffix", []byte(contents), "unused")
+	client.SetFile("someotherfile", []byte("blah"), "unused")
 
 	ctx := context.Background()
 	go s3.Go(ctx)

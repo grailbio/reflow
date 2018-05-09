@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"grail.com/testutil/s3test"
+	"github.com/grailbio/testutil/s3test"
 )
 
 const bucket = "test"
@@ -21,7 +21,7 @@ func TestS3Walker(t *testing.T) {
 	want := []string{"test/x", "test/y", "test/z/foobar"}
 	keys := append([]string{"unrelated"}, want...)
 	for _, key := range keys {
-		client.SetFileContent(key, []byte(key))
+		client.SetFile(key, []byte(key), "unused")
 	}
 	ctx := context.Background()
 	w := &S3Walker{S3: client, Bucket: bucket, Prefix: "test/"}
@@ -41,7 +41,7 @@ func TestS3Walker(t *testing.T) {
 func TestS3WalkerFile(t *testing.T) {
 	client := s3test.NewClient(t, bucket)
 	const key = "path/to/a/file"
-	client.SetFileContent(key, []byte("contents"))
+	client.SetFile(key, []byte("contents"), "unused")
 	ctx := context.Background()
 	w := &S3Walker{S3: client, Bucket: bucket, Prefix: key}
 	var got []string
