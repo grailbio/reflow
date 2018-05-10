@@ -188,14 +188,11 @@ Create a file called "hello.rf" with the following contents:
 and run it:
 
 	% reflow run hello.rf
-	2017/10/18 15:11:05 run name: marius@localhost/e08374e8
-	2017/10/18 15:11:08 ec2cluster: launched instance i-0bd7d189617e53767: t2.small: 1.9GiB 1 100.0GiB
-	2017/10/18 15:11:54 -> hello.Main   3dca1cc0 run    exec ubuntu echo hello world >>{{out}}
-	2017/10/18 15:12:02 <- hello.Main   3dca1cc0 ok     exec 0s 12B
-	2017/10/18 15:12:02 total n=1 time=8s
-		ident      n   ncache runtime(m) cpu mem(GiB) disk(GiB) tmp(GiB)
-		hello.Main 1   0                                        
-		
+	reflow: run ID: e657f859
+	reflow: total n=1 time=0s
+		ident      n   ncache transfer runtime(m) cpu mem(GiB) disk(GiB) tmp(GiB)
+		hello.Main 1   1      0B                                         
+
 	file(sha256=sha256:a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447, size=12)
 
 Here, Reflow started a new t2.small instance (Reflow matches the workload with 
@@ -323,8 +320,10 @@ others are not.
 Then let's run it:
 
 	% reflow run align.rf
-	2017/10/18 15:47:51 run name: marius@localhost/fb77159e
-	2017/10/18 15:47:54 ec2cluster: launched instance i-0a6a6901865001c4c: c4.4xlarge: 28.5GiB 16 100.0GiB
+	reflow: run ID: ab84dec1
+	ec2cluster: 1 instances: c5.4xlarge:1 (<=$0.7/hr), total{mem:29.8GiB cpu:16 disk:250.0GiB intel_avx:16 intel_avx2:16 intel_avx512:16}, waiting{}, pending{}
+	transfers: done: 3 4.3GiB, transferring: 0 0B, waiting: 0 0B
+	ab84dec1: elapsed: 3m20s, running:1, completed: 3/5
 
 Reflow launched a new instance: the previously launched instance (a
 t2.small) was not big enough to fit the requirements of align.rf.
@@ -332,16 +331,18 @@ Note also that Reflow assigns a run name for each "reflow run"
 invocation. This can be used to look up run details with the "reflow
 info" command. In this case:
 
-	% reflow info marius@localhost/fb77159e
-	marius@localhost/fb77159e
-	    time:    Wed Oct 18 15:47:52 2017
-	    program: /Users/marius/align.rf
-	    phase:   Eval
-	    alloc:   ec2-34-210-106-90.us-west-2.compute.amazonaws.com:9000/a79b63ddf0952cff
-	    log:     /Users/marius/.reflow/runs/marius@localhost/fb77159efc639b14aaff55fcd5229484ec78694ada7973bd0af862fd4f06adbd.execlog
+	% reflow info ab84dec1                  
+	ab84dec1bfff4691bbbf9ac49ddb4d12fed4a5a6f535dd8ab36c1fab46d35e1b (run)
+	    time:      Wed May  9 18:19:12 2018
+	    program:   /Users/olgabot/code/reflow-test/align.rf
+	    phase:     Eval
+	    alloc:     ec2-34-211-28-81.us-west-2.compute.amazonaws.com:9000/4ce44f4833b35ebc
+	    resources: {mem:28.9GiB cpu:16 disk:245.1GiB intel_avx:16 intel_avx2:16 intel_avx512:16}
+	    log:       /Users/olgabot/.reflow/runs/ab84dec1bfff4691bbbf9ac49ddb4d12fed4a5a6f535dd8ab36c1fab46d35e1b.execlog
+
 
 Here we see that the run is currently being performed on the alloc named
-`ec2-34-210-106-90.us-west-2.compute.amazonaws.com:9000/a79b63ddf0952cff`.
+`ec2-34-211-28-81.us-west-2.compute.amazonaws.com:9000/4ce44f4833b35ebc`.
 An alloc is a resource reservation on a single machine. A run can
 make use of multiple allocs to distribute work across multiple
 machines. The alloc is a URI, and the first component is the real 
@@ -349,7 +350,7 @@ hostname. You can ssh into the host in order to inspect what's going on.
 Reflow launched the instance with your public SSH key (as long as it was
 setup by `reflow setup-ec2`, and `$HOME/.ssh/id_rsa.pub` existed at that time).
 
-	% ssh core@ec2-34-210-106-90.us-west-2.compute.amazonaws.com
+	% ssh core@ec2-34-211-28-81.us-west-2.compute.amazonaws.com 
 	...
 
 As the run progresses, Reflow prints execution status on the console. Lines beginning
@@ -366,40 +367,41 @@ Creating the reference is an expensive operation. We can examine it while it's r
 with "reflow ps":
 
 	% reflow ps 
-	marius@localhost/220ab625 example.reference 4:03PM 0:00 running 272.8MiB 8.0 4.4GiB bwa
+	1c8d032f align.reference         6:20PM 0:00 running 4.4GiB 1.0 7.3GiB bwa
 
 This tells us that the only task that's currently running is bwa to compute the reference.
-It's currently using 272MiB of memory, 8 cores, and 4.4 GiB of disk space. By passing the -l
+It's currently using 4.4GiB of memory, 1 cores, and 7.3GiB GiB of disk space. By passing the -l
 option, reflow ps also prints the task's exec URI.
 
 	% reflow ps -l
-	marius@localhost/220ab625 example.reference 4:03PM 0:00 running 302.8MiB 8.0 4.4GiB bwa ec2-52-11-236-67.us-west-2.compute.amazonaws.com:9000/6b2879b9c282a12f/a4a82ba4b5c6d82985d31e79be5a8fe568d75a86db284d78f9972df525cf70d3
+	1c8d032f align.reference         6:20PM 0:00 running 4.4GiB 1.0 6.5GiB bwa ec2-34-211-28-81.us-west-2.compute.amazonaws.com:9000/4ce44f4833b35ebc/1c8d032f8183a4995a5146fb2559b424dab525a949c0daa9c5891d087b65fb22
 
 An exec URI is a handle to the actual task being executed. It
 globally identifies all tasks, and can examined with "reflow info":
 
-	% reflow info ec2-52-11-236-67.us-west-2.compute.amazonaws.com:9000/6b2879b9c282a12f/a4a82ba4b5c6d82985d31e79be5a8fe568d75a86db284d78f9972df525cf70d3
-	ec2-52-11-236-67.us-west-2.compute.amazonaws.com:9000/6b2879b9c282a12f/a4a82ba4b5c6d82985d31e79be5a8fe568d75a86db284d78f9972df525cf70d3
+	% reflow info ec2-54-71-191-10.us-west-2.compute.amazonaws.com:9000/89be753c95b4d5d3/1c8d032f8183a4995a5146fb2559b424dab525a949c0daa9c5891d087b65fb22
+	ec2-54-71-191-10.us-west-2.compute.amazonaws.com:9000/89be753c95b4d5d3/1c8d032f8183a4995a5146fb2559b424dab525a949c0daa9c5891d087b65fb22 (exec)
 	    state: running
 	    type:  exec
-	    ident: example.reference
+	    ident: 1000align.g1kv37Indexed
 	    image: biocontainers/bwa
 	    cmd:   "\n\t# Ignore failures here. The file from 1000genomes has a trailer\n\t# that isn't recognized by gunzip. (This is not recommended practice!)\n\tgunzip -c {{arg[0]}} > {{arg[1]}}/g1k_v37.fa || true\n\tcd {{arg[2]}}\n\tbwa index -a bwtsw g1k_v37.fa\n"
 	      arg[0]:
-	        .: sha256:8b6c538abf0dd92d3f3020f36cc1dd67ce004ffa421c2781205f1eb690bdb442 (851.0MiB)
+		.: sha256:8b6c538abf0dd92d3f3020f36cc1dd67ce004ffa421c2781205f1eb690bdb442 (851.0MiB)
 	      arg[1]: output 0
 	      arg[2]: output 0
 	    top:
-	         bwa index -a bwtsw g1k_v37.fa
+		 bwa index -a bwtsw g1k_v37.fa
 
 Here, Reflow tells us that the currently running process is "bwa
 index...", its template command, and the SHA256 digest of its inputs.
 Programs often print helpful output to standard error while working;
 this output can be examined with "reflow logs":
 
-	% reflow logs ec2-52-11-236-67.us-west-2.compute.amazonaws.com:9000/6b2879b9c282a12f/a4a82ba4b5c6d82985d31e79be5a8fe568d75a86db284d78f9972df525cf70d3
+	% reflow logs ec2-54-71-191-10.us-west-2.compute.amazonaws.com:9000/89be753c95b4d5d3/1c8d032f8183a4995a5146fb2559b424dab525a949c0daa9c5891d087b65fb22
+
 	gzip: /arg/0/0: decompression OK, trailing garbage ignored
-	[bwa_index] Pack FASTA... 22.36 sec
+	[bwa_index] Pack FASTA... 19.30 sec
 	[bwa_index] Construct BWT for the packed sequence...
 	[BWTIncCreate] textLength=6203609478, availableWord=448508744
 	[BWTIncConstructFromPacked] 10 iterations done. 99999990 characters processed.
@@ -408,7 +410,53 @@ this output can be examined with "reflow logs":
 	[BWTIncConstructFromPacked] 40 iterations done. 399999990 characters processed.
 	[BWTIncConstructFromPacked] 50 iterations done. 499999990 characters processed.
 	[BWTIncConstructFromPacked] 60 iterations done. 599999990 characters processed.
-	%
+	[BWTIncConstructFromPacked] 70 iterations done. 699999990 characters processed.
+	[BWTIncConstructFromPacked] 80 iterations done. 799999990 characters processed.
+	[BWTIncConstructFromPacked] 90 iterations done. 899999990 characters processed.
+	[BWTIncConstructFromPacked] 100 iterations done. 999999990 characters processed.
+	[BWTIncConstructFromPacked] 110 iterations done. 1099999990 characters processed.
+	[BWTIncConstructFromPacked] 120 iterations done. 1199999990 characters processed.
+	[BWTIncConstructFromPacked] 130 iterations done. 1299999990 characters processed.
+	[BWTIncConstructFromPacked] 140 iterations done. 1399999990 characters processed.
+	[BWTIncConstructFromPacked] 150 iterations done. 1499999990 characters processed.
+	[BWTIncConstructFromPacked] 160 iterations done. 1599999990 characters processed.
+	[BWTIncConstructFromPacked] 170 iterations done. 1699999990 characters processed.
+	[BWTIncConstructFromPacked] 180 iterations done. 1799999990 characters processed.
+	[BWTIncConstructFromPacked] 190 iterations done. 1899999990 characters processed.
+	[BWTIncConstructFromPacked] 200 iterations done. 1999999990 characters processed.
+	[BWTIncConstructFromPacked] 210 iterations done. 2099999990 characters processed.
+	[BWTIncConstructFromPacked] 220 iterations done. 2199999990 characters processed.
+	[BWTIncConstructFromPacked] 230 iterations done. 2299999990 characters processed.
+	[BWTIncConstructFromPacked] 240 iterations done. 2399999990 characters processed.
+	[BWTIncConstructFromPacked] 250 iterations done. 2499999990 characters processed.
+	[BWTIncConstructFromPacked] 260 iterations done. 2599999990 characters processed.
+	[BWTIncConstructFromPacked] 270 iterations done. 2699999990 characters processed.
+	[BWTIncConstructFromPacked] 280 iterations done. 2799999990 characters processed.
+	[BWTIncConstructFromPacked] 290 iterations done. 2899999990 characters processed.
+	[BWTIncConstructFromPacked] 300 iterations done. 2999999990 characters processed.
+	[BWTIncConstructFromPacked] 310 iterations done. 3099999990 characters processed.
+	[BWTIncConstructFromPacked] 320 iterations done. 3199999990 characters processed.
+	[BWTIncConstructFromPacked] 330 iterations done. 3299999990 characters processed.
+	[BWTIncConstructFromPacked] 340 iterations done. 3399999990 characters processed.
+	[BWTIncConstructFromPacked] 350 iterations done. 3499999990 characters processed.
+	[BWTIncConstructFromPacked] 360 iterations done. 3599999990 characters processed.
+	[BWTIncConstructFromPacked] 370 iterations done. 3699999990 characters processed.
+	[BWTIncConstructFromPacked] 380 iterations done. 3799999990 characters processed.
+	[BWTIncConstructFromPacked] 390 iterations done. 3899999990 characters processed.
+	[BWTIncConstructFromPacked] 400 iterations done. 3999999990 characters processed.
+	[BWTIncConstructFromPacked] 410 iterations done. 4099999990 characters processed.
+	[BWTIncConstructFromPacked] 420 iterations done. 4199999990 characters processed.
+	[BWTIncConstructFromPacked] 430 iterations done. 4299999990 characters processed.
+	[BWTIncConstructFromPacked] 440 iterations done. 4399999990 characters processed.
+	[BWTIncConstructFromPacked] 450 iterations done. 4499999990 characters processed.
+	[BWTIncConstructFromPacked] 460 iterations done. 4599999990 characters processed.
+	[BWTIncConstructFromPacked] 470 iterations done. 4699999990 characters processed.
+	[BWTIncConstructFromPacked] 480 iterations done. 4799999990 characters processed.
+	[BWTIncConstructFromPacked] 490 iterations done. 4899999990 characters processed.
+	[BWTIncConstructFromPacked] 500 iterations done. 4999999990 characters processed.
+	[BWTIncConstructFromPacked] 510 iterations done. 5099999990 characters processed.
+	[BWTIncConstructFromPacked] 520 iterations done. 5199999990 characters processed.
+
 
 At this point, it looks like everything is running as expected.
 There's not much more to do than wait. Note that, while creating an
