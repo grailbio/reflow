@@ -148,8 +148,12 @@ func (c *credentialsSession) AWS() (*session.Session, error) {
 			c.err = fmt.Errorf("failed to retrieve AWS credentials: %v", err)
 			return
 		}
-		c.session, c.err = session.NewSession(&aws.Config{
-			Credentials: credentials.NewCredentials(credProvider),
+		c.session, c.err = session.NewSessionWithOptions(session.Options{
+			Config: aws.Config{
+				Credentials: credentials.NewCredentials(credProvider),
+			},
+			// This loads region configuration from ~/.aws/config.yaml.
+			SharedConfigState: session.SharedConfigEnable,
 		})
 	})
 	return c.session, c.err
