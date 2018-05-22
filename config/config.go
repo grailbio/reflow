@@ -62,6 +62,7 @@ import (
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/runner"
+	"github.com/grailbio/reflow/trace"
 	yaml "gopkg.in/yaml.v2"
 )
 
@@ -79,6 +80,7 @@ const (
 	Cluster    = "cluster"
 	Assoc      = "assoc"
 	Repository = "repository"
+	Tracer     = "tracer"
 )
 
 // AllKeys defines the order in which configuration keys are
@@ -96,6 +98,7 @@ var AllKeys = []string{
 	Assoc,
 	Repository,
 	Cluster,
+	Tracer,
 }
 
 // Keys is a map of string keys to configuration values.
@@ -139,6 +142,9 @@ type Config interface {
 
 	// Cluster returns the configured cluster.
 	Cluster() (runner.Cluster, error)
+
+	// Tracer returns the configured tracer.
+	Tracer() (trace.Tracer, error)
 
 	// Value returns the value of the given key.
 	Value(key string) interface{}
@@ -227,6 +233,11 @@ func (b Base) Logger() (*log.Logger, error) {
 // Cluster returns an error indicating no cluster was configured.
 func (b Base) Cluster() (runner.Cluster, error) {
 	return nil, errors.New("cluster not configured")
+}
+
+// Tracer returns an error indicating no tracer is configured.
+func (b Base) Tracer() (trace.Tracer, error) {
+	return trace.NopTracer, nil
 }
 
 // Keys returns the configured keys.

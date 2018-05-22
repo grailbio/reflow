@@ -14,6 +14,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/pool"
+	"github.com/grailbio/reflow/trace"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
 )
@@ -159,6 +160,9 @@ type Runner struct {
 
 	// Labels are the set of labels affiliated with this run.
 	Labels pool.Labels
+
+	// Cmdline is a debug string with program name, params and args.
+	Cmdline string
 }
 
 // Do steps the runner state machine. Do returns true whenever
@@ -283,8 +287,15 @@ func (r *Runner) Eval(ctx context.Context) (string, error) {
 	if stealer.Cluster == nil {
 		stealer.Cluster = r.Cluster
 	}
+	ctx, done := trace.Start(ctx, trace.Run, r.Flow.Digest(), r.Cmdline)
+	traceid := trace.URL(ctx)
+	if traceid != "" {
+		r.Log.Printf("Trace ID: %v", traceid)
+	}
+
 	go stealer.Go(ctx, eval)
 	err := eval.Do(ctx)
+	done()
 	if err == nil {
 		// TODO(marius): use logger for this.
 		eval.LogSummary(r.Log)

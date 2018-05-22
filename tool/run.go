@@ -30,6 +30,7 @@ import (
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/runner"
+	"github.com/grailbio/reflow/trace"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/wg"
 )
@@ -193,41 +194,48 @@ retriable.`
 	defer func() {
 		c.Log.Outputter = saveOut
 	}()
-	if c.Log.At(log.DebugLevel) {
-		path, err := filepath.Abs(er.Program)
-		if err != nil {
-			log.Errorf("abs %s: %v", er.Program, err)
-			path = er.Program
-		}
-		var b bytes.Buffer
-		fmt.Fprintf(&b, "evaluating program %s", path)
-		if len(er.Params) > 0 {
-			var keys []string
-			for key := range er.Params {
-				keys = append(keys, key)
-			}
-			sort.Strings(keys)
-			fmt.Fprintf(&b, "\n\tparams:")
-			for _, key := range keys {
-				fmt.Fprintf(&b, "\n\t\t%s=%s", key, er.Params[key])
-			}
-		} else {
-			fmt.Fprintf(&b, "\n\t(no params)")
-		}
-		if len(er.Args) > 0 {
-			fmt.Fprintf(&b, "\n\targuments:")
-			for _, arg := range er.Args {
-				fmt.Fprintf(&b, "\n\t%s", arg)
-			}
-		} else {
-			fmt.Fprintf(&b, "\n\t(no arguments)")
-		}
-		c.Log.Debug(b.String())
+
+	path, err := filepath.Abs(er.Program)
+	if err != nil {
+		log.Errorf("abs %s: %v", er.Program, err)
+		path = er.Program
 	}
+	cmdline := path
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "evaluating program %s", path)
+	if len(er.Params) > 0 {
+		var keys []string
+		for key := range er.Params {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		fmt.Fprintf(&b, "\n\tparams:")
+		for _, key := range keys {
+			fmt.Fprintf(&b, "\n\t\t%s=%s", key, er.Params[key])
+			cmdline += fmt.Sprintf(" -%s=%s", key, er.Params[key])
+		}
+	} else {
+		fmt.Fprintf(&b, "\n\t(no params)")
+	}
+	if len(er.Args) > 0 {
+		fmt.Fprintf(&b, "\n\targuments:")
+		for _, arg := range er.Args {
+			fmt.Fprintf(&b, "\n\t%s", arg)
+			cmdline += fmt.Sprintf(" %s", arg)
+		}
+	} else {
+		fmt.Fprintf(&b, "\n\t(no arguments)")
+	}
+	c.Log.Debug(b.String())
 	ctx, cancel := context.WithCancel(ctx)
+	tracer, err := c.Config.Tracer()
+	if err != nil {
+		c.Fatal(err)
+	}
+	ctx = trace.WithTracer(ctx, tracer)
 	defer cancel()
 	if config.local {
-		c.runLocal(ctx, config, execLogger, runID, er.Flow, er.Type)
+		c.runLocal(ctx, config, execLogger, runID, er.Flow, er.Type, cmdline)
 		return
 	}
 
@@ -264,6 +272,7 @@ retriable.`
 		Type:    er.Type,
 		Labels:  make(pool.Labels),
 		Cluster: cluster,
+		Cmdline: cmdline,
 	}
 	config.Configure(&run.EvalConfig)
 	run.ID = runID
@@ -318,7 +327,7 @@ retriable.`
 	}
 }
 
-func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID digest.Digest, flow *reflow.Flow, typ *types.T) {
+func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID digest.Digest, flow *reflow.Flow, typ *types.T, cmdline string) {
 	addr := os.Getenv("DOCKER_HOST")
 	if addr == "" {
 		addr = "unix:///var/run/docker.sock"
@@ -404,6 +413,12 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	eval := reflow.NewEval(flow, evalConfig)
 	var wg wg.WaitGroup
 	ctx, bgcancel := reflow.WithBackground(ctx, &wg)
+	ctx, done := trace.Start(ctx, trace.Run, flow.Digest(), cmdline)
+	c.onexit(done)
+	traceid := trace.URL(ctx)
+	if len(traceid) > 0 {
+		c.Log.Printf("Trace ID: %v", traceid)
+	}
 	if err = eval.Do(ctx); err != nil {
 		c.Errorln(err)
 		if errors.Restartable(err) {

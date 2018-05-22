@@ -46,7 +46,7 @@ func New(baseurl string, client *http.Client, log *log.Logger) (*Client, error) 
 // ID returns the client's host name.
 func (c *Client) ID() string { return c.host }
 
-// Alloc looks and alloc up by name.
+// Alloc looks up an alloc by name.
 func (c *Client) Alloc(ctx context.Context, id string) (pool.Alloc, error) {
 	call := c.Call("GET", "allocs/%s", id)
 	defer call.Close()

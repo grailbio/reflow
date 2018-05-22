@@ -11,6 +11,7 @@ import (
 	_ "github.com/grailbio/reflow/config/all"
 	_ "github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/tool"
+	_ "github.com/grailbio/reflow/trace"
 )
 
 var configFile = os.ExpandEnv("$HOME/.reflow/config.yaml")

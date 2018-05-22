@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 
 	"github.com/aws/aws-xray-sdk-go/header"
 	"github.com/aws/aws-xray-sdk-go/strategy/sampling"
@@ -26,12 +27,16 @@ func init() {
 		log.Debugf("parse xray strategy: %s", err)
 		l, _ = sampling.NewLocalizedStrategy()
 	}
-	xray.Configure(xray.Config{
+	addr := "127.0.0.1:2000"
+	err = xray.Configure(xray.Config{
 		// TODO(pgopal) - Make the daemon address configurable
-		DaemonAddr:       "127.0.0.1:2000", // default
-		LogLevel:         "debug",          // default
+		DaemonAddr:       addr,    // default
+		LogLevel:         "error", // default
 		SamplingStrategy: l,
 	})
+	if err != nil {
+		log.Debug("xray: ", err)
+	}
 }
 
 // Tracer is the reflow tracer implementation for xray.
@@ -72,33 +77,39 @@ func (tracer) CopyTraceContext(src, dst context.Context) context.Context {
 
 // Emit emits a trace event.
 func (tracer) Emit(ctx context.Context, e trace.Event) (context.Context, error) {
-	var outctx context.Context
 	switch e.Kind {
 	case trace.StartEvent:
 		var seg *xray.Segment
+		// Segment name has some restrictions:
+		// https://docs.aws.amazon.com/xray/latest/devguide/xray-api-segmentdocuments.html#api-segmentdocuments-fields
+		r := regexp.MustCompile(`[^a-zA-Z0-9_.:/%&#=+\-@ ]+`)
+		name := r.ReplaceAllString(e.Name, " ")
+		if len(name) > 200 {
+			name = name[:197] + "..."
+		}
 		switch e.SpanKind {
 		case trace.Run:
-			outctx, seg = xray.BeginSegment(ctx, e.Name)
+			ctx, seg = xray.BeginSegment(ctx, name)
 		default:
 			parent := xray.GetSegment(ctx)
 			if parent != nil {
 				h := parent.DownstreamHeader()
-				outctx, seg = xray.NewSegmentFromHeader(ctx, e.Name, h)
+				ctx, seg = xray.NewSegmentFromHeader(ctx, name, h)
 			} else {
-				outctx, seg = xray.BeginSegment(ctx, e.Name)
+				ctx, seg = xray.BeginSegment(ctx, name)
 			}
 		}
-		seg.AddAnnotation("id", e.Id)
-		seg.AddAnnotation("kind", e.SpanKind)
-		outctx = context.WithValue(outctx, e.Id, seg)
-		return outctx, nil
+		seg.AddAnnotation("id", e.Id.String())
+		seg.AddAnnotation("kind", e.SpanKind.String())
+		seg.AddAnnotation("name", e.Name)
+		return ctx, nil
 	case trace.EndEvent:
-		seg, ok := ctx.Value(e.Id).(*xray.Segment)
-		if !ok {
+		seg := xray.GetSegment(ctx)
+		if seg == nil {
 			return ctx, fmt.Errorf("event not found %+v", e.Id)
 		}
 		seg.Close(nil)
-		return context.WithValue(ctx, e.Id, nil), nil
+		return ctx, nil
 	case trace.NoteEvent:
 		s := xray.GetSegment(ctx)
 		if s == nil {

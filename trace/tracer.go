@@ -61,10 +61,39 @@ type Tracer interface {
 	URL(context.Context) string
 }
 
+// NopTracer is default tracer that does nothing.
+var NopTracer Tracer = nopTracer{}
+
+type nopTracer struct{}
+
+func (nopTracer) Emit(ctx context.Context, e Event) (context.Context, error) {
+	return ctx, nil
+}
+
+func (nopTracer) WriteHTTPContext(context.Context, *http.Header) {
+	return
+}
+
+func (nopTracer) ReadHTTPContext(ctx context.Context, h http.Header) context.Context {
+	return ctx
+}
+
+func (nopTracer) CopyTraceContext(src context.Context, dst context.Context) context.Context {
+	return dst
+}
+
+func (nopTracer) URL(context.Context) string {
+	return ""
+}
+
 // WithTracer returns a context that emits trace events to the
 // provided tracer.
 func WithTracer(ctx context.Context, tracer Tracer) context.Context {
+	if tracer == nil {
+		return ctx
+	}
 	return context.WithValue(ctx, tracerKey, tracer)
+
 }
 
 // On returns true if there is a current tracer associated with the

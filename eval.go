@@ -27,6 +27,7 @@ import (
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/liveset/bloomlive"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/trace"
 	"github.com/grailbio/reflow/values"
 	"github.com/willf/bloom"
 	"golang.org/x/sync/errgroup"
@@ -993,6 +994,17 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 
 	switch f.Op {
 	case OpIntern, OpExtern, OpExec:
+		var name string
+		switch f.Op {
+		case OpExtern:
+			name = fmt.Sprintf("extern %s %s", f.URL, data.Size(f.Deps[0].Value.(Fileset).Size()))
+		case OpIntern:
+			name = fmt.Sprintf("intern %s", f.URL)
+		case OpExec:
+			name = fmt.Sprintf("exec %s", abbrevCmd(f))
+		}
+		ctx, done := trace.Start(ctx, trace.Exec, f.Digest(), name)
+		defer done()
 		if err := e.exec(ctx, f); err != nil {
 			return err
 		}
@@ -2100,7 +2112,6 @@ var humanState = map[FlowState]string{
 }
 
 func abbrevCmd(f *Flow) string {
-
 	argv := make([]interface{}, len(f.Argstrs))
 	for i := range f.Argstrs {
 		argv[i] = f.Argstrs[i]
