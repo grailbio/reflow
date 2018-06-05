@@ -26,6 +26,7 @@ type EvalResult struct {
 	Params  map[string]string
 	Args    []string
 	V1      bool
+	Bundle  *Bundle
 }
 
 // Eval evaluates a Reflow program to a Flow. It can evaluate both legacy(".reflow")
@@ -71,62 +72,94 @@ func (c *Cmd) Eval(args []string) (EvalResult, error) {
 		er.Flow = prog.Eval()
 		return er, nil
 	case ".rf":
-		er.V1 = true
 		sess := syntax.NewSession()
-		sess.Stderr = c.Stderr
-		m, err := sess.Open(file)
 		if err != nil {
 			return EvalResult{}, err
 		}
-		var maintyp *types.T
-		for _, f := range m.Type().Fields {
-			if f.Name == "Main" {
-				maintyp = f.T
-				break
-			}
-		}
-		if maintyp == nil {
-			return EvalResult{}, fmt.Errorf("module %v does not define symbol Main", file)
-		}
-		flags, err := m.Flags(sess, sess.Values)
-		if err != nil {
-			c.Fatal(err)
-		}
-		flags.Usage = func() {
-			fmt.Fprintf(os.Stderr, "usage of %s:\n", file)
-			flags.PrintDefaults()
-			c.Exit(2)
-		}
-		flags.Parse(args)
-		env := sess.Values.Push()
-		if err := m.FlagEnv(flags, env); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			flags.Usage()
-		}
-		v, err := m.Make(sess, env)
+		er, err := c.evalV1(sess, file, args)
 		if err != nil {
 			return EvalResult{}, err
 		}
-		v = v.(values.Module)["Main"]
-		v = syntax.Force(v, maintyp)
-		er.Type = maintyp
-		flags.VisitAll(func(f *flag.Flag) {
-			er.Params[f.Name] = f.Value.String()
-		})
-		switch v := v.(type) {
-		case *reflow.Flow:
-			if v.Requirements().Equal(reflow.Requirements{}) {
-				c.Fatal("flow does not have resource requirements; add a @requires annotation to val Main")
-			}
-			er.Flow = v
-			return er, nil
-		default:
-			er.Flow = &reflow.Flow{Op: reflow.OpVal, Value: v}
-			return er, nil
-		}
+		er.Bundle = &Bundle{Name: file, Args: er.Args, Inline: sess.Inline(), Images: sess.Images()}
+		return er, nil
 	default:
 		return EvalResult{}, fmt.Errorf("unknown file extension %q", ext)
 	}
+}
+
+// EvalV1 is a helper function to evaluats a reflow v1 program.
+func (c *Cmd) evalV1(sess *syntax.Session, file string, args []string) (EvalResult, error) {
+	er := EvalResult{Params: make(map[string]string)}
+	er.V1 = true
+	er.Args = args
+	var err error
+	er.Program, err = filepath.Abs(file)
+	if err != nil {
+		return EvalResult{}, err
+	}
+	sess.Stderr = c.Stderr
+	m, err := sess.Open(file)
+	if err != nil {
+		return EvalResult{}, err
+	}
+	var maintyp *types.T
+	for _, f := range m.Type().Fields {
+		if f.Name == "Main" {
+			maintyp = f.T
+			break
+		}
+	}
+	if maintyp == nil {
+		return EvalResult{}, fmt.Errorf("module %v does not define symbol Main", file)
+	}
+	flags, err := m.Flags(sess, sess.Values)
+	if err != nil {
+		c.Fatal(err)
+	}
+	flags.Usage = func() {
+		fmt.Fprintf(os.Stderr, "usage of %s:\n", file)
+		flags.PrintDefaults()
+		c.Exit(2)
+	}
+	flags.Parse(args)
+	env := sess.Values.Push()
+	if err := m.FlagEnv(flags, env); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		flags.Usage()
+	}
+	v, err := m.Make(sess, env)
+	if err != nil {
+		return EvalResult{}, err
+	}
+	v = v.(values.Module)["Main"]
+	v = syntax.Force(v, maintyp)
+	er.Type = maintyp
+	flags.VisitAll(func(f *flag.Flag) {
+		er.Params[f.Name] = f.Value.String()
+	})
+	switch v := v.(type) {
+	case *reflow.Flow:
+		if v.Requirements().Equal(reflow.Requirements{}) {
+			c.Fatal("flow does not have resource requirements; add a @requires annotation to val Main")
+		}
+		er.Flow = v
+		return er, nil
+	default:
+		er.Flow = &reflow.Flow{Op: reflow.OpVal, Value: v}
+		return er, nil
+	}
+}
+
+// EvalBundle evaluates a reflow bundle. It can only evaluate reflow v1 programs.
+func (c *Cmd) EvalBundle(b *Bundle) (EvalResult, error) {
+	sess := syntax.NewSession()
+	sess.Source = &b.Inline
+	er, err := c.evalV1(sess, b.Name, b.Args)
+	if err != nil {
+		return er, err
+	}
+	er.Bundle = b
+	return er, nil
 }
 
 func sprintval(v values.T, t *types.T) string {

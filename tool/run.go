@@ -23,6 +23,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/local"
@@ -158,17 +159,36 @@ retriable.`
 	if err != nil {
 		c.Fatal(err)
 	}
+	c.runCommon(ctx, config, er)
+}
+
+// runCommon is the helper function used by run commands (run, rerun).
+func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 	// In the case where a flow is immediate, we print the result and quit.
 	if er.Flow.Op == reflow.OpVal {
 		c.Println(sprintval(er.Flow.Value, er.Type))
 		c.Exit(0)
 	}
-
 	// Construct a unique name for this run, used to identify this invocation
 	// throughout the system.
 	runID := reflow.Digester.Rand()
 	c.Log.Printf("run ID: %s", runID.Short())
-
+	repo, err := c.Config.Repository()
+	if err != nil {
+		c.Fatal(err)
+	}
+	ass, err := c.Config.Assoc()
+	if err != nil {
+		c.Fatal(err)
+	}
+	if er.Bundle != nil {
+		d, err := er.Bundle.Write(ctx, repo)
+		if err != nil {
+			c.Log.Error(err)
+		} else if err := ass.Store(ctx, assoc.Bundle, runID, d); err != nil {
+			c.Log.Error(err)
+		}
+	}
 	// Set up run transcript and log files.
 	base := c.Runbase(runID)
 	os.MkdirAll(filepath.Dir(base), 0777)
@@ -194,7 +214,6 @@ retriable.`
 	defer func() {
 		c.Log.Outputter = saveOut
 	}()
-
 	path, err := filepath.Abs(er.Program)
 	if err != nil {
 		log.Errorf("abs %s: %v", er.Program, err)
@@ -242,14 +261,6 @@ retriable.`
 	// Default case: execute on cluster with shared cache.
 	// TODO: get rid of profile here
 	cluster := c.Cluster(c.Status.Group("ec2cluster"))
-	assoc, err := c.Config.Assoc()
-	if err != nil {
-		c.Fatal(err)
-	}
-	repo, err := c.Config.Repository()
-	if err != nil {
-		c.Fatal(err)
-	}
 	transferer := &repository.Manager{
 		Status:           c.Status.Group("transfers"),
 		PendingTransfers: repository.NewLimits(c.TransferLimit()),
@@ -264,7 +275,7 @@ retriable.`
 		EvalConfig: reflow.EvalConfig{
 			Log:        execLogger,
 			Repository: repo,
-			Assoc:      assoc,
+			Assoc:      ass,
 			CacheMode:  c.Config.CacheMode(),
 			Transferer: transferer,
 			Status:     c.Status.Group(runID.Short()),
@@ -342,7 +353,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	if err != nil {
 		c.Fatal(err)
 	}
-	assoc, err := c.Config.Assoc()
+	ass, err := c.Config.Assoc()
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -402,7 +413,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		Transferer: transferer,
 		Log:        execLogger,
 		Repository: repo,
-		Assoc:      assoc,
+		Assoc:      ass,
 		CacheMode:  c.Config.CacheMode(),
 		Status:     c.Status.Group(runID.Short()),
 	}

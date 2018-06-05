@@ -23,7 +23,7 @@ import (
 	"github.com/grailbio/reflow/values"
 )
 
-// SystemFunc is utility to define a reflow intrinsic.
+// SystemFunc is a utility to define a reflow intrinsic.
 type SystemFunc struct {
 	Module string
 	Id     string

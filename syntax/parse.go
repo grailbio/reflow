@@ -7,6 +7,7 @@ package syntax
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"strings"
@@ -94,7 +95,7 @@ func isValidIdent(s string) bool {
 }
 
 // Init initializes the lexer. It must be called before Lex.
-func (x *Parser) init() {
+func (x *Parser) init() error {
 	switch x.Mode {
 	case ParseModule:
 		x.first = tokStartModule
@@ -107,18 +108,28 @@ func (x *Parser) init() {
 	}
 	x.scanner.Error = func(_ *scanner.Scanner, msg string) { x.Error(msg) }
 	x.scanner.Filename = x.File
+	b := new(bytes.Buffer)
+	_, err := io.Copy(b, x.Body)
+	if err != nil {
+		x.Error(fmt.Sprintf("error reading file %s", x.File))
+		return x.el.Make()
+	}
+	x.Body = b
 	x.scanner.Init(x.Body)
 	x.scanner.Whitespace &= ^uint64(1 << '\n')
 	x.scanner.Mode = scanner.ScanIdents | scanner.ScanFloats | scanner.ScanChars |
 		scanner.ScanStrings | scanner.ScanRawStrings | scanner.ScanComments
 	x.scanner.IsIdentRune = isIdentRune
+	return nil
 }
 
 // Parse parses the parser's body and reports any parsing error.
 // The parse result is deposited in x.Module, x.Decls, or x.Expr,
 // depending on the parser's mode.
 func (x *Parser) Parse() error {
-	x.init()
+	if err := x.init(); err != nil {
+		return err
+	}
 	if yyParse(x) == 0 {
 		return nil
 	}

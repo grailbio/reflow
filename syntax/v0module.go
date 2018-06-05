@@ -24,6 +24,12 @@ type v0module struct {
 	params map[string]string
 	path   string
 	typ    *types.T
+	source []byte
+}
+
+// Source implements Module.Source.
+func (m *v0module) Source() []byte {
+	panic("v0module doesn't support Source")
 }
 
 // Eager returns true.

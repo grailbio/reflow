@@ -5,15 +5,17 @@
 package syntax
 
 import (
-	"errors"
+	"bytes"
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
+	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/lang"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
@@ -27,6 +29,10 @@ type Session struct {
 
 	Types  *types.Env
 	Values *values.Env
+
+	// Module source to use.
+	// e.g. It is set to tool.Bundle.Source when we want to rerun a program from an existing bundle.
+	Source Source
 
 	path    string
 	modules map[string]Module
@@ -42,11 +48,13 @@ type Session struct {
 func NewSession() *Session {
 	s := &Session{modules: map[string]Module{}, images: map[string]bool{}}
 	s.Types, s.Values = Stdlib()
+	s.Source = &File{}
 	return s
 }
 
-// Open parses and type checks, and then returns the module at the given
-// path. It then returns the module and any associated error.
+// Open parses and type checks, and then returns the module at the given path.
+// If Source is set and if the given module path is present in it, then it reads the module source from it.
+// It then returns the module and any associated error.
 func (s *Session) Open(path string) (Module, error) {
 	if strings.HasPrefix(path, "$/") {
 		m := lib[path[2:]]
@@ -61,25 +69,21 @@ func (s *Session) Open(path string) (Module, error) {
 	if strings.HasPrefix(path, "./") {
 		path = filepath.Join(s.path, path)
 	}
-	abspath, err := filepath.Abs(path)
-	if err != nil {
-		return nil, err
-	}
-	if m := s.modules[abspath]; m != nil {
+	if m, ok := s.modules[path]; ok {
 		return m, nil
 	}
-	switch ext := filepath.Ext(abspath); ext {
+	var source []byte
+	var err error
+	if source, err = s.Source.Read(path); err != nil {
+		return nil, err
+	}
+	switch ext := filepath.Ext(path); ext {
 	default:
 		return nil, fmt.Errorf("unknown module extension %s", ext)
 	case ".rf":
-		f, err := os.Open(path)
-		if err != nil {
-			return nil, err
-		}
-		defer f.Close()
 		lx := &Parser{
-			File: abspath,
-			Body: f,
+			File: path,
+			Body: bytes.NewReader(source),
 			Mode: ParseModule,
 		}
 		if err := lx.Parse(); err != nil {
@@ -99,6 +103,7 @@ func (s *Session) Open(path string) (Module, error) {
 		for _, decl := range lx.Module.Decls {
 			decl.Ident = base + "." + decl.Ident
 		}
+		lx.Module.source = source
 		s.modules[path] = lx.Module
 		return lx.Module, nil
 	case ".reflow":
@@ -110,12 +115,7 @@ func (s *Session) Open(path string) (Module, error) {
 			// we'll live.
 			Errors: os.Stderr,
 		}
-		f, err := os.Open(path)
-		if err != nil {
-			return nil, err
-		}
-		defer f.Close()
-		if err := prog.ParseAndTypecheck(f); err != nil {
+		if err := prog.ParseAndTypecheck(bytes.NewReader(source)); err != nil {
 			return nil, err
 		}
 		// We have provide v0module with the path, and not the prog,
@@ -162,4 +162,42 @@ func (s *Session) Images() []string {
 		images = append(images, imageName)
 	}
 	return images
+}
+
+// Inline returns sources of this module and its includes.
+func (s *Session) Inline() Inline {
+	i := Inline{}
+	for k, v := range s.modules {
+		i[k] = v.Source()
+	}
+	return i
+}
+
+// Source is the interface to inject source into a syntax session.
+type Source interface {
+	// Read reads the source from the specified path.
+	Read(path string) ([]byte, error)
+}
+
+// Inline is map of the path names to module source.
+type Inline map[string][]byte
+
+// Read reads the source bytes of the specified path.
+func (i Inline) Read(path string) ([]byte, error) {
+	if v, ok := i[path]; ok {
+		return v, nil
+	}
+	return []byte{}, errors.Errorf("inline path not found: %v", path)
+}
+
+// File implements the Source interface by reading directly fronm the local filesystem.
+type File struct{}
+
+// Read reads path from the local filesystem.
+func (f File) Read(path string) ([]byte, error) {
+	source, err := ioutil.ReadFile(path)
+	if err != nil {
+		return []byte{}, err
+	}
+	return source, nil
 }

@@ -51,6 +51,9 @@ type Module interface {
 	// When it does, all parameters are forced and fully evaluated
 	// before instantiating a new module instance.
 	Eager() bool
+	// Source of this module. This can be used to archive the program
+	// and rerun the program on a different machine.
+	Source() []byte
 }
 
 // ModuleImpl defines a Reflow module comprising: a keyspace, a set of
@@ -67,9 +70,17 @@ type ModuleImpl struct {
 
 	Docs map[string]string
 
+	// source bytes of this module.
+	source []byte
+
 	typ *types.T
 
 	tenv *types.Env
+}
+
+// Source gets the source code of this module.
+func (m *ModuleImpl) Source() []byte {
+	return m.source
 }
 
 // Eager returns false.

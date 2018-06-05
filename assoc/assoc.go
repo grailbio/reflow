@@ -24,6 +24,8 @@ const (
 	ExecInspect
 	// Logs maps exec logs files (stdout, stderr).
 	Logs
+	// Bundle stores the program source, args, image names.
+	Bundle
 )
 
 // MappingHandler is an interface for handling a mapping while scanning.

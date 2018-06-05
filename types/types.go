@@ -11,6 +11,7 @@
 //
 //	bottom                                    the type of no values
 //	int                                       the type of arbitrary precision integers
+//	float                                     the type of arbitrary precision float point numbers
 //	string                                    the type of (utf-8 encoded) strings
 //	bool                                      the type of booleans
 //	file                                      the type of files
@@ -407,7 +408,7 @@ func (t *T) Equal(u *T) bool {
 	return t.equal(u, false)
 }
 
-// StructurallyEqual tells whether type t is structurall equal to type u.
+// StructurallyEqual tells whether type t is structurally equal to type u.
 // Structural equality permits type aliases and considers two aliases
 // equal if their paths are equal.
 func (t *T) StructurallyEqual(u *T) bool {
