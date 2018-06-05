@@ -16,7 +16,9 @@ func (c *Cmd) shell(ctx context.Context, args ...string) {
 	flags := flag.NewFlagSet("shell", flag.ExitOnError)
 	help := `Run a shell (/bin/bash) inside the container of a running exec.
 The local standard input, output and error streams are attached.
-The user may exit the terminal by typing 'exit'/'quit'`
+The user may exit the terminal by typing 'exit'/'quit'.
+
+Note that exec URIs are of the form host:port/alloc/exec.`
 	// TODO(pgopal) - Put the terminal in raw mode.
 	c.Parse(flags, args, help, "shell exec")
 	if flags.NArg() != 1 {
