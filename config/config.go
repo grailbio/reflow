@@ -61,6 +61,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/trace"
 	yaml "gopkg.in/yaml.v2"
@@ -145,6 +146,9 @@ type Config interface {
 
 	// Tracer returns the configured tracer.
 	Tracer() (trace.Tracer, error)
+
+	// Labels returns the set of default labels to assign to Reflow's pool.
+	Labels() pool.Labels
 
 	// Value returns the value of the given key.
 	Value(key string) interface{}
@@ -238,6 +242,11 @@ func (b Base) Cluster() (runner.Cluster, error) {
 // Tracer returns an error indicating no tracer is configured.
 func (b Base) Tracer() (trace.Tracer, error) {
 	return trace.NopTracer, nil
+}
+
+// Labels returns an empty label set.
+func (b Base) Labels() pool.Labels {
+	return nil
 }
 
 // Keys returns the configured keys.

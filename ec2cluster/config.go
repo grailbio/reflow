@@ -158,19 +158,14 @@ func (c *Config) Cluster() (runner.Cluster, error) {
 	cluster := &Cluster{
 		// This is a little sketchy with layering, etc. e.g., keys for
 		// providers on top of us may not be available, etc.
-		Config:        c,
-		EC2:           svc,
-		File:          state,
-		Authenticator: ec2authenticator.New(sess),
-		HTTPClient:    httpClient,
-		Log:           log.Tee(nil, "ec2cluster: "),
-		Tag:           fmt.Sprintf("%s (reflow)", id),
-		/* XXX
-		Labels: pool.Labels{
-			"grail:user":    id,
-			"grail:project": c.Flag.Project,
-		},
-		*/
+		Config:          c,
+		EC2:             svc,
+		File:            state,
+		Authenticator:   ec2authenticator.New(sess),
+		HTTPClient:      httpClient,
+		Log:             log.Tee(nil, "ec2cluster: "),
+		Tag:             fmt.Sprintf("%s (reflow)", id),
+		Labels:          c.Labels(),
 		Spot:            c.Spot,
 		InstanceProfile: c.InstanceProfile,
 		SecurityGroup:   c.SecurityGroup,
