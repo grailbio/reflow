@@ -14,21 +14,20 @@ func (c *Cmd) rerun(ctx context.Context, args ...string) {
 	var config runConfig
 	config.Flags(flags)
 
-	c.Parse(flags, args, help, "rerun [-local] [flags] runid")
+	c.Parse(flags, args, help, "rerun [-local] [flags] runid [args]")
 	if err := config.Err(); err != nil {
 		c.Errorln(err)
 		flags.Usage()
 	}
-
 	if flags.NArg() == 0 {
 		flags.Usage()
 	}
-
 	a, err := c.Config.Assoc()
 	if err != nil {
 		c.Fatal(err)
 	}
-	name, err := parseName(flags.Args()[0])
+	runid, args := flags.Args()[0], flags.Args()[1:]
+	name, err := parseName(runid)
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -48,7 +47,7 @@ func (c *Cmd) rerun(ctx context.Context, args ...string) {
 	if err != nil {
 		c.Fatal(err)
 	}
-	er, err := c.EvalBundle(p)
+	er, err := c.EvalBundle(p, args)
 	if err != nil {
 		c.Fatal(err)
 	}

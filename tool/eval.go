@@ -151,14 +151,16 @@ func (c *Cmd) evalV1(sess *syntax.Session, file string, args []string) (EvalResu
 }
 
 // EvalBundle evaluates a reflow bundle. It can only evaluate reflow v1 programs.
-func (c *Cmd) EvalBundle(b *Bundle) (EvalResult, error) {
+// args will override args specified in the bundle.
+func (c *Cmd) EvalBundle(b *Bundle, args []string) (EvalResult, error) {
 	sess := syntax.NewSession()
 	sess.Source = &b.Inline
-	er, err := c.evalV1(sess, b.Name, b.Args)
+	er, err := c.evalV1(sess, b.Name, append(b.Args, args...))
 	if err != nil {
 		return er, err
 	}
 	er.Bundle = b
+	er.Bundle.Args = er.Args
 	return er, nil
 }
 
