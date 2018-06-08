@@ -218,10 +218,11 @@ func (e *dockerExec) create(ctx context.Context) (execState, error) {
 		Image: e.Config.Image,
 		// We use a login shell here as many Docker images are configured
 		// with /root/.profile, etc.
-		Cmd:    []string{"/bin/bash", "-e", "-l", "-o", "pipefail", "-c", fmt.Sprintf(e.Config.Cmd, args...)},
-		Env:    env,
-		Labels: map[string]string{"reflow-id": e.id.Hex()},
-		User:   dockerUser,
+		Entrypoint: []string{"/bin/bash", "-e", "-l", "-o", "pipefail", "-c", fmt.Sprintf(e.Config.Cmd, args...)},
+		Cmd:        []string{},
+		Env:        env,
+		Labels:     map[string]string{"reflow-id": e.id.Hex()},
+		User:       dockerUser,
 	}
 	networkingConfig := &network.NetworkingConfig{}
 	if _, err := e.client.ContainerCreate(ctx, config, hostConfig, networkingConfig, e.containerName()); err != nil {
