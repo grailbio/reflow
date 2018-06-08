@@ -86,6 +86,7 @@ var commands = map[string]Func{
 	"version":      (*Cmd).versionCmd,
 	"run":          (*Cmd).run,
 	"rerun":        (*Cmd).rerun,
+	"bundle":       (*Cmd).bundle,
 	"doc":          (*Cmd).doc,
 	"info":         (*Cmd).info,
 	"cat":          (*Cmd).cat,

@@ -1,14 +1,19 @@
 package tool
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
+	"flag"
+	"io"
 	"io/ioutil"
+	"os"
 	"sync"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/syntax"
 	"golang.org/x/sync/errgroup"
 )
@@ -103,4 +108,67 @@ func (p *Bundle) Write(ctx context.Context, repo reflow.Repository) (digest.Dige
 		return digest.Digest{}, err
 	}
 	return d, nil
+}
+
+const (
+	manifest = "manifest"
+)
+
+func (c *Cmd) bundle(ctx context.Context, args ...string) {
+	flags := flag.NewFlagSet("bundle", flag.ExitOnError)
+	help := "Bundle copies a reflow bundle from the repository given a runId and writes it out as a zip archive"
+	c.Parse(flags, args, help, "runId")
+	if flags.NArg() != 1 {
+		flags.Usage()
+	}
+	var b *Bundle
+	n, err := parseName(flags.Args()[0])
+	if err != nil {
+		c.Fatal(err)
+	}
+	if n.Kind != idName {
+		c.Fatal("not a valid runId: %v", flags.Args()[0])
+	}
+	ass, err := c.Config.Assoc()
+	if err != nil {
+		c.Fatal(err)
+	}
+	_, v, err := ass.Get(ctx, assoc.Bundle, n.ID)
+	if err != nil {
+		c.Fatal(err)
+	}
+	repo, err := c.Config.Repository()
+	if err != nil {
+		c.Fatal(err)
+	}
+	b, err = ReadBundle(ctx, v, repo)
+	if err != nil {
+		c.Fatal(err)
+	}
+	z := zip.NewWriter(os.Stdout)
+	for k, v := range b.Files {
+		b, err := b.Inline.Read(k)
+		if err != nil {
+			c.Fatal(err)
+		}
+		f, err := z.Create(v.String())
+		if err != nil {
+			c.Fatal(err)
+		}
+		_, err = io.Copy(f, bytes.NewReader(b))
+		if err != nil {
+			c.Fatal(err)
+		}
+	}
+	m, err := z.Create(manifest)
+	if err != nil {
+		c.Fatal(err)
+	}
+	enc := json.NewEncoder(m)
+	if err = enc.Encode(b); err != nil {
+		c.Fatal(err)
+	}
+	if err = z.Close(); err != nil {
+		c.Fatal(err)
+	}
 }

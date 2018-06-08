@@ -6,6 +6,7 @@ package tool
 
 import (
 	"context"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -402,6 +403,9 @@ func parseName(raw string) (name, error) {
 		n := name{Kind: idName}
 		var err error
 		n.ID, err = reflow.Digester.Parse(head)
+		if _, ok := err.(hex.InvalidByteError); ok {
+			return n, errors.E("invalid reflow object name: ", raw, err)
+		}
 		return n, err
 	}
 	var n name
@@ -414,6 +418,9 @@ func parseName(raw string) (name, error) {
 	}
 	var err error
 	n.ID, err = reflow.Digester.Parse(tail)
+	if _, ok := err.(hex.InvalidByteError); ok {
+		return n, errors.E("invalid reflow object name: ", raw, err)
+	}
 	if err != nil {
 		return name{}, err
 	}
