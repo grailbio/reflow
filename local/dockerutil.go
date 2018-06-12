@@ -9,12 +9,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
+	"github.com/grailbio/base/retry"
 	"github.com/grailbio/reflow/internal/ecrauth"
 )
 
@@ -80,9 +83,20 @@ func pullImage(ctx context.Context, client *client.Client, authenticator ecrauth
 			return err
 		}
 	}
-	resp, err := client.ImagePull(ctx, ref, options)
-	if err != nil {
-		return err
+	var resp io.ReadCloser
+	var policy = retry.Backoff(time.Second, 10*time.Second, 1.5)
+	for retries := 0; ; retries++ {
+		var err error
+		resp, err = client.ImagePull(ctx, ref, options)
+		if err == nil {
+			break
+		}
+		if !strings.Contains(err.Error(), "Error response from daemon:") {
+			return err
+		}
+		if err := retry.Wait(ctx, policy, retries); err != nil {
+			return err
+		}
 	}
 	// TODO(marius): report progress up the chain.
 	defer resp.Close()
