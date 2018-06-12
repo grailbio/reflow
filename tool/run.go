@@ -19,7 +19,7 @@ import (
 	"sort"
 	"time"
 
-	dockerclient "github.com/docker/engine-api/client"
+	dockerclient "github.com/docker/docker/client"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow"

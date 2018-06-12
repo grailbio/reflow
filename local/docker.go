@@ -19,11 +19,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
-	"github.com/docker/engine-api/client"
-	"github.com/docker/engine-api/types"
-	"github.com/docker/engine-api/types/container"
-	"github.com/docker/engine-api/types/network"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
@@ -353,7 +353,7 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 	// a ContainerInspect call. If either of these calls return a non zero exit code,
 	// we use that as the exit status.
 	if code == 0 && e.Docker.State.ExitCode != 0 {
-		code = e.Docker.State.ExitCode
+		code = int64(e.Docker.State.ExitCode)
 	}
 
 	// Retrieve the profile before we clean up the results.
@@ -425,8 +425,8 @@ func (e *dockerExec) profile(ctx context.Context) (stats, error) {
 	if err != nil {
 		return nil, errors.E("ContainerStats", kind(err), err)
 	}
-	defer resp.Close()
-	dec := json.NewDecoder(resp)
+	defer resp.Body.Close()
+	dec := json.NewDecoder(resp.Body)
 	gauges := make(reflow.Gauges)
 	for {
 		var v types.StatsJSON
@@ -434,7 +434,7 @@ func (e *dockerExec) profile(ctx context.Context) (stats, error) {
 			if err == io.EOF {
 				return stats, nil
 			}
-			dec = json.NewDecoder(io.MultiReader(dec.Buffered(), resp))
+			dec = json.NewDecoder(io.MultiReader(dec.Buffered(), resp.Body))
 			select {
 			case <-time.After(100 * time.Millisecond):
 				continue

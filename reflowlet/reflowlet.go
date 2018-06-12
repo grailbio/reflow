@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/s3"
-	dockerclient "github.com/docker/engine-api/client"
+	dockerclient "github.com/docker/docker/client"
 	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/ec2authenticator"

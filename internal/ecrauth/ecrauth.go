@@ -10,7 +10,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/docker/engine-api/types"
+	"github.com/docker/docker/api/types"
 )
 
 // Interface is the interface that is implemented by ECR
@@ -32,6 +32,6 @@ func Login(ctx context.Context, auth Interface) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf(
-		"docker login -u %s -p %s -e none https://%s",
+		"docker login -u %s -p %s https://%s",
 		cfg.Username, cfg.Password, cfg.ServerAddress), nil
 }

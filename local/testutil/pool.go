@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	dockerclient "github.com/docker/engine-api/client"
+	dockerclient "github.com/docker/docker/client"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/local"

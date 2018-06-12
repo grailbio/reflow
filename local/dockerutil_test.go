@@ -10,7 +10,7 @@ import (
 	"context"
 	"testing"
 
-	dockerclient "github.com/docker/engine-api/client"
+	dockerclient "github.com/docker/docker/client"
 )
 
 func newDockerClientOrSkip(t *testing.T) *dockerclient.Client {

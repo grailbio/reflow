@@ -12,9 +12,9 @@ import (
 	"sync"
 
 	"github.com/docker/distribution/reference"
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
-	"github.com/docker/engine-api/client"
-	"github.com/docker/engine-api/types"
 	"github.com/grailbio/reflow/internal/ecrauth"
 )
 
