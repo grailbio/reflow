@@ -185,7 +185,7 @@ func (p *Pool) Start() error {
 			continue
 		}
 		id := info.Name()
-		alloc := p.newAlloc(id)
+		alloc := p.newAlloc(id, 0 /*keepalive*/)
 		if err := alloc.restore(); os.IsNotExist(err) {
 			continue
 		} else if err != nil {
@@ -280,7 +280,7 @@ func (p *Pool) new(ctx context.Context, meta pool.AllocMeta) (pool.Alloc, error)
 		delete(p.allocs, alloc.id)
 	}
 	id := newID()
-	alloc := p.newAlloc(id)
+	alloc := p.newAlloc(id, keepaliveInterval)
 	var err error
 	err = alloc.configure(meta)
 	if err == nil {
@@ -439,7 +439,9 @@ type alloc struct {
 }
 
 // NewAlloc creates a new alloc. The returned alloc is not started.
-func (p *Pool) newAlloc(id string) *alloc {
+// keepalive is the duration to keep this alloc alive at the start
+// (i.e. before any keepalive requests).
+func (p *Pool) newAlloc(id string, keepalive time.Duration) *alloc {
 	e := &Executor{
 		ID:            id,
 		Client:        p.Client,
@@ -478,7 +480,7 @@ func (p *Pool) newAlloc(id string) *alloc {
 		id:           id,
 		p:            p,
 		created:      time.Now(),
-		expires:      time.Now().Add(keepaliveInterval),
+		expires:      time.Now().Add(keepalive),
 		remoteStream: remoteStream,
 	}
 }
