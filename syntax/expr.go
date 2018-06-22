@@ -575,15 +575,23 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		}
 		e.Type = e.Left.Type.Field(e.Ident)
 	case ExprIndex:
-		if e.Left.Type.Kind != types.MapKind {
-			e.Type = types.Errorf("expected map, got %v", e.Left.Type)
+		switch e.Left.Type.Kind {
+		case types.ListKind:
+			if !e.Right.Type.Equal(types.Int) {
+				e.Type = types.Errorf("expected %v, got %v", types.Int, e.Right.Type)
+				return
+			}
+			e.Type = e.Left.Type.Elem.Assign(types.Int)
+		case types.MapKind:
+			if !e.Left.Type.Index.Equal(e.Right.Type) {
+				e.Type = types.Errorf("expected %v, got %v", e.Right.Type, e.Left.Type)
+				return
+			}
+			e.Type = e.Left.Type.Elem.Assign(e.Left.Type.Index)
+		default:
+			e.Type = types.Errorf("expected a map or list, got %v", e.Left.Type)
 			return
 		}
-		if !e.Left.Type.Index.Equal(e.Right.Type) {
-			e.Type = types.Errorf("expected %v, got %v", e.Right.Type, e.Left.Type)
-			return
-		}
-		e.Type = e.Left.Type.Elem.Assign(e.Left.Type.Index)
 	case ExprCompr:
 		env = env.Push()
 		for i, clause := range e.ComprClauses {

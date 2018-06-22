@@ -437,14 +437,25 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}
 		}, e.Left)
 	case ExprIndex:
-		return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
-			m, k := vs[0].(values.Map), vs[1]
-			v := m.Lookup(values.Digest(k, e.Left.Type.Index), k)
-			if v == nil {
-				return nil, fmt.Errorf("key %s not found", values.Sprint(vs[1], e.Right.Type))
-			}
-			return v, nil
-		}, e.Left, e.Right)
+		switch e.Left.Type.Kind {
+		case types.MapKind:
+			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+				m, k := vs[0].(values.Map), vs[1]
+				v := m.Lookup(values.Digest(k, e.Left.Type.Index), k)
+				if v == nil {
+					return nil, fmt.Errorf("key %s not found", values.Sprint(vs[1], e.Right.Type))
+				}
+				return v, nil
+			}, e.Left, e.Right)
+		case types.ListKind:
+			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+				l, k := vs[0].(values.List), int(vs[1].(*big.Int).Int64())
+				if k < 0 || k >= len(l) {
+					return nil, fmt.Errorf("index %d out of bounds for list of size %v", k, len(l))
+				}
+				return l[k], nil
+			}, e.Left, e.Right)
+		}
 	case ExprCompr:
 		return e.evalCompr(sess, env, ident, 0)
 	case ExprMake:
