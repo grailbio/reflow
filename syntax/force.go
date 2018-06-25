@@ -60,20 +60,16 @@ func Force(v values.T, t *types.T) values.T {
 			m    = v.(values.Map)
 			copy = make(values.Map)
 			r    = newResolver(copy, t)
-			kvs  []kpvp
+			kvs  = make([]kpvp, 0, len(m))
 		)
 		m.Each(func(k, v values.T) {
 			kk := Force(k, t.Index)
 			vv := Force(v, t.Elem)
-			kv := kpvp{&kk, &vv}
+			kv := kpvp{&kk, &vv, values.Digest(kk, t.Index)}
 			kvs = append(kvs, kv)
 		})
 		sort.Slice(kvs, func(i, j int) bool {
-			var (
-				di = values.Digest(*kvs[i].K, t.Index)
-				dj = values.Digest(*kvs[j].K, t.Index)
-			)
-			return di.Less(dj)
+			return kvs[i].KD.Less(kvs[j].KD)
 		})
 		for _, kv := range kvs {
 			r.Add(kv.K, t.Index)
@@ -81,7 +77,7 @@ func Force(v values.T, t *types.T) values.T {
 		}
 		return r.Resolve(func() {
 			for _, kv := range kvs {
-				copy.Insert(values.Digest(*kv.K, t.Index), *kv.K, *kv.V)
+				copy.Insert(kv.KD, *kv.K, *kv.V)
 			}
 		})
 	case types.TupleKind:
@@ -211,8 +207,9 @@ func (r *resolver) Resolve(proc func()) values.T {
 }
 
 type kpvp struct {
-	K *values.T
-	V *values.T
+	K  *values.T
+	V  *values.T
+	KD digest.Digest
 }
 
 type kvp struct {

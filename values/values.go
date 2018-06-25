@@ -332,25 +332,25 @@ func WriteDigest(w io.Writer, v T, t *types.T) {
 	case types.MapKind:
 		m := v.(Map)
 		writeLength(w, m.Len())
-		var keys []T
+		type kd struct {
+			k T
+			d digest.Digest
+		}
+		keys := make([]kd, 0, m.Len())
 		for _, entries := range m {
 			for _, entry := range entries {
-				keys = append(keys, entry.Key)
+				keys = append(keys, kd{entry.Key, Digest(entry.Key, t.Index)})
 			}
 		}
 		// Sort the map so that it produces a consistent digest. We sort
 		// its keys by their digest because the values may not yet be
 		// evaluated.
 		sort.Slice(keys, func(i, j int) bool {
-			var (
-				di = Digest(keys[i], t.Index)
-				dj = Digest(keys[j], t.Index)
-			)
-			return di.Less(dj)
+			return keys[i].d.Less(keys[j].d)
 		})
 		for _, k := range keys {
-			WriteDigest(w, k, t.Index)
-			WriteDigest(w, m.Lookup(Digest(k, t.Index), k), t.Elem)
+			WriteDigest(w, k.k, t.Index)
+			WriteDigest(w, m.Lookup(k.d, k.k), t.Elem)
 		}
 	case types.TupleKind:
 		writeLength(w, len(t.Fields))
