@@ -29,7 +29,7 @@ type v0module struct {
 
 // Source implements Module.Source.
 func (m *v0module) Source() []byte {
-	panic("v0module doesn't support Source")
+	return m.source
 }
 
 // Eager returns true.

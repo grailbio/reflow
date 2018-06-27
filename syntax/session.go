@@ -124,6 +124,7 @@ func (s *Session) Open(path string) (Module, error) {
 			params: make(map[string]string),
 			path:   path,
 			typ:    prog.ModuleType(),
+			source: source,
 		}
 		flags := prog.Flags()
 		flags.VisitAll(func(f *flag.Flag) {
