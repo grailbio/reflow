@@ -62,8 +62,8 @@ Reflow deposits individual log files into the working directory for
 each run in the batch. These are in addition to the standard log
 files that are peristed for runs, and are always logged at the debug
 level.`
-	retryFlag := flags.Bool("retry", false, "retry failed runs")
-	resetFlag := flags.Bool("reset", false, "reset failed runs")
+	retryFlag := flags.Bool("retry", false, "retry failed runs that have failed and run the ones that never ran.")
+	resetFlag := flags.Bool("reset", false, "reset the state of the batch from the previous runs and start fresh. All intermediate results that were already computed and stored in the cache from previous runs will be reused.")
 	gcFlag := flags.Bool("gc", false, "enable runtime garbage collection")
 	nocacheexternFlag := flags.Bool("nocacheextern", false, "don't cache extern ops")
 	recomputeemptyFlag := flags.Bool("recomputeempty", false, "recompute empty cache values")
