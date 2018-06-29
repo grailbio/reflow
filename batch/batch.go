@@ -413,6 +413,9 @@ func (b *Batch) read() error {
 	records = records[1:]
 	runs := map[string]*Run{}
 	for _, fields := range records {
+		if len(fields) != len(header) {
+			return errors.Errorf("batch file row [%v] has %v fields, need %v", fields, len(fields), len(header))
+		}
 		id := fields[0]
 		attrs := map[string]string{}
 		for j := 1; j < len(header); j++ {
