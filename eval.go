@@ -448,7 +448,7 @@ func (e *Eval) Do(ctx context.Context) error {
 				if !e.total.Available(f.Resources) {
 					// TODO(marius): we could also attach this error to the node.
 					return errors.E(errors.ResourcesExhausted,
-						errors.Errorf("eval: requested resources %v exceeds total available %v", f.Resources, e.total))
+						errors.Errorf("eval %v: requested resources %v exceeds total available %v", f.Ident, f.Resources, e.total))
 				}
 				if !e.available.Available(f.Resources) {
 					continue dequeue
