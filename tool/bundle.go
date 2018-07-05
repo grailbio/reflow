@@ -14,6 +14,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
+	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/syntax"
 	"golang.org/x/sync/errgroup"
 )
@@ -71,6 +72,51 @@ func ReadBundle(ctx context.Context, d digest.Digest, repo reflow.Repository) (*
 	}
 	if err = g.Wait(); err != nil {
 		return nil, err
+	}
+	return &bundle, nil
+}
+
+// ReadArchive reads a reflow bundle archive from path(obtained by running reflow bundle ...) and returns a Bundle.
+func ReadArchive(path string) (*Bundle, error) {
+	r, err := zip.OpenReader(path)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	bundle := Bundle{Inline: syntax.Inline{}}
+	m := make(map[string]*zip.File)
+	for _, f := range r.File {
+		if f.Name == manifest {
+			rc, err := f.Open()
+			if err != nil {
+				return nil, err
+			}
+			b, err := ioutil.ReadAll(rc)
+			if err != nil {
+				return nil, err
+			}
+			err = json.Unmarshal(b, &bundle)
+			if err != nil {
+				return nil, err
+			}
+			rc.Close()
+		}
+		m[f.Name] = f
+	}
+	if len(bundle.Files) == 0 {
+		return nil, errors.Errorf("no files in bundle: %v", bundle)
+	}
+	for k, v := range bundle.Files {
+		rc, err := m[v.String()].Open()
+		if err != nil {
+			return nil, err
+		}
+		b, err := ioutil.ReadAll(rc)
+		if err != nil {
+			return nil, err
+		}
+		bundle.Inline[k] = b
+		rc.Close()
 	}
 	return &bundle, nil
 }
