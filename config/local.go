@@ -10,7 +10,7 @@ import (
 )
 
 func init() {
-	Register(User, "local", "username", "provide a local username",
+	Register(User, "local", "username", "provide a local username, e.g. '-user=local,olgabot@localhost'",
 		func(cfg Config, arg string) (Config, error) {
 			if !strings.Contains(arg, "@") {
 				return nil, errors.New("local: username must contain @")
