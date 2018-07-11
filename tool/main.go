@@ -280,6 +280,7 @@ func (c *Cmd) Main() {
 	}
 
 	c.Log.Debug("reflow version ", c.version())
+	c.Log.Debug("reflowlet image ", c.Config.Value("reflowlet").(string))
 
 	// Create a context and cancel it if we receive an interrupt.
 	// The second interrupt we receive results in a hard exit.
