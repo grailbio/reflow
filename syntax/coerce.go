@@ -7,27 +7,26 @@ package syntax
 import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/internal/scanner"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
 )
 
-var errMatch = errors.New("match error")
-
-func coerceMatch(v values.T, t *types.T, p Path) (values.T, error) {
+func coerceMatch(v values.T, t *types.T, pos scanner.Position, p Path) (values.T, error) {
 	if p.Done() {
 		return v, nil
 	}
 	if f, ok := v.(*reflow.Flow); ok {
-		return coerceMatchFlow(f, t, p), nil
+		return coerceMatchFlow(f, t, pos, p), nil
 	}
-	v, t, ok, p := p.Match(v, t)
+	v, t, ok, p, err := p.Match(v, t)
 	if !ok {
-		return nil, errMatch
+		return nil, errors.E(pos.String(), err)
 	}
-	return coerceMatch(v, t, p)
+	return coerceMatch(v, t, pos, p)
 }
 
-func coerceMatchFlow(f *reflow.Flow, t *types.T, p Path) *reflow.Flow {
+func coerceMatchFlow(f *reflow.Flow, t *types.T, pos scanner.Position, p Path) *reflow.Flow {
 	return &reflow.Flow{
 		Op:         reflow.OpK,
 		Deps:       []*reflow.Flow{f},
@@ -35,19 +34,22 @@ func coerceMatchFlow(f *reflow.Flow, t *types.T, p Path) *reflow.Flow {
 		K: func(vs []values.T) *reflow.Flow {
 			v, t, p := vs[0], t, p
 			for {
-				var ok bool
-				v, t, ok, p = p.Match(v, t)
+				var (
+					err error
+					ok  bool
+				)
+				v, t, ok, p, err = p.Match(v, t)
 				if !ok {
 					return &reflow.Flow{
 						Op:  reflow.OpVal,
-						Err: errors.Recover(errMatch),
+						Err: errors.Recover(errors.E(pos.String(), err)),
 					}
 				}
 				if p.Done() {
 					return flow(v, t)
 				}
 				if f, ok := v.(*reflow.Flow); ok {
-					return coerceMatchFlow(f, t, p)
+					return coerceMatchFlow(f, t, pos, p)
 				}
 			}
 		},

@@ -5,12 +5,12 @@
 package syntax
 
 import (
-	"fmt"
 	"io"
 	"strings"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/scanner"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
@@ -182,10 +182,10 @@ func (p *Pat) BindTypes(env *types.Env, t *types.T) error {
 		return nil
 	case PatTuple:
 		if t.Kind != types.TupleKind {
-			return fmt.Errorf("expected tuple, got %s", t)
+			return errors.Errorf("expected tuple, got %s", t)
 		}
 		if got, want := len(p.List), len(t.Fields); got != want {
-			return fmt.Errorf("expected tuple of size %d, got %d (%s)", want, got, t)
+			return errors.Errorf("expected tuple of size %d, got %d (%s)", want, got, t)
 		}
 		for i, q := range p.List {
 			if err := q.BindTypes(env, t.Fields[i].T); err != nil {
@@ -195,7 +195,7 @@ func (p *Pat) BindTypes(env *types.Env, t *types.T) error {
 		return nil
 	case PatList:
 		if t.Kind != types.ListKind {
-			return fmt.Errorf("expected list, got %s", t)
+			return errors.Errorf("expected list, got %s", t)
 		}
 		for _, q := range p.List {
 			if err := q.BindTypes(env, t.Elem); err != nil {
@@ -205,13 +205,13 @@ func (p *Pat) BindTypes(env *types.Env, t *types.T) error {
 		return nil
 	case PatStruct:
 		if t.Kind != types.StructKind {
-			return fmt.Errorf("expected struct, got %s", t)
+			return errors.Errorf("expected struct, got %s", t)
 		}
 		fm := t.FieldMap()
 		for id, q := range p.Map {
 			u := fm[id]
 			if u == nil {
-				return fmt.Errorf("struct %s does not have field %s", t, id)
+				return errors.Errorf("struct %s does not have field %s", t, id)
 			}
 			if err := q.BindTypes(env, u); err != nil {
 				return err
@@ -342,7 +342,7 @@ type Path []*Matcher
 
 // Match performs single step deconstruction of a type and value.
 // It returns the next level; terminating when len(Path) == 0.
-func (p Path) Match(v values.T, t *types.T) (values.T, *types.T, bool, Path) {
+func (p Path) Match(v values.T, t *types.T) (values.T, *types.T, bool, Path, error) {
 	if len(p) == 0 {
 		panic("bad path")
 	}
@@ -351,17 +351,17 @@ func (p Path) Match(v values.T, t *types.T) (values.T, *types.T, bool, Path) {
 	default:
 		panic("bad path")
 	case MatchValue:
-		return v, t, true, p
+		return v, t, true, p, nil
 	case MatchTuple:
-		return v.(values.Tuple)[m.Index], t.Fields[m.Index].T, true, p
+		return v.(values.Tuple)[m.Index], t.Fields[m.Index].T, true, p, nil
 	case MatchList:
 		l := v.(values.List)
 		if m.Index >= len(l) {
-			return nil, t.Elem, false, p
+			return nil, t.Elem, false, p, errors.Errorf("cannot match index %d with a list of size %d", m.Index, len(l))
 		}
-		return l[m.Index], t.Elem, true, p
+		return l[m.Index], t.Elem, true, p, nil
 	case MatchStruct:
-		return v.(values.Struct)[m.Field], t.Field(m.Field), true, p
+		return v.(values.Struct)[m.Field], t.Field(m.Field), true, p, nil
 	}
 }
 

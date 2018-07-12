@@ -23,6 +23,7 @@ import (
 var (
 	coerceExecOutputDigest = reflow.Digester.FromString("grail.com/reflow/syntax.Eval.coerceExecOutput")
 	sequenceDigest         = reflow.Digester.FromString("grail.com/reflow/syntax.Eval.~>")
+	errMatch               = errors.New("match error")
 
 	one = big.NewInt(1)
 )
@@ -164,7 +165,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}
 			env = env.Push()
 			for id, m := range d.Pat.Matchers() {
-				w, err := coerceMatch(v, d.Type, m.Path())
+				w, err := coerceMatch(v, d.Type, d.Pat.Position, m.Path())
 				if err != nil {
 					return nil, err
 				}
@@ -261,7 +262,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				return nil, err
 			}
 			if !d.Pat.BindValues(env2, v) {
-				return nil, errMatch
+				return nil, errors.E(fmt.Sprintf("%s:", d.Pat.Position), errMatch)
 			}
 		}
 		image := env2.Value("image").(string)
@@ -473,7 +474,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				return nil, err
 			}
 			for id, m := range d.Pat.Matchers() {
-				w, err := coerceMatch(v, d.Type, m.Path())
+				w, err := coerceMatch(v, d.Type, d.Pat.Position, m.Path())
 				if err != nil {
 					return nil, err
 				}
@@ -698,7 +699,7 @@ func (e *Expr) evalRequirements(sess *Session, env *values.Env, ident string) (r
 			return req, err
 		}
 		if !d.Pat.BindValues(env2, v) {
-			return req, errMatch
+			return req, errors.E(fmt.Sprintf("%s:", d.Pat.Position), errMatch)
 		}
 	}
 	req.Min = makeResources(env2)
@@ -905,7 +906,7 @@ func (e *Expr) evalCompr(sess *Session, env *values.Env, ident string, begin int
 				for i, v := range left {
 					env2 := env.Push()
 					for id, m := range clause.Pat.Matchers() {
-						w, err := coerceMatch(v, clause.Expr.Type.Elem, m.Path())
+						w, err := coerceMatch(v, clause.Expr.Type.Elem, clause.Pat.Position, m.Path())
 						if err != nil {
 							return nil, err
 						}
@@ -935,6 +936,7 @@ func (e *Expr) evalCompr(sess *Session, env *values.Env, ident string, begin int
 								&types.Field{T: clause.Expr.Type.Index},
 								&types.Field{T: clause.Expr.Type.Elem},
 							),
+							clause.Pat.Position,
 							matcher.Path(),
 						)
 						if err != nil {

@@ -88,7 +88,7 @@ func TestEvalSimple(t *testing.T) {
 
 func TestPat(t *testing.T) {
 	_, _, _, err := eval(`{val [x, y] = [1]; 123}`)
-	if got, want := err, errMatch; got != want {
+	if got, want := err, errors.New("<input>:1:7: cannot match index 1 with a list of size 1"); got.Error() != want.Error() {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
@@ -245,7 +245,7 @@ func TestEvalErr(t *testing.T) {
 		file string
 		err  string
 	}{
-		{"testdata/err1.rf", "match error"},
+		{"testdata/err1.rf", "testdata/err1.rf:2:7: cannot match index 2 with a list of size 2"},
 		{"testdata/err2.rf", "panic: panic!"},
 	} {
 		m, err := sess.Open(c.file)

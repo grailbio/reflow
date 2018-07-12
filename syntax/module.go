@@ -255,7 +255,7 @@ func (m *ModuleImpl) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error
 				return nil, err
 			}
 			for id, m := range p.Pat.Matchers() {
-				w, err := coerceMatch(v, p.Type, m.Path())
+				w, err := coerceMatch(v, p.Type, p.Pat.Position, m.Path())
 				if err != nil {
 					return nil, err
 				}
@@ -344,7 +344,7 @@ func (m *ModuleImpl) Make(sess *Session, params *values.Env) (values.T, error) {
 			for id, m := range p.Pat.Matchers() {
 				// Passed parameters override definitions.
 				if !params.Contains(id) {
-					w, err := coerceMatch(v, p.Type, m.Path())
+					w, err := coerceMatch(v, p.Type, p.Pat.Position, m.Path())
 					if err != nil {
 						return nil, err
 					}
@@ -363,7 +363,7 @@ func (m *ModuleImpl) Make(sess *Session, params *values.Env) (values.T, error) {
 		}
 		env = env.Push()
 		for id, m := range d.Pat.Matchers() {
-			w, err := coerceMatch(v, d.Type, m.Path())
+			w, err := coerceMatch(v, d.Type, d.Pat.Position, m.Path())
 			if err != nil {
 				return nil, err
 			}
