@@ -12,8 +12,7 @@ import (
 	"io"
 	"io/ioutil"
 	golog "log"
-	"net/http"
-	// Global pprof handlers for all instantiations of the tool.
+	"net/http" // Global pprof handlers for all instantiations of the tool.
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
@@ -67,6 +66,11 @@ type Cmd struct {
 	// Status object for the current cmd invocation. This is used to continuously update the
 	// progress of the cmd execution.
 	Status *status.Status
+
+	// ValidateConfig is run on the configuration to validate its state.
+	// Configuration validation errors are fatal.
+	// ValidateConfig is not run for command "migrate"
+	ValidateConfig func(config.Config) error
 
 	configFlags    map[string]*string
 	httpFlag       string
@@ -197,7 +201,8 @@ func (c *Cmd) Main() {
 		}
 		c.Exit(2)
 	}
-	fn := c.commands()[flags.Arg(0)]
+	cmd := flags.Arg(0)
+	fn := c.commands()[cmd]
 	if fn == nil {
 		flags.Usage()
 	}
@@ -265,6 +270,12 @@ func (c *Cmd) Main() {
 		c.Config = c.MakeConfig(c.Config)
 	}
 	c.Config = config.Once(c.Config)
+	if c.ValidateConfig != nil && cmd != "migrate" {
+		if err := c.ValidateConfig(c.Config); err != nil {
+			c.Fatalf(`invalid configuration: %v: please run "reflow migrate"`, err)
+		}
+	}
+
 	if c.httpFlag != "" {
 		go func() {
 			c.Fatal(http.ListenAndServe(c.httpFlag, nil))

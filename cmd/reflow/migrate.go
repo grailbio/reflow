@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"io/ioutil"
 	"os"
@@ -14,6 +15,8 @@ import (
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/tool"
 )
+
+const ami067 = "ami-4296ec3a"
 
 func migrate(c *tool.Cmd, ctx context.Context, args ...string) {
 	flags := flag.NewFlagSet("migrate", flag.ExitOnError)
@@ -26,7 +29,10 @@ reflow0.6:
  *	Convert cache configuration from the monolithic "cache" key to the
 	split "repository" and "assoc" keys, configured separately.
  *	Add abbreviation indices to DynamoDB assocs to permit abbreviated
-	lookups to command reflow info, others.`
+	lookups to command reflow info, others.
+reflow0.6.7:
+ *	Upgrade CoreOS AMI
+`
 	c.Parse(flags, args, help, "migrate")
 	if flags.NArg() != 0 {
 		flags.Usage()
@@ -63,4 +69,28 @@ reflow0.6:
 		// Migrate the underlying assoc to add indices.
 		configureDynamoDBAssoc(c, ctx, assoc)
 	}
+	if ec2cluster, ok := base["ec2cluster"]; ok {
+		ec2keys := ec2cluster.(map[interface{}]interface{})
+		if _, ok := ec2keys["ami"]; ok {
+			ec2keys["ami"] = ami067
+			c.Log.Printf("migrated ec2 AMI to %v", ec2keys["ami"])
+
+			b, err = config.Marshal(base)
+			if err != nil {
+				c.Fatal(err)
+			}
+			if err := ioutil.WriteFile(c.ConfigFile, b, 0666); err != nil {
+				c.Fatal(err)
+			}
+		}
+	}
+}
+
+func validateConfig(cfg config.Config) error {
+	// reflow0.6.7: mandatory AMI upgrade
+	ec2keys := cfg.Value("ec2cluster").(map[interface{}]interface{})
+	if ec2keys["ami"] != ami067 {
+		return errors.New("outdated CoreOS AMI")
+	}
+	return nil
 }

@@ -83,7 +83,7 @@ The resulting configuration can be examined with "reflow config".`
 		cfg.DiskSpace = 250
 	}
 	if cfg.AMI == "" {
-		cfg.AMI = "ami-7c488704"
+		cfg.AMI = "ami-4296ec3a"
 	}
 	if cfg.MaxInstances == 0 {
 		cfg.MaxInstances = 10

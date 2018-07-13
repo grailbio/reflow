@@ -58,6 +58,7 @@ func main() {
 			"setup-dynamodb-assoc": setupDynamoDBAssoc,
 			"migrate":              migrate,
 		},
+		ValidateConfig: validateConfig,
 	}
 	cmd.Flags().Parse(os.Args[1:])
 	cmd.Main()
