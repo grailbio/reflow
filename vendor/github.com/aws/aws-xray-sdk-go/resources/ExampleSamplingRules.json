@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "default": {
+    "description": "A default rule, as included below, is required in any sampling rules file. (service_name, http_method, and url_path are fixed to '*' for this rule.)",
+    "fixed_target": 1,
+    "rate": 0.05
+  },
+  "rules": [
+    {
+      "description": "Example path-based rule below. Rules are evaluated in id-order, the default rule will be used if none match the incoming request. This is a rule for the checkout page.",
+      "id": "1",
+      "service_name": "*",
+      "http_method": "*",
+      "url_path": "/checkout",
+      "fixed_target": 10,
+      "rate": 0.05
+    }
+  ]
+}

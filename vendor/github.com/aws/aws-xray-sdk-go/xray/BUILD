@@ -1,0 +1,38 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "aws.go",
+        "capture.go",
+        "client.go",
+        "config.go",
+        "context.go",
+        "default_streaming_strategy.go",
+        "emitter.go",
+        "handler.go",
+        "httptrace.go",
+        "lambda.go",
+        "segment.go",
+        "segment_model.go",
+        "sql.go",
+        "sql_go17.go",
+        "sql_go18.go",
+        "streaming_strategy.go",
+    ],
+    importmap = "grail/go/src/vendor/github.com/aws/aws-xray-sdk-go/xray",
+    importpath = "github.com/aws/aws-xray-sdk-go/xray",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/src/vendor/github.com/aws/aws-sdk-go/aws/client:go_default_library",
+        "//go/src/vendor/github.com/aws/aws-sdk-go/aws/request:go_default_library",
+        "//go/src/vendor/github.com/aws/aws-xray-sdk-go/header:go_default_library",
+        "//go/src/vendor/github.com/aws/aws-xray-sdk-go/internal/plugins:go_default_library",
+        "//go/src/vendor/github.com/aws/aws-xray-sdk-go/pattern:go_default_library",
+        "//go/src/vendor/github.com/aws/aws-xray-sdk-go/resources:go_default_library",
+        "//go/src/vendor/github.com/aws/aws-xray-sdk-go/strategy/ctxmissing:go_default_library",
+        "//go/src/vendor/github.com/aws/aws-xray-sdk-go/strategy/exception:go_default_library",
+        "//go/src/vendor/github.com/aws/aws-xray-sdk-go/strategy/sampling:go_default_library",
+        "//go/src/vendor/github.com/cihub/seelog:go_default_library",
+    ],
+)

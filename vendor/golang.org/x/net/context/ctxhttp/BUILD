@@ -1,0 +1,13 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "ctxhttp.go",
+        "ctxhttp_pre17.go",
+    ],
+    importmap = "grail/go/src/vendor/golang.org/x/net/context/ctxhttp",
+    importpath = "golang.org/x/net/context/ctxhttp",
+    visibility = ["//visibility:public"],
+    deps = ["//go/src/vendor/golang.org/x/net/context:go_default_library"],
+)
