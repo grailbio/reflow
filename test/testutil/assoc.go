@@ -46,6 +46,8 @@ func (a *inmemoryAssoc) Store(ctx context.Context, kind assoc.Kind, k, v digest.
 }
 
 func (a *inmemoryAssoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (digest.Digest, digest.Digest, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	key := assocKey{kind, k}
 	v, ok := a.assocs[key]
 	if !ok {

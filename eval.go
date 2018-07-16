@@ -1004,6 +1004,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 			name = fmt.Sprintf("exec %s", abbrevCmd(f))
 		}
 		ctx, done := trace.Start(ctx, trace.Exec, f.Digest(), name)
+		trace.Note(ctx, "ident", f.Ident)
 		defer done()
 		if err := e.exec(ctx, f); err != nil {
 			return err
@@ -1345,11 +1346,24 @@ func (e *Eval) transfer(ctx context.Context, f *Flow) error {
 	for i := range f.Deps {
 		fs.List[i] = f.Deps[i].Value.(Fileset)
 	}
+	var name string
+	switch f.Op {
+	case OpExtern:
+		name = fmt.Sprintf("xfer extern %s %s", f.URL, data.Size(f.Deps[0].Value.(Fileset).Size()))
+	case OpExec:
+		name = fmt.Sprintf("xfer exec %s", abbrevCmd(f))
+	}
+
+	ctx, done := trace.Start(ctx, trace.Transfer, f.Digest(), name)
+	trace.Note(ctx, "files", fs.String())
+	trace.Note(ctx, "size", float64(fs.Size()))
+	defer done()
 	err := e.Transferer.Transfer(ctx, e.Executor.Repository(), e.Repository, fs.Files()...)
 	if err == nil {
 		e.Mutate(f, FlowReady)
 		return nil
 	}
+	trace.Note(ctx, "error", err.Error())
 	e.Log.Errorf("cache transfer %v error: %v", f, err)
 	// Errors.Unavailable is considered a transient error, so the
 	// underlying runner should restart evaluation.
