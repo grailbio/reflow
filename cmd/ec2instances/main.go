@@ -153,8 +153,12 @@ func main() {
 			if linux == nil {
 				continue
 			}
+			price, ok := linux.(map[string]interface{})["ondemand"].(string)
+			if !ok {
+				continue
+			}
 
-			g.Printf("		%q: %s,\n", region, linux.(map[string]interface{})["ondemand"])
+			g.Printf("		%q: %s,\n", region, price)
 		}
 
 		g.Printf("	},\n")
