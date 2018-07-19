@@ -88,7 +88,10 @@ reflow0.6.7:
 
 func validateConfig(cfg config.Config) error {
 	// reflow0.6.7: mandatory AMI upgrade
-	ec2keys := cfg.Value("ec2cluster").(map[interface{}]interface{})
+	ec2keys, ok := cfg.Value("ec2cluster").(map[interface{}]interface{})
+	if !ok {
+		return nil
+	}
 	if ec2keys["ami"] != ami067 {
 		return errors.New("outdated CoreOS AMI")
 	}
