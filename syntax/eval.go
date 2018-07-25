@@ -389,7 +389,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 						case types.FileKind:
 							file, ok := fs.Map["."]
 							if !ok {
-								return nil, errors.New("empty file")
+								return nil, errors.Errorf("output file not created in %s", ident)
 							}
 							v = values.File(file)
 						case types.DirKind:
