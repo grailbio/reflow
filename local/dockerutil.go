@@ -85,6 +85,7 @@ func pullImage(ctx context.Context, client *client.Client, authenticator ecrauth
 	}
 	var resp io.ReadCloser
 	var policy = retry.Backoff(time.Second, 10*time.Second, 1.5)
+	policy = retry.MaxTries(policy, 5)
 	for retries := 0; ; retries++ {
 		var err error
 		resp, err = client.ImagePull(ctx, ref, options)
@@ -92,6 +93,9 @@ func pullImage(ctx context.Context, client *client.Client, authenticator ecrauth
 			break
 		}
 		if !strings.Contains(err.Error(), "Error response from daemon:") {
+			return err
+		}
+		if strings.HasSuffix(err.Error(), "not found") {
 			return err
 		}
 		if err := retry.Wait(ctx, policy, retries); err != nil {
