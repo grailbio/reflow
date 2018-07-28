@@ -16,11 +16,11 @@ import (
 
 func (c *Cmd) rmcache(ctx context.Context, args ...string) {
 	var (
-		flags = flag.NewFlagSet("cacherm", flag.ExitOnError)
+		flags = flag.NewFlagSet("rmcache", flag.ExitOnError)
 		help  = `Rmcache removes items from cache. 
 Items are digests read from the standard input.`
 	)
-	c.Parse(flags, args, help, "cacherm")
+	c.Parse(flags, args, help, "rmcache")
 	if flags.NArg() != 0 {
 		flags.Usage()
 	}
