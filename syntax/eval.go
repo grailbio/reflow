@@ -1058,11 +1058,11 @@ func (k evalK) Continue(e *Expr, sess *Session, env *values.Env, ident string, k
 		deps  []*reflow.Flow
 		depsi []int
 		vs    = make([]values.T, len(subs))
+		ts    = make([]*types.T, len(subs))
 		dw    = reflow.Digester.NewWriter()
 	)
 	// TODO(marius): push down sorting of dependencies here?
 	for i, sub := range subs {
-		var T *types.T
 		switch sub := sub.(type) {
 		case *Expr:
 			var err error
@@ -1070,16 +1070,15 @@ func (k evalK) Continue(e *Expr, sess *Session, env *values.Env, ident string, k
 			if err != nil {
 				return nil, err
 			}
-			T = sub.Type
+			ts[i] = sub.Type
 		case tval:
 			vs[i] = sub.V
-			T = sub.T
+			ts[i] = sub.T
 		default:
 			panic(fmt.Sprintf("invalid sub argument type %T", sub))
 		}
 		f, ok := vs[i].(*reflow.Flow)
 		if !ok {
-			values.WriteDigest(dw, vs[i], T)
 			continue
 		}
 		deps = append(deps, f)
@@ -1090,6 +1089,15 @@ func (k evalK) Continue(e *Expr, sess *Session, env *values.Env, ident string, k
 	// except if we're evaluating a delay operation.
 	if len(deps) == 0 && (e.Kind != ExprBuiltin || e.Op != "delay") {
 		return kfn(vs)
+	}
+
+	// If we need to continue then we also have to incorporate the digests
+	// of dependent values.
+	for i, v := range vs {
+		if _, ok := v.(*reflow.Flow); ok {
+			continue
+		}
+		values.WriteDigest(dw, v, ts[i])
 	}
 
 	// Otherwise, the node cannot be immediately evaluated; we defer its
