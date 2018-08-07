@@ -287,7 +287,7 @@ func (c *Cmd) Main() {
 			c.Fatal(err)
 		}
 		pprof.StartCPUProfile(file)
-		defer pprof.StopCPUProfile()
+		c.onexit(pprof.StopCPUProfile)
 	}
 
 	c.Log.Debug("reflow version ", c.version())
