@@ -228,11 +228,14 @@ func (c *Cmd) Main() {
 		logprefix = ""
 	}
 	c.Status = new(status.Status)
-	reporter := make(status.Reporter)
-	c.Stdout = reporter.Wrap(os.Stdout)
-	c.Stderr = reporter.Wrap(os.Stderr)
-	go reporter.Go(os.Stderr, c.Status)
-	c.onexit(reporter.Stop)
+	http.Handle("/debug/status", status.Handler(c.Status))
+	if level < log.DebugLevel {
+		reporter := make(status.Reporter)
+		c.Stdout = reporter.Wrap(os.Stdout)
+		c.Stderr = reporter.Wrap(os.Stderr)
+		go reporter.Go(os.Stderr, c.Status)
+		c.onexit(reporter.Stop)
+	}
 
 	// Set the system wide logger with the same level and output
 	// as the one that's threaded through Cmd.
