@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -37,7 +38,7 @@ defining the paths of the reflow program to be used and the run file
 that contains each run's parameter. For example, the config.json file
 
 	{
-		"program": "pipeline.reflow",
+		"program": "pipeline.rf",
 		"runs_file": "samples.csv"
 	}
 
@@ -61,7 +62,11 @@ bam=3.bam,sample=c.
 Reflow deposits individual log files into the working directory for
 each run in the batch. These are in addition to the standard log
 files that are peristed for runs, and are always logged at the debug
-level.`
+level.
+
+Remaining arguments are passed on as parameters to all runs; these
+flags override any parameters in the batch sample file.
+`
 	retryFlag := flags.Bool("retry", false, "retry failed runs")
 	resetFlag := flags.Bool("reset", false, "reset failed runs")
 	gcFlag := flags.Bool("gc", false, "enable runtime garbage collection")
@@ -69,11 +74,9 @@ level.`
 	recomputeemptyFlag := flags.Bool("recomputeempty", false, "recompute empty cache values")
 	evalStrategy := flags.String("eval", "topdown", "evaluation strategy")
 	invalidateFlag := flags.String("invalidate", "", "regular expression for node identifiers that should be invalidated")
-
+	idsFlag := flags.String("ids", "", "comma-separated list of ids to run; an empty list runs all")
 	c.Parse(flags, args, help, "runbatch [-retry] [-reset] [flags]")
-	if flags.NArg() != 0 {
-		flags.Usage()
-	}
+
 	switch *evalStrategy {
 	case "topdown", "bottomup":
 	default:
@@ -128,6 +131,7 @@ level.`
 			BottomUp:       *evalStrategy == "bottomup",
 			Invalidate:     invalidate,
 		},
+		Args:    flags.Args(),
 		Rundir:  c.rundir(),
 		User:    user,
 		Cluster: cluster,
@@ -141,6 +145,18 @@ level.`
 		c.Fatal(err)
 	}
 	defer b.Close()
+	if *idsFlag != "" {
+		list := strings.Split(*idsFlag, ",")
+		ids := make(map[string]bool)
+		for _, id := range list {
+			ids[id] = true
+		}
+		for id := range b.Runs {
+			if !ids[id] {
+				delete(b.Runs, id)
+			}
+		}
+	}
 	if *retryFlag {
 		for id, run := range b.Runs {
 			var retry bool

@@ -208,8 +208,21 @@ func (r *Run) flow() (*reflow.Flow, *types.T, error) {
 			return nil, nil, err
 		}
 		flags := prog.Flags()
+		// Parse additional flags.
+		flags.Usage = func() {
+			err = errors.New("bad flags")
+		}
+		flags.Parse(r.batch.Args)
+		if err != nil {
+			return nil, nil, err
+		}
 		flags.VisitAll(func(f *flag.Flag) {
-			f.Value.Set(r.Args[f.Name])
+			if f.Value.String() == "" {
+				// Unfortunately, Go's flag package does not tell us about
+				// the "settedness" of a flag directly. This is a hack, since,
+				// for example, a string flag could be set to "" on purpose.
+				f.Value.Set(r.Args[f.Name])
+			}
 			if f.Value.String() == "" {
 				err = fmt.Errorf("argument %q is undefined\n", f.Name)
 			}
@@ -239,8 +252,19 @@ func (r *Run) flow() (*reflow.Flow, *types.T, error) {
 		if err != nil {
 			return nil, nil, err
 		}
+		// Parse additional flags.
+		flags.Usage = func() {
+			err = errors.New("bad flags")
+		}
+		flags.Parse(r.batch.Args)
+		if err != nil {
+			return nil, nil, err
+		}
 		flags.VisitAll(func(f *flag.Flag) {
-			if v, ok := r.Args[f.Name]; ok {
+			// Unfortunately, Go's flag package does not tell us about
+			// the "settedness" of a flag directly. This is a hack, since,
+			// for example, a string flag could be set to "" on purpose.
+			if v, ok := r.Args[f.Name]; f.Value.String() == "" && ok {
 				f.Value.Set(v)
 			}
 		})
@@ -293,6 +317,9 @@ type Batch struct {
 	// work-stealing works are allocated from this cluster, while
 	// primary workers are allocated from Cluster.
 	ClusterAux runner.Cluster
+	// Args are additional command line arguments (parsed as flags).
+	// They override any supplied in the batch configuration.
+	Args []string
 
 	// Status is the status group used to report batch status;
 	// individual run statuses are reported as tasks in the group.
