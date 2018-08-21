@@ -27,7 +27,7 @@ func eval(e string) (values.T, *types.T, *Session, error) {
 		return nil, nil, nil, err
 	}
 	tenv, venv := Stdlib()
-	sess := NewSession()
+	sess := NewSession(nil)
 	if err := p.Expr.Init(sess, tenv); err != nil {
 		return nil, nil, nil, err
 	}
@@ -171,7 +171,7 @@ func TestExec(t *testing.T) {
 }
 
 func TestEval(t *testing.T) {
-	sess := NewSession()
+	sess := NewSession(nil)
 	progs := []string{
 		"testdata/test1.rf",
 		"testdata/arith.rf",
@@ -240,7 +240,7 @@ Prog:
 }
 
 func TestEvalErr(t *testing.T) {
-	sess := NewSession()
+	sess := NewSession(nil)
 	for _, c := range []struct {
 		file string
 		err  string
@@ -265,7 +265,7 @@ func TestEvalErr(t *testing.T) {
 }
 
 func TestTypeErr(t *testing.T) {
-	sess := NewSession()
+	sess := NewSession(nil)
 	for _, c := range []struct {
 		file   string
 		errpat string

@@ -28,7 +28,7 @@ func (c *Cmd) doc(ctx context.Context, args ...string) {
 	if flags.NArg() != 1 {
 		flags.Usage()
 	}
-	sess := syntax.NewSession()
+	sess := syntax.NewSession(nil)
 	m, err := sess.Open(flags.Arg(0))
 	if err != nil {
 		c.Fatal(err)

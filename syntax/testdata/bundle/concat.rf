@@ -1,0 +1,3 @@
+param sep = ""
+
+func Concat(x, y string) = x+sep+y

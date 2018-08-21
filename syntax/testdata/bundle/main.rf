@@ -1,0 +1,9 @@
+param (
+	f1 = "hello"
+	f2 = "world"
+)
+
+val concat = make("./concat.rf")
+
+val Main = concat.Concat(f1, f2)
+

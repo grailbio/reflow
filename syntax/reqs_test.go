@@ -21,7 +21,7 @@ var requirementsType = types.Struct(
 	&types.Field{"wide", types.Bool})
 
 func TestRequirements(t *testing.T) {
-	sess := NewSession()
+	sess := NewSession(nil)
 	m, err := sess.Open("testdata/req.rf")
 	if err != nil {
 		t.Fatal(err)

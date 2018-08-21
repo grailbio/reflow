@@ -100,6 +100,24 @@ func (e *Env) Push() *Env {
 	}
 }
 
+func (e *Env) copy() *Env {
+	f := new(Env)
+	*f = *e
+	return f
+}
+
+// Concat returns a new concatenated environment.
+func (e *Env) Concat(f *Env) *Env {
+	e = e.copy()
+	g := e
+	for e.next != nil {
+		e.next = e.next.copy()
+		e = e.next
+	}
+	e.next = f
+	return g
+}
+
 // Debug sets the debug flag on this environment.
 // This causes IsDebug to return true.
 func (e *Env) Debug() {

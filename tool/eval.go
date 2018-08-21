@@ -26,11 +26,11 @@ type EvalResult struct {
 	Params  map[string]string
 	Args    []string
 	V1      bool
-	Bundle  *Bundle
+	Bundle  *syntax.Bundle
 }
 
-// Eval evaluates a Reflow program to a Flow. It can evaluate both legacy(".reflow")
-// and modern(".rf") programs. It interprets flags as module parameters.
+// Eval evaluates a Reflow program to a Flow. It can evaluate both legacy (".reflow")
+// and modern (".rf") programs. It interprets flags as module parameters.
 func (c *Cmd) Eval(args []string) (EvalResult, error) {
 	if len(args) == 0 {
 		return EvalResult{}, errors.New("no program provided")
@@ -71,8 +71,8 @@ func (c *Cmd) Eval(args []string) (EvalResult, error) {
 		er.Args = prog.Args
 		er.Flow = prog.Eval()
 		return er, nil
-	case ".rf":
-		sess := syntax.NewSession()
+	case ".rf", ".rfx":
+		sess := syntax.NewSession(nil)
 		if err != nil {
 			return EvalResult{}, err
 		}
@@ -80,7 +80,7 @@ func (c *Cmd) Eval(args []string) (EvalResult, error) {
 		if err != nil {
 			return EvalResult{}, err
 		}
-		er.Bundle = &Bundle{Name: file, Args: er.Args, Inline: sess.Inline(), Images: sess.Images()}
+		er.Bundle = sess.Bundle()
 		return er, nil
 	default:
 		return EvalResult{}, fmt.Errorf("unknown file extension %q", ext)
@@ -123,7 +123,7 @@ func (c *Cmd) evalV1(sess *syntax.Session, file string, args []string) (EvalResu
 	}
 	flags.Parse(args)
 	env := sess.Values.Push()
-	if err := m.FlagEnv(flags, env); err != nil {
+	if err := m.FlagEnv(flags, env, types.NewEnv()); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		flags.Usage()
 	}
@@ -148,20 +148,6 @@ func (c *Cmd) evalV1(sess *syntax.Session, file string, args []string) (EvalResu
 		er.Flow = &reflow.Flow{Op: reflow.OpVal, Value: v}
 		return er, nil
 	}
-}
-
-// EvalBundle evaluates a reflow bundle. It can only evaluate reflow v1 programs.
-// args will override args specified in the bundle.
-func (c *Cmd) EvalBundle(b *Bundle, args []string) (EvalResult, error) {
-	sess := syntax.NewSession()
-	sess.Source = &b.Inline
-	er, err := c.evalV1(sess, b.Name, append(b.Args, args...))
-	if err != nil {
-		return er, err
-	}
-	er.Bundle = b
-	er.Bundle.Args = er.Args
-	return er, nil
 }
 
 func sprintval(v values.T, t *types.T) string {

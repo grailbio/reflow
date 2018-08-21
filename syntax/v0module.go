@@ -81,7 +81,7 @@ func (m *v0module) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error) 
 	return nil, errors.New("flags not supported for v0 modules")
 }
 
-func (m *v0module) FlagEnv(flags *flag.FlagSet, env *values.Env) error {
+func (m *v0module) FlagEnv(*flag.FlagSet, *values.Env, *types.Env) error {
 	return errors.New("flags not supported for v0 modules")
 }
 
@@ -144,4 +144,12 @@ func (m *v0module) Doc(ident string) string {
 
 func (m *v0module) Type() *types.T {
 	return m.typ
+}
+
+func (*v0module) InjectArgs(*Session, []string) error {
+	panic("syntax.v0module: invalid call to InjectArgs")
+}
+
+func (*v0module) InjectedArgs() []string {
+	return nil
 }

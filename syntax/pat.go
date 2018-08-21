@@ -35,6 +35,12 @@ const (
 	PatIgnore
 )
 
+// A PatField stores a field entry in a pattern.
+type PatField struct {
+	Name string
+	*Pat
+}
+
 // A Pat stores a pattern tree used in destructuring operations.
 // Patterns can bind type and value environments. They can also
 // produce matchers that can be used to selectively match and bind
@@ -47,7 +53,7 @@ type Pat struct {
 	Ident string
 	List  []*Pat
 
-	Map map[string]*Pat
+	Fields []PatField
 }
 
 // Equal tells whether pattern p is equal to pattern q.
@@ -66,19 +72,22 @@ func (p *Pat) Equal(q *Pat) bool {
 			return false
 		}
 	}
-
-	keys := map[string]bool{}
-	for k := range p.Map {
+	var (
+		pfields = p.FieldMap()
+		qfields = q.FieldMap()
+		keys    = make(map[string]bool)
+	)
+	for k := range pfields {
 		keys[k] = true
 	}
-	for k := range q.Map {
+	for k := range qfields {
 		delete(keys, k)
 	}
 	if len(keys) > 0 {
 		return false
 	}
-	for k, v := range p.Map {
-		w := q.Map[k]
+	for k, v := range pfields {
+		w := qfields[k]
 		if w == nil {
 			return false
 		}
@@ -110,8 +119,8 @@ func (p *Pat) Debug() string {
 		return "list(" + strings.Join(pats, ", ") + ")"
 	case PatStruct:
 		var pats []string
-		for id, q := range p.Map {
-			pats = append(pats, id+":"+q.Debug())
+		for _, f := range p.Fields {
+			pats = append(pats, f.Name+":"+f.Pat.Debug())
 		}
 		return "struct(" + strings.Join(pats, ", ") + ")"
 	case PatIgnore:
@@ -140,8 +149,8 @@ func (p *Pat) String() string {
 		return "[" + strings.Join(pats, ", ") + "]"
 	case PatStruct:
 		var pats []string
-		for id, q := range p.Map {
-			pats = append(pats, id+":"+q.String())
+		for _, f := range p.Fields {
+			pats = append(pats, f.Name+":"+f.Pat.String())
 		}
 		return "{" + strings.Join(pats, ", ") + "}"
 	case PatIgnore:
@@ -162,8 +171,8 @@ func (p *Pat) Idents(ids []string) []string {
 		}
 		return ids
 	case PatStruct:
-		for id := range p.Map {
-			ids = append(ids, id)
+		for _, f := range p.Fields {
+			ids = f.Idents(ids)
 		}
 		return ids
 	case PatIgnore:
@@ -208,7 +217,7 @@ func (p *Pat) BindTypes(env *types.Env, t *types.T) error {
 			return errors.Errorf("expected struct, got %s", t)
 		}
 		fm := t.FieldMap()
-		for id, q := range p.Map {
+		for id, q := range p.FieldMap() {
 			u := fm[id]
 			if u == nil {
 				return errors.Errorf("struct %s does not have field %s", t, id)
@@ -252,8 +261,8 @@ func (p *Pat) BindValues(env *values.Env, v values.T) bool {
 		return true
 	case PatStruct:
 		s := v.(values.Struct)
-		for id, q := range p.Map {
-			if !q.BindValues(env, s[id]) {
+		for _, f := range p.Fields {
+			if !f.Pat.BindValues(env, s[f.Name]) {
 				return false
 			}
 		}
@@ -267,6 +276,74 @@ func (p *Pat) BindValues(env *values.Env, v values.T) bool {
 func (p *Pat) Matchers() map[string]*Matcher {
 	m := map[string]*Matcher{}
 	p.matchers(m, nil)
+	return m
+}
+
+// Remove removes any identifiers in the set provided by idents and
+// returns a new pattern where these identifiers are replaced by
+// ignore patterns. The set of removed identifiers are returned
+// alongside the new pattern.
+func (p *Pat) Remove(idents interface {
+	Contains(string) bool
+}) (*Pat, []string) {
+	switch p.Kind {
+	default:
+		panic("bad pat")
+	case PatIdent:
+		if idents.Contains(p.Ident) {
+			return &Pat{Kind: PatIgnore}, []string{p.Ident}
+		}
+		return p, nil
+	case PatTuple, PatList:
+		var (
+			removed []string
+			list    = make([]*Pat, len(p.List))
+		)
+		for i, q := range p.List {
+			var ids []string
+			list[i], ids = q.Remove(idents)
+			if ids != nil {
+				removed = append(removed, ids...)
+			}
+		}
+		if len(removed) == 0 {
+			return p, nil
+		}
+		q := new(Pat)
+		*q = *p
+		q.List = list
+		return q, removed
+	case PatStruct:
+		var (
+			removed []string
+			fields  = make([]PatField, len(p.Fields))
+		)
+		for i, f := range p.Fields {
+			var ids []string
+			fields[i].Name = f.Name
+			fields[i].Pat, ids = f.Remove(idents)
+			if ids != nil {
+				removed = append(removed, ids...)
+			}
+		}
+		if len(removed) == 0 {
+			return p, nil
+		}
+		q := new(Pat)
+		*q = *p
+		q.Fields = fields
+		return q, removed
+	case PatIgnore:
+		return p, nil
+	}
+}
+
+// FieldMap returns the set of fields in pattern p as a map.
+func (p *Pat) FieldMap() map[string]*Pat {
+	m := make(map[string]*Pat, len(p.Fields))
+	for _, f := range p.Fields {
+		m[f.Name] = f.Pat
+	}
 	return m
 }
 
@@ -285,8 +362,8 @@ func (p *Pat) matchers(m map[string]*Matcher, parent *Matcher) {
 			q.matchers(m, &Matcher{Kind: MatchList, Index: i, Parent: parent})
 		}
 	case PatStruct:
-		for id, q := range p.Map {
-			q.matchers(m, &Matcher{Kind: MatchStruct, Field: id, Parent: parent})
+		for _, f := range p.Fields {
+			f.matchers(m, &Matcher{Kind: MatchStruct, Field: f.Name, Parent: parent})
 		}
 	case PatIgnore:
 	}

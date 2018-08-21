@@ -1163,9 +1163,9 @@ yydefault:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		//line reflow.y:275
 		{
-			yyVAL.pat = &Pat{Position: yyDollar[1].pos.Position, Kind: PatStruct, Map: make(map[string]*Pat)}
-			for _, p := range yyDollar[2].structpats {
-				yyVAL.pat.Map[p.field] = p.pat
+			yyVAL.pat = &Pat{Position: yyDollar[1].pos.Position, Kind: PatStruct, Fields: make([]PatField, len(yyDollar[2].structpats))}
+			for i, p := range yyDollar[2].structpats {
+				yyVAL.pat.Fields[i] = PatField{p.field, p.pat}
 			}
 		}
 	case 36:

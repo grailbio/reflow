@@ -1,0 +1,8 @@
+param (
+	p1 string
+	p2 = "ok"
+	p3 = 123
+)
+
+val X = p3
+val Y = p1+p2

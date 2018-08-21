@@ -273,9 +273,9 @@ pat:
 	{$$ = &Pat{Position: $1.Position, Kind: PatList, List: $2}}
 |	'{' structpatargs '}'
 	{
-		$$ = &Pat{Position: $1.Position, Kind: PatStruct, Map: make(map[string]*Pat)}
-		for _, p := range $2 {
-			$$.Map[p.field] = p.pat
+		$$ = &Pat{Position: $1.Position, Kind: PatStruct, Fields: make([]PatField, len($2))}
+		for i, p := range $2 {
+			$$.Fields[i] = PatField{p.field, p.pat}
 		}
 	}
 

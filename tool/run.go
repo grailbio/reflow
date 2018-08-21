@@ -23,7 +23,6 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow"
-	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/local"
@@ -162,7 +161,7 @@ retriable.`
 	c.runCommon(ctx, config, er)
 }
 
-// runCommon is the helper function used by run commands (run, rerun).
+// runCommon is the helper function used by run commands.
 func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 	// In the case where a flow is immediate, we print the result and quit.
 	if er.Flow.Op == reflow.OpVal {
@@ -180,14 +179,6 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 	ass, err := c.Config.Assoc()
 	if err != nil {
 		c.Fatal(err)
-	}
-	if er.Bundle != nil {
-		d, err := er.Bundle.Write(ctx, repo)
-		if err != nil {
-			c.Log.Error(err)
-		} else if err := ass.Store(ctx, assoc.Bundle, runID, d); err != nil {
-			c.Log.Error(err)
-		}
 	}
 	// Set up run transcript and log files.
 	base := c.Runbase(runID)

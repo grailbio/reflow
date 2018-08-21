@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/grailbio/base/digest"
+	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/lang"
 	"github.com/grailbio/reflow/types"
@@ -30,12 +32,13 @@ type Session struct {
 	Types  *types.Env
 	Values *values.Env
 
-	// Module source to use.
-	// e.g. It is set to tool.Bundle.Source when we want to rerun a program from an existing bundle.
-	Source Source
+	src Sourcer
 
 	path    string
 	modules map[string]Module
+	// Entrypoint is the first module opened.
+	entrypoint     Module
+	entrypointPath string
 
 	mu sync.Mutex
 
@@ -44,11 +47,16 @@ type Session struct {
 	images map[string]bool
 }
 
-// NewSession creates and initializes a session.
-func NewSession() *Session {
-	s := &Session{modules: map[string]Module{}, images: map[string]bool{}}
+// NewSession creates and initializes a session, reading
+// source bytes from the provided sourcer.
+//
+// If src is nil, the default Sourcer is selected.
+func NewSession(src Sourcer) *Session {
+	s := &Session{modules: map[string]Module{}, images: map[string]bool{}, src: src}
+	if s.src == nil {
+		s.src = Filesystem
+	}
 	s.Types, s.Values = Stdlib()
-	s.Source = &File{}
 	return s
 }
 
@@ -72,15 +80,19 @@ func (s *Session) Open(path string) (Module, error) {
 	if m, ok := s.modules[path]; ok {
 		return m, nil
 	}
-	var source []byte
-	var err error
-	if source, err = s.Source.Read(path); err != nil {
+	source, err := s.src.Source(path)
+	if err != nil {
 		return nil, err
 	}
+	var (
+		mod              Module
+		modulePath       = filepath.Dir(path)
+		assignEntrypoint = s.entrypoint == nil
+	)
 	switch ext := filepath.Ext(path); ext {
 	default:
 		return nil, fmt.Errorf("unknown module extension %s", ext)
-	case ".rf":
+	case ".rf": // Regular reflow module.
 		lx := &Parser{
 			File: path,
 			Body: bytes.NewReader(source),
@@ -105,9 +117,41 @@ func (s *Session) Open(path string) (Module, error) {
 		}
 		lx.Module.source = source
 		s.modules[path] = lx.Module
-		return lx.Module, nil
-	case ".reflow":
-		// Construct a synthetic module from a Reflow "v0" script.
+		mod = lx.Module
+	case ".rfx": // Reflow bundles.
+		bundle, err := OpenBundle(bytes.NewReader(source), int64(len(source)))
+		if err != nil {
+			return nil, err
+		}
+		// Find the entrypoint; type check and evaluate it in a new, isolated
+		// session.
+		entry, args, entrypointPath, err := bundle.Entrypoint()
+		if err != nil {
+			return nil, err
+		}
+		sess := NewSession(bundle)
+		sess.path = entrypointPath
+		lx := &Parser{
+			File: path,
+			Body: bytes.NewReader(entry),
+			Mode: ParseModule,
+		}
+		if err := lx.Parse(); err != nil {
+			return nil, err
+		}
+		// The module is initalized inside of its own, isolated session.
+		if err := lx.Module.Init(sess, sess.Types); err != nil {
+			return nil, err
+		}
+		if err := lx.Module.InjectArgs(sess, args); err != nil {
+			return nil, err
+		}
+		// We treat the module monolithically: its source is the contents
+		// of the bundle itself.
+		lx.Module.source = source
+		s.modules[path] = lx.Module
+		mod = lx.Module
+	case ".reflow": // Reflow "v0" script.
 		prog := &lang.Program{
 			File: path,
 			// This doesn't go through the same error reporting path as
@@ -142,9 +186,36 @@ func (s *Session) Open(path string) (Module, error) {
 			return nil, err
 		}
 		s.modules[path] = m
-		return m, nil
+		mod = m
 	}
+	if assignEntrypoint {
+		s.entrypoint = mod
+		s.entrypointPath = modulePath
+	}
+	return mod, nil
+}
 
+// Bundle creates a bundle that represents a self-contained Reflow
+// module. Its entry point is the first module that was opened in the
+// session.
+func (s *Session) Bundle() *Bundle {
+	bundle := new(Bundle)
+	bundle.files = make(map[digest.Digest][]byte)
+	bundle.manifest.Files = make(map[string]digest.Digest)
+	for path, mod := range s.modules {
+		var (
+			p = mod.Source()
+			d = reflow.Digester.FromBytes(p)
+		)
+		bundle.files[d] = p
+		bundle.manifest.Files[path] = d
+		if mod == s.entrypoint {
+			bundle.manifest.Entrypoint = d
+			bundle.manifest.Args = mod.InjectedArgs()
+		}
+	}
+	bundle.manifest.EntrypointPath = s.entrypointPath
+	return bundle
 }
 
 // SeeImage records an image name. Call during expression evaluation.
@@ -165,40 +236,18 @@ func (s *Session) Images() []string {
 	return images
 }
 
-// Inline returns sources of this module and its includes.
-func (s *Session) Inline() Inline {
-	i := Inline{}
-	for k, v := range s.modules {
-		i[k] = v.Source()
-	}
-	return i
+// Sourcer is an interface that provides access to Reflow source
+// files.
+type Sourcer interface {
+	// Source returns the source bytes for the provided path.
+	Source(path string) ([]byte, error)
 }
 
-// Source is the interface to inject source into a syntax session.
-type Source interface {
-	// Read reads the source from the specified path.
-	Read(path string) ([]byte, error)
-}
+// Filesystem is a Sourcer that reads from the local file system.
+var Filesystem Sourcer = filesystem{}
 
-// Inline is map of the path names to module source.
-type Inline map[string][]byte
+type filesystem struct{}
 
-// Read reads the source bytes of the specified path.
-func (i Inline) Read(path string) ([]byte, error) {
-	if v, ok := i[path]; ok {
-		return v, nil
-	}
-	return []byte{}, errors.Errorf("inline path not found: %v", path)
-}
-
-// File implements the Source interface by reading directly fronm the local filesystem.
-type File struct{}
-
-// Read reads path from the local filesystem.
-func (f File) Read(path string) ([]byte, error) {
-	source, err := ioutil.ReadFile(path)
-	if err != nil {
-		return []byte{}, err
-	}
-	return source, nil
+func (filesystem) Source(path string) ([]byte, error) {
+	return ioutil.ReadFile(path)
 }

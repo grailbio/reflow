@@ -12,6 +12,7 @@ import (
 	"sort"
 
 	"github.com/grailbio/reflow/syntax"
+	"github.com/grailbio/reflow/types"
 )
 
 func (c *Cmd) images(ctx context.Context, args ...string) {
@@ -23,7 +24,7 @@ func (c *Cmd) images(ctx context.Context, args ...string) {
 		flags.Usage()
 	}
 	programPath := flags.Arg(0)
-	sess := syntax.NewSession()
+	sess := syntax.NewSession(nil)
 	m, err := sess.Open(programPath)
 	if err != nil {
 		c.Fatal(err)
@@ -44,7 +45,7 @@ func (c *Cmd) images(ctx context.Context, args ...string) {
 	}
 
 	env := sess.Values.Push()
-	if err = m.FlagEnv(programFlags, env); err != nil {
+	if err = m.FlagEnv(programFlags, env, types.NewEnv()); err != nil {
 		programFlags.Usage()
 	}
 	_, err = m.Make(sess, env)

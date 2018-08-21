@@ -40,7 +40,7 @@ type Module interface {
 	Flags(sess *Session, env *values.Env) (*flag.FlagSet, error)
 	// FlagEnv adds flags from the FlagSet to value environment env.
 	// The FlagSet should be produced by Module.Flags.
-	FlagEnv(flags *flag.FlagSet, env *values.Env) error
+	FlagEnv(flags *flag.FlagSet, env *values.Env, tenv *types.Env) error
 	// Params returns the parameter descriptors for this module.
 	Params() []Param
 	// Doc returns the docstring for a toplevel identifier.
@@ -54,6 +54,11 @@ type Module interface {
 	// Source of this module. This can be used to archive the program
 	// and rerun the program on a different machine.
 	Source() []byte
+	// InjectArgs injects a set of command line flags to override module
+	// parameters.
+	InjectArgs(sess *Session, args []string) error
+	// InjectedArgs returns the arguments that were injected into this module.
+	InjectedArgs() []string
 }
 
 // ModuleImpl defines a Reflow module comprising: a keyspace, a set of
@@ -72,10 +77,12 @@ type ModuleImpl struct {
 
 	// source bytes of this module.
 	source []byte
+	typ    *types.T
+	tenv   *types.Env
 
-	typ *types.T
-
-	tenv *types.Env
+	injectedArgs []string
+	fenv         *values.Env
+	ftenv        *types.Env
 }
 
 // Source gets the source code of this module.
@@ -201,14 +208,17 @@ func (m *ModuleImpl) ParamErr(env *types.Env) error {
 		}
 		delete(required, id)
 	}
-	if len(required) > 0 {
-		var missing []string
-		for id := range required {
+	var missing []string
+	for id := range required {
+		// If we have a injected parameter, then don't consider
+		// it missing.
+		if !m.fenv.Contains(id) {
 			missing = append(missing, id)
 		}
-		if len(missing) == 1 {
-			return fmt.Errorf("missing required module parameter %s", missing[0])
-		}
+	}
+	if len(missing) == 1 {
+		return fmt.Errorf("missing required module parameter %s", missing[0])
+	} else if len(missing) > 1 {
 		return fmt.Errorf("missing required module parameters %s", strings.Join(missing, ", "))
 	}
 	return nil
@@ -230,34 +240,55 @@ func (m *ModuleImpl) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error
 			if help != "" {
 				help += " "
 			}
-			if p.Type.Kind != types.BoolKind {
-				help += "(required)"
-			}
-			switch p.Type.Kind {
-			case types.StringKind:
-				flags.String(p.Ident, "", help)
-			case types.IntKind:
-				flags.Int(p.Ident, 0, help)
-			case types.FloatKind:
-				flags.Float64(p.Ident, 0.0, help)
-			case types.BoolKind:
-				flags.Bool(p.Ident, false, help)
-			default:
-				return nil, fmt.Errorf("-%s: flags of type %s not supported (valid types are: string, int, bool)", p.Ident, p.Type)
+			if m.fenv.Contains(p.Ident) {
+				v := m.fenv.Value(p.Ident)
+				switch p.Type.Kind {
+				case types.StringKind:
+					flags.String(p.Ident, v.(string), help)
+				case types.IntKind:
+					flags.Uint64(p.Ident, v.(*big.Int).Uint64(), help)
+				case types.FloatKind:
+					fl, _ := v.(*big.Float).Float64()
+					flags.Float64(p.Ident, fl, help)
+				case types.BoolKind:
+					flags.Bool(p.Ident, v.(bool), help)
+				default:
+					return nil, fmt.Errorf("-%s: flags of type %s not supported (valid types are: string, int, bool, and float)", p.Ident, p.Type)
+				}
+			} else {
+				if p.Type.Kind != types.BoolKind {
+					help += "(required)"
+				}
+				switch p.Type.Kind {
+				case types.StringKind:
+					flags.String(p.Ident, "", help)
+				case types.IntKind:
+					flags.Int(p.Ident, 0, help)
+				case types.FloatKind:
+					flags.Float64(p.Ident, 0.0, help)
+				case types.BoolKind:
+					flags.Bool(p.Ident, false, help)
+				default:
+					return nil, fmt.Errorf("-%s: flags of type %s not supported (valid types are: string, int, bool)", p.Ident, p.Type)
+				}
 			}
 			// Assign error values here, so that we get a type error.
 			env.Bind(p.Ident, fmt.Errorf("%s is undefined; flag parameters may not depend on other flag parameters", p.Ident))
 		case DeclAssign:
+			// In this case, we have a default value in the flag's environment.
 			tenv := types.NewEnv()
 			p.Pat.BindTypes(tenv, p.Type)
 			v, err := p.Expr.eval(sess, env, p.ID(""))
 			if err != nil {
 				return nil, err
 			}
-			for id, m := range p.Pat.Matchers() {
-				w, err := coerceMatch(v, p.Type, p.Pat.Position, m.Path())
+			for id, match := range p.Pat.Matchers() {
+				w, err := coerceMatch(v, p.Type, p.Pat.Position, match.Path())
 				if err != nil {
 					return nil, err
+				}
+				if m.fenv.Contains(id) {
+					w = m.fenv.Value(id)
 				}
 				// Bind id so we can have parameters depend on each other.
 				env.Bind(id, w)
@@ -278,9 +309,14 @@ func (m *ModuleImpl) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error
 	return flags, nil
 }
 
-// FlagEnv adds flags from the FlagSet to value environment env.
-// The FlagSet should be produced by (*Module).Flags.
-func (m *ModuleImpl) FlagEnv(flags *flag.FlagSet, env *values.Env) error {
+// FlagEnv adds flags from the FlagSet to value environment venv and
+// type environment tenv. The FlagSet should be produced by
+// (*Module).Flags.
+func (m *ModuleImpl) FlagEnv(flags *flag.FlagSet, venv *values.Env, tenv *types.Env) error {
+	return m.flagEnv(true, flags, venv, tenv)
+}
+
+func (m *ModuleImpl) flagEnv(needMandatory bool, flags *flag.FlagSet, venv *values.Env, tenv *types.Env) error {
 	var errs []string
 	flags.VisitAll(func(f *flag.Flag) {
 		t, mandatory := m.Param(f.Name)
@@ -288,13 +324,15 @@ func (m *ModuleImpl) FlagEnv(flags *flag.FlagSet, env *values.Env) error {
 			return
 		}
 		if f.Value.String() == "" && mandatory {
-			errs = append(errs,
-				fmt.Sprintf("missing mandatory flag -%s", f.Name))
+			if needMandatory {
+				errs = append(errs,
+					fmt.Sprintf("missing mandatory flag -%s", f.Name))
+			}
 			return
 		}
 		switch t.Kind {
 		case types.StringKind:
-			env.Bind(f.Name, f.Value.String())
+			venv.Bind(f.Name, f.Value.String())
 		case types.IntKind:
 			v := new(big.Int)
 			if _, ok := v.SetString(f.Value.String(), 10); !ok {
@@ -302,7 +340,7 @@ func (m *ModuleImpl) FlagEnv(flags *flag.FlagSet, env *values.Env) error {
 					fmt.Sprintf("-%s: invalid integer %q", f.Name, f.Value.String()))
 				return
 			}
-			env.Bind(f.Name, v)
+			venv.Bind(f.Name, v)
 		case types.FloatKind:
 			v := new(big.Float)
 			if _, ok := v.SetString(f.Value.String()); !ok {
@@ -310,10 +348,13 @@ func (m *ModuleImpl) FlagEnv(flags *flag.FlagSet, env *values.Env) error {
 					fmt.Sprintf("-%s: invalid float %q", f.Name, f.Value.String()))
 				return
 			}
-			env.Bind(f.Name, v)
+			venv.Bind(f.Name, v)
 		case types.BoolKind:
-			env.Bind(f.Name, f.Value.String() == "true")
+			venv.Bind(f.Name, f.Value.String() == "true")
+		default:
+			return
 		}
+		tenv.Bind(f.Name, t)
 	})
 	switch len(errs) {
 	case 0:
@@ -328,6 +369,10 @@ func (m *ModuleImpl) FlagEnv(flags *flag.FlagSet, env *values.Env) error {
 // Make creates a new instance of this module. ParamDecls contains
 // the value environment storing parameter values.
 func (m *ModuleImpl) Make(sess *Session, params *values.Env) (values.T, error) {
+	if m.fenv != nil {
+		// Fall back to values provided by flags, if any.
+		params = params.Concat(m.fenv)
+	}
 	env := params.Push()
 	for _, p := range m.ParamDecls {
 		switch p.Kind {
@@ -393,20 +438,49 @@ func (m *ModuleImpl) String() string {
 
 // Params returns the parameter metadata for this module.
 func (m *ModuleImpl) Params() []Param {
-	params := make([]Param, len(m.ParamDecls))
-	for i, p := range m.ParamDecls {
-		params[i].Type = p.Type
-		params[i].Doc = p.Comment
+	params := make([]Param, 0, len(m.ParamDecls))
+	for _, p := range m.ParamDecls {
+		var param Param
+		param.Type = p.Type
+		param.Doc = p.Comment
 		// We include the whole expression here, and leave it up
 		// the caller to make sense of which identifiers go where.
 		// (We can't do better, since that would require evaluation.)
-		params[i].Expr = p.Expr
+		param.Expr = p.Expr
 		switch p.Kind {
 		case DeclDeclare:
-			params[i].Ident = p.Ident
-			params[i].Required = true
+			param.Ident = p.Ident
+			param.Required = true
+			// Synthesize an expression from a flag-injected value.
+			if m.fenv.Contains(p.Ident) {
+				param.Required = false
+				param.Expr = &Expr{
+					Kind: ExprConst,
+					Val:  m.fenv.Value(p.Ident),
+					Type: p.Type,
+				}
+			}
+			params = append(params, param)
 		case DeclAssign:
-			params[i].Ident = fmt.Sprint(p.Pat)
+			pat := p.Pat
+			var removed []string
+			pat, removed = pat.Remove(m.fenv)
+			for _, id := range removed {
+				params = append(params, Param{
+					Type:  m.ftenv.Type(id),
+					Ident: id,
+					Doc:   p.Comment,
+					Expr: &Expr{
+						Kind: ExprConst,
+						Val:  m.fenv.Value(id),
+						Type: m.ftenv.Type(id),
+					},
+				})
+			}
+			if len(pat.Matchers()) > 0 {
+				param.Ident = fmt.Sprint(pat)
+				params = append(params, param)
+			}
 		}
 	}
 	return params
@@ -420,4 +494,28 @@ func (m *ModuleImpl) Doc(ident string) string {
 // Type returns the module type of m.
 func (m *ModuleImpl) Type() *types.T {
 	return m.typ
+}
+
+// InjectArgs parameterizes the module with the provided flags.
+// This is equivalent to either providing parameters or overriding
+// their default values.
+//
+// TODO(marius): this is really a hack; we should be serializing the
+// environments directly instead.
+func (m *ModuleImpl) InjectArgs(sess *Session, args []string) error {
+	flags, err := m.Flags(sess, sess.Values)
+	if err != nil {
+		return err
+	}
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	m.fenv = m.fenv.Push()
+	m.ftenv = m.ftenv.Push()
+	m.injectedArgs = args
+	return m.flagEnv(false, flags, m.fenv, m.ftenv)
+}
+
+func (m *ModuleImpl) InjectedArgs() []string {
+	return m.injectedArgs
 }

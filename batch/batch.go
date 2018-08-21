@@ -228,12 +228,12 @@ func (r *Run) flow() (*reflow.Flow, *types.T, error) {
 			}
 		})
 		return prog.Eval(), nil, err
-	case ".rf":
+	case ".rf", ".rfx":
 		if r.batch.GC {
 			r.log.Errorf("garbage collection disabled for v1 reflows")
 			r.batch.GC = false
 		}
-		sess := syntax.NewSession()
+		sess := syntax.NewSession(nil)
 		m, err := sess.Open(r.Program)
 		if err != nil {
 			return nil, nil, err
@@ -269,7 +269,7 @@ func (r *Run) flow() (*reflow.Flow, *types.T, error) {
 			}
 		})
 		env := sess.Values.Push()
-		if err := m.FlagEnv(flags, env); err != nil {
+		if err := m.FlagEnv(flags, env, types.NewEnv()); err != nil {
 			return nil, nil, err
 		}
 		v, err := m.Make(sess, env)
