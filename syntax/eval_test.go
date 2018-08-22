@@ -275,6 +275,7 @@ func TestTypeErr(t *testing.T) {
 		{"testdata/typerr3.rf", `testdata/typerr3.rf:4:13: cannot use type file as type string in argument to F \(type func\(x, y, z string\) string\)$`},
 		{"testdata/typerr4.rf", `typerr4.rf:5:16: failed to open module ./typerr4mod.rf: .*typerr4mod.rf:1:10: identifier "x" not defined$`},
 		{"testdata/typerr5.rf", `typerr5.rf:1:16: failed to open module ./typerr5.reflow: param "invalid-parameter-name" is not a valid Reflow identifier`},
+		{"testdata/typerr6.rf", `typerr6.rf:2:15: parameter cpu is not immediate`},
 	} {
 		_, terr := sess.Open(c.file)
 		if terr == nil {

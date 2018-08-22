@@ -17,7 +17,6 @@ func TestSynth(t *testing.T) {
 		typ  string
 	}{
 		{
-
 			`{f1: 123, f2: "okay", f3: [1,2,3]}`,
 			`{f1 int, f2 string, f3 [int]}`,
 		},
@@ -84,6 +83,32 @@ func TestSynth(t *testing.T) {
 		p.Expr.init(nil, types.NewEnv())
 		if got, want := p.Expr.Type.String(), ex.typ; got != want {
 			t.Errorf("got {`%s`, `%s`}, want {`%s`, `%s`}", ex.expr, got, ex.expr, want)
+		}
+	}
+}
+
+func TestFlow(t *testing.T) {
+	for _, ex := range []struct {
+		expr string
+		flow bool
+	}{
+		{`{f1: 123, f2: "okay", f3: [1,2,3]}`, false},
+		{`{x: file("x")}`, true},
+		{`"x"+"y"`, false},
+		{`exec(image := "blah") (ok dir) {" "}`, true},
+		{`(exec(image := "blah") (ok dir) {" "}, 123)`, true},
+		{`{ x := 1; y := 2; x+y}`, false},
+		{`{ x := file("x"); y := 2; len(x)+y}`, true},
+	} {
+		p := Parser{Mode: ParseExpr, Body: bytes.NewReader([]byte(ex.expr))}
+		if err := p.Parse(); err != nil {
+			t.Errorf("parsing expression %q: %v", ex.expr, err)
+			continue
+		}
+		tenv, _ := Stdlib()
+		p.Expr.init(nil, tenv)
+		if got, want := p.Expr.Type.Flow, ex.flow; got != want {
+			t.Errorf("%s: got flow=%v, want flow=%v", ex.expr, got, want)
 		}
 	}
 }

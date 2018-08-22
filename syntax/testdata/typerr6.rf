@@ -1,0 +1,2 @@
+@requires(cpu := len(file("x")))
+val Main = "x"

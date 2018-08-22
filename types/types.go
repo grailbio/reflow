@@ -210,26 +210,30 @@ var (
 
 // Promote promotes errors and flow flags in the type t.
 func Promote(t *T) *T {
-	if t.Index != nil && t.Index.Error != nil {
-		return t.Index
-	}
-	if t.Elem != nil && t.Elem.Error != nil {
-		return t.Elem
-	}
-	for _, f := range t.Fields {
-		if f.T.Error != nil {
-			return f.T
+	if t.Index != nil {
+		index := Promote(t.Index)
+		if index.Error != nil {
+			return index
+		}
+		if index.Flow {
+			t.Flow = true
 		}
 	}
-
-	if t.Index != nil && t.Index.Flow {
-		t.Flow = true
-	}
-	if t.Elem != nil && t.Elem.Flow {
-		t.Flow = true
+	if t.Elem != nil {
+		elem := Promote(t.Elem)
+		if elem.Error != nil {
+			return elem
+		}
+		if elem.Flow {
+			t.Flow = true
+		}
 	}
 	for _, f := range t.Fields {
-		if f.T.Flow {
+		field := Promote(f.T)
+		if field.Error != nil {
+			return field
+		}
+		if field.Flow {
 			t.Flow = true
 		}
 	}
@@ -291,6 +295,13 @@ func Ref(path ...string) *T {
 func Labeled(label string, t *T) *T {
 	t = t.Copy()
 	t.Label = label
+	return t
+}
+
+// Flow returns type t as a flow type.
+func Flow(t *T) *T {
+	t = t.Copy()
+	t.Flow = true
 	return t
 }
 

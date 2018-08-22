@@ -106,7 +106,7 @@ func Stdlib() (*types.Env, *values.Env) {
 	funcs := []SystemFunc{
 		{
 			Id:   "file",
-			Type: types.Func(types.File, &types.Field{"url", types.String}),
+			Type: types.Flow(types.Func(types.File, &types.Field{"url", types.String})),
 			Do: func(loc values.Location, vs []values.T) (values.T, error) {
 				rawurl := strings.TrimRight(vs[0].(string), "/")
 				u, err := url.Parse(rawurl)
@@ -164,7 +164,7 @@ func Stdlib() (*types.Env, *values.Env) {
 		},
 		{
 			Id:   "dir",
-			Type: types.Func(types.Dir, &types.Field{"url", types.String}),
+			Type: types.Flow(types.Func(types.Dir, &types.Field{"url", types.String})),
 			Do: func(loc values.Location, vs []values.T) (values.T, error) {
 				rawurl := strings.TrimRight(vs[0].(string), "/") + "/"
 				u, err := url.Parse(rawurl)
@@ -333,9 +333,9 @@ var dirsDecls = []*Decl{
 			"to the passed-in regular expression, which must have exactly one " +
 			"regexp group. Paths that do not match the expression are filtered out. " +
 			"Group returns a map that maps each group key to a directory of matched values.",
-		Type: types.Func(types.Map(types.String, types.Dir),
+		Type: types.Flow(types.Func(types.Map(types.String, types.Dir),
 			&types.Field{Name: "dir", T: types.Dir},
-			&types.Field{Name: "re", T: types.String}),
+			&types.Field{Name: "re", T: types.String})),
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
 			dir, raw := args[0].(values.Dir), args[1].(string)
 			re, err := regexp.Compile(raw)
@@ -424,9 +424,9 @@ var dirsDecls = []*Decl{
 		Id:     "Copy",
 		Module: "dirs",
 		Doc:    "Copy copies the directory to an extern location.",
-		Type: types.Func(types.Unit,
+		Type: types.Flow(types.Func(types.Unit,
 			&types.Field{Name: "dir", T: types.Dir},
-			&types.Field{Name: "url", T: types.String}),
+			&types.Field{Name: "url", T: types.String})),
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
 			dir, rawurl := args[0].(values.Dir), args[1].(string)
 			rawurl = strings.TrimRight(rawurl, "/") + "/"
@@ -450,7 +450,7 @@ var dirsDecls = []*Decl{
 		Id:     "Fileset",
 		Module: "dirs",
 		Doc:    "Fileset coerces a fileset into a dir.",
-		Type:   types.Func(types.Dir, &types.Field{Name: "fileset", T: types.Fileset}),
+		Type:   types.Flow(types.Func(types.Dir, &types.Field{Name: "fileset", T: types.Fileset})),
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
 			if f, ok := args[0].(*reflow.Flow); ok {
 				return &reflow.Flow{
@@ -481,9 +481,9 @@ var filesDecls = []*Decl{
 		Id:     "Copy",
 		Module: "files",
 		Doc:    "Copy copies the file to an extern location.",
-		Type: types.Func(types.Unit,
+		Type: types.Flow(types.Func(types.Unit,
 			&types.Field{Name: "file", T: types.File},
-			&types.Field{Name: "url", T: types.String}),
+			&types.Field{Name: "url", T: types.String})),
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
 			file, rawurl := args[0].(values.File), args[1].(string)
 			rawurl = strings.TrimRight(rawurl, "/")
@@ -507,7 +507,7 @@ var filesDecls = []*Decl{
 		Id:     "Fileset",
 		Module: "files",
 		Doc:    "Fileset coerces a fileset into a file.",
-		Type:   types.Func(types.File, &types.Field{Name: "file", T: types.Fileset}),
+		Type:   types.Flow(types.Func(types.File, &types.Field{Name: "file", T: types.Fileset})),
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
 			if f, ok := args[0].(*reflow.Flow); ok {
 				return &reflow.Flow{

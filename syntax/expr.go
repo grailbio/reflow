@@ -386,10 +386,9 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			if e.Left.Type.Kind != types.BoolKind {
 				e.Type = types.Errorf("unary operator \"!\" is only valid for bools, not %s", e.Left.Type)
 			} else {
-				e.Type = types.Bool
+				e.Type = types.Bool.Assign(e.Left.Type)
 			}
 		case "-":
-
 			switch e.Left.Type.Kind {
 			case types.IntKind, types.FloatKind:
 				e.Type = e.Left.Type.Assign(nil)
@@ -422,6 +421,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 				e.Left.identOr("function"), types.FieldsString(have), types.FieldsString(e.Left.Type.Fields))
 			return
 		}
+		e.Type = e.Left.Type.Elem.Assign(e.Left.Type)
 		for i, f := range e.Fields {
 			if !f.Type.Equal(e.Left.Type.Fields[i].T) {
 				e.Type = types.Errorf(
@@ -429,8 +429,8 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 					f.Type, e.Left.Type.Fields[i].T, e.Left.identOr("function"), e.Left.Type)
 				return
 			}
+			e.Type = e.Type.Assign(f.Type)
 		}
-		e.Type = e.Left.Type.Elem.Assign(nil)
 		return
 	case ExprConst:
 		e.Type = e.Type.Assign(nil)
@@ -438,6 +438,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		if !e.Left.Type.Sub(e.Type) {
 			e.Type = types.Errorf("cannot use %s (type %v) as type %v", e.Left.identOr("value"), e.Left.Type, e.Type)
 		}
+		e.Type = e.Type.Assign(e.Left.Type)
 	case ExprBlock:
 		e.Type = e.Left.Type.Assign(nil)
 	case ExprFunc:
@@ -581,7 +582,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 				e.Type = types.Errorf("expected %v, got %v", types.Int, e.Right.Type)
 				return
 			}
-			e.Type = e.Left.Type.Elem.Assign(types.Int)
+			e.Type = e.Left.Type.Elem.Assign(nil)
 		case types.MapKind:
 			if !e.Left.Type.Index.Equal(e.Right.Type) {
 				e.Type = types.Errorf("expected %v, got %v", e.Right.Type, e.Left.Type)
@@ -665,6 +666,8 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			e.Type = types.Error(err)
 			return
 		}
+		// Modules are never flow values because their evaluation never depends
+		// on parameters fully evaluating.
 		e.Type = e.Module.Type().Assign(nil)
 	case ExprBuiltin:
 		switch e.Op {
@@ -757,7 +760,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 				e.Type = types.Bottom
 			}
 		case "delay":
-			e.Type = e.Left.Type.Assign(nil)
+			e.Type = types.Flow(e.Left.Type.Assign(nil))
 		case "trace":
 			e.Type = e.Left.Type.Assign(nil)
 		case "range":
@@ -767,6 +770,8 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 				e.Type = types.Errorf("range expects an integer, not %s", e.Right.Type)
 			} else {
 				e.Type = types.List(types.Int)
+				e.Type = e.Type.Assign(e.Left.Type)
+				e.Type = e.Type.Assign(e.Right.Type)
 			}
 		}
 	case ExprRequires:
