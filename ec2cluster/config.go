@@ -42,6 +42,10 @@ func init() {
 type Config struct {
 	config.Config `yaml:"-"`
 
+	// Name is the name of the cluster config, which defaults to "ec2cluster".
+	// Multiple clusters can be launched/maintained simultaneously by using different names.
+	Name string `yaml:"name,omitempty"`
+
 	// InstanceProfile defines the EC2 instance profile with which to launch
 	// new instances.
 	InstanceProfile string `yaml:"instanceprofile,omitempty"`
@@ -122,6 +126,13 @@ func (c *Config) Marshal(keys config.Keys) error {
 	return nil
 }
 
+func (c *Config) name() string {
+	if c.Name != "" {
+		return c.Name
+	}
+	return ec2cluster
+}
+
 // Cluster returns an EC2-based cluster using the provided parameters.
 func (c *Config) Cluster() (runner.Cluster, error) {
 	clientConfig, _, err := c.HTTPS()
@@ -140,7 +151,7 @@ func (c *Config) Cluster() (runner.Cluster, error) {
 		return nil, err
 	}
 	svc := ec2.New(sess, &aws.Config{MaxRetries: aws.Int(13)})
-	path := filepath.Join(os.ExpandEnv("$HOME/.reflow") /*c.Version,*/, "ec2cluster" /*+c.Config.EC2ClusterName*/)
+	path := filepath.Join(os.ExpandEnv("$HOME/.reflow") /*c.Version,*/, c.name())
 	state, err := state.Open(path)
 	if err != nil {
 		return nil, err
