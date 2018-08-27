@@ -18,6 +18,7 @@ import (
 	"os/signal"
 	"runtime/pprof"
 	"sort"
+	"syscall"
 
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/reflow"
@@ -292,6 +293,10 @@ func (c *Cmd) Main() {
 		c.onexit(pprof.StopCPUProfile)
 	}
 
+	if err := increaseFDRlimit(); err != nil {
+		c.Log.Errorf("Unable to increase file descriptor soft limit: %v", err)
+	}
+
 	c.Log.Debug("reflow version ", c.version())
 	c.Log.Debug("reflowlet image ", c.Config.Value("reflowlet").(string))
 
@@ -400,6 +405,20 @@ func (c *Cmd) commands() map[string]Func {
 
 func (c *Cmd) onexit(fn func()) {
 	c.onexits = append(c.onexits, fn)
+}
+
+// increaseFDRlimit maxes out the FD soft limit.
+func increaseFDRlimit() error {
+	var l syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &l); err != nil {
+		return err
+	}
+	if l.Cur == l.Max {
+		// Already at soft max, nothing to do
+		return nil
+	}
+	l.Cur = l.Max
+	return syscall.Setrlimit(syscall.RLIMIT_NOFILE, &l)
 }
 
 type logConfig struct {
