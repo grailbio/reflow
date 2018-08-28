@@ -10,12 +10,16 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/ecr"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/ec2authenticator"
+	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/runner"
 	"golang.org/x/net/http2"
 	yaml "gopkg.in/yaml.v2"
@@ -25,6 +29,8 @@ const (
 	defaultMaxInstances = 100
 	ec2cluster          = "ec2cluster"
 )
+
+var ecrURI = regexp.MustCompile(`^[0-9]+\.dkr\.ecr\.[a-z0-9-]+\.amazonaws.com/(.*):(.*)$`)
 
 func init() {
 	config.Register("cluster", "ec2cluster", "", "configure a cluster using AWS EC2 compute nodes",
@@ -166,6 +172,9 @@ func (c *Config) Cluster() (runner.Cluster, error) {
 	if !ok {
 		return nil, errors.New("key \"reflowlet\" is not a string")
 	}
+	if err := validateReflowletImage(reflowlet, sess, log); err != nil {
+		return nil, err
+	}
 	cluster := &Cluster{
 		// This is a little sketchy with layering, etc. e.g., keys for
 		// providers on top of us may not be available, etc.
@@ -206,4 +215,20 @@ func (c *Config) Cluster() (runner.Cluster, error) {
 		return nil, err
 	}
 	return cluster, nil
+}
+
+func validateReflowletImage(reflowlet string, sess *session.Session, log *log.Logger) error {
+	matches := ecrURI.FindStringSubmatch(reflowlet)
+	if len(matches) != 3 {
+		log.Errorf("cannot determine repository name and/or image tag from: %s", reflowlet)
+		return nil
+	}
+	dii := &ecr.DescribeImagesInput{
+		RepositoryName: &matches[1],
+		ImageIds:       []*ecr.ImageIdentifier{{ImageTag: &matches[2]}},
+	}
+	if _, err := ecr.New(sess).DescribeImages(dii); err != nil {
+		return fmt.Errorf("required reflowlet image not found on AWS: %v", err)
+	}
+	return nil
 }
