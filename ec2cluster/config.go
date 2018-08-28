@@ -220,7 +220,7 @@ func (c *Config) Cluster() (runner.Cluster, error) {
 func validateReflowletImage(reflowlet string, sess *session.Session, log *log.Logger) error {
 	matches := ecrURI.FindStringSubmatch(reflowlet)
 	if len(matches) != 3 {
-		log.Errorf("cannot determine repository name and/or image tag from: %s", reflowlet)
+		log.Debugf("cannot determine repository name and/or image tag from: %s", reflowlet)
 		return nil
 	}
 	dii := &ecr.DescribeImagesInput{
