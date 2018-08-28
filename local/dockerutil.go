@@ -92,9 +92,6 @@ func pullImage(ctx context.Context, client *client.Client, authenticator ecrauth
 		if err == nil {
 			break
 		}
-		if !strings.Contains(err.Error(), "Error response from daemon:") {
-			return err
-		}
 		if strings.HasSuffix(err.Error(), "not found") {
 			return err
 		}
