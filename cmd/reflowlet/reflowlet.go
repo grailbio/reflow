@@ -38,6 +38,11 @@ manually if one wishes to outsource cluster management.
 	os.Exit(2)
 }
 
+// version is set by the linker when building the binary, e.g.,
+//
+//	go build -ldflags "-X main.version=reflow0.1" .
+var version string
+
 func main() {
 	// Make sure that we always shut down with a non-zero exit code,
 	// so that systemd considers the process failed.
@@ -49,5 +54,4 @@ func main() {
 	server.Config = make(config.Base)
 	go reflowlet.IgnoreSigpipe()
 	log.Fatal(server.ListenAndServe())
-
 }

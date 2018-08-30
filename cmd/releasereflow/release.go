@@ -50,7 +50,8 @@ func main() {
 	defer os.RemoveAll(dir)
 
 	reflowletPath := filepath.Join(dir, "reflowlet")
-	cmd := command("go", "build", "-o", reflowletPath, *reflowlet)
+	cmd := command("go", "build", "-ldflags", fmt.Sprintf("-X main.version=%s", version), "-o", reflowletPath, *reflowlet)
+	log.Printf("command: %v", cmd)
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, "GOOS=linux")
 	cmd.Env = append(cmd.Env, "GOARCH=amd64")
