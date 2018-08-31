@@ -23,6 +23,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/ecrauth"
+	"github.com/grailbio/reflow/internal/s3client"
 	"github.com/grailbio/reflow/internal/walker"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository/file"
@@ -103,7 +104,7 @@ type Executor struct {
 	// stream.
 	remoteStream remoteStream
 
-	s3client *configS3client
+	s3client s3client.Client
 
 	resources reflow.Resources
 
@@ -120,7 +121,7 @@ type Executor struct {
 // Start initializes the executor and recovers previously stored
 // state. It re-initializes all stored execs.
 func (e *Executor) Start() error {
-	e.s3client = &configS3client{
+	e.s3client = &s3client.Config{
 		Config: &aws.Config{
 			Credentials: e.AWSCreds,
 			Region:      aws.String(defaultRegion),

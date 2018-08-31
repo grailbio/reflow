@@ -19,7 +19,7 @@ func TestValidateReflowletImage(t *testing.T) {
 	} {
 		got := validateReflowletImage(tc.api, tc.img, nil)
 		if tc.wantError != (got != nil) {
-			t.Errorf("validateReflowletImage(%v, %v, nil): got error: %v want error:%b", tc.api, tc.img, got, tc.wantError)
+			t.Errorf("validateReflowletImage(%v, %v, nil): got error: %v want error:%v", tc.api, tc.img, got, tc.wantError)
 		}
 	}
 }

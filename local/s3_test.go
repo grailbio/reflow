@@ -9,22 +9,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/internal/s3client"
 	"github.com/grailbio/reflow/repository/file"
 	"github.com/grailbio/testutil"
 	"github.com/grailbio/testutil/s3test"
 )
-
-type staticS3client struct {
-	Client s3iface.S3API
-}
-
-func (c *staticS3client) New(user *aws.Config) s3iface.S3API {
-	return c.Client
-}
 
 func newS3Test(t *testing.T, bucket, prefix string) (s3 *s3Exec, client *s3test.Client, repo *file.Repository, cleanup func()) {
 	var dir string
@@ -33,7 +24,7 @@ func newS3Test(t *testing.T, bucket, prefix string) (s3 *s3Exec, client *s3test.
 	client = s3test.NewClient(t, bucket)
 	client.Region = "us-west-2"
 	s3 = &s3Exec{
-		S3Client:      &staticS3client{client},
+		S3Client:      &s3client.Static{client},
 		Repository:    repo,
 		Root:          filepath.Join(dir, "exec"),
 		FileLimiter:   limiter.New(),

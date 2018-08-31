@@ -23,30 +23,19 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/internal/s3client"
 	"github.com/grailbio/reflow/internal/s3walker"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository/file"
 	"golang.org/x/sync/errgroup"
 )
-
-// DefaultS3Region is the region used for s3 requests if a bucket's
-// region is undiscoverable (e.g., lacking permissions for the
-// GetBucketLocation API call.)
-//
-// Amazon generally defaults to us-east-1 when regions are unspecified
-// (or undiscoverable), but this can be overridden if a different default is
-// desired.
-var DefaultS3Region = "us-east-1"
 
 var (
 	waitingFiles     = expvar.NewInt("s3waiting")
@@ -54,28 +43,6 @@ var (
 	downloadingFiles = expvar.NewInt("s3downloading")
 	digestingFiles   = expvar.NewInt("s3digesting")
 )
-
-// s3Client defines an abstract constructor for S3 clients.
-type s3Client interface {
-	// New creates a new S3 client with a config.
-	New(*aws.Config) s3iface.S3API
-}
-
-// configS3client defines an s3Client that constructs clients
-// from a base config together with the one supplied by the
-// user's call to New.
-type configS3client struct {
-	Config *aws.Config
-}
-
-// New constructs a new S3 client with a configuration based
-// on the merged config of the one supplied by the user and
-// a base config.
-func (c *configS3client) New(user *aws.Config) s3iface.S3API {
-	config := new(aws.Config)
-	config.MergeIn(c.Config, user)
-	return s3.New(session.New(config))
-}
 
 // a canceler rendezvous a cancellation function with a
 // cancellation request.
@@ -137,7 +104,7 @@ func (b *bytewatch) Lap(bytes int64) (dur time.Duration, bps int64) {
 // TODO(marius): add stall detection
 type s3Exec struct {
 	// S3Client is used to construct new S3 clients for S3 operations.
-	S3Client s3Client
+	S3Client s3client.Client
 	// Root is the root directory where the exec's state is stored.
 	Root string
 	// Repository is the repository into which downloaded files are installed.
@@ -230,25 +197,8 @@ func (e *s3Exec) Go(ctx context.Context) {
 				state = execInit
 				break
 			}
-			// Application error: try to interpret it.
-			var kind errors.Kind
-			if aerr, ok := err.(awserr.Error); ok {
-				// The underyling error was an S3 error. Try to classify it.
-				// Best guess based on Amazon's descriptions:
-				switch aerr.Code() {
-				// Code NotFound is not documented, but it's what the API actually returns.
-				case "NoSuchBucket", "NoSuchKey", "NoSuchVersion", "NotFound":
-					kind = errors.NotExist
-				case "AccessDenied":
-					kind = errors.NotAllowed
-				case "InvalidRequest", "InvalidArgument", "EntityTooSmall", "EntityTooLarge", "KeyTooLong", "MethodNotAllowed":
-					kind = errors.Fatal
-				case "ExpiredToken", "AccountProblem", "ServiceUnavailable", "SlowDown", "TokenRefreshRequired", "OperationAborted":
-					kind = errors.Unavailable
-				}
-			}
 			state = execComplete
-			e.Manifest.Result.Err = errors.Recover(errors.E("intern", fmt.Sprint(e.Config.URL), kind, err))
+			e.Manifest.Result.Err = errors.Recover(errors.E("intern", fmt.Sprint(e.Config.URL), s3client.ErrKind(err), err))
 			err = nil
 		default:
 			panic("bug")
@@ -355,7 +305,7 @@ func (e *s3Exec) do(ctx context.Context) error {
 		config.Region = aws.String(region)
 	} else {
 		e.log.Errorf("could not discover region for bucket %s: %v", bucket, err)
-		config.Region = aws.String(DefaultS3Region)
+		config.Region = aws.String(s3client.DefaultRegion)
 	}
 
 	// Define the error group under which we will perform all of our fetches.

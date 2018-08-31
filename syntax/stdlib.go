@@ -138,7 +138,7 @@ func Stdlib() (*types.Env, *values.Env) {
 							if !ok {
 								return nil, errors.E("file", u.String(), errors.NotExist)
 							}
-							return values.File(f), nil
+							return f, nil
 						},
 					}, nil
 				}
@@ -158,7 +158,7 @@ func Stdlib() (*types.Env, *values.Env) {
 						if !ok {
 							return nil, errors.E("file", u.String(), errors.NotExist)
 						}
-						return values.File(f), nil
+						return f, nil
 					},
 				}, nil
 			},
@@ -218,7 +218,7 @@ func Stdlib() (*types.Env, *values.Env) {
 						K: func(vs []values.T) *flow.Flow {
 							dir := make(values.Dir)
 							for i := range vs {
-								dir[paths[i]] = values.File(vs[i].(reflow.Fileset).Map["."])
+								dir[paths[i]] = vs[i].(reflow.Fileset).Map["."]
 							}
 							return &flow.Flow{
 								Op:         flow.Val,
@@ -316,7 +316,7 @@ func coerceFilesetToDir(v values.T) (values.T, error) {
 	fs := v.(reflow.Fileset)
 	dir := make(values.Dir)
 	for key, file := range fs.Map {
-		dir[key] = values.File(file)
+		dir[key] = file
 	}
 	return dir, nil
 }
@@ -369,7 +369,7 @@ var dirsDecls = []*Decl{
 			m := args[0].(values.Map)
 			dir := make(values.Dir)
 			m.Each(func(path, file values.T) {
-				dir[path.(string)] = file.(values.File)
+				dir[path.(string)] = file.(reflow.File)
 			})
 			return dir, nil
 		},
@@ -469,7 +469,7 @@ func coerceFilesetToFile(v values.T) (values.T, error) {
 	if !ok {
 		return nil, errors.Errorf("files.Fileset: invalid fileset %v", fs)
 	}
-	return values.File(f), nil
+	return f, nil
 }
 
 var filesDecls = []*Decl{
@@ -481,7 +481,7 @@ var filesDecls = []*Decl{
 			&types.Field{Name: "file", T: types.File},
 			&types.Field{Name: "url", T: types.String})),
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
-			file, rawurl := args[0].(values.File), args[1].(string)
+			file, rawurl := args[0].(reflow.File), args[1].(string)
 			rawurl = strings.TrimRight(rawurl, "/")
 			u, err := url.Parse(rawurl)
 			if err != nil {

@@ -164,7 +164,7 @@ func (e *Executor) Get(ctx context.Context, id digest.Digest) (reflow.Exec, erro
 }
 
 // Remove is not implemented.
-func (e *Executor) Remove(ctx context.Context, id digest.Digest) error {
+func (*Executor) Remove(ctx context.Context, id digest.Digest) error {
 	panic("not implemented")
 }
 
@@ -177,6 +177,10 @@ func (e *Executor) Execs(ctx context.Context) ([]reflow.Exec, error) {
 		execs = append(execs, e)
 	}
 	return execs, nil
+}
+
+func (*Executor) Resolve(context.Context, string) (reflow.Fileset, error) {
+	panic("not implemented")
 }
 
 // Resources returns this executor's total resources.

@@ -735,7 +735,7 @@ func (f *Flow) WriteDigest(w io.Writer) {
 			//
 			// If we do decide to cache errors, we'll need to digest the error
 			// itself.
-			digest.WriteDigest(w, Digester.Rand())
+			digest.WriteDigest(w, Digester.Rand(nil))
 			return
 		}
 		if v, ok := f.Value.(reflow.Fileset); ok {

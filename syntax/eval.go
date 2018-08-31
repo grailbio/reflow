@@ -411,11 +411,11 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 							if !ok {
 								return nil, errors.Errorf("output file not created in %s", ident)
 							}
-							v = values.File(file)
+							v = file
 						case types.DirKind:
 							dir := make(values.Dir)
 							for k, file := range fs.Map {
-								dir[k] = values.File(file)
+								dir[k] = file
 							}
 							v = dir
 						default:
@@ -425,7 +425,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 					} else {
 						switch outputs[f.Name].Kind {
 						case types.FileKind:
-							tup[i] = values.File{}
+							tup[i] = reflow.File{}
 						case types.DirKind:
 							tup[i] = make(values.Dir)
 						default:
@@ -528,7 +528,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 				switch e.Left.Type.Kind {
 				case types.FileKind:
-					file := vs[0].(values.File)
+					file := vs[0].(reflow.File)
 					return values.NewInt(file.Size), nil
 				case types.DirKind:
 					dir := vs[0].(values.Dir)

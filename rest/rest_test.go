@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"testing"
 )
 
@@ -31,6 +32,13 @@ func TestEndToEnd(t *testing.T) {
 				return
 			}
 			call.Reply(http.StatusOK, m)
+		}),
+		"query": DoFunc(func(ctx context.Context, call *Call) {
+			if !call.Allow("GET") {
+				return
+			}
+			// Echo the query back.
+			call.Reply(http.StatusOK, call.URL().Query())
 		}),
 	}
 
@@ -85,4 +93,22 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 	call.Close()
+
+	call = client.Call("GET", "query?foo=%s&bar=ok&bar=blah", url.QueryEscape("??ok!!"))
+	code, err = call.Do(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := code, http.StatusOK; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	var v url.Values
+	if err := call.Unmarshal(&v); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := v, (url.Values{"foo": []string{"??ok!!"}, "bar": []string{"ok", "blah"}}); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	call.Close()
+
 }

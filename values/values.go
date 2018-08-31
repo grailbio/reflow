@@ -14,8 +14,7 @@
 package values
 
 import (
-	"crypto"
-	// The SHA-256 implementation is required for this package's
+	"crypto" // The SHA-256 implementation is required for this package's
 	// Digester.
 
 	_ "crypto/sha256"
@@ -29,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/types"
 )
 
@@ -122,14 +122,8 @@ type Struct map[string]T
 // Module is the type of module values.
 type Module map[string]T
 
-// File is the type of file values.
-type File struct {
-	ID   digest.Digest
-	Size int64
-}
-
 // Dir is the type of directory values.
-type Dir map[string]File
+type Dir map[string]reflow.File
 
 // Unit is the unit value.
 var Unit = struct{}{}
@@ -191,7 +185,7 @@ func Sprint(v T, t *types.T) string {
 		}
 		return "false"
 	case types.FileKind:
-		file := v.(File)
+		file := v.(reflow.File)
 		return fmt.Sprintf("file(sha256=%s, size=%d)", file.ID, file.Size)
 	case types.DirKind:
 		dir := v.(Dir)
@@ -311,7 +305,7 @@ func WriteDigest(w io.Writer, v T, t *types.T) {
 			w.Write(falseByte)
 		}
 	case types.FileKind:
-		digest.WriteDigest(w, v.(File).ID)
+		digest.WriteDigest(w, v.(reflow.File).ID)
 	case types.DirKind:
 		dir := v.(Dir)
 		var keys []string

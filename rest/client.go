@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
@@ -51,7 +52,12 @@ func (c *Client) URL() *url.URL { return c.url }
 // Call constructs a ClientCall with the given method and path
 // (relative to the client's root URL).
 func (c *Client) Call(method, format string, args ...interface{}) *ClientCall {
-	return &ClientCall{Client: c, Header: http.Header{}, method: method, path: url.QueryEscape(fmt.Sprintf(format, args...))}
+	return &ClientCall{
+		Client: c,
+		Header: http.Header{},
+		method: method,
+		path:   fmt.Sprintf(format, args...),
+	}
 }
 
 // ClientCall represents a single call. It handles the entire call lifecycle.
@@ -104,11 +110,15 @@ func (c *ClientCall) Do(ctx context.Context, body io.Reader) (int, error) {
 	if c.err != nil {
 		return 0, c.err
 	}
-	u, err := url.Parse(c.path)
-	if err != nil {
-		return 0, err
+	// We need to be careful to split the query portion of the path
+	// (which should be escaped) and the path itself.
+	var path, query string
+	parts := strings.SplitN(c.path, "?", 2)
+	path = parts[0]
+	if len(parts) == 2 {
+		query = parts[1]
 	}
-	r.URL = c.url.ResolveReference(u)
+	r.URL = c.url.ResolveReference(&url.URL{Path: path, RawQuery: query})
 	r.Header = c.Header
 	if c.log.At(log.DebugLevel) {
 		b, err := httputil.DumpRequest(r, true)
@@ -117,6 +127,7 @@ func (c *ClientCall) Do(ctx context.Context, body io.Reader) (int, error) {
 		}
 		c.log.Debugf("request %s", string(b))
 	}
+	var err error
 	c.resp, err = ctxhttp.Do(ctx, c.client, r)
 	switch err {
 	case nil:

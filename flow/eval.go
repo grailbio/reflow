@@ -83,10 +83,20 @@ func (m CacheMode) Writing() bool {
 	return m&CacheWrite == CacheWrite
 }
 
+// Resolver provides an interface for resolving source URL data into
+// unloaded filesets.
+type Resolver interface {
+	Resolve(ctx context.Context, url string) (reflow.Fileset, error)
+}
+
 // EvalConfig provides runtime configuration for evaluation instances.
 type EvalConfig struct {
 	// The executor to which execs are submitted.
 	Executor reflow.Executor
+
+	// Resolver is the resolver used to resolve source URLs into unloaded
+	// filesets.
+	Resolver Resolver
 
 	// An (optional) logger to which the evaluation transcript is printed.
 	Log *log.Logger
@@ -1096,7 +1106,11 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 		if id, err := e.Executor.Repository().Put(ctx, bytes.NewReader(f.Data)); err != nil {
 			e.Mutate(f, err, Incr, Done)
 		} else {
-			e.Mutate(f, reflow.Fileset{Map: map[string]reflow.File{".": {id, int64(len(f.Data))}}}, Incr, Done)
+			e.Mutate(f, reflow.Fileset{
+				Map: map[string]reflow.File{
+					".": {id, int64(len(f.Data)), "", ""},
+				},
+			}, Incr, Done)
 		}
 	default:
 		panic(fmt.Sprintf("bug %v", f))

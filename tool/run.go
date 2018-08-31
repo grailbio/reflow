@@ -19,6 +19,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
@@ -26,10 +27,12 @@ import (
 	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
+	"github.com/grailbio/reflow/internal/s3client"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/repository"
+	"github.com/grailbio/reflow/resolver"
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/trace"
 	"github.com/grailbio/reflow/types"
@@ -171,7 +174,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 	}
 	// Construct a unique name for this run, used to identify this invocation
 	// throughout the system.
-	runID := reflow.Digester.Rand()
+	runID := reflow.Digester.Rand(nil)
 	c.Log.Printf("run ID: %s", runID.Short())
 	repo, err := c.Config.Repository()
 	if err != nil {
@@ -402,6 +405,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	}
 	evalConfig := flow.EvalConfig{
 		Executor:   x,
+		Resolver:   c.resolver(),
 		Transferer: transferer,
 		Log:        execLogger,
 		Repository: repo,
@@ -478,5 +482,28 @@ func (c Cmd) WaitForCacheWrites(wg *wg.WaitGroup, timeout time.Duration) {
 		case <-time.After(timeout):
 			c.Log.Errorf("some cache writes still pending after timeout %v", timeout)
 		}
+	}
+}
+
+func (c Cmd) resolver() resolver.Resolver {
+	// TODO(marius): we should really provide a means of configuring
+	// a session with an override (ala session.New), so that we don't have
+	// to use AWSCreds for this.
+	creds, err := c.Config.AWSCreds()
+	if err != nil {
+		c.Fatal(err)
+	}
+	region, err := c.Config.AWSRegion()
+	if err != nil {
+		c.Fatal(err)
+	}
+	client := &s3client.Config{
+		Config: &aws.Config{
+			Credentials: creds,
+			Region:      aws.String(region),
+		},
+	}
+	return resolver.Mux{
+		"s3": s3client.Resolver(client),
 	}
 }

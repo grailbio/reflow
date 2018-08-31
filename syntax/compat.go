@@ -11,10 +11,10 @@ import (
 	"github.com/grailbio/reflow/values"
 )
 
-func fileToFileset(file values.File) reflow.Fileset {
+func fileToFileset(file reflow.File) reflow.Fileset {
 	return reflow.Fileset{
 		Map: map[string]reflow.File{
-			".": reflow.File(file),
+			".": file,
 		},
 	}
 }
@@ -30,7 +30,7 @@ func dirToFileset(dir values.Dir) reflow.Fileset {
 func coerceToFileset(t *types.T, v values.T) reflow.Fileset {
 	switch t.Kind {
 	case types.FileKind:
-		return fileToFileset(v.(values.File))
+		return fileToFileset(v.(reflow.File))
 	case types.DirKind:
 		return dirToFileset(v.(values.Dir))
 	case types.ListKind:

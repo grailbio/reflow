@@ -10,12 +10,12 @@ import (
 	"io/ioutil"
 	"log"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	dockerclient "github.com/docker/docker/client"
 	"github.com/grailbio/reflow"
-	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/testutil"
@@ -54,6 +54,7 @@ func NewTestPoolOrSkip(t *testing.T) (*local.Pool, func()) {
 
 // TestPool exercises the pool p on the testing instance t.
 func TestPool(t *testing.T, p pool.Pool) {
+	t.Helper()
 	ctx := context.Background()
 	offers, err := p.Offers(ctx)
 	if err != nil {
@@ -142,13 +143,15 @@ func TestPool(t *testing.T, p pool.Pool) {
 	if got, want := alloc1.Resources(), o.Available(); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-
-	_, err = alloc.Keepalive(ctx, intv)
-	if !errors.Is(errors.NotExist, err) {
-		t.Fatalf("expected NotExist error, got %v", err)
-	}
 	// Look it up again to get its zombie.
-	alloc, err = p.Alloc(ctx, alloc.ID())
+	// Note: in client-server testing we're interacting directly with a client
+	// not through a cluster implementation, so we'll need to strip off the
+	// hostname ourselves.
+	allocID := alloc.ID()
+	if idx := strings.Index(allocID, "/"); idx > 0 {
+		allocID = allocID[idx+1:]
+	}
+	alloc, err = p.Alloc(ctx, allocID)
 	if err != nil {
 		t.Fatal(err)
 	}

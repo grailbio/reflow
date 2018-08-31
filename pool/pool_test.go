@@ -17,29 +17,30 @@ import (
 type idAlloc string
 
 func (a idAlloc) ID() string { return string(a) }
-func (a idAlloc) Put(ctx context.Context, id digest.Digest, exec reflow.ExecConfig) (reflow.Exec, error) {
+func (idAlloc) Put(ctx context.Context, id digest.Digest, exec reflow.ExecConfig) (reflow.Exec, error) {
 	panic("not implemented")
 }
-func (a idAlloc) Get(ctx context.Context, id digest.Digest) (reflow.Exec, error) {
+func (idAlloc) Get(ctx context.Context, id digest.Digest) (reflow.Exec, error) {
 	panic("not implemented")
 }
-func (a idAlloc) Remove(ctx context.Context, id digest.Digest) error { panic("not implemented") }
-func (a idAlloc) Execs(ctx context.Context) ([]reflow.Exec, error)   { panic("not implemented") }
-func (a idAlloc) Resources() reflow.Resources                        { panic("not implemented") }
-func (a idAlloc) Repository() reflow.Repository                      { panic("not implemented") }
-func (a idAlloc) Pool() Pool                                         { panic("not implemented") }
-func (a idAlloc) Keepalive(ctx context.Context, interval time.Duration) (time.Duration, error) {
+func (idAlloc) Remove(ctx context.Context, id digest.Digest) error      { panic("not implemented") }
+func (idAlloc) Execs(ctx context.Context) ([]reflow.Exec, error)        { panic("not implemented") }
+func (idAlloc) Resolve(context.Context, string) (reflow.Fileset, error) { panic("not implemented") }
+func (idAlloc) Resources() reflow.Resources                             { panic("not implemented") }
+func (idAlloc) Repository() reflow.Repository                           { panic("not implemented") }
+func (idAlloc) Pool() Pool                                              { panic("not implemented") }
+func (idAlloc) Keepalive(ctx context.Context, interval time.Duration) (time.Duration, error) {
 	panic("not implemented")
 }
-func (a idAlloc) Inspect(ctx context.Context) (AllocInspect, error) { panic("not implemented") }
-func (a idAlloc) Free(ctx context.Context) error                    { panic("not implemented") }
+func (idAlloc) Inspect(ctx context.Context) (AllocInspect, error) { panic("not implemented") }
+func (idAlloc) Free(ctx context.Context) error                    { panic("not implemented") }
 
 type idOffer string
 
-func (o idOffer) ID() string                  { return string(o) }
-func (o idOffer) Pool() Pool                  { panic("not implemented") }
-func (o idOffer) Available() reflow.Resources { panic("not implemented") }
-func (o idOffer) Accept(ctx context.Context, meta AllocMeta) (Alloc, error) {
+func (o idOffer) ID() string                { return string(o) }
+func (idOffer) Pool() Pool                  { panic("not implemented") }
+func (idOffer) Available() reflow.Resources { panic("not implemented") }
+func (idOffer) Accept(ctx context.Context, meta AllocMeta) (Alloc, error) {
 	panic("not implemented")
 }
 
@@ -47,9 +48,9 @@ type idPool string
 
 func (p idPool) ID() string                                          { return string(p) }
 func (p idPool) Alloc(ctx context.Context, id string) (Alloc, error) { return idAlloc(id), nil }
-func (p idPool) Allocs(ctx context.Context) ([]Alloc, error)         { panic("not implemented") }
+func (idPool) Allocs(ctx context.Context) ([]Alloc, error)           { panic("not implemented") }
 func (p idPool) Offer(ctx context.Context, id string) (Offer, error) { return idOffer(id), nil }
-func (p idPool) Offers(ctx context.Context) ([]Offer, error)         { panic("not implemented") }
+func (idPool) Offers(ctx context.Context) ([]Offer, error)           { panic("not implemented") }
 
 type resourceOffer struct{ reflow.Resources }
 

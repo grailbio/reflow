@@ -453,7 +453,7 @@ func (b *Batch) read() error {
 		if run == nil {
 			run = new(Run)
 			// Create fresh run ID the first time we encounted a run.
-			run.RunID = reflow.Digester.Rand()
+			run.RunID = reflow.Digester.Rand(nil)
 		}
 		run.ID = id
 		run.Args = attrs

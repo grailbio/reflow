@@ -99,3 +99,7 @@ func (nopexecutor) Resources() reflow.Resources {
 func (nopexecutor) Repository() reflow.Repository {
 	return nil
 }
+
+func (nopexecutor) Resolve(context.Context, string) (reflow.Fileset, error) {
+	panic("not implemented")
+}

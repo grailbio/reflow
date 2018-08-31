@@ -39,7 +39,7 @@ func (c *Client) String() string {
 
 // Stat queries the repository for the file metadata for the given object.
 func (c *Client) Stat(ctx context.Context, id digest.Digest) (reflow.File, error) {
-	call := c.Call("HEAD", "%s", id)
+	call := c.Call("HEAD", "%s", url.PathEscape(id.String()))
 	defer call.Close()
 	code, err := call.Do(ctx, nil)
 	if err != nil {
@@ -59,7 +59,7 @@ func (c *Client) Stat(ctx context.Context, id digest.Digest) (reflow.File, error
 
 // Get retrieves the object with digest id.
 func (c *Client) Get(ctx context.Context, id digest.Digest) (io.ReadCloser, error) {
-	call := c.Call("GET", "%s", id)
+	call := c.Call("GET", "%s", url.PathEscape(id.String()))
 	code, err := call.Do(ctx, nil)
 	if err != nil {
 		return nil, errors.E("get", id, err)
@@ -89,7 +89,7 @@ func (c *Client) Put(ctx context.Context, body io.Reader) (digest.Digest, error)
 
 // WriteTo writes the object with digest id directly to the repository at URL u.
 func (c *Client) WriteTo(ctx context.Context, id digest.Digest, u *url.URL) error {
-	call := c.Call("POST", "%s/transfers", id)
+	call := c.Call("POST", "%s/transfers", url.PathEscape(id.String()))
 	code, err := call.DoJSON(ctx, u.String())
 	if err != nil {
 		return errors.E("writeto", id, u.String(), err)
@@ -102,7 +102,7 @@ func (c *Client) WriteTo(ctx context.Context, id digest.Digest, u *url.URL) erro
 
 // ReadFrom reads the object with digest id directly from the repository at URL u.
 func (c *Client) ReadFrom(ctx context.Context, id digest.Digest, u *url.URL) error {
-	call := c.Call("PUT", "%s", id)
+	call := c.Call("PUT", "%s", url.PathEscape(id.String()))
 	defer call.Close()
 	call.Header.Add("reflow-read-from", u.String())
 	code, err := call.Do(ctx, nil)

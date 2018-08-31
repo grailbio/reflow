@@ -22,8 +22,8 @@ import (
 // File returns a file object representing the given contents.
 func File(contents string) reflow.File {
 	return reflow.File{
-		reflow.Digester.FromString(contents),
-		int64(len(contents)),
+		ID:   reflow.Digester.FromString(contents),
+		Size: int64(len(contents)),
 	}
 }
 

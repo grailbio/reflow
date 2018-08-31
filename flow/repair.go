@@ -247,7 +247,11 @@ func (r *Repair) eval(f *Flow) {
 		f.State = Done
 	case Data:
 		id := Digester.FromBytes(f.Data)
-		f.Value = reflow.Fileset{Map: map[string]reflow.File{".": {id, int64(len(f.Data))}}}
+		f.Value = reflow.Fileset{
+			Map: map[string]reflow.File{
+				".": {id, int64(len(f.Data)), "", ""},
+			},
+		}
 		f.State = Done
 	default:
 		panic(fmt.Sprintf("bug %v", f))
