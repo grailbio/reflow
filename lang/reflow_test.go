@@ -11,7 +11,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/flow"
 )
 
 func TestType(t *testing.T) {
@@ -112,15 +112,15 @@ func TestEval(t *testing.T) {
 	}{
 		{`"hello world"`, Val{typ: typeString, str: "hello world"}},
 		{`let a = "hello" in let b = "world" in concat(a, b)`, Val{typ: typeString, str: "helloworld"}},
-		{`intern("s3://blah")`, Val{typ: typeFlow, flow: &reflow.Flow{Op: reflow.OpIntern, URL: mustURL("s3://blah")}}},
+		{`intern("s3://blah")`, Val{typ: typeFlow, flow: &flow.Flow{Op: flow.OpIntern, URL: mustURL("s3://blah")}}},
 		{
 			`groupby(intern("s3://blah"), "(.*)")`,
 			Val{
 				typ: typeFlowList,
-				flow: &reflow.Flow{
-					Op:   reflow.OpGroupby,
+				flow: &flow.Flow{
+					Op:   flow.Groupby,
 					Re:   regexp.MustCompile("(.*)"),
-					Deps: []*reflow.Flow{{Op: reflow.OpIntern, URL: mustURL("s3://blah")}},
+					Deps: []*flow.Flow{{Op: flow.OpIntern, URL: mustURL("s3://blah")}},
 				},
 			},
 		},

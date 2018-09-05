@@ -6,6 +6,7 @@ package syntax
 
 import (
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
 )
@@ -46,10 +47,10 @@ func coerceToFileset(t *types.T, v values.T) reflow.Fileset {
 
 var coerceFlowToFilesetDigest = reflow.Digester.FromString("grail.com/reflow/syntax.coerceFlowToFileset")
 
-func coerceFlowToFileset(t *types.T, f *reflow.Flow) *reflow.Flow {
-	return &reflow.Flow{
-		Op:         reflow.OpCoerce,
-		Deps:       []*reflow.Flow{f},
+func coerceFlowToFileset(t *types.T, f *flow.Flow) *flow.Flow {
+	return &flow.Flow{
+		Op:         flow.Coerce,
+		Deps:       []*flow.Flow{f},
 		FlowDigest: coerceFlowToFilesetDigest,
 		Coerce: func(v values.T) (values.T, error) {
 			return coerceToFileset(t, v), nil

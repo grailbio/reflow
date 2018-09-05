@@ -21,8 +21,8 @@ import (
 	"syscall"
 
 	"github.com/grailbio/base/status"
-	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/config"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/log"
 )
 
@@ -377,7 +377,7 @@ func (c *Cmd) Flags() *flag.FlagSet {
 		c.flags = flag.NewFlagSet("reflow", flag.ExitOnError)
 		c.flags.Usage = func() { c.usage(c.flags) }
 		c.flags.StringVar(&c.Flag.Project, "project", "", "project for which the job is launched (for accounting)")
-		c.flags.StringVar(&reflow.Universe, "universe", "", "digest namespace")
+		c.flags.StringVar(&flow.Universe, "universe", "", "digest namespace")
 		c.flags.StringVar(&c.ConfigFile, "config", c.DefaultConfigFile, "path to configuration file; otherwise use default (builtin) config")
 		c.flags.StringVar(&c.httpFlag, "http", "", "run a diagnostic HTTP server on this port")
 		c.flags.StringVar(&c.cpuProfileFlag, "cpuprofile", "", "capture a CPU profile and deposit it to the provided path")

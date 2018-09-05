@@ -16,9 +16,9 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/batch"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/wg"
@@ -82,13 +82,13 @@ flags override any parameters in the batch sample file.
 	default:
 		c.Fatalf("invalid evaluation strategy %s", *evalStrategy)
 	}
-	var invalidate func(f *reflow.Flow) bool
+	var invalidate func(f *flow.Flow) bool
 	if *invalidateFlag != "" {
 		re, err := regexp.Compile(*invalidateFlag)
 		if err != nil {
 			c.Fatalf("invalid invalidation expression: %v", err)
 		}
-		invalidate = func(f *reflow.Flow) bool {
+		invalidate = func(f *flow.Flow) bool {
 			return re.MatchString(f.Ident)
 		}
 	}
@@ -119,7 +119,7 @@ flags override any parameters in the batch sample file.
 		c.Log.Error(err)
 	}
 	b := &batch.Batch{
-		EvalConfig: reflow.EvalConfig{
+		EvalConfig: flow.EvalConfig{
 			Log:            c.Log,
 			Repository:     repo,
 			Assoc:          assoc,
@@ -174,7 +174,7 @@ flags override any parameters in the batch sample file.
 		}
 	}
 	var wg wg.WaitGroup
-	ctx, bgcancel := reflow.WithBackground(ctx, &wg)
+	ctx, bgcancel := flow.WithBackground(ctx, &wg)
 	err = b.Run(ctx)
 	if err != nil {
 		c.Log.Errorf("batch failed with error %v", err)

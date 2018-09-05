@@ -13,6 +13,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/repository"
 )
 
@@ -34,14 +35,14 @@ func (c *Cache) Init() {
 }
 
 // Value returns the value stored for flow f.
-func (c *Cache) Value(f *reflow.Flow) reflow.Fileset {
+func (c *Cache) Value(f *flow.Flow) reflow.Fileset {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.vmap[f.Digest()]
 }
 
 // Exists tells whether a value has been stored for flow f.
-func (c *Cache) Exists(f *reflow.Flow) bool {
+func (c *Cache) Exists(f *flow.Flow) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	_, ok := c.vmap[f.Digest()]
@@ -50,7 +51,7 @@ func (c *Cache) Exists(f *reflow.Flow) bool {
 
 // ExistsAll tells whether a value has been stored for flow f,
 // for all of its cache keys.
-func (c *Cache) ExistsAll(f *reflow.Flow) bool {
+func (c *Cache) ExistsAll(f *flow.Flow) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for _, key := range f.CacheKeys() {
@@ -134,17 +135,17 @@ func (c *WaitCache) val(id digest.Digest) chan cacheValue {
 
 // Hit sets the value of flow f to v. Hit returns when the value
 // has been consumed by the code under test.
-func (c *WaitCache) Hit(f *reflow.Flow, v reflow.Fileset) {
+func (c *WaitCache) Hit(f *flow.Flow, v reflow.Fileset) {
 	c.cacheReply(f, cacheValue{v: v, hit: true})
 }
 
 // Miss sets the value of flow f to a cache miss. Miss returns when
 // it has been consumed by the code under test.
-func (c *WaitCache) Miss(f *reflow.Flow) {
+func (c *WaitCache) Miss(f *flow.Flow) {
 	c.cacheReply(f, cacheValue{})
 }
 
-func (c *WaitCache) cacheReply(f *reflow.Flow, v cacheValue) {
+func (c *WaitCache) cacheReply(f *flow.Flow, v cacheValue) {
 	// TODO(marius): we should probably watch for mutations on this flow node
 	// and expand the key set as they become available.
 	switch keys := f.CacheKeys(); len(keys) {
@@ -207,7 +208,7 @@ func unexpected(err error) {
 // Exists tells whether a value has been cached for the provided keys.
 // Exists checks whether all the objects are present in the Eval's
 // repository.
-func Exists(e *reflow.Eval, keys ...digest.Digest) bool {
+func Exists(e *flow.Eval, keys ...digest.Digest) bool {
 	if len(keys) == 0 {
 		panic("exists must be provided with at least one key")
 	}
@@ -236,7 +237,7 @@ func Exists(e *reflow.Eval, keys ...digest.Digest) bool {
 
 // Value returns the fileset stored for the provided key in the cache
 // configured in Eval e.
-func Value(e *reflow.Eval, key digest.Digest) reflow.Fileset {
+func Value(e *flow.Eval, key digest.Digest) reflow.Fileset {
 	key, fsid, err := e.Assoc.Get(context.Background(), assoc.Fileset, key)
 	if err != nil {
 		unexpected(err)

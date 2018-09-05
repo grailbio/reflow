@@ -18,6 +18,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/internal/walker"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
@@ -37,7 +38,7 @@ type SystemFunc struct {
 func (s SystemFunc) Apply(loc values.Location, args []values.T) (values.T, error) {
 	args = append([]values.T{}, args...)
 	var (
-		deps  []*reflow.Flow
+		deps  []*flow.Flow
 		depsi []int
 		dw    = reflow.Digester.NewWriter()
 	)
@@ -45,7 +46,7 @@ func (s SystemFunc) Apply(loc values.Location, args []values.T) (values.T, error
 		if s.Force {
 			args[i] = Force(args[i], s.Type.Fields[i].T)
 		}
-		if f, ok := args[i].(*reflow.Flow); ok {
+		if f, ok := args[i].(*flow.Flow); ok {
 			deps = append(deps, f)
 			depsi = append(depsi, i)
 		} else {
@@ -56,21 +57,21 @@ func (s SystemFunc) Apply(loc values.Location, args []values.T) (values.T, error
 		return s.Do(loc, args)
 	}
 	digest.WriteDigest(dw, s.Digest())
-	return &reflow.Flow{
-		Op:         reflow.OpK,
+	return &flow.Flow{
+		Op:         flow.K,
 		Deps:       deps,
 		FlowDigest: dw.Digest(),
 		Position:   loc.Position,
 		Ident:      loc.Ident,
-		K: func(vs []values.T) *reflow.Flow {
+		K: func(vs []values.T) *flow.Flow {
 			for i := range vs {
 				args[depsi[i]] = vs[i]
 			}
 			rv, err := s.Do(loc, args)
 			if err != nil {
-				return &reflow.Flow{Op: reflow.OpVal, Err: errors.Recover(err)}
+				return &flow.Flow{Op: flow.Val, Err: errors.Recover(err)}
 			}
-			return flow(rv, s.Type.Elem)
+			return toFlow(rv, s.Type.Elem)
 		},
 	}, nil
 }
@@ -122,15 +123,15 @@ func Stdlib() (*types.Env, *values.Env) {
 					if len(b) > 200<<20 {
 						return nil, fmt.Errorf("file %s is too large (%dMB); local files may not exceed 200MB", rawurl, len(b)>>20)
 					}
-					return &reflow.Flow{
-						Deps: []*reflow.Flow{{
-							Op:       reflow.OpData,
+					return &flow.Flow{
+						Deps: []*flow.Flow{{
+							Op:       flow.Data,
 							Data:     b,
 							Position: loc.Position,
 							Ident:    loc.Ident,
 						}},
 						FlowDigest: reflow.Digester.FromString("file.fs$file1"),
-						Op:         reflow.OpCoerce,
+						Op:         flow.Coerce,
 						Coerce: func(v values.T) (values.T, error) {
 							fs := v.(reflow.Fileset)
 							f, ok := fs.Map["."]
@@ -142,15 +143,15 @@ func Stdlib() (*types.Env, *values.Env) {
 					}, nil
 				}
 
-				return &reflow.Flow{
-					Deps: []*reflow.Flow{{
-						Op:       reflow.OpIntern,
+				return &flow.Flow{
+					Deps: []*flow.Flow{{
+						Op:       flow.OpIntern,
 						URL:      u,
 						Position: loc.Position,
 						Ident:    loc.Ident,
 					}},
 					FlowDigest: reflow.Digester.FromString("file.fs$file"),
-					Op:         reflow.OpCoerce,
+					Op:         flow.Coerce,
 					Coerce: func(v values.T) (values.T, error) {
 						fs := v.(reflow.Fileset)
 						f, ok := fs.Map["."]
@@ -199,42 +200,42 @@ func Stdlib() (*types.Env, *values.Env) {
 					if len(datas) == 0 {
 						return nil, fmt.Errorf("empty directory %s", rawurl)
 					}
-					dataFlows := make([]*reflow.Flow, len(datas))
+					dataFlows := make([]*flow.Flow, len(datas))
 					for i := range datas {
-						dataFlows[i] = &reflow.Flow{
-							Op:       reflow.OpData,
+						dataFlows[i] = &flow.Flow{
+							Op:       flow.Data,
 							Data:     datas[i],
 							Position: loc.Position,
 							Ident:    loc.Ident,
 						}
 					}
-					return &reflow.Flow{
+					return &flow.Flow{
 						Deps:       dataFlows,
 						FlowDigest: reflow.Digester.FromString("file.fs$file2"),
-						Op:         reflow.OpK,
+						Op:         flow.K,
 						Position:   loc.Position,
 						Ident:      loc.Ident,
-						K: func(vs []values.T) *reflow.Flow {
+						K: func(vs []values.T) *flow.Flow {
 							dir := make(values.Dir)
 							for i := range vs {
 								dir[paths[i]] = values.File(vs[i].(reflow.Fileset).Map["."])
 							}
-							return &reflow.Flow{
-								Op:         reflow.OpVal,
+							return &flow.Flow{
+								Op:         flow.Val,
 								Value:      dir,
 								FlowDigest: values.Digest(dir, types.Dir),
 							}
 						},
 					}, nil
 				}
-				return &reflow.Flow{
-					Deps: []*reflow.Flow{{
-						Op:       reflow.OpIntern,
+				return &flow.Flow{
+					Deps: []*flow.Flow{{
+						Op:       flow.OpIntern,
 						URL:      u,
 						Position: loc.Position,
 						Ident:    loc.Ident,
 					}},
-					Op:         reflow.OpCoerce,
+					Op:         flow.Coerce,
 					FlowDigest: reflow.Digester.FromString("$dir.fs2dir"),
 					Coerce: func(v values.T) (values.T, error) {
 						fs := v.(reflow.Fileset)
@@ -437,11 +438,11 @@ var dirsDecls = []*Decl{
 			if u.Scheme == "" {
 				return nil, fmt.Errorf("dirs.Copy: scheme not provided in destination url %s", rawurl)
 			}
-			return &reflow.Flow{
-				Op:       reflow.OpExtern,
+			return &flow.Flow{
+				Op:       flow.Extern,
 				Position: loc.Position,
 				Ident:    loc.Ident,
-				Deps:     []*reflow.Flow{{Op: reflow.OpVal, Value: dirToFileset(dir)}},
+				Deps:     []*flow.Flow{{Op: flow.Val, Value: dirToFileset(dir)}},
 				URL:      u,
 			}, nil
 		},
@@ -452,10 +453,10 @@ var dirsDecls = []*Decl{
 		Doc:    "Fileset coerces a fileset into a dir.",
 		Type:   types.Flow(types.Func(types.Dir, &types.Field{Name: "fileset", T: types.Fileset})),
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
-			if f, ok := args[0].(*reflow.Flow); ok {
-				return &reflow.Flow{
-					Op:         reflow.OpCoerce,
-					Deps:       []*reflow.Flow{f},
+			if f, ok := args[0].(*flow.Flow); ok {
+				return &flow.Flow{
+					Op:         flow.Coerce,
+					Deps:       []*flow.Flow{f},
 					FlowDigest: coerceFilesetToDirDigest,
 					Coerce:     coerceFilesetToDir,
 				}, nil
@@ -494,11 +495,11 @@ var filesDecls = []*Decl{
 			if u.Scheme == "" {
 				return nil, fmt.Errorf("files.Copy: scheme not provided in destination url %s", rawurl)
 			}
-			return &reflow.Flow{
-				Op:       reflow.OpExtern,
+			return &flow.Flow{
+				Op:       flow.Extern,
 				Position: loc.Position,
 				Ident:    loc.Ident,
-				Deps:     []*reflow.Flow{{Op: reflow.OpVal, Value: fileToFileset(file)}},
+				Deps:     []*flow.Flow{{Op: flow.Val, Value: fileToFileset(file)}},
 				URL:      u,
 			}, nil
 		},
@@ -509,10 +510,10 @@ var filesDecls = []*Decl{
 		Doc:    "Fileset coerces a fileset into a file.",
 		Type:   types.Flow(types.Func(types.File, &types.Field{Name: "file", T: types.Fileset})),
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
-			if f, ok := args[0].(*reflow.Flow); ok {
-				return &reflow.Flow{
-					Op:         reflow.OpCoerce,
-					Deps:       []*reflow.Flow{f},
+			if f, ok := args[0].(*flow.Flow); ok {
+				return &flow.Flow{
+					Op:         flow.Coerce,
+					Deps:       []*flow.Flow{f},
 					FlowDigest: coerceFilesetToFileDigest,
 					Coerce:     coerceFilesetToFile,
 				}, nil
@@ -758,7 +759,7 @@ var filesetsDecls = []*Decl{
 		Type: types.Func(types.Fileset,
 			&types.Field{Name: "dir", T: types.Dir}),
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
-			if flow, ok := args[0].(*reflow.Flow); ok {
+			if flow, ok := args[0].(*flow.Flow); ok {
 				return coerceFlowToFileset(types.Dir, flow), nil
 			}
 			return coerceToFileset(types.Dir, args[0]), nil
@@ -771,7 +772,7 @@ var filesetsDecls = []*Decl{
 		Type: types.Func(types.Fileset,
 			&types.Field{Name: "file", T: types.File}),
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
-			if flow, ok := args[0].(*reflow.Flow); ok {
+			if flow, ok := args[0].(*flow.Flow); ok {
 				return coerceFlowToFileset(types.File, flow), nil
 			}
 			return coerceToFileset(types.File, args[0]), nil

@@ -18,7 +18,6 @@ import (
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/values"
 )
 
 // File represents a name-by-hash file.
@@ -230,11 +229,6 @@ func (v Fileset) WriteDigest(w io.Writer) {
 			digest.WriteDigest(w, v.Map[path].ID)
 		}
 	}
-}
-
-// Flow returns the Flow which evaluates to the constant Value v.
-func (v Fileset) Flow() *Flow {
-	return &Flow{Op: OpVal, Value: values.T(v), State: FlowDone}
 }
 
 // Pullup merges this value (tree) into a single toplevel fileset.

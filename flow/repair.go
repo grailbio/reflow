@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package reflow
+package flow
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/limiter"
+	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/values"
@@ -67,11 +68,11 @@ func NewRepair(config EvalConfig) *Repair {
 //
 // Only OpExec flows are written back.
 func (r *Repair) Do(ctx context.Context, f *Flow) {
-	if f.State == FlowDone {
+	if f.State == Done {
 		return
 	}
 	var (
-		fs   Fileset
+		fs   reflow.Fileset
 		fsid digest.Digest
 		hit  bool
 	)
@@ -118,25 +119,25 @@ func (r *Repair) Do(ctx context.Context, f *Flow) {
 	switch {
 	case hit && err == nil:
 		r.eval(f)
-		if f.State == FlowDone && f.Err != nil {
+		if f.State == Done && f.Err != nil {
 			// We can recover the value even if we can't evaluate it ourselves.
 			f.Err = nil
 			f.Value = fs
 		}
 	case hit:
-		f.State = FlowDone
+		f.State = Done
 		f.Value = fs
 	case err != nil:
 		f.Err = errors.Recover(err)
-		f.State = FlowDone
+		f.State = Done
 	default:
 		r.eval(f)
 	}
 	// We may have to recur evaluation in case the flow was forked.
-	if f.State != FlowDone {
+	if f.State != Done {
 		r.Do(ctx, f)
 	}
-	if f.Op != OpExec {
+	if f.Op != Exec {
 		return
 	}
 	if f.Err != nil {
@@ -153,15 +154,15 @@ func (r *Repair) Do(ctx context.Context, f *Flow) {
 // outright.
 func (r *Repair) eval(f *Flow) {
 	switch f.Op {
-	case OpIntern, OpExec:
+	case OpIntern, Exec:
 		f.Err = errors.Recover(errors.New("cannot recompute execs or interns"))
-		f.State = FlowDone
-	case OpExtern:
+		f.State = Done
+	case Extern:
 		// Externs always have empty return values; we can safely "compute" it.
-		f.State = FlowDone
-	case OpGroupby:
-		v := f.Deps[0].Value.(Fileset)
-		groups := map[string]Fileset{}
+		f.State = Done
+	case Groupby:
+		v := f.Deps[0].Value.(reflow.Fileset)
+		groups := map[string]reflow.Fileset{}
 		for path, file := range v.Map {
 			idx := f.Re.FindStringSubmatch(path)
 			if len(idx) != 2 {
@@ -169,7 +170,7 @@ func (r *Repair) eval(f *Flow) {
 			}
 			v, ok := groups[idx[1]]
 			if !ok {
-				v = Fileset{Map: map[string]File{}}
+				v = reflow.Fileset{Map: map[string]reflow.File{}}
 				groups[idx[1]] = v
 			}
 			v.Map[path] = file
@@ -181,26 +182,26 @@ func (r *Repair) eval(f *Flow) {
 			i++
 		}
 		sort.Strings(keys)
-		fs := Fileset{List: make([]Fileset, len(groups))}
+		fs := reflow.Fileset{List: make([]reflow.Fileset, len(groups))}
 		for i, k := range keys {
 			fs.List[i] = groups[k]
 		}
 		f.Value = fs
-		f.State = FlowDone
-	case OpMap:
-		v := f.Deps[0].Value.(Fileset)
+		f.State = Done
+	case Map:
+		v := f.Deps[0].Value.(reflow.Fileset)
 		ff := &Flow{
-			Op:   OpMerge,
+			Op:   Merge,
 			Deps: make([]*Flow, len(v.List)),
 		}
 		for i := range v.List {
-			ff.Deps[i] = f.MapFunc(v.List[i].Flow())
+			ff.Deps[i] = f.MapFunc(filesetFlow(v.List[i]))
 		}
 		f.Fork(ff)
-		f.Parent.State = FlowDone
-	case OpCollect:
-		v := f.Deps[0].Value.(Fileset)
-		fileset := map[string]File{}
+		f.Parent.State = Done
+	case Collect:
+		v := f.Deps[0].Value.(reflow.Fileset)
+		fileset := map[string]reflow.File{}
 		for path, file := range v.Map {
 			if !f.Re.MatchString(path) {
 				continue
@@ -208,46 +209,46 @@ func (r *Repair) eval(f *Flow) {
 			dst := f.Re.ReplaceAllString(path, f.Repl)
 			fileset[dst] = file
 		}
-		f.Value = Fileset{Map: fileset}
-		f.State = FlowDone
-	case OpMerge:
-		list := make([]Fileset, len(f.Deps))
+		f.Value = reflow.Fileset{Map: fileset}
+		f.State = Done
+	case Merge:
+		list := make([]reflow.Fileset, len(f.Deps))
 		for i, dep := range f.Deps {
-			list[i] = dep.Value.(Fileset)
+			list[i] = dep.Value.(reflow.Fileset)
 		}
-		f.Value = Fileset{List: list}
-		f.State = FlowDone
-	case OpVal:
-		f.State = FlowDone
-	case OpPullup:
-		v := &Fileset{List: make([]Fileset, len(f.Deps))}
+		f.Value = reflow.Fileset{List: list}
+		f.State = Done
+	case Val:
+		f.State = Done
+	case Pullup:
+		v := &reflow.Fileset{List: make([]reflow.Fileset, len(f.Deps))}
 		for i, dep := range f.Deps {
-			v.List[i] = dep.Value.(Fileset)
+			v.List[i] = dep.Value.(reflow.Fileset)
 		}
 		f.Value = v.Pullup()
-		f.State = FlowDone
-	case OpK:
+		f.State = Done
+	case K:
 		vs := make([]values.T, len(f.Deps))
 		for i, dep := range f.Deps {
 			vs[i] = dep.Value
 		}
 		ff := f.K(vs)
 		f.Fork(ff)
-		f.Parent.State = FlowDone
-	case OpCoerce:
+		f.Parent.State = Done
+	case Coerce:
 		if v, err := f.Coerce(f.Deps[0].Value); err != nil {
 			f.Err = errors.Recover(err)
 		} else {
 			f.Value = v
 		}
-		f.State = FlowDone
-	case OpRequirements:
+		f.State = Done
+	case Requirements:
 		f.Value = f.Deps[0].Value
-		f.State = FlowDone
-	case OpData:
+		f.State = Done
+	case Data:
 		id := Digester.FromBytes(f.Data)
-		f.Value = Fileset{Map: map[string]File{".": {id, int64(len(f.Data))}}}
-		f.State = FlowDone
+		f.Value = reflow.Fileset{Map: map[string]reflow.File{".": {id, int64(len(f.Data))}}}
+		f.State = Done
 	default:
 		panic(fmt.Sprintf("bug %v", f))
 	}

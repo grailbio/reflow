@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package reflow
+package flow
 
 //go:generate stringer -type=Mutation
 
@@ -23,6 +23,7 @@ import (
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/status"
+	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/liveset/bloomlive"
@@ -49,11 +50,11 @@ const defaultCacheLookupTimeout = time.Minute
 
 // stateStatusOrder defines the order in which differenet flow
 // statuses are rendered.
-var stateStatusOrder = []FlowState{
-	FlowRunning, FlowTransfer, FlowReady, FlowDone,
+var stateStatusOrder = []State{
+	Running, Transfer, Ready, Done,
 
 	// DEBUG:
-	FlowNeedLookup, FlowLookup, FlowNeedTransfer, FlowTODO,
+	NeedLookup, Lookup, NeedTransfer, TODO,
 }
 
 // CacheMode is a bitmask that tells how caching is to be used
@@ -85,7 +86,7 @@ func (m CacheMode) Writing() bool {
 // EvalConfig provides runtime configuration for evaluation instances.
 type EvalConfig struct {
 	// The executor to which execs are submitted.
-	Executor Executor
+	Executor reflow.Executor
 
 	// An (optional) logger to which the evaluation transcript is printed.
 	Log *log.Logger
@@ -98,10 +99,10 @@ type EvalConfig struct {
 
 	// Transferer is used to arrange transfers between repositories,
 	// including nodes and caches.
-	Transferer Transferer
+	Transferer reflow.Transferer
 
 	// Repository is the main, shared repository between evaluations.
-	Repository Repository
+	Repository reflow.Repository
 
 	// Assoc is the main, shared assoc that is used to store cache and
 	// metadata associations.
@@ -197,11 +198,11 @@ type Eval struct {
 	cached []*Flow
 	// A channel indicating how much extra resources are needed
 	// in order to avoid queueing.
-	needch chan Requirements
+	needch chan reflow.Requirements
 	// A channel for evaluation errors.
 	errors chan error
 	// Total and currently available resources.
-	total, available Resources
+	total, available reflow.Resources
 	// The number of Flows stolen.
 	nstolen int
 	// Contains pending (currently executing) flows.
@@ -254,7 +255,7 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 	e := &Eval{
 		EvalConfig: config,
 		root:       root.Canonicalize(config.Config),
-		needch:     make(chan Requirements),
+		needch:     make(chan reflow.Requirements),
 		errors:     make(chan error),
 		returnch:   make(chan *Flow, 1024),
 		newStealer: make(chan *Stealer),
@@ -274,7 +275,7 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 
 // Requirements returns the minimum and maximum resource
 // requirements for this Eval's flow.
-func (e *Eval) Requirements() Requirements {
+func (e *Eval) Requirements() reflow.Requirements {
 	return e.root.Requirements()
 }
 
@@ -322,7 +323,7 @@ func (e *Eval) Err() error {
 // bottom-up mode. Object retrievial is as in bottom-up mode.
 //
 // Eval keeps track of the evaluation state of each node; these are
-// described in the documentation for FlowState.
+// described in the documentation for State.
 //
 // Evaluation is performed by simplification: ready nodes are added
 // to a todo list. Single-step evaluation yields either a fully
@@ -369,7 +370,7 @@ func (e *Eval) Do(ctx context.Context) error {
 	defer e.ticker.Stop()
 	flow := e.root
 
-	for flow.State != FlowDone {
+	for flow.State != Done {
 		if flow.Digest().IsZero() {
 			panic("invalid flow, zero digest: " + flow.DebugString())
 		}
@@ -387,11 +388,11 @@ func (e *Eval) Do(ctx context.Context) error {
 			}
 			// If our state is >= Ready, all of our children are completed,
 			// so no need to traverse.
-			if f.State < FlowReady {
+			if f.State < Ready {
 				v.Visit()
 			}
 
-			if v.Op == OpExec {
+			if v.Op == Exec {
 				if v.Resources["mem"] < minExecMemory {
 					v.Resources["mem"] = minExecMemory
 				}
@@ -400,18 +401,18 @@ func (e *Eval) Do(ctx context.Context) error {
 				}
 			}
 			switch f.State {
-			case FlowNeedLookup:
+			case NeedLookup:
 				// TODO(marius): we should perform batch lookups
 				// as the underyling APIs (e.g., to DynamoDB) do not
 				// bundle requests automatically.
-				e.Mutate(f, FlowLookup)
+				e.Mutate(f, Lookup)
 				e.pending[f] = true
 				go func(f *Flow) {
 					e.lookup(ctx, f)
 					e.returnch <- f
 				}(f)
-			case FlowNeedTransfer:
-				e.Mutate(f, FlowTransfer)
+			case NeedTransfer:
+				e.Mutate(f, Transfer)
 				e.pending[f] = true
 				go func(f *Flow) {
 					files, err := e.needTransfer(ctx, f)
@@ -419,7 +420,7 @@ func (e *Eval) Do(ctx context.Context) error {
 						e.Log.Errorf("need transfer: %v", err)
 					} else if len(files) == 0 {
 						// No transfer needed; we're ready to go.
-						e.Mutate(f, FlowReady)
+						e.Mutate(f, Ready)
 						e.returnch <- f
 						return
 					}
@@ -427,7 +428,7 @@ func (e *Eval) Do(ctx context.Context) error {
 					// this is of course subject to race conditions: when multiple
 					// execs concurrently require the same objects, these may be
 					// reported multiple times in aggregate transfer size.
-					seen := make(map[File]bool)
+					seen := make(map[reflow.File]bool)
 					for _, file := range files {
 						if seen[file] {
 							continue
@@ -444,7 +445,7 @@ func (e *Eval) Do(ctx context.Context) error {
 					}
 				}(f)
 
-			case FlowReady:
+			case Ready:
 				if !e.total.Available(f.Resources) {
 					// TODO(marius): we could also attach this error to the node.
 					return errors.E(errors.ResourcesExhausted,
@@ -454,7 +455,7 @@ func (e *Eval) Do(ctx context.Context) error {
 					continue dequeue
 				}
 				e.available.Sub(e.available, f.Resources)
-				e.Mutate(f, FlowRunning, Reserve(f.Resources))
+				e.Mutate(f, Running, Reserve(f.Resources))
 				e.pending[f] = true
 				go func(f *Flow) {
 					if err := e.eval(ctx, f); err != nil {
@@ -465,18 +466,18 @@ func (e *Eval) Do(ctx context.Context) error {
 				}(f)
 			}
 		}
-		if flow.State == FlowDone {
+		if flow.State == Done {
 			break
 		}
-		if len(e.pending) == 0 && flow.State != FlowDone {
-			var states [FlowMax][]*Flow
+		if len(e.pending) == 0 && flow.State != Done {
+			var states [Max][]*Flow
 			for v := e.root.Visitor(); v.Walk(); v.Visit() {
 				states[v.State] = append(states[v.State], v.Flow)
 			}
-			var s [FlowMax]string
+			var s [Max]string
 			for i := range states {
 				n, tasks := accumulate(states[i])
-				s[i] = fmt.Sprintf("%s:%d<%s>", FlowState(i).Name(), n, tasks)
+				s[i] = fmt.Sprintf("%s:%d<%s>", State(i).Name(), n, tasks)
 			}
 			e.Log.Printf("pending %d", len(e.pending))
 			e.Log.Printf("eval %s", strings.Join(s[:], " "))
@@ -522,11 +523,11 @@ func (e *Eval) LogSummary(log *log.Logger) {
 			v.Push(v.Parent)
 		}
 		// Skip nodes that were skipped due to caching.
-		if v.State < FlowDone {
+		if v.State < Done {
 			continue
 		}
 		switch v.Op {
-		case OpExec, OpIntern, OpExtern:
+		case Exec, OpIntern, Extern:
 		default:
 			continue
 		}
@@ -546,7 +547,7 @@ func (e *Eval) LogSummary(log *log.Logger) {
 			stats[ident] = a
 			continue
 		}
-		if v.Op == OpExec {
+		if v.Op == Exec {
 			a.CPU.Add(v.Inspect.Profile["cpu"].Mean)
 			a.Memory.Add(v.Inspect.Profile["mem"].Max / (1 << 30))
 			a.Disk.Add(v.Inspect.Profile["disk"].Max / (1 << 30))
@@ -587,13 +588,13 @@ func (e *Eval) LogSummary(log *log.Logger) {
 
 // Need returns the total resource requirements needed in order to
 // avoid queueing work.
-func (e *Eval) Need() Requirements {
+func (e *Eval) Need() reflow.Requirements {
 	return <-e.needch
 }
 
 // Stealer returns Stealer from which flow nodes may be stolen. This
 // permits an external worker to perform the work implied by the
-// return Flow, which is always in FlowReady state. When the external
+// return Flow, which is always in Ready state. When the external
 // worker has completed processing (or decided not to process after
 // all), the node must be returned via Return.
 func (e *Eval) Stealer() *Stealer {
@@ -651,24 +652,24 @@ func (e *Eval) wait(ctx context.Context) (err error) {
 
 		// Compute needed resources and find stealable nodes.
 		var (
-			need             Requirements
+			need             reflow.Requirements
 			nready, nrunning int
 		)
 		for v := e.root.Visitor(); v.Walk(); {
 			switch {
 			case e.pending[v.Flow]:
-				if v.State == FlowTransfer {
+				if v.State == Transfer {
 					nrunning++
 				} else {
 					switch v.Op {
-					case OpExec, OpIntern, OpExtern:
+					case Exec, OpIntern, Extern:
 						nrunning++
 					}
 				}
 				continue
-			case v.State < FlowReady:
+			case v.State < Ready:
 				v.Visit()
-			case v.State == FlowReady:
+			case v.State == Ready:
 				nready++
 				admitted := false
 				for s := e.stealer; s != nil; s = s.next {
@@ -720,15 +721,15 @@ func (e *Eval) reportStatus() {
 			}
 		}
 		switch v.Op {
-		case OpExec, OpIntern, OpExtern:
+		case Exec, OpIntern, Extern:
 		default:
 			continue
 		}
 		switch v.State {
-		case FlowTransfer:
+		case Transfer:
 			byteCounts.Incr(v.State, v.Ident, int(v.TransferSize))
 			fallthrough
-		case FlowReady, FlowDone, FlowTODO, FlowRunning:
+		case Ready, Done, TODO, Running:
 			stateCounts.Incr(v.State, v.Ident, 1)
 		}
 	}
@@ -745,7 +746,7 @@ func (e *Eval) reportStatus() {
 		dur = fmt.Sprintf("%dh%dm", int(elapsed.Hours()), int(elapsed.Minutes()-60*elapsed.Hours()))
 	}
 	fmt.Fprintf(&b, "elapsed: %s", dur)
-	for _, state := range []FlowState{FlowRunning, FlowTransfer, FlowReady} {
+	for _, state := range []State{Running, Transfer, Ready} {
 		n := stateCounts.N(state)
 		if n == 0 {
 			continue
@@ -753,8 +754,8 @@ func (e *Eval) reportStatus() {
 		fmt.Fprintf(&b, ", %s:%d", humanState[state], n)
 	}
 	fmt.Fprintf(&b, ", completed: %d/%d",
-		stateCounts.N(FlowDone),
-		stateCounts.N(FlowDone)+stateCounts.N(FlowRunning)+stateCounts.N(FlowTransfer)+stateCounts.N(FlowTODO))
+		stateCounts.N(Done),
+		stateCounts.N(Done)+stateCounts.N(Running)+stateCounts.N(Transfer)+stateCounts.N(TODO))
 	e.Status.Print(b.String())
 }
 
@@ -763,7 +764,7 @@ func (e *Eval) returnFlow(f *Flow) {
 	e.needCollect = true
 	e.available.Add(e.available, f.Reserved)
 	e.Mutate(f, Unreserve(f.Reserved))
-	if f.Tracked && f.State == FlowDone {
+	if f.Tracked && f.State == Done {
 		e.needLog = append(e.needLog, f)
 	}
 }
@@ -771,7 +772,7 @@ func (e *Eval) returnFlow(f *Flow) {
 // collect reclaims unreachable objects from the executor's repository.
 // Objects are considered live if:
 //
-//	(1) They are part of the frontier of flow nodes in FlowDone state.
+//	(1) They are part of the frontier of flow nodes in Done state.
 //	    These are the nodes for which not all dependent nodes are processed
 //	    yet, and thus data dependencies still exist. Values attached to nodes
 //	    behind this frontier are dead, since they are not dependencies of
@@ -788,7 +789,7 @@ func (e *Eval) returnFlow(f *Flow) {
 // repository, they are promoted to the main repository, only after
 // being declared live (by atomically, and nonconcurrently with the
 // garbage collector, setting the corresponding node's state to
-// FlowDone, and setting the node's Value).
+// Done, and setting the node's Value).
 func (e *Eval) collect(ctx context.Context) {
 	if !e.GC {
 		return
@@ -805,12 +806,12 @@ func (e *Eval) collect(ctx context.Context) {
 	e.muGC.Lock()
 	defer e.muGC.Unlock()
 	// Collect all live values
-	var livevals []*Fileset
+	var livevals []*reflow.Fileset
 	e.nlive = 0
 	for v := e.root.Visitor(); v.Walk(); {
-		fs, ok := v.Value.(Fileset)
+		fs, ok := v.Value.(reflow.Fileset)
 		switch {
-		case ok && v.State == FlowDone:
+		case ok && v.State == Done:
 			if n := fs.N(); n > 0 {
 				e.nlive += n
 				livevals = append(livevals, &fs)
@@ -820,7 +821,7 @@ func (e *Eval) collect(ctx context.Context) {
 			// Unevaluated maps must also be traversed, since they
 			// may introduce dependencies that would otherwise be
 			// garbage collected: they're just not evident yet.
-			if v.Op == OpMap {
+			if v.Op == Map {
 				v.Push(v.MapFlow)
 			}
 		}
@@ -828,7 +829,7 @@ func (e *Eval) collect(ctx context.Context) {
 	var nwriter int
 	for w := e.writers; w != nil; w = w.next {
 		nwriter++
-		fs, _ := w.Flow.Value.(Fileset)
+		fs, _ := w.Flow.Value.(reflow.Fileset)
 		if n := fs.N(); n > 0 {
 			e.nlive += fs.N()
 			livevals = append(livevals, &fs)
@@ -876,7 +877,7 @@ func (e *Eval) dirty(f *Flow) bool {
 	if !e.NoCacheExtern {
 		return false
 	}
-	if f.Op == OpExtern {
+	if f.Op == Extern {
 		return true
 	}
 	for _, dep := range f.Deps {
@@ -905,17 +906,17 @@ func (e *Eval) todo(f *Flow) {
 		return
 	}
 	switch f.State {
-	case FlowInit:
+	case Init:
 		switch f.Op {
-		case OpIntern, OpExec, OpExtern:
+		case OpIntern, Exec, Extern:
 			if !e.BottomUp && e.CacheMode.Reading() && !e.dirty(f) {
-				e.Mutate(f, FlowNeedLookup)
+				e.Mutate(f, NeedLookup)
 				return
 			}
 		}
-		e.Mutate(f, FlowTODO)
+		e.Mutate(f, TODO)
 		fallthrough
-	case FlowTODO:
+	case TODO:
 		for _, dep := range f.Deps {
 			e.todo(dep)
 		}
@@ -923,34 +924,37 @@ func (e *Eval) todo(f *Flow) {
 		// computation on error. This is because we want to return early,
 		// in case it can be dealt with (e.g., by restarting evaluation).
 		for _, dep := range f.Deps {
-			if dep.State == FlowDone && dep.Err != nil {
-				e.Mutate(f, FlowReady)
+			if dep == nil {
+				panic(fmt.Sprintf("op %s n %d", f.Op, len(f.Deps)))
+			}
+			if dep.State == Done && dep.Err != nil {
+				e.Mutate(f, Ready)
 				return
 			}
 		}
 		for _, dep := range f.Deps {
-			if dep.State != FlowDone {
+			if dep.State != Done {
 				return
 			}
 		}
 		// The node is ready to run. This is done according to the evaluator's mode.
 		switch f.Op {
-		case OpIntern, OpExec, OpExtern:
+		case OpIntern, Exec, Extern:
 			// We're ready to run. If we're in bottom up mode, this means we're ready
 			// for our cache lookup.
 			if e.BottomUp {
-				e.Mutate(f, FlowNeedLookup)
+				e.Mutate(f, NeedLookup)
 			} else {
 				if e.CacheMode.Reading() {
-					e.Mutate(f, FlowNeedTransfer)
+					e.Mutate(f, NeedTransfer)
 				} else {
-					e.Mutate(f, FlowReady)
+					e.Mutate(f, Ready)
 				}
 			}
 		default:
 			// Other nodes can be computed immediately,
 			// and do not need access to the objects.
-			e.Mutate(f, FlowReady)
+			e.Mutate(f, Ready)
 		}
 	}
 }
@@ -963,7 +967,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 	// Propagate errors immediately.
 	for _, dep := range f.Deps {
 		if err := dep.Err; err != nil {
-			e.Mutate(f, err, FlowDone)
+			e.Mutate(f, err, Done)
 			return nil
 		}
 	}
@@ -976,7 +980,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 	// f.State acts as a barrier: it is modified only by one routine
 	// (the one invoking simplify), but may be read by many.
 	begin := time.Now()
-	if f.Op != OpVal {
+	if f.Op != Val {
 		defer func() {
 			if err != nil {
 				// Don't print cancellation errors, since they are follow-on errors
@@ -986,21 +990,21 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 						e.Log.Errorf("eval %s runtime error: %v", f.ExecString(false), err)
 					}
 				*/
-			} else if f.State == FlowDone && f.Op != OpK && f.Op != OpCoerce {
+			} else if f.State == Done && f.Op != K && f.Op != Coerce {
 				f.Runtime = time.Since(begin)
 			}
 		}()
 	}
 
 	switch f.Op {
-	case OpIntern, OpExtern, OpExec:
+	case OpIntern, Extern, Exec:
 		var name string
 		switch f.Op {
-		case OpExtern:
-			name = fmt.Sprintf("extern %s %s", f.URL, data.Size(f.Deps[0].Value.(Fileset).Size()))
+		case Extern:
+			name = fmt.Sprintf("extern %s %s", f.URL, data.Size(f.Deps[0].Value.(reflow.Fileset).Size()))
 		case OpIntern:
 			name = fmt.Sprintf("intern %s", f.URL)
-		case OpExec:
+		case Exec:
 			name = fmt.Sprintf("exec %s", abbrevCmd(f))
 		}
 		ctx, done := trace.Start(ctx, trace.Exec, f.Digest(), name)
@@ -1009,9 +1013,9 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 		if err := e.exec(ctx, f); err != nil {
 			return err
 		}
-	case OpGroupby:
-		v := f.Deps[0].Value.(Fileset)
-		groups := map[string]Fileset{}
+	case Groupby:
+		v := f.Deps[0].Value.(reflow.Fileset)
+		groups := map[string]reflow.Fileset{}
 		for path, file := range v.Map {
 			idx := f.Re.FindStringSubmatch(path)
 			if len(idx) != 2 {
@@ -1019,7 +1023,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 			}
 			v, ok := groups[idx[1]]
 			if !ok {
-				v = Fileset{Map: map[string]File{}}
+				v = reflow.Fileset{Map: map[string]reflow.File{}}
 				groups[idx[1]] = v
 			}
 			v.Map[path] = file
@@ -1031,25 +1035,25 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 			i++
 		}
 		sort.Strings(keys)
-		fs := Fileset{List: make([]Fileset, len(groups))}
+		fs := reflow.Fileset{List: make([]reflow.Fileset, len(groups))}
 		for i, k := range keys {
 			fs.List[i] = groups[k]
 		}
-		e.Mutate(f, fs, Incr, FlowDone)
-	case OpMap:
-		v := f.Deps[0].Value.(Fileset)
+		e.Mutate(f, fs, Incr, Done)
+	case Map:
+		v := f.Deps[0].Value.(reflow.Fileset)
 		ff := &Flow{
-			Op:   OpMerge,
+			Op:   Merge,
 			Deps: make([]*Flow, len(v.List)),
 		}
 		for i := range v.List {
-			ff.Deps[i] = f.MapFunc(v.List[i].Flow())
+			ff.Deps[i] = f.MapFunc(filesetFlow(v.List[i]))
 		}
-		e.Mutate(f, Fork(ff), FlowTODO)
-		e.Mutate(f.Parent, FlowDone)
-	case OpCollect:
-		v := f.Deps[0].Value.(Fileset)
-		fileset := map[string]File{}
+		e.Mutate(f, Fork(ff), TODO)
+		e.Mutate(f.Parent, Done)
+	case Collect:
+		v := f.Deps[0].Value.(reflow.Fileset)
+		fileset := map[string]reflow.File{}
 		for path, file := range v.Map {
 			if !f.Re.MatchString(path) {
 				continue
@@ -1057,42 +1061,42 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 			dst := f.Re.ReplaceAllString(path, f.Repl)
 			fileset[dst] = file
 		}
-		e.Mutate(f, Fileset{Map: fileset}, Incr, FlowDone)
-	case OpMerge:
-		list := make([]Fileset, len(f.Deps))
+		e.Mutate(f, reflow.Fileset{Map: fileset}, Incr, Done)
+	case Merge:
+		list := make([]reflow.Fileset, len(f.Deps))
 		for i, dep := range f.Deps {
-			list[i] = dep.Value.(Fileset)
+			list[i] = dep.Value.(reflow.Fileset)
 		}
-		e.Mutate(f, Fileset{List: list}, Incr, FlowDone)
-	case OpVal:
-		e.Mutate(f, Incr, FlowDone)
-	case OpPullup:
-		v := &Fileset{List: make([]Fileset, len(f.Deps))}
+		e.Mutate(f, reflow.Fileset{List: list}, Incr, Done)
+	case Val:
+		e.Mutate(f, Incr, Done)
+	case Pullup:
+		v := &reflow.Fileset{List: make([]reflow.Fileset, len(f.Deps))}
 		for i, dep := range f.Deps {
-			v.List[i] = dep.Value.(Fileset)
+			v.List[i] = dep.Value.(reflow.Fileset)
 		}
-		e.Mutate(f, v.Pullup(), Incr, FlowDone)
-	case OpK:
+		e.Mutate(f, v.Pullup(), Incr, Done)
+	case K:
 		vs := make([]values.T, len(f.Deps))
 		for i, dep := range f.Deps {
 			vs[i] = dep.Value
 		}
 		ff := f.K(vs)
-		e.Mutate(f, Fork(ff), FlowTODO)
-		e.Mutate(f.Parent, FlowDone)
-	case OpCoerce:
+		e.Mutate(f, Fork(ff), TODO)
+		e.Mutate(f.Parent, Done)
+	case Coerce:
 		if v, err := f.Coerce(f.Deps[0].Value); err != nil {
-			e.Mutate(f, err, Incr, FlowDone)
+			e.Mutate(f, err, Incr, Done)
 		} else {
-			e.Mutate(f, Value{v}, Incr, FlowDone)
+			e.Mutate(f, Value{v}, Incr, Done)
 		}
-	case OpRequirements:
-		e.Mutate(f, Value{f.Deps[0].Value}, Incr, FlowDone)
-	case OpData:
+	case Requirements:
+		e.Mutate(f, Value{f.Deps[0].Value}, Incr, Done)
+	case Data:
 		if id, err := e.Executor.Repository().Put(ctx, bytes.NewReader(f.Data)); err != nil {
-			e.Mutate(f, err, Incr, FlowDone)
+			e.Mutate(f, err, Incr, Done)
 		} else {
-			e.Mutate(f, Fileset{Map: map[string]File{".": {id, int64(len(f.Data))}}}, Incr, FlowDone)
+			e.Mutate(f, reflow.Fileset{Map: map[string]reflow.File{".": {id, int64(len(f.Data))}}}, Incr, Done)
 		}
 	default:
 		panic(fmt.Sprintf("bug %v", f))
@@ -1123,25 +1127,25 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 // CacheWrite writes the cache entry for flow f, with objects in the provided
 // source repository. CacheWrite returns nil on success, or else the first error
 // encountered.
-func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo Repository) error {
+func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) error {
 	switch f.Op {
-	case OpIntern, OpExtern, OpExec:
+	case OpIntern, Extern, Exec:
 	default:
 		return nil
 	}
 	// We currently only cache fileset values.
-	fs, ok := f.Value.(Fileset)
+	fs, ok := f.Value.(reflow.Fileset)
 	if !ok {
 		return nil
 	}
 	// We don't cache errors, and only completed nodes.
-	if f.Err != nil || f.State != FlowDone {
+	if f.Err != nil || f.State != Done {
 		return nil
 	}
-	if f.Op == OpData {
+	if f.Op == Data {
 		return nil
 	}
-	if e.NoCacheExtern && f.Op == OpExtern {
+	if e.NoCacheExtern && f.Op == Extern {
 		return nil
 	}
 	keys := f.CacheKeys()
@@ -1157,7 +1161,7 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo Repository) error {
 	}
 	pid := digest.Digest{}
 	var stdout, stderr digest.Digest
-	if f.Op == OpExec {
+	if f.Op == Exec {
 		b := new(bytes.Buffer)
 		enc := json.NewEncoder(b)
 		if err = enc.Encode(f.Inspect); err == nil {
@@ -1213,25 +1217,25 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo Repository) error {
 // bottom-up mode, we're only looked up if our dependencies are met,
 // and we always compute on a cache miss, thus we now need to make
 // sure our dependencies are available, and the node is marked
-// FlowNeedTransfer. In top-down mode, we need to continue traversing
-// the graph, and the node is marked FlowTODO.
+// NeedTransfer. In top-down mode, we need to continue traversing
+// the graph, and the node is marked TODO.
 func (e *Eval) lookupFailed(f *Flow) {
 	if e.BottomUp {
-		e.Mutate(f, FlowNeedTransfer)
+		e.Mutate(f, NeedTransfer)
 	} else {
-		e.Mutate(f, FlowTODO)
+		e.Mutate(f, TODO)
 	}
 }
 
 // lookup performs a cache lookup of node f.
 func (e *Eval) lookup(ctx context.Context, f *Flow) {
-	if !e.valid(f) || !e.CacheMode.Reading() || e.NoCacheExtern && (f.Op == OpExtern || f == e.root) {
+	if !e.valid(f) || !e.CacheMode.Reading() || e.NoCacheExtern && (f.Op == Extern || f == e.root) {
 		e.lookupFailed(f)
 		return
 	}
 	var (
 		keys = f.CacheKeys()
-		fs   Fileset
+		fs   reflow.Fileset
 		fsid digest.Digest
 		err  error
 	)
@@ -1316,7 +1320,7 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 		// The node is marked done. If the needed objects are not later
 		// found in the cache's repository, the node will be marked for
 		// recomputation.
-		e.Mutate(f, fs, Cached, FlowDone)
+		e.Mutate(f, fs, Cached, Done)
 		if e.BottomUp {
 			e.LogFlow(ctx, f)
 		}
@@ -1327,10 +1331,10 @@ func (e *Eval) lookup(ctx context.Context, f *Flow) {
 
 // needTransfer returns the file objects that require transfer from flow f.
 // It should be called only when caching is enabled.
-func (e *Eval) needTransfer(ctx context.Context, f *Flow) ([]File, error) {
-	fs := Fileset{List: make([]Fileset, len(f.Deps))}
+func (e *Eval) needTransfer(ctx context.Context, f *Flow) ([]reflow.File, error) {
+	fs := reflow.Fileset{List: make([]reflow.Fileset, len(f.Deps))}
 	for i := range f.Deps {
-		fs.List[i] = f.Deps[i].Value.(Fileset)
+		fs.List[i] = f.Deps[i].Value.(reflow.Fileset)
 	}
 	if fs.N() == 0 {
 		return nil, nil
@@ -1342,15 +1346,15 @@ func (e *Eval) needTransfer(ctx context.Context, f *Flow) ([]File, error) {
 // is only done for execs and externs, thus its dependencies are
 // guaranteed to contain Fileset dependencies directly.
 func (e *Eval) transfer(ctx context.Context, f *Flow) error {
-	fs := Fileset{List: make([]Fileset, len(f.Deps))}
+	fs := reflow.Fileset{List: make([]reflow.Fileset, len(f.Deps))}
 	for i := range f.Deps {
-		fs.List[i] = f.Deps[i].Value.(Fileset)
+		fs.List[i] = f.Deps[i].Value.(reflow.Fileset)
 	}
 	var name string
 	switch f.Op {
-	case OpExtern:
-		name = fmt.Sprintf("xfer extern %s %s", f.URL, data.Size(f.Deps[0].Value.(Fileset).Size()))
-	case OpExec:
+	case Extern:
+		name = fmt.Sprintf("xfer extern %s %s", f.URL, data.Size(f.Deps[0].Value.(reflow.Fileset).Size()))
+	case Exec:
 		name = fmt.Sprintf("xfer exec %s", abbrevCmd(f))
 	}
 
@@ -1360,7 +1364,7 @@ func (e *Eval) transfer(ctx context.Context, f *Flow) error {
 	defer done()
 	err := e.Transferer.Transfer(ctx, e.Executor.Repository(), e.Repository, fs.Files()...)
 	if err == nil {
-		e.Mutate(f, FlowReady)
+		e.Mutate(f, Ready)
 		return nil
 	}
 	trace.Note(ctx, "error", err.Error())
@@ -1374,42 +1378,42 @@ func (e *Eval) transfer(ctx context.Context, f *Flow) error {
 // exec tries each step up to numExecTries. Exec returns a value
 // pointer which has been registered as live.
 func (e *Eval) exec(ctx context.Context, f *Flow) error {
-	var cfg ExecConfig
+	var cfg reflow.ExecConfig
 	switch f.Op {
 	case OpIntern:
-		cfg = ExecConfig{
+		cfg = reflow.ExecConfig{
 			Type:  "intern",
 			Ident: f.Ident,
 			URL:   f.URL.String(),
 		}
-	case OpExtern:
-		fs := f.Deps[0].Value.(Fileset)
-		cfg = ExecConfig{
+	case Extern:
+		fs := f.Deps[0].Value.(reflow.Fileset)
+		cfg = reflow.ExecConfig{
 			Type:  "extern",
 			Ident: f.Ident,
 			URL:   f.URL.String(),
-			Args:  []Arg{{Fileset: &fs}},
+			Args:  []reflow.Arg{{Fileset: &fs}},
 		}
-	case OpExec:
+	case Exec:
 		if f.Argmap == nil {
 			f.Argmap = make([]ExecArg, len(f.Deps))
 			for i := range f.Deps {
 				f.Argmap[i] = ExecArg{Index: i}
 			}
 		}
-		args := make([]Arg, f.NExecArg())
+		args := make([]reflow.Arg, f.NExecArg())
 		for i := range args {
 			earg := f.ExecArg(i)
 			if earg.Out {
 				args[i].Out = true
 				args[i].Index = earg.Index
 			} else {
-				fs := f.Deps[earg.Index].Value.(Fileset)
+				fs := f.Deps[earg.Index].Value.(reflow.Fileset)
 				args[i].Fileset = &fs
 			}
 		}
 
-		cfg = ExecConfig{
+		cfg = reflow.ExecConfig{
 			Type:        "exec",
 			Ident:       f.Ident,
 			Image:       f.Image,
@@ -1433,8 +1437,8 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 	)
 	var (
 		err error
-		x   Exec
-		r   Result
+		x   reflow.Exec
+		r   reflow.Result
 		n   = 0
 		s   = statePut
 		id  = f.Digest()
@@ -1474,7 +1478,7 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 		}
 		return err
 	}
-	e.Mutate(f, r.Err, FlowDone)
+	e.Mutate(f, r.Err, Done)
 	return nil
 }
 
@@ -1514,10 +1518,10 @@ type Value struct{ Value values.T }
 type Mutation int
 
 // Reserve adds resources to the flow's reservation.
-type Reserve Resources
+type Reserve reflow.Resources
 
 // Unreserve subtracts resources from the flow's reservation.
-type Unreserve Resources
+type Unreserve reflow.Resources
 
 const (
 	// Incr is the mutation that increments the reference count used for
@@ -1545,7 +1549,7 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 	}
 	e.muGC.RLock()
 	var (
-		prevState, thisState FlowState
+		prevState, thisState State
 		refresh              bool
 	)
 	for _, mut := range muts {
@@ -1554,11 +1558,11 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 			if arg != nil {
 				f.Err = errors.Recover(arg)
 			}
-		case FlowState:
+		case State:
 			prevState = f.State
 			thisState = arg
 			f.State = arg
-		case Fileset:
+		case reflow.Fileset:
 			f.Value = values.T(arg)
 		case Fork:
 			f.Fork(arg)
@@ -1576,9 +1580,9 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 				refresh = true
 			}
 		case Reserve:
-			f.Reserved.Add(f.Reserved, Resources(arg))
+			f.Reserved.Add(f.Reserved, reflow.Resources(arg))
 		case Unreserve:
-			f.Reserved.Sub(f.Reserved, Resources(arg))
+			f.Reserved.Sub(f.Reserved, reflow.Resources(arg))
 		default:
 			panic("invalid argument " + fmt.Sprint(arg))
 		}
@@ -1589,11 +1593,11 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 		return
 	}
 	switch f.Op {
-	case OpExec, OpIntern, OpExtern:
+	case Exec, OpIntern, Extern:
 	default:
 		return
 	}
-	if prevState < FlowTransfer && thisState >= FlowTransfer && f.Status == nil {
+	if prevState < Transfer && thisState >= Transfer && f.Status == nil {
 		// TODO(marius): digest? fmt("%-*s %s", n, ident, f.Digest().Short())
 		f.Status = e.Status.Start(f.Ident)
 	}
@@ -1601,35 +1605,35 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 		return
 	}
 	switch f.State {
-	case FlowDone:
+	case Done:
 		if f.Err != nil {
 			f.Status.Printf("%s error %v", f.Op, f.Err)
 		} else {
 			switch f.Op {
-			case OpExtern:
+			case Extern:
 				f.Status.Print("extern done")
-			case OpExec, OpIntern:
-				f.Status.Printf("%s done %s", f.Op, data.Size(f.Value.(Fileset).Size()))
+			case Exec, OpIntern:
+				f.Status.Printf("%s done %s", f.Op, data.Size(f.Value.(reflow.Fileset).Size()))
 			}
 		}
 		f.Status.Done()
 		f.Status = nil
-	case FlowRunning:
+	case Running:
 		switch f.Op {
-		case OpExtern:
-			f.Status.Printf("extern %s %s", f.URL, data.Size(f.Deps[0].Value.(Fileset).Size()))
+		case Extern:
+			f.Status.Printf("extern %s %s", f.URL, data.Size(f.Deps[0].Value.(reflow.Fileset).Size()))
 		case OpIntern:
 			f.Status.Printf("intern %s", f.URL)
-		case OpExec:
+		case Exec:
 			f.Status.Printf("exec %s", abbrevCmd(f))
 		}
-	case FlowTransfer:
+	case Transfer:
 		if f.TransferSize == 0 {
 			f.Status.Print("transfer")
 		} else {
 			f.Status.Printf("transfer %s", data.Size(f.TransferSize))
 		}
-	case FlowReady:
+	case Ready:
 		f.Status.Print("waiting")
 	}
 }
@@ -1647,7 +1651,7 @@ var statusPrinters = [maxOp]struct {
 	// when log=debug and on errors.
 	debug func(io.Writer, *Flow)
 }{
-	OpExec: {
+	Exec: {
 		run: func(w io.Writer, f *Flow) { io.WriteString(w, abbrevCmd(f)) },
 		debug: func(w io.Writer, f *Flow) {
 			argv := make([]interface{}, len(f.Argstrs))
@@ -1707,13 +1711,13 @@ var statusPrinters = [maxOp]struct {
 					continue
 				}
 				fmt.Fprintf(w, "    %s = \n", arg)
-				if fs, ok := f.Deps[f.ExecArg(i).Index].Value.(Fileset); ok {
+				if fs, ok := f.Deps[f.ExecArg(i).Index].Value.(reflow.Fileset); ok {
 					printFileset(w, "        ", fs)
 				} else {
 					fmt.Fprintln(w, "        (cached)")
 				}
 			}
-			if f.State != FlowDone {
+			if f.State != Done {
 				return
 			}
 			if f.Err != nil {
@@ -1751,7 +1755,7 @@ var statusPrinters = [maxOp]struct {
 						continue
 					}
 					fmt.Fprintf(w, "    %s =\n", f.Argstrs[i])
-					printFileset(w, "        ", f.Value.(Fileset).List[earg.Index])
+					printFileset(w, "        ", f.Value.(reflow.Fileset).List[earg.Index])
 					seen[earg.Index] = true
 				}
 			}
@@ -1769,12 +1773,12 @@ var statusPrinters = [maxOp]struct {
 			io.WriteString(w, url)
 		},
 		debug: func(w io.Writer, f *Flow) {
-			if f.State != FlowDone {
+			if f.State != Done {
 				return
 			}
 			if f.Err == nil {
 				fmt.Fprintln(w, "result:")
-				if fs, ok := f.Value.(Fileset); ok {
+				if fs, ok := f.Value.(reflow.Fileset); ok {
 					printFileset(w, "    ", fs)
 				} else {
 					fmt.Fprintln(w, "    (cached)")
@@ -1782,30 +1786,30 @@ var statusPrinters = [maxOp]struct {
 			}
 		},
 	},
-	OpExtern: {
+	Extern: {
 		run: func(w io.Writer, f *Flow) {
 			url := leftabbrev(f.URL.String(), nabbrev)
 			io.WriteString(w, url)
 			io.WriteString(w, " ")
 			// The dep may not have a fileset in case the extern was satisfied from cache directly.
-			if fs, ok := f.Deps[0].Value.(Fileset); ok {
+			if fs, ok := f.Deps[0].Value.(reflow.Fileset); ok {
 				io.WriteString(w, data.Size(fs.Size()).String())
 			}
 		},
 	},
-	OpPullup: {
+	Pullup: {
 		debug: func(w io.Writer, f *Flow) {
 			fmt.Fprintln(w, "value:")
-			printFileset(w, "    ", f.Value.(Fileset))
+			printFileset(w, "    ", f.Value.(reflow.Fileset))
 		},
 	},
 }
 
 // LogFlow logs flow f's state, and then tracks it for future logging.
 func (e *Eval) LogFlow(ctx context.Context, f *Flow) {
-	f.Tracked = f.State != FlowDone
+	f.Tracked = f.State != Done
 	var b bytes.Buffer
-	if f.State == FlowDone {
+	if f.State == Done {
 		if f.Cached {
 			b.WriteString("(<-) ")
 		} else {
@@ -1816,27 +1820,27 @@ func (e *Eval) LogFlow(ctx context.Context, f *Flow) {
 	}
 	state := f.State.String()
 	switch f.State {
-	case FlowRunning:
+	case Running:
 		state = "run"
-	case FlowDone:
+	case Done:
 		if f.Err != nil {
 			state = "err"
 		} else {
 			state = "ok"
 		}
-	case FlowTransfer:
+	case Transfer:
 		state = "xfer"
 	}
 	fmt.Fprintf(&b, "%-12s %s %-4s %6s ", f.Ident, f.Digest().Short(), state, f.Op.String())
 	pr := statusPrinters[f.Op]
 	switch f.State {
-	case FlowRunning:
+	case Running:
 		if pr.run != nil {
 			pr.run(&b, f)
 		}
-	case FlowTransfer:
+	case Transfer:
 		b.WriteString(f.TransferSize.String())
-	case FlowDone:
+	case Done:
 		printRuntimeStats(&b, f)
 	}
 	if f.Err != nil {
@@ -1855,18 +1859,18 @@ func (e *Eval) LogFlow(ctx context.Context, f *Flow) {
 	// We perform debug logging for successful flows with a debug
 	// printer and also for cache transfers, where having extra
 	// digest information is helpful.
-	if f.State != FlowTransfer && (f.Err != nil || pr.debug == nil) {
+	if f.State != Transfer && (f.Err != nil || pr.debug == nil) {
 		return
 	}
 	b.Reset()
 	fmt.Fprintf(&b, "%s %v %s:\n", f.Ident, f.Digest().Short(), f.Position)
-	if f.Op == OpExec {
+	if f.Op == Exec {
 		fmt.Fprintf(&b, "\tresources: %s\n", f.Resources)
 	}
 	for _, key := range f.CacheKeys() {
 		fmt.Fprintf(&b, "\t%s\n", key)
 	}
-	if f.State == FlowTransfer {
+	if f.State == Transfer {
 		fmt.Fprintf(&b, "\ttransfer: %s\n", f.Digest())
 	}
 	if pr.debug != nil {
@@ -1908,7 +1912,7 @@ func accumulate(flows []*Flow) (int, string) {
 type Stealer struct {
 	mu     sync.Mutex
 	e      *Eval
-	max    Resources
+	max    reflow.Resources
 	closed bool
 	c      chan *Flow
 	next   *Stealer
@@ -1922,7 +1926,7 @@ func newStealer(e *Eval) *Stealer {
 // makes use of at most max resources. Only one Admit can be active
 // at a time: if Admit is called while another is outstanding, the first
 // Admit is cancelled, closing its channel.
-func (s *Stealer) Admit(max Resources) <-chan *Flow {
+func (s *Stealer) Admit(max reflow.Resources) <-chan *Flow {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.c != nil {
@@ -1945,7 +1949,7 @@ func (s *Stealer) admit(f *Flow) bool {
 	if s.c == nil || !s.max.Available(f.Resources) {
 		return false
 	}
-	s.max = Resources{}
+	s.max = reflow.Resources{}
 	s.c <- f
 	return true
 }
@@ -1968,7 +1972,7 @@ func (s *Stealer) Close() {
 		}
 		close(s.c)
 	}
-	s.max = Resources{}
+	s.max = reflow.Resources{}
 	s.closed = true
 	s.e.wakeup(false)
 }
@@ -1995,7 +1999,7 @@ func spacePrefix(s string) string {
 
 func printRuntimeStats(b *bytes.Buffer, f *Flow) {
 	b.WriteString(round(f.Inspect.Runtime()).String())
-	if fs, ok := f.Value.(Fileset); ok {
+	if fs, ok := f.Value.(reflow.Fileset); ok {
 		b.WriteString(" ")
 		b.WriteString(data.Size(fs.Size()).String())
 	} else {
@@ -2003,7 +2007,7 @@ func printRuntimeStats(b *bytes.Buffer, f *Flow) {
 	}
 }
 
-func printFileset(w io.Writer, prefix string, fs Fileset) {
+func printFileset(w io.Writer, prefix string, fs reflow.Fileset) {
 	switch {
 	case len(fs.List) > 0:
 		for i := range fs.List {
@@ -2031,7 +2035,7 @@ func printFileset(w io.Writer, prefix string, fs Fileset) {
 // Marshal marshals the value v and stores it in the provided
 // repository. The digest of the contents of the marshaled content is
 // returned.
-func marshal(ctx context.Context, repo Repository, v interface{}) (digest.Digest, error) {
+func marshal(ctx context.Context, repo reflow.Repository, v interface{}) (digest.Digest, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return digest.Digest{}, err
@@ -2041,7 +2045,7 @@ func marshal(ctx context.Context, repo Repository, v interface{}) (digest.Digest
 
 // Unmarshal unmarshals the value named by digest k into v.
 // If the value does not exist in repository, an error is returned.
-func unmarshal(ctx context.Context, repo Repository, k digest.Digest, v interface{}) error {
+func unmarshal(ctx context.Context, repo reflow.Repository, k digest.Digest, v interface{}) error {
 	rc, err := repo.Get(ctx, k)
 	if err != nil {
 		return err
@@ -2053,7 +2057,7 @@ func unmarshal(ctx context.Context, repo Repository, k digest.Digest, v interfac
 // Missing returns the files in files that are missing from
 // repository r. Missing returns an error if any underlying
 // call fails.
-func missing(ctx context.Context, r Repository, files ...File) ([]File, error) {
+func missing(ctx context.Context, r reflow.Repository, files ...reflow.File) ([]reflow.File, error) {
 	exists := make([]bool, len(files))
 	g, gctx := errgroup.WithContext(ctx)
 	for i, file := range files {
@@ -2086,9 +2090,9 @@ func missing(ctx context.Context, r Repository, files ...File) ([]File, error) {
 	return files, nil
 }
 
-type counters [FlowMax]map[string]int
+type counters [Max]map[string]int
 
-func (c *counters) Incr(state FlowState, name string, n int) {
+func (c *counters) Incr(state State, name string, n int) {
 	if c[state] == nil {
 		c[state] = make(map[string]int)
 	}
@@ -2099,7 +2103,7 @@ func (c counters) Equal(d counters) bool {
 	return equal(c, d) && equal(d, c)
 }
 
-func (c counters) N(state FlowState) int {
+func (c counters) N(state State) int {
 	var n int
 	for _, v := range c[state] {
 		n += v
@@ -2119,10 +2123,10 @@ func equal(c, d counters) bool {
 	return true
 }
 
-var humanState = map[FlowState]string{
-	FlowRunning:  "running",
-	FlowTransfer: "transferring",
-	FlowReady:    "waiting",
+var humanState = map[State]string{
+	Running:  "running",
+	Transfer: "transferring",
+	Ready:    "waiting",
 }
 
 func abbrevCmd(f *Flow) string {

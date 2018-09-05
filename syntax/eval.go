@@ -16,6 +16,7 @@ import (
 
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
 )
@@ -29,11 +30,11 @@ var (
 )
 
 // Eval evaluates the expression e and returns its value (or error).
-// Evaluation is lazy with respect to *reflow.Flow, and thus values
-// may be delayed. Delayed values are returned as *reflow.Flow
+// Evaluation is lazy with respect to *flow.Flow, and thus values
+// may be delayed. Delayed values are returned as *flow.Flow
 // values. Note that this relationship holds recursively: a composite
 // value may contain other delayed values--evaluation is fully lazy
-// with respect to *reflow.Flow.
+// with respect to *flow.Flow.
 //
 // All non-flow computation is strict: thus any immediately
 // computable values are; evaluation that requires flow execution is
@@ -65,7 +66,7 @@ var (
 //    keys) and thus we perform the minimal amount of computation.
 func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T, err error) {
 	defer func() {
-		if f, ok := val.(*reflow.Flow); ok {
+		if f, ok := val.(*flow.Flow); ok {
 			f.Label(ident)
 		}
 	}()
@@ -115,20 +116,20 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			if err != nil {
 				return nil, err
 			}
-			leftFlow, ok := left.(*reflow.Flow)
+			leftFlow, ok := left.(*flow.Flow)
 			if !ok {
 				return right, nil
 			}
-			return &reflow.Flow{
-				Deps:       []*reflow.Flow{leftFlow},
-				Op:         reflow.OpK,
+			return &flow.Flow{
+				Deps:       []*flow.Flow{leftFlow},
+				Op:         flow.K,
 				FlowDigest: sequenceDigest,
-				K: func(vs []values.T) *reflow.Flow {
-					if f, ok := right.(*reflow.Flow); ok {
+				K: func(vs []values.T) *flow.Flow {
+					if f, ok := right.(*flow.Flow); ok {
 						return f
 					}
-					return &reflow.Flow{
-						Op:         reflow.OpVal,
+					return &flow.Flow{
+						Op:         flow.Val,
 						FlowDigest: values.Digest(right, e.Right.Type),
 						Value:      right,
 					}
@@ -271,8 +272,8 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 		// Now for each argument that must be evaluated through the flow
 		// evaluator, we attach as a dependency. Other arguments are inlined.
 		var (
-			deps    []*reflow.Flow
-			earg    []reflow.ExecArg
+			deps    []*flow.Flow
+			earg    []flow.ExecArg
 			indexer = newIndexer()
 			argstrs []string
 			b       bytes.Buffer
@@ -284,8 +285,8 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				// indexed by its name.
 				b.WriteString("%s")
 				argstrs = append(argstrs, fmt.Sprintf("{{%s}}", ae.Ident))
-				earg = append(earg, reflow.ExecArg{Out: true, Index: indexer.Index(ae.Ident)})
-			} else if f, ok := varg[i].(*reflow.Flow); ok {
+				earg = append(earg, flow.ExecArg{Out: true, Index: indexer.Index(ae.Ident)})
+			} else if f, ok := varg[i].(*flow.Flow); ok {
 				// Runtime dependency: we attach this to our exec nodes, and let
 				// the runtime perform argument substitution. Only files and dirs
 				// are allowed as dynamic dependencies. These are both
@@ -295,11 +296,11 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				// Because OpExec expects filesets, we have to coerce the input by
 				// type.
 				//
-				// TODO(marius): collapse OpVals here
+				// TODO(marius): collapse Vals here
 				f = coerceFlowToFileset(ae.Type, f)
 				b.WriteString("%s")
 				deps = append(deps, f)
-				earg = append(earg, reflow.ExecArg{Index: len(deps) - 1})
+				earg = append(earg, flow.ExecArg{Index: len(deps) - 1})
 				if ae.Kind == ExprIdent {
 					argstrs = append(argstrs, fmt.Sprintf("{{%s}}", ae.Ident))
 				} else {
@@ -324,11 +325,11 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 					// (since it controls paths). Also, input arguments must be
 					// coerced into reflow filesets.
 					b.WriteString("%s")
-					deps = append(deps, &reflow.Flow{
-						Op:    reflow.OpVal,
+					deps = append(deps, &flow.Flow{
+						Op:    flow.Val,
 						Value: coerceToFileset(e.Template.Args[i].Type, v),
 					})
-					earg = append(earg, reflow.ExecArg{Index: len(deps) - 1})
+					earg = append(earg, flow.ExecArg{Index: len(deps) - 1})
 					if ae.Kind == ExprIdent {
 						argstrs = append(argstrs, fmt.Sprintf("{{%s}}", ae.Ident))
 					} else {
@@ -354,11 +355,11 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 		// The output from an exec is a fileset, so we must coerce it back into a
 		// tuple indexed by the our indexer. We must also coerce filesets into
 		// files and dirs.
-		return &reflow.Flow{
+		return &flow.Flow{
 			Ident: ident,
 
-			Deps: []*reflow.Flow{{
-				Op:        reflow.OpExec,
+			Deps: []*flow.Flow{{
+				Op:        flow.Exec,
 				Ident:     ident,
 				Position:  e.Position.String(), // XXX TODO full path
 				Image:     image,
@@ -372,7 +373,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				OutputIsDir: dirs,
 			}},
 
-			Op:         reflow.OpCoerce,
+			Op:         flow.Coerce,
 			FlowDigest: coerceExecOutputDigest,
 			Coerce: func(v values.T) (values.T, error) {
 				list := v.(reflow.Fileset).List
@@ -678,10 +679,10 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			return nil, err
 		}
 		v = Force(v, e.Type)
-		if f, ok := v.(*reflow.Flow); ok {
-			f = &reflow.Flow{
-				Deps: []*reflow.Flow{f},
-				Op:   reflow.OpRequirements,
+		if f, ok := v.(*flow.Flow); ok {
+			f = &flow.Flow{
+				Deps: []*flow.Flow{f},
+				Op:   flow.Requirements,
 			}
 			f.FlowRequirements = req
 			return f, nil
@@ -1051,11 +1052,11 @@ type evalK func(*Expr, *values.Env, io.Writer)
 // Continue continues the evaluation of expression e once the
 // subcomputations (expressions or tvals) subs are evaluated. If the
 // dependencies are available immediately, kfn is invoked inline;
-// otherwise a delayed OpK node is returned which represents the
+// otherwise a delayed K node is returned which represents the
 // implied dependency graph and continuation.
 func (k evalK) Continue(e *Expr, sess *Session, env *values.Env, ident string, kfn func(vs []values.T) (values.T, error), subs ...interface{}) (values.T, error) {
 	var (
-		deps  []*reflow.Flow
+		deps  []*flow.Flow
 		depsi []int
 		vs    = make([]values.T, len(subs))
 		ts    = make([]*types.T, len(subs))
@@ -1077,7 +1078,7 @@ func (k evalK) Continue(e *Expr, sess *Session, env *values.Env, ident string, k
 		default:
 			panic(fmt.Sprintf("invalid sub argument type %T", sub))
 		}
-		f, ok := vs[i].(*reflow.Flow)
+		f, ok := vs[i].(*flow.Flow)
 		if !ok {
 			continue
 		}
@@ -1094,7 +1095,7 @@ func (k evalK) Continue(e *Expr, sess *Session, env *values.Env, ident string, k
 	// If we need to continue then we also have to incorporate the digests
 	// of dependent values.
 	for i, v := range vs {
-		if _, ok := v.(*reflow.Flow); ok {
+		if _, ok := v.(*flow.Flow); ok {
 			continue
 		}
 		values.WriteDigest(dw, v, ts[i])
@@ -1108,29 +1109,29 @@ func (k evalK) Continue(e *Expr, sess *Session, env *values.Env, ident string, k
 	//
 	// Note that, except for operations that delay evaluating part of
 	// the tree, all dependencies are captured either directly through
-	// value digests or else through the flow dependencies in the OpK
+	// value digests or else through the flow dependencies in the K
 	// below. Thus, we need only include the logical operation itself
 	// here.
 	k(e, env, dw)
 
-	return &reflow.Flow{
-		Op:         reflow.OpK,
+	return &flow.Flow{
+		Op:         flow.K,
 		Deps:       deps,
 		FlowDigest: dw.Digest(),
-		K: func(vs1 []values.T) *reflow.Flow {
+		K: func(vs1 []values.T) *flow.Flow {
 			for i, v := range vs1 {
 				vs[depsi[i]] = v
 			}
 			v, err := kfn(vs)
 			if err != nil {
-				return &reflow.Flow{Op: reflow.OpVal, Err: errors.Recover(err)}
+				return &flow.Flow{Op: flow.Val, Err: errors.Recover(err)}
 			}
-			if f, ok := v.(*reflow.Flow); ok {
+			if f, ok := v.(*flow.Flow); ok {
 				return f
 			}
-			return &reflow.Flow{
+			return &flow.Flow{
 				Ident:      ident,
-				Op:         reflow.OpVal,
+				Op:         flow.Val,
 				FlowDigest: values.Digest(v, e.Type),
 				Value:      v,
 			}

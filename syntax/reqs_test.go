@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
 )
@@ -54,7 +55,7 @@ func TestRequirements(t *testing.T) {
 	for _, test := range tests {
 		name := "Expect" + strings.TrimPrefix(test, "Test")
 		var req reflow.Requirements
-		if f, ok := Force(mod[test], fm[test]).(*reflow.Flow); ok {
+		if f, ok := Force(mod[test], fm[test]).(*flow.Flow); ok {
 			req = f.Requirements()
 		}
 		val := mod[name].(values.Struct)

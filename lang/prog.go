@@ -13,7 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
 )
@@ -31,7 +31,7 @@ type Program struct {
 	// calling Eval.
 	Args []string
 
-	config  reflow.Config
+	config  flow.Config
 	params  map[string]*string
 	def     map[string]*Expr
 	types   map[string]Type
@@ -109,11 +109,11 @@ func (p *Program) Flags() *flag.FlagSet {
 }
 
 // Eval evaluates the program and returns a flow. All toplevel extern
-// statements are merged into a single reflow.OpMerge node.
-func (p *Program) Eval() *reflow.Flow {
+// statements are merged into a single flow.Merge node.
+func (p *Program) Eval() *flow.Flow {
 	if len(p.externs) == 0 {
 		// Nothing to do. Return empty value.
-		return &reflow.Flow{Op: reflow.OpVal}
+		return &flow.Flow{Op: flow.Val}
 	}
 	env := EvalEnv{
 		Error: &Error{W: p.Errors},
@@ -140,7 +140,7 @@ func (p *Program) Eval() *reflow.Flow {
 		panic("unexpected errors during evaluation")
 	}
 
-	flows := make([]*reflow.Flow, len(p.externs))
+	flows := make([]*flow.Flow, len(p.externs))
 	for i, s := range p.externs {
 		dep := s.list[0].Eval(env).flow
 		u, err := url.Parse(s.list[1].Eval(env).str)
@@ -148,9 +148,9 @@ func (p *Program) Eval() *reflow.Flow {
 			// typechecking?
 			panic(err)
 		}
-		flows[i] = &reflow.Flow{Op: reflow.OpExtern, URL: u, Deps: []*reflow.Flow{dep}, Ident: s.Position.String()}
+		flows[i] = &flow.Flow{Op: flow.Extern, URL: u, Deps: []*flow.Flow{dep}, Ident: s.Position.String()}
 	}
-	root := &reflow.Flow{Op: reflow.OpMerge, Deps: flows, Ident: "main"}
+	root := &flow.Flow{Op: flow.Merge, Deps: flows, Ident: "main"}
 	if p.config.IsZero() {
 		return root
 	}
@@ -210,7 +210,7 @@ func (p *Program) ModuleValue() (values.T, error) {
 	}
 	if !p.config.IsZero() {
 		for id, v := range mval {
-			f, ok := v.(*reflow.Flow)
+			f, ok := v.(*flow.Flow)
 			if !ok {
 				continue
 			}

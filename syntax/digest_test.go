@@ -7,7 +7,7 @@ package syntax
 import (
 	"testing"
 
-	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/flow"
 )
 
 func TestDigestExec(t *testing.T) {
@@ -21,7 +21,7 @@ func TestDigestExec(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", expr, err)
 		}
-		f := v.(*reflow.Flow)
+		f := v.(*flow.Flow)
 		if got, want := f.Digest().String(), "sha256:ceff79828962397af02d8e2ea30cf6388f2858e0deefbecaa73fad1c6fc88816"; got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
@@ -37,7 +37,7 @@ func TestDigestDelay(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", expr, err)
 		}
-		f := v.(*reflow.Flow)
+		f := v.(*flow.Flow)
 		if got, want := f.Digest().String(), "sha256:df14f3294bd1c14c9fd6423b6078f4699ae85d44bdf5c44bf838cbc6e9c99db1"; got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
@@ -53,7 +53,7 @@ func TestDigestCompr(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", expr, err)
 		}
-		f := v.(*reflow.Flow)
+		f := v.(*flow.Flow)
 		if got, want := f.Digest().String(), "sha256:8310ad9a33309b3b9b37c1bed2ec7898757cad3b3b5929aee538797bfee8fba0"; got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}

@@ -26,6 +26,7 @@ import (
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/lang"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
@@ -193,7 +194,7 @@ func (r *Run) Go(ctx context.Context, initWG *sync.WaitGroup) error {
 	return nil
 }
 
-func (r *Run) flow() (*reflow.Flow, *types.T, error) {
+func (r *Run) flow() (*flow.Flow, *types.T, error) {
 	switch ext := filepath.Ext(r.Program); ext {
 	default:
 		return nil, nil, fmt.Errorf("unrecognized file extension %s", ext)
@@ -279,13 +280,13 @@ func (r *Run) flow() (*reflow.Flow, *types.T, error) {
 		v = v.(values.Module)["Main"]
 		v = syntax.Force(v, maintyp)
 		switch v := v.(type) {
-		case *reflow.Flow:
+		case *flow.Flow:
 			if v.Requirements().Equal(reflow.Requirements{}) {
 				return nil, nil, fmt.Errorf("flow does not have resource requirements; add a @requires annotation to val Main")
 			}
 			return v, maintyp, nil
 		default:
-			return &reflow.Flow{Op: reflow.OpVal, Value: v}, maintyp, nil
+			return &flow.Flow{Op: flow.Val, Value: v}, maintyp, nil
 		}
 	}
 }
@@ -325,7 +326,7 @@ type Batch struct {
 	// individual run statuses are reported as tasks in the group.
 	Status *status.Group
 
-	reflow.EvalConfig
+	flow.EvalConfig
 
 	// Runs is the set of runs managed by this batch.
 	Runs map[string]*Run
@@ -337,7 +338,7 @@ type Batch struct {
 	file   *state.File
 	states map[string]*state.File
 	config config
-	flow   *reflow.Flow
+	flow   *flow.Flow
 }
 
 // Init initializes a batch. If reset is set to true, then previously saved

@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package reflow_test
+package flow_test
 
 import (
 	"net/url"
@@ -10,7 +10,8 @@ import (
 	"testing"
 
 	"github.com/grailbio/reflow"
-	"github.com/grailbio/reflow/test/flow"
+	"github.com/grailbio/reflow/flow"
+	op "github.com/grailbio/reflow/test/flow"
 )
 
 func mustParseURL(s string) *url.URL {
@@ -24,17 +25,17 @@ func mustParseURL(s string) *url.URL {
 func TestDigestStability(t *testing.T) {
 	// This is the benchmark flow we digest to ensure stability.
 	// We try to use every feature here.
-	intern := flow.Intern("internurl")
-	collect := flow.Collect(".*", "$0", intern)
-	groupby := flow.Groupby("foo-(.*)", collect)
-	mapflow := flow.Map(func(f *reflow.Flow) *reflow.Flow { return flow.Exec("image", "command", reflow.Resources{}, f) }, groupby)
-	stableFlow := flow.Extern("externurl", mapflow)
+	intern := op.Intern("internurl")
+	collect := op.Collect(".*", "$0", intern)
+	groupby := op.Groupby("foo-(.*)", collect)
+	mapflow := op.Map(func(f *flow.Flow) *flow.Flow { return op.Exec("image", "command", reflow.Resources{}, f) }, groupby)
+	stableFlow := op.Extern("externurl", mapflow)
 
 	const stableSHA256V1 = "sha256:5a3a916fe9a11b67f9a0dbd67f6fac0f986dd67803267e79f25f866ca9781e2f"
 	const stableSHA256V2 = "sha256:02751e46c573a31747a30b05c2b73b2eb556fb45fb4c0aaf88d170f4b5e6d4e7"
 
 	// Make sure that the digest is stable.
-	if got, want := stableFlow.Canonicalize(reflow.Config{HashV1: true}).Digest().String(), stableSHA256V1; got != want {
+	if got, want := stableFlow.Canonicalize(flow.Config{HashV1: true}).Digest().String(), stableSHA256V1; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	// Make sure that the digest is stable.
@@ -44,11 +45,11 @@ func TestDigestStability(t *testing.T) {
 }
 
 func TestCanonicalize(t *testing.T) {
-	intern1 := flow.Intern("url")
-	intern2 := flow.Intern("url")
-	merged := flow.Merge(intern1, intern2)
+	intern1 := op.Intern("url")
+	intern2 := op.Intern("url")
+	merged := op.Merge(intern1, intern2)
 	d := merged.Digest()
-	canon := merged.Canonicalize(reflow.Config{})
+	canon := merged.Canonicalize(flow.Config{})
 	if got, want := canon.Digest(), d; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -58,24 +59,24 @@ func TestCanonicalize(t *testing.T) {
 }
 
 func TestVisitor(t *testing.T) {
-	intern1 := flow.Intern("url")
-	intern2 := flow.Intern("url")
-	merged := flow.Merge(intern1, intern2)
-	extern := flow.Extern("externurl", merged)
+	intern1 := op.Intern("url")
+	intern2 := op.Intern("url")
+	merged := op.Merge(intern1, intern2)
+	extern := op.Extern("externurl", merged)
 
-	var visited []*reflow.Flow
+	var visited []*flow.Flow
 	for v := extern.Visitor(); v.Walk(); v.Visit() {
 		visited = append(visited, v.Flow)
 	}
-	if got, want := visited, []*reflow.Flow{extern, merged, intern1, intern2}; !reflect.DeepEqual(got, want) {
+	if got, want := visited, []*flow.Flow{extern, merged, intern1, intern2}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
 
 func TestFlowRequirements(t *testing.T) {
-	e1 := flow.Exec("cmd1", "image", reflow.Resources{"mem": 10, "cpu": 1, "disk": 110})
-	e2 := flow.Exec("cmd2", "image", reflow.Resources{"mem": 20, "cpu": 1, "disk": 100})
-	merge := flow.Merge(e1, e2)
+	e1 := op.Exec("cmd1", "image", reflow.Resources{"mem": 10, "cpu": 1, "disk": 110})
+	e2 := op.Exec("cmd2", "image", reflow.Resources{"mem": 20, "cpu": 1, "disk": 100})
+	merge := op.Merge(e1, e2)
 	req := merge.Requirements()
 	if req.Width != 0 {
 		t.Errorf("expected width=0, got %v", req.Width)
@@ -84,8 +85,8 @@ func TestFlowRequirements(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 
-	mapflow := flow.Map(func(f *reflow.Flow) *reflow.Flow {
-		return flow.Exec("image", "command", reflow.Resources{}, f)
+	mapflow := op.Map(func(f *flow.Flow) *flow.Flow {
+		return op.Exec("image", "command", reflow.Resources{}, f)
 	}, merge)
 	req = mapflow.Requirements()
 	if !req.Wide() {

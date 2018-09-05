@@ -10,7 +10,8 @@ import (
 	"testing"
 
 	"github.com/grailbio/reflow"
-	"github.com/grailbio/reflow/test/flow"
+	"github.com/grailbio/reflow/flow"
+	op "github.com/grailbio/reflow/test/flow"
 )
 
 func newProgramOrError(t *testing.T, file string) *Program {
@@ -27,24 +28,24 @@ func newProgramOrError(t *testing.T, file string) *Program {
 	return p
 }
 
-func v1(f *reflow.Flow) *reflow.Flow {
-	return f.Canonicalize(reflow.Config{HashV1: true})
+func v1(f *flow.Flow) *flow.Flow {
+	return f.Canonicalize(flow.Config{HashV1: true})
 }
 
 func TestProgInclude(t *testing.T) {
 	p := newProgramOrError(t, "testdata/main.reflow")
-	want := v1(&reflow.Flow{
-		Op: reflow.OpMerge,
-		Deps: []*reflow.Flow{
+	want := v1(&flow.Flow{
+		Op: flow.Merge,
+		Deps: []*flow.Flow{
 			{
-				Op:  reflow.OpExtern,
+				Op:  flow.Extern,
 				URL: mustURL("s3://blah"),
-				Deps: []*reflow.Flow{{
-					Op:    reflow.OpExec,
+				Deps: []*flow.Flow{{
+					Op:    flow.Exec,
 					Cmd:   "\n\techo %s >$out\n",
 					Image: "ubuntu",
-					Deps: []*reflow.Flow{{
-						Op:  reflow.OpIntern,
+					Deps: []*flow.Flow{{
+						Op:  flow.OpIntern,
 						URL: mustURL("file://blah"),
 					}},
 				}},
@@ -75,14 +76,14 @@ func TestProgParams(t *testing.T) {
 	}
 	inputFlag.Value.Set("file://input")
 	outputFlag.Value.Set("file://output")
-	want := v1(&reflow.Flow{
-		Op: reflow.OpMerge,
-		Deps: []*reflow.Flow{
+	want := v1(&flow.Flow{
+		Op: flow.Merge,
+		Deps: []*flow.Flow{
 			{
-				Op:  reflow.OpExtern,
+				Op:  flow.Extern,
 				URL: mustURL("file://output"),
-				Deps: []*reflow.Flow{{
-					Op:  reflow.OpIntern,
+				Deps: []*flow.Flow{{
+					Op:  flow.OpIntern,
 					URL: mustURL("file://input"),
 				}},
 			},
@@ -96,10 +97,11 @@ func TestProgParams(t *testing.T) {
 func TestIntern(t *testing.T) {
 	p := newProgramOrError(t, "testdata/intern.reflow")
 	p.Args = []string{"s3://arg1", "s3://arg2"}
-	want := v1(flow.Merge(flow.Extern("s3://output",
-		flow.Pullup(
-			flow.Merge(flow.Intern("s3://arg1"), flow.Intern("s3://arg2")),
-			flow.Intern("s3://input")))))
+	want := v1(op.Merge(op.Extern("s3://output",
+		op.Pullup(
+			op.Merge(op.Intern("s3://arg1"),
+				op.Intern("s3://arg2")),
+			op.Intern("s3://input")))))
 	if got := p.Eval(); got.Digest() != want.Digest() {
 		t.Errorf("got %v, want %v", got.DebugString(), want.DebugString())
 	}
@@ -108,10 +110,11 @@ func TestIntern(t *testing.T) {
 func TestInternRewrite(t *testing.T) {
 	p := newProgramOrError(t, "testdata/internrewrite.reflow")
 	p.Args = []string{"s3://arg1", "s3://arg2"}
-	want := v1(flow.Merge(flow.Extern("s3://output",
-		flow.Pullup(
-			flow.Merge(flow.Intern("s3://arg1"), flow.Intern("s3://arg2")),
-			flow.Collect(`\.`, "theinput", flow.Intern("s3://bucket/input"))))))
+	want := v1(op.Merge(op.Extern("s3://output",
+		op.Pullup(
+			op.Merge(op.Intern("s3://arg1"),
+				op.Intern("s3://arg2")),
+			op.Collect(`\.`, "theinput", op.Intern("s3://bucket/input"))))))
 	if got := p.Eval(); got.Digest() != want.Digest() {
 		t.Errorf("got %v, want %v", got.DebugString(), want.DebugString())
 	}
@@ -119,18 +122,18 @@ func TestInternRewrite(t *testing.T) {
 
 func TestInternList(t *testing.T) {
 	p := newProgramOrError(t, "testdata/internlist.reflow")
-	want := v1(flow.Merge(flow.Extern("s3://output",
-		flow.Pullup(
-			flow.Collect(`^`, "dir1/", flow.Intern("s3://bucket1/dir1/")),
-			flow.Collect(`^`, "dir2/", flow.Intern("s3://bucket2/dir2/")),
-			flow.Collect(`\.`, "file3", flow.Intern("s3f://bucket3/file3"))))))
+	want := v1(op.Merge(op.Extern("s3://output",
+		op.Pullup(
+			op.Collect(`^`, "dir1/", op.Intern("s3://bucket1/dir1/")),
+			op.Collect(`^`, "dir2/", op.Intern("s3://bucket2/dir2/")),
+			op.Collect(`\.`, "file3", op.Intern("s3f://bucket3/file3"))))))
 	if got := p.Eval(); got.Digest() != want.Digest() {
 		t.Errorf("got %v, want %v", got.DebugString(), want.DebugString())
 	}
 
 	p = newProgramOrError(t, "testdata/internlist2.reflow")
-	want = v1(flow.Merge(flow.Extern("s3://output",
-		flow.Pullup(flow.Collect(`\.`, "file", flow.Intern("s3f://bucket3/file"))))))
+	want = v1(op.Merge(op.Extern("s3://output",
+		op.Pullup(op.Collect(`\.`, "file", op.Intern("s3f://bucket3/file"))))))
 	if got := p.Eval(); got.Digest() != want.Digest() {
 		t.Errorf("got %v, want %v", got.DebugString(), want.DebugString())
 	}
@@ -139,11 +142,11 @@ func TestInternList(t *testing.T) {
 
 func TestInternListRewrite(t *testing.T) {
 	p := newProgramOrError(t, "testdata/internlistrewrite.reflow")
-	want := v1(flow.Merge(flow.Extern("s3://output",
-		flow.Pullup(
-			flow.Collect(`^`, "xyz/", flow.Intern("s3://bucket1/dir1/")),
-			flow.Collect(`^`, "dir2/", flow.Intern("s3://bucket2/dir2/")),
-			flow.Collect(`\.`, "thefile", flow.Intern("s3f://bucket3/file3"))))))
+	want := v1(op.Merge(op.Extern("s3://output",
+		op.Pullup(
+			op.Collect(`^`, "xyz/", op.Intern("s3://bucket1/dir1/")),
+			op.Collect(`^`, "dir2/", op.Intern("s3://bucket2/dir2/")),
+			op.Collect(`\.`, "thefile", op.Intern("s3f://bucket3/file3"))))))
 	if got := p.Eval(); got.Digest() != want.Digest() {
 		t.Errorf("got %v, want %v", got.DebugString(), want.DebugString())
 	}
@@ -151,11 +154,11 @@ func TestInternListRewrite(t *testing.T) {
 
 func TestEscape(t *testing.T) {
 	p := newProgramOrError(t, "testdata/escape.reflow")
-	want := v1(flow.Merge(flow.Extern("s3://output",
-		flow.Exec("x", `
+	want := v1(op.Merge(op.Extern("s3://output",
+		op.Exec("x", `
 	echo %%
 	%s
-`, reflow.Resources{}, flow.Intern("s3://input")))))
+`, reflow.Resources{}, op.Intern("s3://input")))))
 	if got := p.Eval(); got.Digest() != want.Digest() {
 		t.Errorf("got %v, want %v", got.DebugString(), want.DebugString())
 	}

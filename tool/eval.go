@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/lang"
 	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/types"
@@ -21,7 +22,7 @@ import (
 // EvalResult contains the program Flow, params and args.
 type EvalResult struct {
 	Program string
-	Flow    *reflow.Flow
+	Flow    *flow.Flow
 	Type    *types.T
 	Params  map[string]string
 	Args    []string
@@ -138,14 +139,14 @@ func (c *Cmd) evalV1(sess *syntax.Session, file string, args []string) (EvalResu
 		er.Params[f.Name] = f.Value.String()
 	})
 	switch v := v.(type) {
-	case *reflow.Flow:
+	case *flow.Flow:
 		if v.Requirements().Equal(reflow.Requirements{}) {
 			c.Fatal("flow does not have resource requirements; add a @requires annotation to val Main")
 		}
 		er.Flow = v
 		return er, nil
 	default:
-		er.Flow = &reflow.Flow{Op: reflow.OpVal, Value: v}
+		er.Flow = &flow.Flow{Op: flow.Val, Value: v}
 		return er, nil
 	}
 }

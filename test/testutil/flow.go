@@ -13,6 +13,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/repository"
 )
 
@@ -61,7 +62,7 @@ func WriteFiles(r reflow.Repository, files ...string) reflow.Fileset {
 
 // WriteCache writes the provided files into the eval's repository and registers
 // a Fileset cache assoc.
-func WriteCache(e *reflow.Eval, key digest.Digest, files ...string) {
+func WriteCache(e *flow.Eval, key digest.Digest, files ...string) {
 	fs := WriteFiles(e.Repository, files...)
 	fsid, err := repository.Marshal(context.Background(), e.Repository, fs)
 	if err != nil {

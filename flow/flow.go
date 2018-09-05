@@ -2,29 +2,29 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package reflow
+package flow
 
-//go:generate stringer -type=FlowState
+//go:generate stringer -type=State
 
 import (
 	"bytes"
 	"crypto"
-	"encoding/binary"
-	"math"
-	"time"
-	// This is imported for the sha256 implementation, which is always required
-	// for Reflow.
 	_ "crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
 	"regexp"
 	"strings"
 	"sync"
+	"time" // This is imported for the sha256 implementation, which is always required
+	// for Reflow.
 
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/status"
+	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/values"
 )
@@ -66,129 +66,129 @@ func (c Config) String() string {
 type Op int
 
 const (
-	// OpExec runs a command in a docker container on the inputs
+	// Exec runs a command in a docker container on the inputs
 	// represented by the Flow's dependencies.
-	OpExec Op = 1 + iota
+	Exec Op = 1 + iota
 	// OpIntern imports datasets from URLs.
 	OpIntern
-	// OpExtern exports values to URLs.
-	OpExtern
-	// OpGroupby applies a regular expression to group an input value.
-	OpGroupby
-	// OpMap applies a function (which returns a Flow) to each element
+	// Extern exports values to URLs.
+	Extern
+	// Groupby applies a regular expression to group an input value.
+	Groupby
+	// Map applies a function (which returns a Flow) to each element
 	// in the input.
-	OpMap
-	// OpCollect filters and rewrites values.
-	OpCollect
-	// OpMerge merges a set of flows.
-	OpMerge
-	// OpVal returns a value.
-	OpVal
-	// OpPullup merges a set of results into one value.
-	OpPullup
-	// OpK is a flow continuation.
-	OpK
-	// OpCoerce is a flow value coercion. (Errors allowed.)
-	OpCoerce
-	// OpRequirements modifies the flow's requirements.
-	OpRequirements
-	// OpData evaluates to a literal (inline) piece of data.
-	OpData
+	Map
+	// Collect filters and rewrites values.
+	Collect
+	// Merge merges a set of flows.
+	Merge
+	// Val returns a value.
+	Val
+	// Pullup merges a set of results into one value.
+	Pullup
+	// K is a flow continuation.
+	K
+	// Coerce is a flow value coercion. (Errors allowed.)
+	Coerce
+	// Requirements modifies the flow's requirements.
+	Requirements
+	// Data evaluates to a literal (inline) piece of data.
+	Data
 
 	maxOp
 )
 
 var opStrings = [maxOp]string{
-	0:              "BROKEN",
-	OpExec:         "exec",
-	OpIntern:       "intern",
-	OpExtern:       "extern",
-	OpGroupby:      "groupby",
-	OpMap:          "map",
-	OpCollect:      "collect",
-	OpMerge:        "merge",
-	OpVal:          "val",
-	OpPullup:       "pullup",
-	OpK:            "k",
-	OpCoerce:       "coerce",
-	OpRequirements: "requirements",
-	OpData:         "data",
+	0:            "BROKEN",
+	Exec:         "exec",
+	OpIntern:     "intern",
+	Extern:       "extern",
+	Groupby:      "groupby",
+	Map:          "map",
+	Collect:      "collect",
+	Merge:        "merge",
+	Val:          "val",
+	Pullup:       "pullup",
+	K:            "k",
+	Coerce:       "coerce",
+	Requirements: "requirements",
+	Data:         "data",
 }
 
 func (o Op) String() string {
 	return opStrings[o]
 }
 
-// FlowState is an enum representing the state of a Flow node during
+// State is an enum representing the state of a Flow node during
 // evaluation.
-type FlowState int64
+type State int64
 
-// FlowState denotes a Flow node's state during evaluation. Flows
-// begin their life in FlowInit, where they remain until they are
+// State denotes a Flow node's state during evaluation. Flows
+// begin their life in Init, where they remain until they are
 // examined by the evaluator. The precise state transitions depend on
 // the evaluation mode (whether it is evaluating bottom-up or
 // top-down, and whether a cache is used), but generally follow the
 // order in which they are laid out here.
 const (
-	// FlowInit indicates that the flow is initialized but not evaluated
-	FlowInit FlowState = iota
+	// Init indicates that the flow is initialized but not evaluated
+	Init State = iota
 
-	// FlowNeedLookup indicates that the evaluator should perform a
+	// NeedLookup indicates that the evaluator should perform a
 	// cache lookup on the flow node.
-	FlowNeedLookup
-	// FlowLookup indicates that the evaluator is currently performing a
+	NeedLookup
+	// Lookup indicates that the evaluator is currently performing a
 	// cache lookup of the flow node. After a successful cache lookup,
-	// the node is transfered to FlowDone, and the (cached) value is
+	// the node is transfered to Done, and the (cached) value is
 	// attached to the flow node. The objects may not be transfered into
 	// the evaluator's repository.
-	FlowLookup
+	Lookup
 
-	// FlowTODO indicates that the evaluator should consider the node
+	// TODO indicates that the evaluator should consider the node
 	// for evaluation once its dependencies are completed.
-	FlowTODO
+	TODO
 
-	// FlowNeedTransfer indicates that the evaluator should transfer all
+	// NeedTransfer indicates that the evaluator should transfer all
 	// objects needed for execution into the evaluator's repository.
-	FlowNeedTransfer
-	// FlowTransfer indicates that the evalutor is currently
+	NeedTransfer
+	// Transfer indicates that the evalutor is currently
 	// transferring the flow's dependent objects from cache.
-	FlowTransfer
+	Transfer
 
-	// FlowReady indicates that the node is ready for evaluation and should
+	// Ready indicates that the node is ready for evaluation and should
 	// be scheduled by the evaluator. A node is ready only once all of its
 	// dependent objects are available in the evaluator's repository.
-	FlowReady
-	// FlowRunning indicates that the node is currently being evaluated by
+	Ready
+	// Running indicates that the node is currently being evaluated by
 	// the evaluator.
-	FlowRunning
+	Running
 
-	// FlowDone indicates that the node has completed evaluation.
-	FlowDone
+	// Done indicates that the node has completed evaluation.
+	Done
 
-	// FlowMax is the number of flow states.
-	FlowMax
+	// Max is the number of flow states.
+	Max
 )
 
 // Name returns the FlowStat's string name.
-func (s FlowState) Name() string {
+func (s State) Name() string {
 	switch s {
-	case FlowInit:
+	case Init:
 		return "init"
-	case FlowNeedLookup:
+	case NeedLookup:
 		return "needlookup"
-	case FlowLookup:
+	case Lookup:
 		return "lookup"
-	case FlowNeedTransfer:
+	case NeedTransfer:
 		return "needtransfer"
-	case FlowTransfer:
+	case Transfer:
 		return "transfer"
-	case FlowTODO:
+	case TODO:
 		return "todo"
-	case FlowReady:
+	case Ready:
 		return "ready"
-	case FlowRunning:
+	case Running:
 		return "running"
-	case FlowDone:
+	case Done:
 		return "done"
 	default:
 		return "unknown"
@@ -222,13 +222,13 @@ type Flow struct {
 
 	Image   string                           // OpExec
 	Cmd     string                           // OpExec
-	URL     *url.URL                         // OpIntern, OpExtern
-	Re      *regexp.Regexp                   // OpGroupby, OpCollect
-	Repl    string                           // OpCollect
-	MapFunc func(*Flow) *Flow                // OpMap, OpMapMerge
-	MapFlow *Flow                            // OpMap
-	K       func(vs []values.T) *Flow        // OpK
-	Coerce  func(values.T) (values.T, error) // OpCoerce
+	URL     *url.URL                         // OpIntern, Extern
+	Re      *regexp.Regexp                   // Groupby, Collect
+	Repl    string                           // Collect
+	MapFunc func(*Flow) *Flow                // Map, MapMerge
+	MapFlow *Flow                            // Map
+	K       func(vs []values.T) *Flow        // K
+	Coerce  func(values.T) (values.T, error) // Coerce
 	// ArgMap maps exec arguments to dependencies. (OpExec).
 	Argmap []ExecArg
 	// OutputIsDir tells whether the output i is a directory.
@@ -238,7 +238,7 @@ type Flow struct {
 	// and debugging.
 	Argstrs []string
 
-	// FlowDigest stores, for OpVal and OpK, a digest representing
+	// FlowDigest stores, for Val and K, a digest representing
 	// just the operation or value.
 	FlowDigest digest.Digest
 
@@ -251,21 +251,21 @@ type Flow struct {
 
 	// The following are used during evaluation.
 
-	// State stores the evaluation state of the node; see FlowState
+	// State stores the evaluation state of the node; see State
 	// for details.
-	State FlowState
+	State State
 
 	// Resources indicates the expected resource usage of this node.
 	// Currently it is only defined for OpExec.
-	Resources Resources
+	Resources reflow.Resources
 
 	// Reserved stores the amount of resources that have been reserved
 	// on behalf of this node.
-	Reserved Resources
+	Reserved reflow.Resources
 
 	// FlowRequirements stores the requirements indicated by
-	// OpRequirements.
-	FlowRequirements Requirements
+	// Requirements.
+	FlowRequirements reflow.Requirements
 
 	// Value stores the Value to which the node was evaluated.
 	Value values.T
@@ -276,10 +276,10 @@ type Flow struct {
 	Runtime time.Duration
 
 	// The current owning executor of this Flow.
-	Owner Executor
+	Owner reflow.Executor
 
 	// The exec working on this node.
-	Exec Exec
+	Exec reflow.Exec
 
 	// Cached stores whether the flow was retrieved from cache.
 	Cached bool
@@ -288,13 +288,13 @@ type Flow struct {
 	TransferSize data.Size
 
 	// Inspect stores an exec's inspect output.
-	Inspect ExecInspect
+	Inspect reflow.ExecInspect
 
 	Tracked bool
 
 	Status *status.Task
 
-	Data []byte // OpData
+	Data []byte // Data
 
 	digestOnce sync.Once
 	digest     digest.Digest
@@ -313,7 +313,7 @@ func (f *Flow) Copy() *Flow {
 
 // MapInit initializes Flow.MapFlow from the supplied MapFunc.
 func (f *Flow) MapInit() {
-	f.MapFlow = f.MapFunc(&Flow{Op: OpVal, Value: values.T(Fileset{})})
+	f.MapFlow = f.MapFunc(&Flow{Op: Val, Value: values.T(reflow.Fileset{})})
 }
 
 // Label labels this flow with ident. It then recursively
@@ -340,11 +340,11 @@ func (f *Flow) Label(ident string) {
 // TODO(marius): include width hints on map nodes
 //
 // TODO(marius): account for static parallelism too.
-func (f *Flow) Requirements() (req Requirements) {
-	return f.requirements(make(map[*Flow]Requirements))
+func (f *Flow) Requirements() (req reflow.Requirements) {
+	return f.requirements(make(map[*Flow]reflow.Requirements))
 }
 
-func (f *Flow) requirements(m map[*Flow]Requirements) (req Requirements) {
+func (f *Flow) requirements(m map[*Flow]reflow.Requirements) (req reflow.Requirements) {
 	if r, ok := m[f]; ok {
 		return r
 	}
@@ -352,12 +352,12 @@ func (f *Flow) requirements(m map[*Flow]Requirements) (req Requirements) {
 		req.Add(ff.requirements(m))
 	}
 	switch f.Op {
-	case OpMap:
+	case Map:
 		req.Add(f.MapFlow.requirements(m))
 		req.Width = 1 // We set it to wide; we can't assume how wide.
-	case OpExec:
+	case Exec:
 		req.AddSerial(f.Resources)
-	case OpRequirements:
+	case Requirements:
 		req.Add(f.FlowRequirements)
 	}
 	m[f] = req
@@ -392,19 +392,19 @@ func (f *Flow) Fork(flow *Flow) {
 func (f *Flow) String() string {
 	s := fmt.Sprintf("flow %s state %s %s %s", f.Digest().Short(), f.State, f.Resources, f.Op)
 	switch f.Op {
-	case OpExec:
+	case Exec:
 		s += fmt.Sprintf(" image %s cmd %q", f.Image, f.Cmd)
 	case OpIntern:
 		s += fmt.Sprintf(" url %q", f.URL)
-	case OpExtern:
+	case Extern:
 		s += fmt.Sprintf(" url %q", f.URL)
-	case OpGroupby:
+	case Groupby:
 		s += fmt.Sprintf(" re %s", f.Re.String())
-	case OpCollect:
+	case Collect:
 		s += fmt.Sprintf(" re %s repl %s", f.Re.String(), f.Repl)
-	case OpVal:
+	case Val:
 		s += fmt.Sprintf(" val %s", f.Value)
-	case OpData:
+	case Data:
 		s += fmt.Sprintf(" data %s", Digester.FromBytes(f.Data))
 	}
 	if len(f.Deps) != 0 {
@@ -426,7 +426,7 @@ func (f *Flow) DebugString() string {
 	}
 	b := new(bytes.Buffer)
 	switch f.Op {
-	case OpExec:
+	case Exec:
 		fmt.Fprintf(b, "exec<%s>(image(%s), resources(%s), cmd(%q)", dstr, f.Image, f.Resources, f.Cmd)
 		if f.Argmap != nil {
 			args := make([]string, len(f.Argmap))
@@ -441,28 +441,28 @@ func (f *Flow) DebugString() string {
 		}
 	case OpIntern:
 		fmt.Fprintf(b, "intern<%s>(%q", dstr, f.URL)
-	case OpExtern:
+	case Extern:
 		fmt.Fprintf(b, "extern<%s>(%q", dstr, f.URL)
-	case OpGroupby:
+	case Groupby:
 		fmt.Fprintf(b, "groupby<%s>(re(%s)", dstr, f.Re)
-	case OpMap:
+	case Map:
 		fmt.Fprintf(b, "map<%s>(", dstr)
-	case OpCollect:
+	case Collect:
 		fmt.Fprintf(b, "collect<%s>(re(%s), repl(%s)", dstr, f.Re, f.Repl)
-	case OpMerge:
+	case Merge:
 		fmt.Fprintf(b, "merge<%s>(", dstr)
-	case OpVal:
+	case Val:
 		fmt.Fprintf(b, "val<%s>(val(%v)", dstr, f.Value)
-	case OpPullup:
+	case Pullup:
 		fmt.Fprintf(b, "pullup<%s>(", dstr)
-	case OpK:
+	case K:
 		fmt.Fprintf(b, "k<%s>(", dstr)
-	case OpCoerce:
+	case Coerce:
 		fmt.Fprintf(b, "coerce<%s>(", dstr)
-	case OpRequirements:
+	case Requirements:
 		fmt.Fprintf(b, "requirements<%s>(min(%s), width(%d)",
 			dstr, f.FlowRequirements.Min, f.FlowRequirements.Width)
-	case OpData:
+	case Data:
 		fmt.Fprintf(b, "data<%s>(%s)", dstr, Digester.FromBytes(f.Data))
 	}
 	if len(f.Deps) != 0 {
@@ -501,7 +501,7 @@ func (f *Flow) ExecString(cache bool) string {
 	var s string
 	if cache {
 		switch f.Op {
-		case OpExec:
+		case Exec:
 			argv := make([]interface{}, f.NExecArg())
 			for i := range argv {
 				earg := f.ExecArg(i)
@@ -514,45 +514,45 @@ func (f *Flow) ExecString(cache bool) string {
 			s = fmt.Sprintf("exec %q", fmt.Sprintf(f.Cmd, argv...))
 		case OpIntern:
 			s = fmt.Sprintf("intern %q", f.URL)
-		case OpExtern:
+		case Extern:
 			s = fmt.Sprintf("extern flow(%v) %q", f.Deps[0].Digest().Short(), f.URL)
-		case OpGroupby:
+		case Groupby:
 			s = fmt.Sprintf("groupby %q flow(%v) ", f.Re.String(), f.Deps[0].Digest().Short())
-		case OpMap:
+		case Map:
 			s = fmt.Sprintf("map <opaque> flow(%v)", f.Deps[0].Digest().Short())
-		case OpCollect:
+		case Collect:
 			s = fmt.Sprintf("collect %q %s flow(%s)", f.Re, f.Repl, f.Deps[0].Digest().Short())
-		case OpMerge:
+		case Merge:
 			argv := make([]string, len(f.Deps))
 			for i, dep := range f.Deps {
 				argv[i] = "flow(" + dep.Digest().Short() + ")"
 			}
 			s = "merge " + strings.Join(argv, " ")
-		case OpVal:
-			if fs, ok := f.Value.(Fileset); ok {
+		case Val:
+			if fs, ok := f.Value.(reflow.Fileset); ok {
 				s = fmt.Sprintf("val %v", fs.Short())
 			} else {
 				s = "val ?"
 			}
-		case OpPullup:
+		case Pullup:
 			args := make([]string, len(f.Deps))
 			for i, dep := range f.Deps {
 				args[i] = dep.Digest().Short()
 			}
 			s = "pullup " + strings.Join(args, " ")
-		case OpData:
+		case Data:
 			s = fmt.Sprintf("data %s", Digester.FromBytes(f.Data))
 		}
 	} else {
 		switch f.Op {
-		case OpExec:
+		case Exec:
 			argv := make([]interface{}, f.NExecArg())
 			for i := range argv {
 				earg := f.ExecArg(i)
 				if earg.Out {
 					argv[i] = fmt.Sprintf("<out(%d)>", earg.Index)
 				} else {
-					if fs, ok := f.Deps[earg.Index].Value.(Fileset); ok {
+					if fs, ok := f.Deps[earg.Index].Value.(reflow.Fileset); ok {
 						argv[i] = "<in(" + fs.Short() + ")>"
 					} else {
 						argv[i] = "<in(?)>"
@@ -562,32 +562,32 @@ func (f *Flow) ExecString(cache bool) string {
 			s = fmt.Sprintf("exec %q", fmt.Sprintf(f.Cmd, argv...))
 		case OpIntern:
 			s = fmt.Sprintf("intern %q", f.URL)
-		case OpExtern:
-			if fs, ok := f.Deps[0].Value.(Fileset); ok {
+		case Extern:
+			if fs, ok := f.Deps[0].Value.(reflow.Fileset); ok {
 				s = fmt.Sprintf("extern %v %q", fs.Short(), f.URL)
 			} else {
 				s = fmt.Sprintf("extern ? %q", f.URL)
 			}
-		case OpGroupby:
-			if fs, ok := f.Deps[0].Value.(Fileset); ok {
+		case Groupby:
+			if fs, ok := f.Deps[0].Value.(reflow.Fileset); ok {
 				s = fmt.Sprintf("groupby %q %v ", f.Re.String(), fs.Short())
 			} else {
 				s = fmt.Sprintf("groupby %q ?", f.Re.String())
 			}
-		case OpMap:
-			if fs, ok := f.Deps[0].Value.(Fileset); ok {
+		case Map:
+			if fs, ok := f.Deps[0].Value.(reflow.Fileset); ok {
 				s = fmt.Sprintf("map <opaque> %v", fs.Short())
 			} else {
 				s = "map <opaque> ?"
 			}
-		case OpCollect:
-			if fs, ok := f.Deps[0].Value.(Fileset); ok {
+		case Collect:
+			if fs, ok := f.Deps[0].Value.(reflow.Fileset); ok {
 				s = fmt.Sprintf("collect %q %s %s", f.Re, f.Repl, fs.Short())
 			} else {
 				s = fmt.Sprintf("collect %q %s ?", f.Re, f.Repl)
 			}
-		case OpMerge:
-			if fs, ok := f.Value.(Fileset); ok {
+		case Merge:
+			if fs, ok := f.Value.(reflow.Fileset); ok {
 				argv := make([]string, len(fs.List))
 				for i := range fs.List {
 					argv[i] = fs.List[i].Short()
@@ -596,35 +596,35 @@ func (f *Flow) ExecString(cache bool) string {
 			} else {
 				s = "merge ?"
 			}
-		case OpVal:
-			if fs, ok := f.Value.(Fileset); ok {
+		case Val:
+			if fs, ok := f.Value.(reflow.Fileset); ok {
 				s = fmt.Sprintf("val %v", fs.Short())
 			} else {
 				s = "val ?"
 			}
-		case OpPullup:
+		case Pullup:
 			args := make([]string, len(f.Deps))
 			for i, dep := range f.Deps {
-				if fs, ok := dep.Value.(Fileset); ok {
+				if fs, ok := dep.Value.(reflow.Fileset); ok {
 					args[i] = fs.Short()
 				} else {
 					args[i] = "?"
 				}
 			}
 			s = "pullup " + strings.Join(args, " ")
-		case OpData:
+		case Data:
 			s = fmt.Sprintf("data %s", Digester.FromBytes(f.Data))
 		}
 	}
 	var rate string
-	if v, ok := f.Value.(Fileset); ok {
+	if v, ok := f.Value.(reflow.Fileset); ok {
 		if sec := f.Runtime.Seconds(); sec > 0 {
 			bps := v.Size() / int64(math.Ceil(sec))
 			rate = " " + data.Size(bps).String() + "/s"
 		}
 	}
 	short := "?"
-	if fs, ok := f.Value.(Fileset); ok {
+	if fs, ok := f.Value.(reflow.Fileset); ok {
 		short = fs.Short()
 	}
 	return fmt.Sprintf("%s:%s(%s) %s = %s (%s%s)", how, f.Digest().Short(), f.Ident, short, s, round(f.Runtime), rate)
@@ -656,7 +656,7 @@ func (f *Flow) ExecArg(i int) ExecArg {
 
 // Digest produces a digest of Flow f. The digest captures the
 // entirety of the Flows semantics: two flows with the same digest
-// must evaluate to the same value. OpMap Flows are canonicalized
+// must evaluate to the same value. Map Flows are canonicalized
 // by passing a no-op Flow to its MapFunc.
 func (f *Flow) Digest() digest.Digest {
 	// This could be much more efficient if we composed Digest()
@@ -684,7 +684,7 @@ func (f *Flow) WriteDigest(w io.Writer) {
 	if Universe != "" {
 		io.WriteString(w, Universe)
 	}
-	if f.Op == OpRequirements {
+	if f.Op == Requirements {
 		f.Deps[0].WriteDigest(w)
 		return
 	}
@@ -694,7 +694,7 @@ func (f *Flow) WriteDigest(w io.Writer) {
 	}
 	// TODO(marius): write these in a canonical order. Requires care to
 	// re-map the argmap, and account for legacy execs. This cannot be
-	// done for OpKs, since these rely on argument ordering; but even
+	// done for Ks, since these rely on argument ordering; but even
 	// here it could be remapped if the mapping were carried as extra
 	// metadata.
 	for _, dep := range f.Deps {
@@ -707,9 +707,9 @@ func (f *Flow) WriteDigest(w io.Writer) {
 
 	io.WriteString(w, f.Op.DigestString())
 	switch f.Op {
-	case OpIntern, OpExtern:
+	case OpIntern, Extern:
 		io.WriteString(w, f.URL.String())
-	case OpExec:
+	case Exec:
 		io.WriteString(w, f.Image)
 		io.WriteString(w, f.Cmd)
 		for _, arg := range f.Argmap {
@@ -719,18 +719,18 @@ func (f *Flow) WriteDigest(w io.Writer) {
 				writeN(w, arg.Index)
 			}
 		}
-	case OpGroupby:
+	case Groupby:
 		io.WriteString(w, f.Re.String())
-	case OpMap:
+	case Map:
 		f.MapFlow.WriteDigest(w)
-	case OpCollect:
+	case Collect:
 		io.WriteString(w, f.Re.String())
 		io.WriteString(w, f.Repl)
-	case OpVal:
+	case Val:
 		if f.Err != nil {
 			// Scramble the digest in the case of an error. While we don't
 			// cache errors, this is needed so that we can distinguish between
-			// empty OpVals and erroneous ones while canonicalizing flow
+			// empty Vals and erroneous ones while canonicalizing flow
 			// nodes.
 			//
 			// If we do decide to cache errors, we'll need to digest the error
@@ -738,7 +738,7 @@ func (f *Flow) WriteDigest(w io.Writer) {
 			digest.WriteDigest(w, Digester.Rand())
 			return
 		}
-		if v, ok := f.Value.(Fileset); ok {
+		if v, ok := f.Value.(reflow.Fileset); ok {
 			v.WriteDigest(w)
 		} else {
 			if f.FlowDigest.IsZero() {
@@ -746,13 +746,13 @@ func (f *Flow) WriteDigest(w io.Writer) {
 			}
 			digest.WriteDigest(w, f.FlowDigest)
 		}
-	case OpK, OpCoerce:
+	case K, Coerce:
 		if f.FlowDigest.IsZero() {
 			panic("invalid flow digest")
 		}
 		digest.WriteDigest(w, f.FlowDigest)
-	case OpPullup:
-	case OpData:
+	case Pullup:
+	case Data:
 		w.Write(f.Data)
 	}
 }
@@ -762,8 +762,8 @@ func (f *Flow) WriteDigest(w io.Writer) {
 // not the logical one.
 //
 // It is an error to call PhysicalDigest on nodes whose dependencies
-// are not fully resolved (i.e., state FlowDone, contains a Fileset
-// value), or on nodes not of type OpExec, OpIntern, or OpExtern.
+// are not fully resolved (i.e., state Done, contains a Fileset
+// value), or on nodes not of type OpExec, OpIntern, or Extern.
 // This is because the physical input values must be available to
 // compute the digest.
 //
@@ -771,21 +771,21 @@ func (f *Flow) WriteDigest(w io.Writer) {
 // computable for node f.
 func (f *Flow) PhysicalDigest() digest.Digest {
 	switch f.Op {
-	case OpExtern, OpExec:
+	case Extern, Exec:
 	default:
 		return digest.Digest{}
 	}
 	w := Digester.NewWriter()
 	for _, dep := range f.Deps {
-		if dep.State != FlowDone || dep.Err != nil {
+		if dep.State != Done || dep.Err != nil {
 			return digest.Digest{}
 		}
-		dep.Value.(Fileset).WriteDigest(w)
+		dep.Value.(reflow.Fileset).WriteDigest(w)
 	}
 	switch f.Op {
-	case OpExtern:
+	case Extern:
 		io.WriteString(w, f.URL.String())
-	case OpExec:
+	case Exec:
 		io.WriteString(w, f.Image)
 		io.WriteString(w, f.Cmd)
 		for _, arg := range f.Argmap {

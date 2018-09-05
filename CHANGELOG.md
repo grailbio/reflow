@@ -135,7 +135,7 @@ The changes and improvements are detailed below.
 - syntax: fix digest for ExprApply
 - syntax: {files,dirs}.Copy: return a helpful error message if URL scheme is missing
 - runner: improve stealer allocation
-- eval: scramble digest when an OpVal carries an error
+- eval: scramble digest when an Val carries an error
 - syntax,types: fix type environment for recursive module instantiations
 - `reflow shell`: new command to shell into an exec
 - tool: use stdout for reflow doc output

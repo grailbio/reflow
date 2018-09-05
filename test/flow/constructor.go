@@ -11,64 +11,66 @@ import (
 	"regexp"
 
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/flow"
+	"github.com/grailbio/reflow/values"
 )
 
-// Exec constructs a new reflow.OpExec node.
-func Exec(image, cmd string, resources reflow.Resources, deps ...*reflow.Flow) *reflow.Flow {
-	return &reflow.Flow{Op: reflow.OpExec, Deps: deps, Cmd: cmd, Image: image, Resources: resources}
+// Exec constructs a new flow.OpExec node.
+func Exec(image, cmd string, resources reflow.Resources, deps ...*flow.Flow) *flow.Flow {
+	return &flow.Flow{Op: flow.Exec, Deps: deps, Cmd: cmd, Image: image, Resources: resources}
 }
 
-// Intern constructs a new reflow.OpIntern node.
-func Intern(rawurl string) *reflow.Flow {
+// Intern constructs a new flow.OpIntern node.
+func Intern(rawurl string) *flow.Flow {
 	u, err := url.Parse(rawurl)
 	if err != nil {
 		panic(err)
 	}
-	return &reflow.Flow{Op: reflow.OpIntern, URL: u}
+	return &flow.Flow{Op: flow.OpIntern, URL: u}
 }
 
-// Extern constructs a new reflow.OpExtern node.
-func Extern(rawurl string, dep *reflow.Flow) *reflow.Flow {
+// Extern constructs a new flow.Extern node.
+func Extern(rawurl string, dep *flow.Flow) *flow.Flow {
 	u, err := url.Parse(rawurl)
 	if err != nil {
 		panic(err)
 	}
-	return &reflow.Flow{Op: reflow.OpExtern, Deps: []*reflow.Flow{dep}, URL: u}
+	return &flow.Flow{Op: flow.Extern, Deps: []*flow.Flow{dep}, URL: u}
 }
 
-// Groupby constructs a new reflow.OpGroupby node.
-func Groupby(re string, dep *reflow.Flow) *reflow.Flow {
-	return &reflow.Flow{Op: reflow.OpGroupby, Deps: []*reflow.Flow{dep}, Re: regexp.MustCompile(re)}
+// Groupby constructs a new flow.Groupby node.
+func Groupby(re string, dep *flow.Flow) *flow.Flow {
+	return &flow.Flow{Op: flow.Groupby, Deps: []*flow.Flow{dep}, Re: regexp.MustCompile(re)}
 }
 
-// Map constructs a new reflow.OpMap node.
-func Map(fn func(*reflow.Flow) *reflow.Flow, dep *reflow.Flow) *reflow.Flow {
-	f := &reflow.Flow{Op: reflow.OpMap, Deps: []*reflow.Flow{dep}, MapFunc: fn}
+// Map constructs a new flow.Map node.
+func Map(fn func(*flow.Flow) *flow.Flow, dep *flow.Flow) *flow.Flow {
+	f := &flow.Flow{Op: flow.Map, Deps: []*flow.Flow{dep}, MapFunc: fn}
 	f.MapInit()
 	return f
 }
 
-// Collect constructs a new reflow.OpCollect node.
-func Collect(re, repl string, dep *reflow.Flow) *reflow.Flow {
-	return &reflow.Flow{Op: reflow.OpCollect, Re: regexp.MustCompile(re), Repl: repl, Deps: []*reflow.Flow{dep}}
+// Collect constructs a new flow.Collect node.
+func Collect(re, repl string, dep *flow.Flow) *flow.Flow {
+	return &flow.Flow{Op: flow.Collect, Re: regexp.MustCompile(re), Repl: repl, Deps: []*flow.Flow{dep}}
 }
 
-// Merge constructs a new reflow.OpMerge node.
-func Merge(deps ...*reflow.Flow) *reflow.Flow {
-	return &reflow.Flow{Op: reflow.OpMerge, Deps: deps}
+// Merge constructs a new flow.Merge node.
+func Merge(deps ...*flow.Flow) *flow.Flow {
+	return &flow.Flow{Op: flow.Merge, Deps: deps}
 }
 
-// Pullup constructs a new reflow.OpPullup node.
-func Pullup(deps ...*reflow.Flow) *reflow.Flow {
-	return &reflow.Flow{Op: reflow.OpPullup, Deps: deps}
+// Pullup constructs a new flow.Pullup node.
+func Pullup(deps ...*flow.Flow) *flow.Flow {
+	return &flow.Flow{Op: flow.Pullup, Deps: deps}
 }
 
-// Val constructs a new reflow.OpVal node.
-func Val(v reflow.Fileset) *reflow.Flow {
-	return v.Flow()
+// Val constructs a new flow.Val node.
+func Val(v reflow.Fileset) *flow.Flow {
+	return &flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done}
 }
 
 // Data constructs a new reflow.Data node.
-func Data(b []byte) *reflow.Flow {
-	return &reflow.Flow{Op: reflow.OpData, Data: b}
+func Data(b []byte) *flow.Flow {
+	return &flow.Flow{Op: flow.Data, Data: b}
 }

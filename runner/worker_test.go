@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/grailbio/reflow"
-	"github.com/grailbio/reflow/test/flow"
+	"github.com/grailbio/reflow/flow"
+	op "github.com/grailbio/reflow/test/flow"
 	"github.com/grailbio/reflow/test/testutil"
 	"github.com/grailbio/reflow/wg"
 )
@@ -20,18 +20,18 @@ func TestWorker(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping test in short mode because it sleeps")
 	}
-	intern := flow.Intern("internurl")
-	exec1 := flow.Exec("image", "command1 %s", testutil.Resources, intern)
-	exec2 := flow.Exec("image", "command2 %s", testutil.Resources, intern)
-	exec3 := flow.Exec("image", "command3 %s", testutil.Resources, intern)
-	merge := flow.Merge(exec1, exec2, exec3)
+	intern := op.Intern("internurl")
+	exec1 := op.Exec("image", "command1 %s", testutil.Resources, intern)
+	exec2 := op.Exec("image", "command2 %s", testutil.Resources, intern)
+	exec3 := op.Exec("image", "command3 %s", testutil.Resources, intern)
+	merge := op.Merge(exec1, exec2, exec3)
 
 	var tf testutil.WaitTransferer
 	tf.Init()
 	e := &testutil.Executor{Have: testutil.Resources}
 	e.Init()
 	e.Repo = testutil.NewInmemoryRepository()
-	eval := reflow.NewEval(merge, reflow.EvalConfig{
+	eval := flow.NewEval(merge, flow.EvalConfig{
 		Executor:   e,
 		Transferer: &tf,
 	})
@@ -63,7 +63,7 @@ func TestWorker(t *testing.T) {
 	// Now wait for the main executor to grab a task, and figure out
 	// which it is. We expect the auxilliary executor to grab the
 	// remaining ones (concurrently).
-	execs := []*reflow.Flow{exec1, exec2, exec3}
+	execs := []*flow.Flow{exec1, exec2, exec3}
 	main := e.WaitAny(execs...)
 	var maini int
 	for i, exec := range execs {

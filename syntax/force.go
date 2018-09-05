@@ -11,6 +11,7 @@ import (
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
 )
@@ -18,17 +19,17 @@ import (
 var forceDigest = reflow.Digester.FromString("grail.com/reflow/syntax.Eval.Force")
 
 // Force produces a strict version of v. Force either returns an
-// immediate value v, or else a *reflow.Flow that will produce the
+// immediate value v, or else a *flow.Flow that will produce the
 // immediate value.
 func Force(v values.T, t *types.T) values.T {
-	if f, ok := v.(*reflow.Flow); ok {
-		return &reflow.Flow{
-			Deps:       []*reflow.Flow{f},
-			Op:         reflow.OpK,
+	if f, ok := v.(*flow.Flow); ok {
+		return &flow.Flow{
+			Deps:       []*flow.Flow{f},
+			Op:         flow.K,
 			FlowDigest: forceDigest,
-			K: func(vs []values.T) *reflow.Flow {
+			K: func(vs []values.T) *flow.Flow {
 				v := vs[0]
-				return flow(Force(v, t), t)
+				return toFlow(Force(v, t), t)
 			},
 		}
 	}
@@ -138,12 +139,12 @@ func Force(v values.T, t *types.T) values.T {
 // flow produces a flow from value v. If v is already a flow,
 // it is returned immediately; otherwise it's wrapped in a
 // Val flow.
-func flow(v values.T, t *types.T) *reflow.Flow {
-	if f, ok := v.(*reflow.Flow); ok {
+func toFlow(v values.T, t *types.T) *flow.Flow {
+	if f, ok := v.(*flow.Flow); ok {
 		return f
 	}
-	return &reflow.Flow{
-		Op:         reflow.OpVal,
+	return &flow.Flow{
+		Op:         flow.Val,
 		Value:      v,
 		FlowDigest: values.Digest(v, t),
 	}
@@ -151,7 +152,7 @@ func flow(v values.T, t *types.T) *reflow.Flow {
 
 type resolver struct {
 	dw   digest.Writer
-	deps []*reflow.Flow
+	deps []*flow.Flow
 	vps  []*values.T
 	v    values.T
 	t    *types.T
@@ -166,7 +167,7 @@ func newResolver(v values.T, t *types.T) *resolver {
 }
 
 func (r *resolver) Add(vp *values.T, t *types.T) {
-	if f, ok := (*vp).(*reflow.Flow); ok {
+	if f, ok := (*vp).(*flow.Flow); ok {
 		r.deps = append(r.deps, f)
 		r.vps = append(r.vps, vp)
 	} else {
@@ -183,11 +184,11 @@ func (r *resolver) Resolve(proc func()) values.T {
 	}
 	var once sync.Once
 	writeN(r.dw, int(r.t.Kind))
-	return &reflow.Flow{
-		Op:         reflow.OpK,
+	return &flow.Flow{
+		Op:         flow.K,
 		Deps:       r.deps,
 		FlowDigest: r.dw.Digest(),
-		K: func(vs []values.T) *reflow.Flow {
+		K: func(vs []values.T) *flow.Flow {
 			// Initialize the underlying datastructure only once.
 			// This makes it safe to invoke the K multiple times.
 			// Since the underlying computation is deterministic,
@@ -201,7 +202,7 @@ func (r *resolver) Resolve(proc func()) values.T {
 					proc()
 				}
 			})
-			return flow(r.v, r.t)
+			return toFlow(r.v, r.t)
 		},
 	}
 }

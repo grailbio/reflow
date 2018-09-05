@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/grailbio/base/limiter"
-	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/flow"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -51,12 +51,12 @@ supplied via a CSV batch file as in "reflow runbatch".`
 	if err != nil {
 		c.Fatal(err)
 	}
-	config := reflow.EvalConfig{
+	config := flow.EvalConfig{
 		Log:        c.Log,
 		Repository: repo,
 		Assoc:      assoc,
 	}
-	repair := reflow.NewRepair(config)
+	repair := flow.NewRepair(config)
 	repair.GetLimit = limiter.New()
 	repair.GetLimit.Release(*getConcurrency)
 	repair.Go(ctx, *writebackConcurrency)

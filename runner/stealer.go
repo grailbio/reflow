@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/wg"
@@ -32,7 +33,7 @@ type Stealer struct {
 // Go polls the Eval e for required resources, allocates new allocs
 // and spins up workers as needed. Go returns when the provided
 // context is complete.
-func (s *Stealer) Go(ctx context.Context, e *reflow.Eval) {
+func (s *Stealer) Go(ctx context.Context, e *flow.Eval) {
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	var n int
@@ -65,7 +66,7 @@ poll:
 			}()
 			go func() {
 				var wg wg.WaitGroup
-				ctx, bgcancel := reflow.WithBackground(wctx, &wg)
+				ctx, bgcancel := flow.WithBackground(wctx, &wg)
 				w.Go(ctx)
 				waitc := wg.C()
 				select {

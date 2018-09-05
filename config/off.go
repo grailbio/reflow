@@ -4,19 +4,17 @@
 
 package config
 
-import (
-	"github.com/grailbio/reflow"
-)
+import "github.com/grailbio/reflow/flow"
 
 func init() {
 	options := []struct {
 		name, doc string
-		mode      reflow.CacheMode
+		mode      flow.CacheMode
 	}{
-		{"off", "turn caching off", reflow.CacheOff},
-		{"read", "read-only caching", reflow.CacheRead},
-		{"write", "write-only caching", reflow.CacheWrite},
-		{"read+write", "read and write caching", reflow.CacheRead | reflow.CacheWrite},
+		{"off", "turn caching off", flow.CacheOff},
+		{"read", "read-only caching", flow.CacheRead},
+		{"write", "write-only caching", flow.CacheWrite},
+		{"read+write", "read and write caching", flow.CacheRead | flow.CacheWrite},
 	}
 	for _, opt := range options {
 		opt := opt
@@ -30,9 +28,9 @@ func init() {
 
 type cacheMode struct {
 	Config
-	mode reflow.CacheMode
+	mode flow.CacheMode
 }
 
-func (c *cacheMode) CacheMode() reflow.CacheMode {
+func (c *cacheMode) CacheMode() flow.CacheMode {
 	return c.mode
 }

@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/flow"
 )
 
 // Resources is a convenient set of resources to use for testing.
@@ -25,12 +26,12 @@ type EvalResult struct {
 // ensures that any background tasks are completed before reporting
 // completion. EvalAsync expects that e's toplevel flow returns a
 // Fileset.
-func EvalAsync(ctx context.Context, e *reflow.Eval) <-chan EvalResult {
+func EvalAsync(ctx context.Context, e *flow.Eval) <-chan EvalResult {
 	c := make(chan EvalResult, 1)
 	//	e.Logger = log.New(os.Stderr, "", 0)
 	go func() {
 		var wg sync.WaitGroup
-		ctx, _ := reflow.WithBackground(ctx, &wg)
+		ctx, _ := flow.WithBackground(ctx, &wg)
 		var r EvalResult
 		r.Err = e.Do(ctx)
 		if r.Err == nil {

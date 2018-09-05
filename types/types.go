@@ -190,7 +190,7 @@ type T struct {
 	Label string
 
 	// Flow is a flag indicating that types of this value are derived
-	// from *reflow.Flow evaluations. This is used in the type checker
+	// from *flow.Flow evaluations. This is used in the type checker
 	// to check for "immediate" evaluation.
 	Flow bool
 }

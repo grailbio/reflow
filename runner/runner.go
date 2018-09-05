@@ -13,6 +13,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/trace"
 	"github.com/grailbio/reflow/types"
@@ -117,7 +118,7 @@ func (s State) String() string {
 	panic("unknown state")
 }
 
-// A Runner is responsible for evaluating a reflow.Flow on a cluster.
+// A Runner is responsible for evaluating a flow.Flow on a cluster.
 // Runners also launch and maintain auxilliary work-stealing allocs,
 // and manages data transfer and failure handling between the primary
 // evaluation alloc and the auxilliary workers.
@@ -130,7 +131,7 @@ type Runner struct {
 	// this in order to resume runs.
 	State
 
-	reflow.EvalConfig
+	flow.EvalConfig
 
 	// Cluster is the main cluster from which Allocs are allocated.
 	Cluster Cluster
@@ -141,7 +142,7 @@ type Runner struct {
 	ClusterAux Cluster
 
 	// Flow is the flow to be evaluated.
-	Flow *reflow.Flow
+	Flow *flow.Flow
 
 	// Type is the type of output. When Type is nil, it is taken to be
 	// (legacy) reflow.Fileset.
@@ -278,7 +279,7 @@ func (r *Runner) Eval(ctx context.Context) (string, error) {
 
 	config := r.EvalConfig
 	config.Executor = r.Alloc
-	eval := reflow.NewEval(r.Flow, config)
+	eval := flow.NewEval(r.Flow, config)
 	stealer := &Stealer{
 		Cluster: r.ClusterAux,
 		Log:     r.Log,

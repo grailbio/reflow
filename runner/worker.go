@@ -11,6 +11,7 @@ import (
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/log"
 )
 
@@ -29,7 +30,7 @@ type worker struct {
 	Executor reflow.Executor
 
 	// Eval is the primary evaluator from which we steal work.
-	Eval *reflow.Eval
+	Eval *flow.Eval
 
 	// Log is a logger to which status and errors are reported.
 	Log *log.Logger
@@ -50,7 +51,7 @@ func (w *worker) Go(ctx context.Context) {
 	defer stealer.Close()
 	var (
 		available = w.Executor.Resources()
-		done      = make(chan *reflow.Flow, 1024)
+		done      = make(chan *flow.Flow, 1024)
 		timer     = time.NewTimer(w.MaxIdleTime)
 		npending  int
 	)
@@ -70,16 +71,16 @@ func (w *worker) Go(ctx context.Context) {
 			}
 			w.Log.Debugf("stole %v", f)
 			available.Sub(available, f.Resources)
-			w.Eval.Mutate(f, reflow.FlowRunning)
+			w.Eval.Mutate(f, flow.Running)
 			npending++
-			go func(f *reflow.Flow) {
+			go func(f *flow.Flow) {
 				if err := w.do(ctx, f); err != nil {
 					w.Log.Errorf("eval %v: %v", f, err)
 				}
-				if f.State != reflow.FlowDone {
+				if f.State != flow.Done {
 					// If we failed to complete the flow, hand it back
 					// to the evaluator ready to run again.
-					w.Eval.Mutate(f, reflow.FlowReady)
+					w.Eval.Mutate(f, flow.Ready)
 				}
 				done <- f
 			}(f)
@@ -102,10 +103,10 @@ func (w *worker) Go(ctx context.Context) {
 }
 
 // do evaluates the flow f.
-func (w *worker) do(ctx context.Context, f *reflow.Flow) (err error) {
+func (w *worker) do(ctx context.Context, f *flow.Flow) (err error) {
 	for _, dep := range f.Deps {
 		if dep.Err != nil {
-			w.Eval.Mutate(f, dep.Err, reflow.FlowDone)
+			w.Eval.Mutate(f, dep.Err, flow.Done)
 			return
 		}
 	}
@@ -136,7 +137,7 @@ func (w *worker) do(ctx context.Context, f *reflow.Flow) (err error) {
 	defer func() {
 		if err != nil {
 			w.Log.Errorf("eval %s runtime error: %v", f.ExecString(false), err)
-		} else if f.State == reflow.FlowDone {
+		} else if f.State == flow.Done {
 			f.Runtime = time.Since(begin)
 			w.Log.Debug(f.ExecString(false))
 		}
@@ -191,7 +192,7 @@ func (w *worker) do(ctx context.Context, f *reflow.Flow) (err error) {
 		case stateResult:
 			r, err = x.Result(ctx)
 			if err == nil {
-				w.Eval.Mutate(f, r.Fileset, reflow.Incr)
+				w.Eval.Mutate(f, r.Fileset, flow.Incr)
 			}
 		case statePromote:
 			// TODO(marius): make the exec's staging repository directly
@@ -230,19 +231,19 @@ func (w *worker) do(ctx context.Context, f *reflow.Flow) (err error) {
 	}
 	if err != nil {
 		if s > stateResult {
-			w.Eval.Mutate(f, reflow.Decr)
+			w.Eval.Mutate(f, flow.Decr)
 		}
 		return err
 	}
-	w.Eval.Mutate(f, r.Err, reflow.FlowDone)
-	bgctx := reflow.Background(ctx)
+	w.Eval.Mutate(f, r.Err, flow.Done)
+	bgctx := flow.Background(ctx)
 	go func() {
 		err := w.Eval.CacheWrite(bgctx, f, w.Executor.Repository())
 		if err != nil {
 			w.Log.Errorf("cache write %v: %v", f, err)
 		}
 		bgctx.Complete()
-		w.Eval.Mutate(f, reflow.Decr)
+		w.Eval.Mutate(f, flow.Decr)
 	}()
 	return nil
 }

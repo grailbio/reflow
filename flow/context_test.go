@@ -2,14 +2,14 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package reflow_test
+package flow_test
 
 import (
 	"context"
 	"sync"
 	"testing"
 
-	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/flow"
 )
 
 type nopWaitGroup struct{}
@@ -19,16 +19,16 @@ func (nopWaitGroup) Done()   {}
 
 func TestContext(t *testing.T) {
 	ctx := context.Background()
-	_ = reflow.Background(ctx) // nil ok.
+	_ = flow.Background(ctx) // nil ok.
 
 	var wg1, wg2 sync.WaitGroup
-	ctx1, _ := reflow.WithBackground(ctx, &wg1)
-	ctx2, _ := reflow.WithBackground(ctx, &wg2)
+	ctx1, _ := flow.WithBackground(ctx, &wg1)
+	ctx2, _ := flow.WithBackground(ctx, &wg2)
 
 	const N = 100
-	var ctxs1, ctxs2 [N]reflow.Context
+	var ctxs1, ctxs2 [N]flow.Context
 	for i := 0; i < N; i++ {
-		ctxs1[i], ctxs2[i] = reflow.Background(ctx1), reflow.Background(ctx2)
+		ctxs1[i], ctxs2[i] = flow.Background(ctx1), flow.Background(ctx2)
 	}
 	done := make(chan bool)
 	for i := 0; i < N; i++ {
@@ -54,8 +54,8 @@ func TestContext(t *testing.T) {
 
 func TestContextCancel(t *testing.T) {
 	ctx, cancelParent := context.WithCancel(context.Background())
-	ctx, cancel := reflow.WithBackground(ctx, nopWaitGroup{})
-	bgctx := reflow.Background(ctx)
+	ctx, cancel := flow.WithBackground(ctx, nopWaitGroup{})
+	bgctx := flow.Background(ctx)
 
 	if err := ctx.Err(); err != nil {
 		t.Error(err)

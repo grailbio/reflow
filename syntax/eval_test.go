@@ -16,6 +16,7 @@ import (
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
 )
@@ -105,15 +106,15 @@ func TestExec(t *testing.T) {
 	if got, want := typ, types.File; !got.Equal(want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
-	f := v.(*reflow.Flow)
-	if got, want := f.Op, reflow.OpCoerce; got != want {
+	f := v.(*flow.Flow)
+	if got, want := f.Op, flow.Coerce; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	if got, want := len(f.Deps), 1; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	f = f.Deps[0]
-	if got, want := f.Op, reflow.OpExec; got != want {
+	if got, want := f.Op, flow.Exec; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	if got, want := len(f.Deps), 1; got != want {
@@ -128,35 +129,35 @@ func TestExec(t *testing.T) {
 	if got, want := f.Cmd, "\n\t\t\tcat %s > %s\n\t\t"; got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
-	if got, want := f.Argmap, []reflow.ExecArg{{Index: 0}, {Out: true, Index: 0}}; !reflect.DeepEqual(got, want) {
+	if got, want := f.Argmap, []flow.ExecArg{{Index: 0}, {Out: true, Index: 0}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	if got, want := f.OutputIsDir, []bool{false}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	f = f.Deps[0]
-	if got, want := f.Op, reflow.OpCoerce; got != want {
+	if got, want := f.Op, flow.Coerce; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	if got, want := len(f.Deps), 1; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	f = f.Deps[0]
-	if got, want := f.Op, reflow.OpK; got != want {
+	if got, want := f.Op, flow.K; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	if got, want := len(f.Deps), 1; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	f = f.Deps[0]
-	if got, want := f.Op, reflow.OpCoerce; got != want {
+	if got, want := f.Op, flow.Coerce; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	if got, want := len(f.Deps), 1; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	f = f.Deps[0]
-	if got, want := f.Op, reflow.OpIntern; got != want {
+	if got, want := f.Op, flow.OpIntern; got != want {
 		t.Fatalf("got %s, want %s", got, want)
 	}
 	if got, want := len(f.Deps), 0; got != want {
@@ -217,9 +218,9 @@ Prog:
 	tests:
 		for _, test := range tests {
 			switch v := v.(values.Module)[test].(type) {
-			case *reflow.Flow:
+			case *flow.Flow:
 				// We have to evaluate the flow. We do so through a no-op executor.
-				eval := reflow.NewEval(v, reflow.EvalConfig{
+				eval := flow.NewEval(v, flow.EvalConfig{
 					Executor: nopexecutor{},
 				})
 				if err := eval.Do(context.Background()); err != nil {

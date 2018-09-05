@@ -15,6 +15,7 @@ import (
 
 	units "github.com/docker/go-units"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/flow"
 )
 
 //go:generate goyacc reflow.y
@@ -358,15 +359,15 @@ func (e *Expr) Eval(env EvalEnv) Val {
 		if re.NumSubexp() != 1 {
 			panic("wrong number of subexpressions")
 		}
-		f := &reflow.Flow{Deps: []*reflow.Flow{product.flow}, Op: reflow.OpGroupby, Re: re, Ident: env.Ident(e.Position)}
+		f := &flow.Flow{Deps: []*flow.Flow{product.flow}, Op: flow.Groupby, Re: re, Ident: env.Ident(e.Position)}
 		return Val{typ: typeFlowList, flow: f}
 	case opMap:
 		arg := e.list[0].Eval(env).flow
 		fn := e.list[1].Eval(env).fn
-		mapFunc := func(f *reflow.Flow) *reflow.Flow {
+		mapFunc := func(f *flow.Flow) *flow.Flow {
 			return fn(Val{typ: typeFlow, flow: f}).flow
 		}
-		f := &reflow.Flow{Deps: []*reflow.Flow{arg}, Op: reflow.OpMap, MapFunc: mapFunc, Ident: env.Ident(e.Position)}
+		f := &flow.Flow{Deps: []*flow.Flow{arg}, Op: flow.Map, MapFunc: mapFunc, Ident: env.Ident(e.Position)}
 		f.MapInit()
 		return Val{typ: typeFlowList, flow: f}
 	case opExec:
@@ -376,7 +377,7 @@ func (e *Expr) Eval(env EvalEnv) Val {
 			panic("bug")
 		}
 		var (
-			deps    []*reflow.Flow
+			deps    []*flow.Flow
 			filled  = make([]string, len(cmd.Idents))
 			argstrs []string
 		)
@@ -402,9 +403,9 @@ func (e *Expr) Eval(env EvalEnv) Val {
 			}
 		}
 		fmtstr := cmd.Format(filled...)
-		f := &reflow.Flow{
+		f := &flow.Flow{
 			Deps:    deps,
-			Op:      reflow.OpExec,
+			Op:      flow.Exec,
 			Argstrs: argstrs,
 			Image:   image.str,
 			Cmd:     fmtstr,
@@ -451,9 +452,9 @@ func (e *Expr) Eval(env EvalEnv) Val {
 			}
 			return Val{typ: typeFlow, flow: flow}
 		case typeStringList:
-			flow := &reflow.Flow{
-				Op:   reflow.OpMerge,
-				Deps: make([]*reflow.Flow, len(v.list)),
+			flow := &flow.Flow{
+				Op:   flow.Merge,
+				Deps: make([]*flow.Flow, len(v.list)),
 			}
 			for i, v := range v.list {
 				var err error
@@ -474,7 +475,7 @@ func (e *Expr) Eval(env EvalEnv) Val {
 		if len(e.list) == 3 {
 			repl = e.list[2].Eval(env).str
 		}
-		f := &reflow.Flow{Op: reflow.OpCollect, Deps: []*reflow.Flow{dep}, Re: re, Repl: repl, Ident: env.Ident(e.Position)}
+		f := &flow.Flow{Op: flow.Collect, Deps: []*flow.Flow{dep}, Re: re, Repl: repl, Ident: env.Ident(e.Position)}
 		return Val{typ: typeFlow, flow: f}
 	case opParam:
 		ident, help := e.list[0].Eval(env).str, e.list[1].Eval(env).str
@@ -490,11 +491,11 @@ func (e *Expr) Eval(env EvalEnv) Val {
 		}
 		return Val{typ: typeString, str: strings.Join(strs, "")}
 	case opPullup:
-		flows := make([]*reflow.Flow, len(e.list))
+		flows := make([]*flow.Flow, len(e.list))
 		for i := range e.list {
 			flows[i] = e.list[i].Eval(env).flow
 		}
-		return Val{typ: typeFlow, flow: &reflow.Flow{Op: reflow.OpPullup, Deps: flows, Ident: env.Ident(e.Position)}}
+		return Val{typ: typeFlow, flow: &flow.Flow{Op: flow.Pullup, Deps: flows, Ident: env.Ident(e.Position)}}
 	case opLet:
 		env.Bind(e.left.ident, e.list[0].Eval(env))
 		return e.right.Eval(env)
@@ -554,7 +555,7 @@ type Val struct {
 	typ  Type
 	num  float64
 	str  string
-	flow *reflow.Flow
+	flow *flow.Flow
 	list []Val
 	fn   func(args ...Val) Val
 }
@@ -642,7 +643,7 @@ func (e *valEnv) Val(ident string) (Val, bool) {
 }
 
 // internFlow constructs a flow from an intern spec.
-func internFlow(intern, ident string) (*reflow.Flow, error) {
+func internFlow(intern, ident string) (*flow.Flow, error) {
 	urls := strings.Split(intern, ",")
 	switch len(urls) {
 	case 0:
@@ -655,9 +656,9 @@ func internFlow(intern, ident string) (*reflow.Flow, error) {
 		if name == "" {
 			return intern, nil
 		}
-		collect := &reflow.Flow{
-			Op:    reflow.OpCollect,
-			Deps:  []*reflow.Flow{intern},
+		collect := &flow.Flow{
+			Op:    flow.Collect,
+			Deps:  []*flow.Flow{intern},
 			Ident: ident,
 		}
 		_, file := path.Split(intern.URL.Path)
@@ -672,7 +673,7 @@ func internFlow(intern, ident string) (*reflow.Flow, error) {
 	default:
 		// In this case, we construct a "virtual" directory, using the
 		// base names for each entry.
-		pullup := &reflow.Flow{Op: reflow.OpPullup, Ident: ident}
+		pullup := &flow.Flow{Op: flow.Pullup, Ident: ident}
 		for _, u := range urls {
 			if u == "" {
 				continue
@@ -681,7 +682,7 @@ func internFlow(intern, ident string) (*reflow.Flow, error) {
 			if err != nil {
 				return nil, err
 			}
-			collect := &reflow.Flow{Op: reflow.OpCollect, Deps: []*reflow.Flow{intern}, Ident: ident}
+			collect := &flow.Flow{Op: flow.Collect, Deps: []*flow.Flow{intern}, Ident: ident}
 			dir, file := path.Split(intern.URL.Path)
 			if file == "" {
 				collect.Re = regexp.MustCompile(`^`)
@@ -702,20 +703,20 @@ func internFlow(intern, ident string) (*reflow.Flow, error) {
 	}
 }
 
-func internURLFlow(u, ident string) (*reflow.Flow, string, error) {
+func internURLFlow(u, ident string) (*flow.Flow, string, error) {
 	i := strings.Index(u, "://")
 	if i < 0 {
 		return nil, "", fmt.Errorf("URL %q has no scheme", u)
 	}
 	i = strings.Index(u[:i], "=")
 	if i < 0 {
-		flow := &reflow.Flow{Op: reflow.OpIntern, Ident: ident}
+		flow := &flow.Flow{Op: flow.OpIntern, Ident: ident}
 		var err error
 		flow.URL, err = url.Parse(u)
 		return flow, "", err
 	}
 	name, u := u[:i], u[i+1:]
-	flow := &reflow.Flow{Op: reflow.OpIntern, Ident: ident}
+	flow := &flow.Flow{Op: flow.OpIntern, Ident: ident}
 	var err error
 	flow.URL, err = url.Parse(u)
 	return flow, name, err

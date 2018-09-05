@@ -25,6 +25,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
@@ -98,14 +99,14 @@ func (r *runConfig) Err() error {
 
 // Configure stores the runConfig's configuration into the provided
 // EvalConfig.
-func (r *runConfig) Configure(c *reflow.EvalConfig) {
+func (r *runConfig) Configure(c *flow.EvalConfig) {
 	c.NoCacheExtern = r.nocacheextern
 	c.GC = r.gc
 	c.RecomputeEmpty = r.recomputeempty
 	c.BottomUp = r.eval == "bottomup"
 	if r.invalidate != "" {
 		re := regexp.MustCompile(r.invalidate)
-		c.Invalidate = func(f *reflow.Flow) bool {
+		c.Invalidate = func(f *flow.Flow) bool {
 			return re.MatchString(f.Ident)
 		}
 	}
@@ -164,7 +165,7 @@ retriable.`
 // runCommon is the helper function used by run commands.
 func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 	// In the case where a flow is immediate, we print the result and quit.
-	if er.Flow.Op == reflow.OpVal {
+	if er.Flow.Op == flow.Val {
 		c.Println(sprintval(er.Flow.Value, er.Type))
 		c.Exit(0)
 	}
@@ -263,7 +264,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 	}
 	run := runner.Runner{
 		Flow: er.Flow,
-		EvalConfig: reflow.EvalConfig{
+		EvalConfig: flow.EvalConfig{
 			Log:        execLogger,
 			Repository: repo,
 			Assoc:      ass,
@@ -289,7 +290,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 		run.Phase = runner.Eval
 	}
 	var wg wg.WaitGroup
-	ctx, bgcancel := reflow.WithBackground(ctx, &wg)
+	ctx, bgcancel := flow.WithBackground(ctx, &wg)
 	statefile, err := state.Open(base)
 	if err != nil {
 		c.Fatalf("failed to open state file: %v", err)
@@ -329,7 +330,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 	}
 }
 
-func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID digest.Digest, flow *reflow.Flow, typ *types.T, cmdline string) {
+func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID digest.Digest, f *flow.Flow, typ *types.T, cmdline string) {
 	addr := os.Getenv("DOCKER_HOST")
 	if addr == "" {
 		addr = "unix:///var/run/docker.sock"
@@ -399,7 +400,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	if err := x.Start(); err != nil {
 		log.Fatal(err)
 	}
-	evalConfig := reflow.EvalConfig{
+	evalConfig := flow.EvalConfig{
 		Executor:   x,
 		Transferer: transferer,
 		Log:        execLogger,
@@ -412,10 +413,10 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	if config.trace {
 		evalConfig.Trace = c.Log
 	}
-	eval := reflow.NewEval(flow, evalConfig)
+	eval := flow.NewEval(f, evalConfig)
 	var wg wg.WaitGroup
-	ctx, bgcancel := reflow.WithBackground(ctx, &wg)
-	ctx, done := trace.Start(ctx, trace.Run, flow.Digest(), cmdline)
+	ctx, bgcancel := flow.WithBackground(ctx, &wg)
+	ctx, done := trace.Start(ctx, trace.Run, f.Digest(), cmdline)
 	c.onexit(done)
 	traceid := trace.URL(ctx)
 	if len(traceid) > 0 {

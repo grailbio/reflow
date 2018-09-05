@@ -14,6 +14,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/flow"
 )
 
 // ExecResult stores the result of a completed exec.
@@ -189,7 +190,7 @@ func (e *Executor) Repository() reflow.Repository {
 }
 
 // Equiv tells whether this executor contains precisely a set of flows.
-func (e *Executor) Equiv(flows ...*reflow.Flow) bool {
+func (e *Executor) Equiv(flows ...*flow.Flow) bool {
 	ids := map[digest.Digest]bool{}
 	for _, f := range flows {
 		ids[f.Digest()] = true
@@ -205,7 +206,7 @@ func (e *Executor) Equiv(flows ...*reflow.Flow) bool {
 	return len(ids) == 0
 }
 
-func (e *Executor) exec(f *reflow.Flow) *Exec {
+func (e *Executor) exec(f *flow.Flow) *Exec {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for {
@@ -217,12 +218,12 @@ func (e *Executor) exec(f *reflow.Flow) *Exec {
 }
 
 // Wait blocks until a Flow is defined in the executor.
-func (e *Executor) Wait(f *reflow.Flow) {
+func (e *Executor) Wait(f *flow.Flow) {
 	e.exec(f)
 }
 
 // WaitAny returns the first of flows to be defined.
-func (e *Executor) WaitAny(flows ...*reflow.Flow) *reflow.Flow {
+func (e *Executor) WaitAny(flows ...*flow.Flow) *flow.Flow {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for {
@@ -236,7 +237,7 @@ func (e *Executor) WaitAny(flows ...*reflow.Flow) *reflow.Flow {
 }
 
 // Ok defines a successful result for a Flow.
-func (e *Executor) Ok(f *reflow.Flow, res interface{}) {
+func (e *Executor) Ok(f *flow.Flow, res interface{}) {
 	switch arg := res.(type) {
 	case reflow.Fileset:
 		e.exec(f).Ok(reflow.Result{Fileset: arg})
@@ -248,6 +249,6 @@ func (e *Executor) Ok(f *reflow.Flow, res interface{}) {
 }
 
 // Error defines an erroneous result for the flow.
-func (e *Executor) Error(f *reflow.Flow, err error) {
+func (e *Executor) Error(f *flow.Flow, err error) {
 	e.exec(f).Error(err)
 }

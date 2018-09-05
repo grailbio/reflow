@@ -60,6 +60,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/runner"
@@ -110,7 +111,7 @@ type Keys map[string]interface{}
 // times, but they should not be called concurrently.
 type Config interface {
 	// CacheMode returns the configured cache mode.
-	CacheMode() reflow.CacheMode
+	CacheMode() flow.CacheMode
 
 	// Assoc returns this configuration's assoc.
 	Assoc() (assoc.Assoc, error)
@@ -175,8 +176,8 @@ func (b Base) Repository() (reflow.Repository, error) {
 }
 
 // CacheMode returns the default cache mode, reflow.CacheOff.
-func (b Base) CacheMode() reflow.CacheMode {
-	return reflow.CacheRead | reflow.CacheWrite
+func (b Base) CacheMode() flow.CacheMode {
+	return flow.CacheRead | flow.CacheWrite
 }
 
 // Cache returns an error indicating no cache was configured.
