@@ -31,7 +31,8 @@ type SystemFunc struct {
 	Doc    string
 	Type   *types.T
 	Force  bool
-	Do     func(loc values.Location, args []values.T) (values.T, error)
+	Do     func(loc values.Location, args []values.T, env *values.Env) (values.T, error)
+	Env    *values.Env
 }
 
 // Apply applied the intrinsic with the given arguments.
@@ -54,7 +55,7 @@ func (s SystemFunc) Apply(loc values.Location, args []values.T) (values.T, error
 		}
 	}
 	if len(deps) == 0 {
-		return s.Do(loc, args)
+		return s.Do(loc, args, s.Env)
 	}
 	digest.WriteDigest(dw, s.Digest())
 	return &flow.Flow{
@@ -67,7 +68,7 @@ func (s SystemFunc) Apply(loc values.Location, args []values.T) (values.T, error
 			for i := range vs {
 				args[depsi[i]] = vs[i]
 			}
-			rv, err := s.Do(loc, args)
+			rv, err := s.Do(loc, args, s.Env)
 			if err != nil {
 				return &flow.Flow{Op: flow.Val, Err: errors.Recover(err)}
 			}
@@ -92,6 +93,17 @@ func (s SystemFunc) Decl() *Decl {
 	}
 }
 
+// DeclEval is same as Decl, but also passes non-nil `env` to `Do`
+func (s SystemFunc) DeclEval() *Decl {
+	return &Decl{
+		Kind:    DeclAssign,
+		Comment: s.Doc,
+		Pat:     &Pat{Kind: PatIdent, Ident: s.Id},
+		Expr:    &Expr{Kind: ExprEval, Val: s, Type: s.Type},
+		Type:    s.Type,
+	}
+}
+
 // Stdlib returns the type and value environments for reflow's
 // standard library.
 func Stdlib() (*types.Env, *values.Env) {
@@ -108,7 +120,7 @@ func Stdlib() (*types.Env, *values.Env) {
 		{
 			Id:   "file",
 			Type: types.Flow(types.Func(types.File, &types.Field{"url", types.String})),
-			Do: func(loc values.Location, vs []values.T) (values.T, error) {
+			Do: func(loc values.Location, vs []values.T, env *values.Env) (values.T, error) {
 				rawurl := strings.TrimRight(vs[0].(string), "/")
 				u, err := url.Parse(rawurl)
 				if err != nil {
@@ -166,7 +178,7 @@ func Stdlib() (*types.Env, *values.Env) {
 		{
 			Id:   "dir",
 			Type: types.Flow(types.Func(types.Dir, &types.Field{"url", types.String})),
-			Do: func(loc values.Location, vs []values.T) (values.T, error) {
+			Do: func(loc values.Location, vs []values.T, env *values.Env) (values.T, error) {
 				rawurl := strings.TrimRight(vs[0].(string), "/") + "/"
 				u, err := url.Parse(rawurl)
 				if err != nil {
@@ -283,7 +295,7 @@ var testDecls = []*Decl{
 		Doc:    "Assert fails if any passed (boolean) value is false.",
 		Type:   types.Func(types.Unit, &types.Field{Name: "tests", T: types.List(types.Bool)}),
 		Force:  true,
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			list := args[0].(values.List)
 			var failed []int
 			for i, e := range list {
@@ -303,7 +315,7 @@ var testDecls = []*Decl{
 		Doc:    "All returns true if every passed (boolean) value is true.",
 		Type:   types.Func(types.Bool, &types.Field{Name: "tests", T: types.List(types.Bool)}),
 		Force:  true,
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			list := args[0].(values.List)
 			for i := range list {
 				if !list[i].(bool) {
@@ -337,7 +349,7 @@ var dirsDecls = []*Decl{
 		Type: types.Flow(types.Func(types.Map(types.String, types.Dir),
 			&types.Field{Name: "dir", T: types.Dir},
 			&types.Field{Name: "re", T: types.String})),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			dir, raw := args[0].(values.Dir), args[1].(string)
 			re, err := regexp.Compile(raw)
 			if err != nil {
@@ -370,7 +382,7 @@ var dirsDecls = []*Decl{
 		Doc:    "Make creates a new dir using the given map of paths to files.",
 		Type: types.Func(types.Dir,
 			&types.Field{Name: "map", T: types.Map(types.String, types.File)}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			m := args[0].(values.Map)
 			dir := make(values.Dir)
 			m.Each(func(path, file values.T) {
@@ -387,7 +399,7 @@ var dirsDecls = []*Decl{
 		Type: types.Func(types.Tuple(&types.Field{T: types.File}, &types.Field{T: types.String}),
 			&types.Field{Name: "dir", T: types.Dir},
 			&types.Field{Name: "pattern", T: types.String}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			dir, pat := args[0].(values.Dir), args[1].(string)
 			for key, file := range dir {
 				ok, err := path.Match(pat, key)
@@ -407,7 +419,7 @@ var dirsDecls = []*Decl{
 		Doc:    "Files returns a sorted (by filename) list of files from a directory.",
 		Type: types.Func(types.List(types.File),
 			&types.Field{Name: "dir", T: types.Dir}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			dir := args[0].(values.Dir)
 			var keys []string
 			for key := range dir {
@@ -428,7 +440,7 @@ var dirsDecls = []*Decl{
 		Type: types.Flow(types.Func(types.Unit,
 			&types.Field{Name: "dir", T: types.Dir},
 			&types.Field{Name: "url", T: types.String})),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			dir, rawurl := args[0].(values.Dir), args[1].(string)
 			rawurl = strings.TrimRight(rawurl, "/") + "/"
 			u, err := url.Parse(rawurl)
@@ -452,7 +464,7 @@ var dirsDecls = []*Decl{
 		Module: "dirs",
 		Doc:    "Fileset coerces a fileset into a dir.",
 		Type:   types.Flow(types.Func(types.Dir, &types.Field{Name: "fileset", T: types.Fileset})),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			if f, ok := args[0].(*flow.Flow); ok {
 				return &flow.Flow{
 					Op:         flow.Coerce,
@@ -485,7 +497,7 @@ var filesDecls = []*Decl{
 		Type: types.Flow(types.Func(types.Unit,
 			&types.Field{Name: "file", T: types.File},
 			&types.Field{Name: "url", T: types.String})),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			file, rawurl := args[0].(values.File), args[1].(string)
 			rawurl = strings.TrimRight(rawurl, "/")
 			u, err := url.Parse(rawurl)
@@ -509,7 +521,7 @@ var filesDecls = []*Decl{
 		Module: "files",
 		Doc:    "Fileset coerces a fileset into a file.",
 		Type:   types.Flow(types.Func(types.File, &types.Field{Name: "file", T: types.Fileset})),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			if f, ok := args[0].(*flow.Flow); ok {
 				return &flow.Flow{
 					Op:         flow.Coerce,
@@ -533,7 +545,7 @@ var regexpDecls = []*Decl{
 		Type: types.Func(types.List(types.String),
 			&types.Field{Name: "str", T: types.String},
 			&types.Field{Name: "regexp", T: types.String}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			str, raw := args[0].(string), args[1].(string)
 			re, err := regexp.Compile(raw)
 			if err != nil {
@@ -557,7 +569,7 @@ var regexpDecls = []*Decl{
 		Type: types.Func(types.Bool,
 			&types.Field{Name: "str", T: types.String},
 			&types.Field{Name: "regexp", T: types.String}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			str, raw := args[0].(string), args[1].(string)
 			return regexp.MatchString(raw, str)
 		},
@@ -573,7 +585,7 @@ var regexpDecls = []*Decl{
 			&types.Field{Name: "src", T: types.String},
 			&types.Field{Name: "regexp", T: types.String},
 			&types.Field{Name: "repl", T: types.String}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			src, raw, repl := args[0].(string), args[1].(string), args[2].(string)
 			re, err := regexp.Compile(raw)
 			if err != nil {
@@ -592,7 +604,7 @@ var stringsDecls = []*Decl{
 		Type: types.Func(types.List(types.String),
 			&types.Field{Name: "s", T: types.String},
 			&types.Field{Name: "sep", T: types.String}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			s, sep := args[0].(string), args[1].(string)
 			strs := strings.Split(s, sep)
 			list := make(values.List, len(strs))
@@ -610,7 +622,7 @@ var stringsDecls = []*Decl{
 		Type: types.Func(types.String,
 			&types.Field{Name: "strs", T: types.List(types.String)},
 			&types.Field{Name: "sep", T: types.String}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			strs, sep := args[0].(values.List), args[1].(string)
 			gostrs := make([]string, len(strs))
 			for i := range gostrs {
@@ -626,7 +638,7 @@ var stringsDecls = []*Decl{
 		Type: types.Func(types.Bool,
 			&types.Field{Name: "s", T: types.String},
 			&types.Field{Name: "prefix", T: types.String}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			s, prefix := args[0].(string), args[1].(string)
 			return strings.HasPrefix(s, prefix), nil
 		},
@@ -638,7 +650,7 @@ var stringsDecls = []*Decl{
 		Type: types.Func(types.Bool,
 			&types.Field{Name: "s", T: types.String},
 			&types.Field{Name: "suffix", T: types.String}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			s, suffix := args[0].(string), args[1].(string)
 			return strings.HasSuffix(s, suffix), nil
 		},
@@ -650,7 +662,7 @@ var stringsDecls = []*Decl{
 		Doc:    "Sort sorts a list of strings in lexicographic order.",
 		Type: types.Func(types.List(types.String),
 			&types.Field{Name: "strs", T: types.List(types.String)}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			list := args[0].(values.List)
 			sorted := make(values.List, len(list))
 			copy(sorted, list)
@@ -667,7 +679,7 @@ var stringsDecls = []*Decl{
 		Doc:    "FromInt parses an integer into a string.",
 		Type: types.Func(types.String,
 			&types.Field{Name: "intVal", T: types.Int}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			intVal := args[0].(*big.Int)
 			stringVal := intVal.String()
 			return stringVal, nil
@@ -681,7 +693,7 @@ var stringsDecls = []*Decl{
 		Type: types.Func(types.String,
 			&types.Field{Name: "floattVal", T: types.Float},
 			&types.Field{Name: "precision", T: types.Int}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			floatVal := args[0].(*big.Float)
 			prec := args[1].(*big.Int)
 			stringVal := floatVal.Text('g', int(prec.Int64()))
@@ -697,7 +709,7 @@ var pathDecls = []*Decl{
 		Doc:    "Base returns the last element of path.",
 		Type: types.Func(types.String,
 			&types.Field{Name: "path", T: types.String}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			return path.Base(args[0].(string)), nil
 		},
 	}.Decl(),
@@ -708,7 +720,7 @@ var pathDecls = []*Decl{
 			"not cleaned, and thus remains compatible with URL inputs",
 		Type: types.Func(types.String,
 			&types.Field{Name: "path", T: types.String}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			// We don't use Go's path.Dir here because we want these
 			// to be compatible with URLs also.
 			dir, _ := path.Split(args[0].(string))
@@ -724,7 +736,7 @@ var pathDecls = []*Decl{
 		Doc:    "Ext returns the file name extension of path.",
 		Type: types.Func(types.String,
 			&types.Field{Name: "path", T: types.String}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			return path.Ext(args[0].(string)), nil
 		},
 	}.Decl(),
@@ -736,7 +748,7 @@ var pathDecls = []*Decl{
 			"and is thus compatible with URLs.",
 		Type: types.Func(types.String,
 			&types.Field{Name: "paths", T: types.List(types.String)}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			// We don't use Go's path.Join here because we want these
 			// to be compatible with URLs also.
 			list := args[0].(values.List)
@@ -758,7 +770,7 @@ var filesetsDecls = []*Decl{
 		Doc:    "Dir returns a fileset from a directory.",
 		Type: types.Func(types.Fileset,
 			&types.Field{Name: "dir", T: types.Dir}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			if flow, ok := args[0].(*flow.Flow); ok {
 				return coerceFlowToFileset(types.Dir, flow), nil
 			}
@@ -771,7 +783,7 @@ var filesetsDecls = []*Decl{
 		Doc:    "File returns a fileset from a file.",
 		Type: types.Func(types.Fileset,
 			&types.Field{Name: "file", T: types.File}),
-		Do: func(loc values.Location, args []values.T) (values.T, error) {
+		Do: func(loc values.Location, args []values.T, env *values.Env) (values.T, error) {
 			if flow, ok := args[0].(*flow.Flow); ok {
 				return coerceFlowToFileset(types.File, flow), nil
 			}

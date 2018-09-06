@@ -153,6 +153,10 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}
 			return fn.Apply(values.Location{Position: e.Position.String(), Ident: ident}, fields)
 		}, e.Left)
+	case ExprEval:
+		newVal := e.Val.(SystemFunc)
+		newVal.Env = env
+		return newVal, nil
 	case ExprConst:
 		return e.Val, nil
 	case ExprAscribe:

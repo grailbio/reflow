@@ -67,6 +67,9 @@ const (
 	// These are never produced from parsing--they are used internally
 	// by the evaluator. (But see note there.)
 	ExprThunk
+	// ExprEval is an expression that has access to the context it was evaluated in.
+	// Currently used for SystemFuncs that need access to their module's params
+	ExprEval
 
 	maxExpr
 )
@@ -433,6 +436,8 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		}
 		return
 	case ExprConst:
+		e.Type = e.Type.Assign(nil)
+	case ExprEval:
 		e.Type = e.Type.Assign(nil)
 	case ExprAscribe:
 		if !e.Left.Type.Sub(e.Type) {
