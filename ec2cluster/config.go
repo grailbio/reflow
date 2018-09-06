@@ -13,9 +13,9 @@ import (
 	"regexp"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ecr"
+	"github.com/aws/aws-sdk-go/service/ecr/ecriface"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/ec2authenticator"
@@ -172,7 +172,7 @@ func (c *Config) Cluster() (runner.Cluster, error) {
 	if !ok {
 		return nil, errors.New("key \"reflowlet\" is not a string")
 	}
-	if err := validateReflowletImage(reflowlet, sess, log); err != nil {
+	if err := validateReflowletImage(ecr.New(sess), reflowlet, log); err != nil {
 		return nil, err
 	}
 	cluster := &Cluster{
@@ -217,7 +217,7 @@ func (c *Config) Cluster() (runner.Cluster, error) {
 	return cluster, nil
 }
 
-func validateReflowletImage(reflowlet string, sess *session.Session, log *log.Logger) error {
+func validateReflowletImage(ecrApi ecriface.ECRAPI, reflowlet string, log *log.Logger) error {
 	matches := ecrURI.FindStringSubmatch(reflowlet)
 	if len(matches) != 3 {
 		log.Debugf("cannot determine repository name and/or image tag from: %s", reflowlet)
@@ -227,7 +227,7 @@ func validateReflowletImage(reflowlet string, sess *session.Session, log *log.Lo
 		RepositoryName: &matches[1],
 		ImageIds:       []*ecr.ImageIdentifier{{ImageTag: &matches[2]}},
 	}
-	if _, err := ecr.New(sess).DescribeImages(dii); err != nil {
+	if _, err := ecrApi.DescribeImages(dii); err != nil {
 		return fmt.Errorf("required reflowlet image not found on AWS: %v", err)
 	}
 	return nil
