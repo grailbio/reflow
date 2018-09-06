@@ -15,6 +15,7 @@ import (
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
@@ -85,6 +86,28 @@ func (c *Client) Allocs(ctx context.Context) ([]pool.Alloc, error) {
 		allocs[i] = &clientAlloc{c, json.ID, json.Resources}
 	}
 	return allocs, nil
+}
+
+// Config retrieves the reflowlet instance's reflow config.
+func (c *Client) Config(ctx context.Context) (config.Config, error) {
+	call := c.Call("GET", "config")
+	defer call.Close()
+	code, err := call.Do(ctx, nil)
+	if err != nil {
+		return nil, errors.E("config", err)
+	}
+	if code != http.StatusOK {
+		return nil, call.Error()
+	}
+	var cfgStr string
+	if err := call.Unmarshal(&cfgStr); err != nil {
+		return nil, errors.E("unmarshal config ", err)
+	}
+	cfg, err := config.Parse([]byte(cfgStr))
+	if err != nil {
+		return nil, errors.E("parse config", err)
+	}
+	return cfg, nil
 }
 
 type clientAlloc struct {

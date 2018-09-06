@@ -35,7 +35,7 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/pool/client"
-	yaml "gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v2"
 )
 
 // memoryDiscount is the amount of memory that's reserved by the
@@ -284,11 +284,11 @@ func (i *instance) Go(ctx context.Context) {
 		// Tag the instance
 		stateTag
 		// Wait for the instance to enter running state.
-		stateWait
+		stateWaitInstance
 		// Describe the instance via EC2.
 		stateDescribe
-		// Wait for offers to appear--i.e., the Reflowlet is live.
-		stateOffers
+		// Wait for Reflowlet to become live (and metadata to become available).
+		stateWaitReflowlet
 		stateDone
 	)
 	var (
@@ -336,7 +336,7 @@ func (i *instance) Go(ctx context.Context) {
 				input.Tags = append(input.Tags, &ec2.Tag{Key: aws.String(k), Value: aws.String(v)})
 			}
 			_, i.err = i.EC2.CreateTags(input)
-		case stateWait:
+		case stateWaitInstance:
 			i.Task.Print("waiting for instance to become ready")
 			i.err = i.EC2.WaitUntilInstanceRunning(&ec2.DescribeInstancesInput{
 				InstanceIds: []*string{aws.String(id)},
@@ -357,20 +357,24 @@ func (i *instance) Go(ctx context.Context) {
 					dns = *i.ec2inst.PublicDnsName
 				}
 			}
-		case stateOffers:
+		case stateWaitReflowlet:
 			i.Task.Print("waiting for reflowlet to become available")
-			var pool pool.Pool
-			pool, i.err = client.New(fmt.Sprintf("https://%s:9000/v1/", dns), i.HTTPClient, nil /*log.New(os.Stderr, "client: ", 0)*/)
+			var c *client.Client
+			c, i.err = client.New(fmt.Sprintf("https://%s:9000/v1/", dns), i.HTTPClient, nil /*log.New(os.Stderr, "client: ", 0)*/)
 			if i.err != nil {
 				i.err = errors.E(errors.Fatal, i.err)
 				break
 			}
 			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			_, i.err = pool.Offers(ctx)
+			var config config.Config
+			config, i.err = c.Config(ctx)
+			cancel()
 			if i.err != nil && strings.HasSuffix(i.err.Error(), "connection refused") {
 				i.err = errors.E(errors.Temporary, i.err)
 			}
-			cancel()
+			if i.err == nil {
+				i.err = compatible(*i.Instance().InstanceId, i.ReflowConfig, config)
+			}
 		default:
 			panic("unknown state")
 		}
@@ -412,12 +416,12 @@ func (i *instance) Go(ctx context.Context) {
 				what = "launching instance"
 			case stateTag:
 				what = "tagging instance"
-			case stateWait:
+			case stateWaitInstance:
 				what = "waiting for instance"
 			case stateDescribe:
 				what = "describing instance"
-			case stateOffers:
-				what = "waiting for offers"
+			case stateWaitReflowlet:
+				what = "waiting for reflowlet to be live"
 			}
 			i.Log.Errorf("error while %s: %v", what, i.err)
 		}

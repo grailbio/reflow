@@ -43,8 +43,9 @@ See the following for more details:
 func main() {
 	var cfg config.Config = make(config.Base)
 	cfg = defaultConfig{cfg}
-	cfg = &config.KeyConfig{cfg, "reflowlet", reflowlet}
 	cfg = &config.KeyConfig{cfg, "aws", "awsenv"}
+	cfg = &config.KeyConfig{cfg, "reflowlet", reflowlet}
+	cfg = &config.KeyConfig{cfg, "reflowversion", version}
 	cmd := &tool.Cmd{
 		// Turn caching off by default. This way we can run a vanilla Reflow
 		// binary in local mode without any additional configuration.

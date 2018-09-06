@@ -47,7 +47,7 @@ func main() {
 	// Make sure that we always shut down with a non-zero exit code,
 	// so that systemd considers the process failed.
 	defer os.Exit(1)
-	var server reflowlet.Server
+	server := reflowlet.NewServer(version)
 	server.AddFlags(flag.CommandLine)
 	flag.Usage = usage
 	flag.Parse()

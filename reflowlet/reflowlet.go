@@ -5,8 +5,10 @@
 package reflowlet
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -26,6 +28,7 @@ import (
 	reflows3 "github.com/grailbio/reflow/repository/s3"
 	"github.com/grailbio/reflow/rest"
 	"golang.org/x/net/http2"
+	"gopkg.in/yaml.v2"
 )
 
 // maxConcurrentStreams is the number of concurrent http/2 streams we
@@ -56,6 +59,14 @@ type Server struct {
 	HTTPDebug bool
 
 	configFlag string
+
+	// version of the reflowlet instance.
+	version string
+}
+
+// NewServer returns a new server with specified version.
+func NewServer(version string) *Server {
+	return &Server{version: version}
 }
 
 // AddFlags adds flags configuring various Reflowlet parameters to
@@ -165,6 +176,12 @@ func (s *Server) ListenAndServe() error {
 	}
 
 	http.Handle("/", rest.Handler(server.NewNode(p), httpLog))
+	// Add the reflowlet version to the config and serve it from an API.
+	cfgNode, err := newConfigNode(&config.KeyConfig{s.Config, "reflowletversion", s.version})
+	if err != nil {
+		return fmt.Errorf("unable to read config: %v", err)
+	}
+	http.Handle("/v1/config", rest.Handler(cfgNode, httpLog))
 	server := &http.Server{Addr: s.Addr}
 	if s.Insecure {
 		return server.ListenAndServe()
@@ -192,4 +209,38 @@ func IgnoreSigpipe() {
 	for {
 		<-c
 	}
+}
+
+type configNode struct {
+	Config string
+}
+
+func newConfigNode(cfg config.Config) (*configNode, error) {
+	keys := make(config.Keys)
+	if err := cfg.Marshal(keys); err != nil {
+		return nil, fmt.Errorf("unable to marshal config: %v", err)
+	}
+	b, err := yaml.Marshal(keys)
+	if err != nil {
+		return nil, fmt.Errorf("unable to serialize keys: %v", err)
+	}
+	return &configNode{string(b)}, nil
+}
+
+func (c configNode) Walk(ctx context.Context, call *rest.Call, path string) rest.Node {
+	switch path {
+	case "v1":
+		fallthrough
+	case "config":
+		return c
+	default:
+		return nil
+	}
+}
+
+func (c configNode) Do(ctx context.Context, call *rest.Call) {
+	if !call.Allow("GET") {
+		return
+	}
+	call.Reply(http.StatusOK, c.Config)
 }

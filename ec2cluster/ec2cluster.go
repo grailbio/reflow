@@ -521,12 +521,24 @@ func (c *Cluster) update() {
 	for id, inst := range instances {
 		if c.pools[id] == nil {
 			baseurl := fmt.Sprintf("https://%s:9000/v1/", *inst.PublicDnsName)
-			var err error
-			c.pools[*inst.InstanceId], err = client.New(
-				baseurl,
-				c.HTTPClient, nil /*log.New(os.Stderr, "client: ", 0)*/)
+			clnt, err := client.New(baseurl, c.HTTPClient, nil /*log.New(os.Stderr, "client: ", 0)*/)
 			if err != nil {
 				c.Log.Printf("client %s: %v", baseurl, err)
+				continue
+			}
+			// check version compatibility.
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			rfletCfg, err := clnt.Config(ctx)
+			cancel()
+			if err != nil {
+				c.Log.Debugf("unable to get config for instance %v: %v", id, err)
+				continue
+			}
+			if err = compatible(id, c.Config, rfletCfg); err != nil {
+				c.Log.Debugf("ignoring instance %v, incompatible due to: %v", id, err)
+			} else {
+				// Versions are compatible!
+				c.pools[*inst.InstanceId] = clnt
 			}
 		}
 	}
@@ -613,4 +625,30 @@ func vals(m map[string]pool.Pool) []pool.Pool {
 		i++
 	}
 	return pools
+}
+
+func compatible(instId string, reflowCfg, reflowletCfg config.Config) error {
+	var err error
+	var reflowVer, reflowletVer, reflowletImg string
+	if reflowVer, err = getString(reflowCfg, "reflowversion"); err != nil {
+		return errors.E(errors.Fatal, errors.New("unable to determine reflow version"))
+	}
+	if reflowletImg, err = getString(reflowCfg, "reflowlet"); err != nil {
+		return errors.E(errors.Fatal, errors.New("unable to determine reflow version"))
+	}
+	if reflowletVer, err = getString(reflowletCfg, "reflowletversion"); err != nil {
+		return errors.E(errors.Fatal, errors.New("unable to determine reflowlet version"))
+	}
+	if reflowVer != reflowletVer {
+		return errors.E(errors.Fatal, fmt.Errorf("reflow (version: %s) incompatible with instance %v running reflowlet image: %s (version: %s)", reflowVer, instId, reflowletImg, reflowletVer))
+	}
+	return nil
+}
+
+func getString(c config.Config, key string) (string, error) {
+	val, ok := c.Value(key).(string)
+	if !ok {
+		return "", fmt.Errorf("key \"%s\" is not a string", key)
+	}
+	return val, nil
 }

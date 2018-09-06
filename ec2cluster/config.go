@@ -5,7 +5,6 @@
 package ec2cluster
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -167,10 +166,9 @@ func (c *Config) Cluster() (runner.Cluster, error) {
 		log.Errorf("retrieving username: %s", err)
 		id = "unknown"
 	}
-	var ok bool
-	reflowlet, ok := c.Value("reflowlet").(string)
-	if !ok {
-		return nil, errors.New("key \"reflowlet\" is not a string")
+	var reflowlet string
+	if reflowlet, err = getString(c, "reflowlet"); err != nil {
+		return nil, err
 	}
 	if err := validateReflowletImage(ecr.New(sess), reflowlet, log); err != nil {
 		return nil, err
