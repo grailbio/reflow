@@ -4,7 +4,11 @@
 
 package syntax
 
-import "github.com/grailbio/reflow/types"
+import (
+	"io"
+
+	"github.com/grailbio/reflow/types"
+)
 
 // RegisterModule is a hook to register custom reflow intrinsics.
 func RegisterModule(name string, m *ModuleImpl) {
@@ -12,4 +16,14 @@ func RegisterModule(name string, m *ModuleImpl) {
 	lib[name] = m
 	lib[name].Init(nil, types.NewEnv())
 	mu.Unlock()
+}
+
+// ParseAndRegisterModule is like RegisterModule, but parses module from reflow source
+func ParseAndRegisterModule(name string, source io.Reader) error {
+	p := Parser{Mode: ParseModule, Body: source}
+	if err := p.Parse(); err != nil {
+		return err
+	}
+	RegisterModule(name, p.Module)
+	return nil
 }

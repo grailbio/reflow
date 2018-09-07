@@ -6,15 +6,11 @@ package syntax
 
 import (
 	"bytes"
-	"context"
 	"errors"
-	"math"
 	"reflect"
 	"regexp"
-	"strings"
 	"testing"
 
-	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/types"
@@ -172,8 +168,7 @@ func TestExec(t *testing.T) {
 }
 
 func TestEval(t *testing.T) {
-	sess := NewSession(nil)
-	progs := []string{
+	tests := []string{
 		"testdata/test1.rf",
 		"testdata/arith.rf",
 		"testdata/prec.rf",
@@ -187,57 +182,7 @@ func TestEval(t *testing.T) {
 		"testdata/float.rf",
 		"testdata/regexp.rf",
 	}
-Prog:
-	for _, prog := range progs {
-		var err error
-		m, err := sess.Open(prog)
-		if err != nil {
-			t.Errorf("%s: %v", prog, err)
-			continue
-		}
-		var tests []string
-		for _, f := range m.Type().Fields {
-			if strings.HasPrefix(f.Name, "Test") {
-				tests = append(tests, f.Name)
-				if f.T.Kind != types.BoolKind {
-					t.Errorf("%s.%s: tests must be boolean, not %s", prog, f.Name, f.T)
-					continue Prog
-				}
-			}
-		}
-		if len(tests) == 0 {
-			t.Errorf("%s: no tests", prog)
-			continue
-		}
-
-		v, err := m.Make(sess, sess.Values)
-		if err != nil {
-			t.Errorf("make %s: %s", prog, err)
-			continue
-		}
-	tests:
-		for _, test := range tests {
-			switch v := v.(values.Module)[test].(type) {
-			case *flow.Flow:
-				// We have to evaluate the flow. We do so through a no-op executor.
-				eval := flow.NewEval(v, flow.EvalConfig{
-					Executor: nopexecutor{},
-				})
-				if err := eval.Do(context.Background()); err != nil {
-					t.Errorf("%s.%s: %v", prog, test, err)
-					continue tests
-				}
-				if !eval.Value().(bool) {
-					t.Errorf("%s.%s failed", prog, test)
-				}
-			case bool:
-				if !v {
-					t.Errorf("%s.%s failed", prog, test)
-				}
-			}
-
-		}
-	}
+	RunReflowTests(t, tests)
 }
 
 func TestEvalErr(t *testing.T) {
@@ -291,34 +236,4 @@ func TestTypeErr(t *testing.T) {
 			t.Errorf("error %s did not match %s", terr, c.errpat)
 		}
 	}
-}
-
-type nopexecutor struct{}
-
-func (nopexecutor) Put(ctx context.Context, id digest.Digest, exec reflow.ExecConfig) (reflow.Exec, error) {
-	return nil, errors.New("put not implemented")
-}
-
-func (nopexecutor) Get(ctx context.Context, id digest.Digest) (reflow.Exec, error) {
-	return nil, errors.New("get not implemented")
-}
-
-func (nopexecutor) Remove(ctx context.Context, id digest.Digest) error {
-	return errors.New("remove not implemented")
-}
-
-func (nopexecutor) Execs(ctx context.Context) ([]reflow.Exec, error) {
-	return nil, errors.New("execs not implemented")
-}
-
-func (nopexecutor) Resources() reflow.Resources {
-	return reflow.Resources{
-		"mem":  math.MaxFloat64,
-		"cpu":  math.MaxFloat64,
-		"disk": math.MaxFloat64,
-	}
-}
-
-func (nopexecutor) Repository() reflow.Repository {
-	return nil
 }

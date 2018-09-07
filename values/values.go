@@ -17,6 +17,7 @@ import (
 	"crypto"
 	// The SHA-256 implementation is required for this package's
 	// Digester.
+
 	_ "crypto/sha256"
 	"encoding/binary"
 	"fmt"
