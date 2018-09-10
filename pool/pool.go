@@ -122,7 +122,7 @@ func Keepalive(ctx context.Context, log *log.Logger, alloc Alloc) error {
 				log.Errorf("failed to maintain keepalive within interval %s", iv)
 			}
 			iv, err = keepalive(ctx, alloc)
-			if err == nil {
+			if err == nil || errors.Is(errors.Fatal, err) {
 				break
 			}
 			// Context errors indicate that our caller has given up.
