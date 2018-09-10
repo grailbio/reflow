@@ -243,9 +243,17 @@ type instance struct {
 	CloudConfig     cloudConfig
 	Task            *status.Task
 
-	userData string
-	err      error
-	ec2inst  *ec2.Instance
+	userData         string
+	err              error
+	ec2inst          *ec2.Instance
+	reflowletVersion string
+}
+
+type reflowletInstance struct {
+	ec2.Instance
+
+	// Version of the reflowlet instance running on EC2 (populated on instance startup)
+	Version string
 }
 
 // Err returns any error that occured while launching the instance.
@@ -254,8 +262,8 @@ func (i *instance) Err() error {
 }
 
 // Instance returns the EC2 instance metadata returned by a successful launch.
-func (i *instance) Instance() *ec2.Instance {
-	return i.ec2inst
+func (i *instance) Instance() *reflowletInstance {
+	return &reflowletInstance{*i.ec2inst, i.reflowletVersion}
 }
 
 // Go launches an instance, and returns when it fails or the context is done.
@@ -373,7 +381,22 @@ func (i *instance) Go(ctx context.Context) {
 				i.err = errors.E(errors.Temporary, i.err)
 			}
 			if i.err == nil {
-				i.err = compatible(*i.Instance().InstanceId, i.ReflowConfig, config)
+				// get version and check version compatibility.
+				var err error
+				var reflowVer, reflowletVer string
+				if reflowVer, err = getString(i.ReflowConfig, "reflowversion"); err != nil {
+					i.err = errors.E(errors.Fatal, fmt.Errorf("unable to determine reflow version: %v", err))
+					break
+				}
+				if reflowletVer, err = getString(config, "reflowletversion"); err != nil {
+					i.err = errors.E(errors.Fatal, fmt.Errorf("unable to determine reflowlet version: %v", err))
+					break
+				}
+				if reflowVer != reflowletVer {
+					i.err = errors.E(errors.Fatal, fmt.Errorf("reflow (version: %s) incompatible with instance %v running reflowlet image: %s (version: %s)", reflowVer, id, i.ReflowletImage, reflowletVer))
+					break
+				}
+				i.reflowletVersion = reflowletVer
 			}
 		default:
 			panic("unknown state")

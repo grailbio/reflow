@@ -16,9 +16,21 @@ import (
 
 func TestReconcile(t *testing.T) {
 	instances := make(map[string]*ec2.Instance)
+	rInstances := make(map[string]*reflowletInstance)
 	for i := 0; i < 420; i++ {
 		instances[fmt.Sprintf("i-%d", i)] = new(ec2.Instance)
+		rInstances[fmt.Sprintf("i-%d", i)] = &reflowletInstance{*new(ec2.Instance), ""}
 	}
+	var instIds []string
+	for id := range instances {
+		instIds = append(instIds, id)
+	}
+	reconcile(instances, instIds, t)
+	reconcile(rInstances, instIds, t)
+}
+
+func reconcile(instances interface{}, instanceIds []string, t *testing.T) {
+	t.Helper()
 	dir, cleanup := testutil.TempDir(t, "", "")
 	defer cleanup()
 	file, err := state.Open(filepath.Join(dir, "state.json"))
@@ -58,7 +70,7 @@ func TestReconcile(t *testing.T) {
 	if got, want := len(seen), 420; got != want {
 		t.Errorf("got %d, want %d", got, want)
 	}
-	for id := range instances {
+	for _, id := range instanceIds {
 		delete(seen, id)
 	}
 	if got, want := len(seen), 0; got != want {

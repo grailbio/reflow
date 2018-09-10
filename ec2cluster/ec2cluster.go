@@ -123,7 +123,6 @@ type Cluster struct {
 	instanceState   *instanceState
 	instanceConfigs map[string]instanceConfig
 	pools           map[string]pool.Pool
-	pending         []*instance
 	reconciled      chan struct{}
 
 	wait chan *waiter
@@ -297,8 +296,7 @@ func (c *Cluster) loop() {
 	}
 
 	for {
-		var instances map[string]*ec2.Instance
-		c.File.Unmarshal(&instances)
+		instances, _ := c.unmarshalState()
 		n := len(instances)
 		var needPoll bool
 		// Here we try to pack resource requests. First, we order each
@@ -482,10 +480,9 @@ func (c *Cluster) maintain() {
 	}
 }
 
-func (c *Cluster) updateState(update func(map[string]*ec2.Instance)) {
+func (c *Cluster) updateState(update func(map[string]*reflowletInstance)) {
 	c.File.Lock()
-	instances := map[string]*ec2.Instance{}
-	c.File.Unmarshal(&instances)
+	instances, _ := c.unmarshalState()
 	update(instances)
 	if err := c.File.Marshal(instances); err != nil {
 		c.Log.Printf("marshal state error: %v", err)
@@ -494,8 +491,8 @@ func (c *Cluster) updateState(update func(map[string]*ec2.Instance)) {
 	c.update()
 }
 
-func (c *Cluster) add(newInstances ...*ec2.Instance) {
-	c.updateState(func(instances map[string]*ec2.Instance) {
+func (c *Cluster) add(newInstances ...*reflowletInstance) {
+	c.updateState(func(instances map[string]*reflowletInstance) {
 		for _, inst := range newInstances {
 			instances[*inst.InstanceId] = inst
 		}
@@ -503,7 +500,7 @@ func (c *Cluster) add(newInstances ...*ec2.Instance) {
 }
 
 func (c *Cluster) remove(instanceIds ...string) {
-	c.updateState(func(instances map[string]*ec2.Instance) {
+	c.updateState(func(instances map[string]*reflowletInstance) {
 		for _, id := range instanceIds {
 			delete(instances, id)
 		}
@@ -511,11 +508,9 @@ func (c *Cluster) remove(instanceIds ...string) {
 }
 
 func (c *Cluster) update() {
-	var instances map[string]*ec2.Instance
-	if err := c.File.Unmarshal(&instances); err != nil {
-		if err != state.ErrNoState {
-			c.Log.Printf("error unmarshal state: %v", err)
-		}
+	instances, err := c.unmarshalState()
+	if err != nil {
+		c.Log.Printf("error unmarshal state: %v", err)
 		return
 	}
 	for id, inst := range instances {
@@ -527,19 +522,14 @@ func (c *Cluster) update() {
 				continue
 			}
 			// check version compatibility.
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			rfletCfg, err := clnt.Config(ctx)
-			cancel()
-			if err != nil {
-				c.Log.Debugf("unable to get config for instance %v: %v", id, err)
+			if reflowVer, err := getString(c.Config, "reflowversion"); err != nil {
+				c.Log.Debugf("unable to get reflow version: %v", err)
+			} else if reflowVer != inst.Version {
+				c.Log.Debugf("reflow (version: %s) incompatible with instance %v running reflowlet image: %s (version: %s)", reflowVer, id, c.ReflowletImage, inst.Version)
 				continue
 			}
-			if err = compatible(id, c.Config, rfletCfg); err != nil {
-				c.Log.Debugf("ignoring instance %v, incompatible due to: %v", id, err)
-			} else {
-				// Versions are compatible!
-				c.pools[*inst.InstanceId] = clnt
-			}
+			// Versions are compatible!
+			c.pools[*inst.InstanceId] = clnt
 		}
 	}
 	for id := range c.pools {
@@ -551,11 +541,8 @@ func (c *Cluster) update() {
 }
 
 func (c *Cluster) reconcile() error {
-	var instances map[string]*ec2.Instance
-	if err := c.File.Unmarshal(&instances); err != nil {
-		if err == state.ErrNoState {
-			return nil
-		}
+	instances, err := c.unmarshalState()
+	if err != nil {
 		return err
 	}
 	var instanceIds []*string
@@ -617,6 +604,14 @@ func (c *Cluster) reconcile() error {
 	return nil
 }
 
+func (c *Cluster) unmarshalState() (map[string]*reflowletInstance, error) {
+	var instances map[string]*reflowletInstance
+	if err := c.File.Unmarshal(&instances); err != nil && err != state.ErrNoState {
+		return nil, err
+	}
+	return instances, nil
+}
+
 func vals(m map[string]pool.Pool) []pool.Pool {
 	pools := make([]pool.Pool, len(m))
 	i := 0
@@ -625,24 +620,6 @@ func vals(m map[string]pool.Pool) []pool.Pool {
 		i++
 	}
 	return pools
-}
-
-func compatible(instId string, reflowCfg, reflowletCfg config.Config) error {
-	var err error
-	var reflowVer, reflowletVer, reflowletImg string
-	if reflowVer, err = getString(reflowCfg, "reflowversion"); err != nil {
-		return errors.E(errors.Fatal, errors.New("unable to determine reflow version"))
-	}
-	if reflowletImg, err = getString(reflowCfg, "reflowlet"); err != nil {
-		return errors.E(errors.Fatal, errors.New("unable to determine reflow version"))
-	}
-	if reflowletVer, err = getString(reflowletCfg, "reflowletversion"); err != nil {
-		return errors.E(errors.Fatal, errors.New("unable to determine reflowlet version"))
-	}
-	if reflowVer != reflowletVer {
-		return errors.E(errors.Fatal, fmt.Errorf("reflow (version: %s) incompatible with instance %v running reflowlet image: %s (version: %s)", reflowVer, instId, reflowletImg, reflowletVer))
-	}
-	return nil
 }
 
 func getString(c config.Config, key string) (string, error) {
