@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package sched
+package sched_test
 
 import (
 	"bytes"
@@ -23,6 +23,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
+	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/test/testutil"
 )
 
@@ -43,8 +44,8 @@ func (c *counter) NextID() digest.Digest {
 
 var ntask, nalloc counter
 
-func newTask(cpu, mem float64) *Task {
-	task := new(Task)
+func newTask(cpu, mem float64) *sched.Task {
+	task := sched.NewTask()
 	task.ID = ntask.NextID()
 	task.Config.Resources = reflow.Resources{"cpu": cpu, "mem": mem}
 	if *logTasks {

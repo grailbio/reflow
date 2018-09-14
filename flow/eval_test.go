@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package evaltest
+package flow_test
 
 import (
 	"bytes"
@@ -14,10 +14,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
+	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/repository/file"
+	"github.com/grailbio/reflow/sched"
 	op "github.com/grailbio/reflow/test/flow"
 	"github.com/grailbio/reflow/test/testutil"
 	"github.com/grailbio/reflow/values"
@@ -425,6 +429,79 @@ func TestData(t *testing.T) {
 	_, err := e.Repo.Stat(context.Background(), reflow.Digester.FromBytes(hello))
 	if err != nil {
 		t.Error(err)
+	}
+}
+
+// TestAlloc is used in scheduler tests. As well as implementing
+// alloc, it implements sched.Cluster, handing itself out.
+type testAlloc struct {
+	testutil.Executor
+	Repo reflow.Repository
+}
+
+func (a *testAlloc) Repository() reflow.Repository {
+	return a.Repo
+}
+
+func (a *testAlloc) Remove(ctx context.Context, id digest.Digest) error {
+	panic("not implemented")
+}
+
+func (a *testAlloc) Pool() pool.Pool {
+	panic("not implemented")
+}
+
+func (a *testAlloc) ID() string {
+	panic("not implemented")
+}
+
+func (a *testAlloc) Inspect(ctx context.Context) (pool.AllocInspect, error) {
+	panic("not implemented")
+}
+
+func (a *testAlloc) Free(ctx context.Context) error {
+	panic("not implemented")
+}
+
+func (a *testAlloc) Keepalive(ctx context.Context, interval time.Duration) (time.Duration, error) {
+	return interval, ctx.Err()
+}
+
+func (a *testAlloc) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error) {
+	return a, ctx.Err()
+}
+
+func TestScheduler(t *testing.T) {
+	e := new(testAlloc)
+	e.Have = testutil.Resources
+	e.Repo = testutil.NewInmemoryRepository()
+	e.Init()
+
+	sched := sched.New()
+	sched.Transferer = testutil.Transferer
+	sched.Repository = e.Repo
+	sched.Cluster = e
+	sched.MinAlloc = reflow.Resources{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go sched.Do(ctx)
+
+	intern := op.Intern("internurl")
+	exec := op.Exec("image", "command", testutil.Resources, intern)
+	extern := op.Extern("externurl", exec)
+
+	var out *log.Logger // = log.New(golog.New(os.Stderr, "", golog.LstdFlags), log.DebugLevel)
+	eval := flow.NewEval(extern, flow.EvalConfig{Repository: sched.Repository, Scheduler: sched, Log: out, Trace: out})
+	rc := testutil.EvalAsync(context.Background(), eval)
+	e.Ok(intern, testutil.WriteFiles(e.Repo, "a/b/c", "a/b/d", "x/y/z"))
+	e.Ok(exec, testutil.WriteFiles(e.Repo, "execout"))
+	e.Ok(extern, reflow.Fileset{})
+	r := <-rc
+	if r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if got := r.Val; !got.Empty() {
+		t.Fatalf("got %v, want <empty>", got)
 	}
 }
 

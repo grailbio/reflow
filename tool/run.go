@@ -34,6 +34,7 @@ import (
 	"github.com/grailbio/reflow/resolver"
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/s3/s3client"
+	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/trace"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/wg"
@@ -55,6 +56,7 @@ type runConfig struct {
 	recomputeempty bool
 	eval           string
 	invalidate     string
+	sched          bool
 }
 
 func (r *runConfig) Flags(flags *flag.FlagSet) {
@@ -69,6 +71,7 @@ func (r *runConfig) Flags(flags *flag.FlagSet) {
 	flags.BoolVar(&r.recomputeempty, "recomputeempty", false, "recompute empty cache values")
 	flags.StringVar(&r.eval, "eval", "topdown", "evaluation strategy")
 	flags.StringVar(&r.invalidate, "invalidate", "", "regular expression for node identifiers that should be invalidated")
+	flags.BoolVar(&r.sched, "sched", false, "use scalable scheduler instead of work stealing")
 }
 
 func (r *runConfig) Err() error {
@@ -78,6 +81,9 @@ func (r *runConfig) Err() error {
 		return fmt.Errorf("invalid evaluation strategy %s", r.eval)
 	}
 	if r.local {
+		if r.sched {
+			return errors.New("-sched cannot be used in local mode")
+		}
 		if r.alloc != "" {
 			return errors.New("-alloc cannot be used in local mode")
 		}
@@ -90,6 +96,9 @@ func (r *runConfig) Err() error {
 		if r.resourcesFlag != "" {
 			return errors.New("-resources can only be used in local mode")
 		}
+	}
+	if r.sched && r.alloc != "" {
+		return errors.New("-alloc cannot be used with -sched")
 	}
 	if r.invalidate != "" {
 		_, err := regexp.Compile(r.invalidate)
@@ -157,6 +166,9 @@ retriable.`
 	er, err := c.Eval(flags.Args())
 	if er.V1 && config.gc {
 		log.Errorf("garbage collection disabled for v1 reflows")
+		config.gc = false
+	} else if config.sched && config.gc {
+		log.Errorf("garbage collection disabled for with scalable scheduling")
 		config.gc = false
 	}
 	if err != nil {
@@ -265,6 +277,16 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 	if repo != nil {
 		transferer.PendingTransfers.Set(repo.URL().String(), int(^uint(0)>>1))
 	}
+	var scheduler *sched.Scheduler
+	if config.sched {
+		scheduler = sched.New()
+		scheduler.Transferer = transferer
+		scheduler.Repository = repo
+		scheduler.Cluster = cluster
+		scheduler.Log = c.Log
+		scheduler.MinAlloc.Max(scheduler.MinAlloc, er.Flow.Requirements().Min)
+		go scheduler.Do(ctx)
+	}
 	run := runner.Runner{
 		Flow: er.Flow,
 		EvalConfig: flow.EvalConfig{
@@ -274,6 +296,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 			CacheMode:  c.Config.CacheMode(),
 			Transferer: transferer,
 			Status:     c.Status.Group(runID.Short()),
+			Scheduler:  scheduler,
 		},
 		Type:    er.Type,
 		Labels:  make(pool.Labels),

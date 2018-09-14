@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package sched
+package sched_test
 
 import (
 	"context"
@@ -12,22 +12,24 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/repository"
+	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/test/testutil"
 )
 
-func newTestScheduler() (sched *Scheduler, cluster *testCluster, repository *testutil.InmemoryRepository, shutdown func()) {
+func newTestScheduler() (scheduler *sched.Scheduler, cluster *testCluster, repository *testutil.InmemoryRepository, shutdown func()) {
 	repository = testutil.NewInmemoryRepository()
 	cluster = newTestCluster()
-	sched = New()
-	sched.Transferer = testutil.Transferer
-	sched.Repository = repository
-	sched.Cluster = cluster
+	scheduler = sched.New()
+	scheduler.Transferer = testutil.Transferer
+	scheduler.Repository = repository
+	scheduler.Cluster = cluster
+	scheduler.MinAlloc = reflow.Resources{}
 	var ctx context.Context
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
-		sched.Do(ctx)
+		scheduler.Do(ctx)
 		wg.Done()
 	}()
 	shutdown = func() {
@@ -49,7 +51,7 @@ func expectExists(t *testing.T, repo reflow.Repository, fs reflow.Fileset) {
 }
 
 func TestSchedulerBasic(t *testing.T) {
-	sched, cluster, repo, shutdown := newTestScheduler()
+	scheduler, cluster, repo, shutdown := newTestScheduler()
 	defer shutdown()
 	ctx := context.Background()
 	in := randomFileset(repo)
@@ -58,7 +60,7 @@ func TestSchedulerBasic(t *testing.T) {
 	task := newTask(10, 10<<30)
 	task.Config.Args = []reflow.Arg{{Fileset: &in}}
 
-	sched.Submit(task)
+	scheduler.Submit(task)
 	req := <-cluster.Req()
 	if got, want := req.Requirements, newRequirements(10, 10<<30, 1); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
@@ -69,14 +71,14 @@ func TestSchedulerBasic(t *testing.T) {
 
 	// By the time the task is running, it should have all of the dependent objects
 	// in its repository.
-	task.Wait(ctx, TaskRunning)
+	task.Wait(ctx, sched.TaskRunning)
 	expectExists(t, alloc.Repository(), in)
 
 	// Complete the task and check that all of its output is placed back into
 	// the main repository.
 	exec := alloc.exec(task.ID)
 	exec.complete(reflow.Result{Fileset: out}, nil)
-	task.Wait(ctx, TaskDone)
+	task.Wait(ctx, sched.TaskDone)
 	if task.Err != nil {
 		t.Errorf("unexpected task error: %v", task.Err)
 	}
@@ -84,16 +86,16 @@ func TestSchedulerBasic(t *testing.T) {
 }
 
 func TestSchedulerAlloc(t *testing.T) {
-	sched, cluster, _, shutdown := newTestScheduler()
+	scheduler, cluster, _, shutdown := newTestScheduler()
 	defer shutdown()
 	ctx := context.Background()
 
-	tasks := []*Task{
+	tasks := []*sched.Task{
 		newTask(5, 10<<30),
 		newTask(10, 10<<30),
 		newTask(20, 10<<30),
 	}
-	sched.Submit(tasks...)
+	scheduler.Submit(tasks...)
 	req := <-cluster.Req()
 	if got, want := req.Requirements, newRequirements(20, 10<<30, 3); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
@@ -105,7 +107,7 @@ func TestSchedulerAlloc(t *testing.T) {
 	default:
 	}
 	for i, task := range tasks {
-		if got, want := task.State(), TaskInit; got != want {
+		if got, want := task.State(), sched.TaskInit; got != want {
 			t.Errorf("task %d: got %v, want %v", i, got, want)
 		}
 	}
@@ -113,9 +115,9 @@ func TestSchedulerAlloc(t *testing.T) {
 	alloc := newTestAlloc(reflow.Resources{"cpu": 30, "mem": 30 << 30})
 	req.Reply <- testClusterAllocReply{Alloc: alloc}
 
-	tasks[0].Wait(ctx, TaskRunning)
-	tasks[1].Wait(ctx, TaskRunning)
-	if got, want := tasks[2].State(), TaskInit; got != want {
+	tasks[0].Wait(ctx, sched.TaskRunning)
+	tasks[1].Wait(ctx, sched.TaskRunning)
+	if got, want := tasks[2].State(), sched.TaskInit; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 
@@ -129,20 +131,20 @@ func TestSchedulerAlloc(t *testing.T) {
 	// means the scheduler should be able to schedule tasks[2].
 	exec := alloc.exec(tasks[0].ID)
 	exec.complete(reflow.Result{}, nil)
-	tasks[2].Wait(ctx, TaskRunning)
+	tasks[2].Wait(ctx, sched.TaskRunning)
 }
 
 func TestTaskLost(t *testing.T) {
-	sched, cluster, _, shutdown := newTestScheduler()
+	scheduler, cluster, _, shutdown := newTestScheduler()
 	defer shutdown()
 	ctx := context.Background()
 
-	tasks := []*Task{
+	tasks := []*sched.Task{
 		newTask(1, 1),
 		newTask(1, 1),
 		newTask(1, 1),
 	}
-	sched.Submit(tasks...)
+	scheduler.Submit(tasks...)
 	allocs := []*testAlloc{
 		newTestAlloc(reflow.Resources{"cpu": 2, "mem": 2}),
 		newTestAlloc(reflow.Resources{"cpu": 1, "mem": 1}),
@@ -157,7 +159,7 @@ func TestTaskLost(t *testing.T) {
 	done.Add(3)
 	for i := range tasks {
 		go func(i int) {
-			if tasks[i].Wait(statusCtx, TaskRunning) == nil {
+			if tasks[i].Wait(statusCtx, sched.TaskRunning) == nil {
 				running.Done()
 			}
 			done.Done()
@@ -167,9 +169,9 @@ func TestTaskLost(t *testing.T) {
 	statusCancel()
 	done.Wait()
 
-	var singleTask *Task
+	var singleTask *sched.Task
 	for _, task := range tasks {
-		if task.State() == TaskInit {
+		if task.State() == sched.TaskInit {
 			singleTask = task
 			break
 		}
@@ -180,18 +182,18 @@ func TestTaskLost(t *testing.T) {
 
 	req = <-cluster.Req()
 	req.Reply <- testClusterAllocReply{Alloc: allocs[1]}
-	singleTask.Wait(ctx, TaskRunning)
+	singleTask.Wait(ctx, sched.TaskRunning)
 
 	// Fail the alloc. By the tiem we get a new request, the task should
 	// be back in init state.
 	allocs[1].error(errors.E(errors.Fatal, "alloc failed"))
 
 	req = <-cluster.Req()
-	if got, want := singleTask.State(), TaskInit; got != want {
+	if got, want := singleTask.State(), sched.TaskInit; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 
 	// When we recover, the task is reassigned.
 	req.Reply <- testClusterAllocReply{Alloc: newTestAlloc(reflow.Resources{"cpu": 1, "mem": 1})}
-	singleTask.Wait(ctx, TaskRunning)
+	singleTask.Wait(ctx, sched.TaskRunning)
 }

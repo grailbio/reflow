@@ -72,6 +72,10 @@ type Task struct {
 	// execution.
 	Inspect reflow.ExecInspect
 
+	// Exec is the exec which is running (or ran) the task. Exec is
+	// set by the scheduler before the task enters TaskRunning state.
+	Exec reflow.Exec
+
 	mu   sync.Mutex
 	cond *ctxsync.Cond
 
@@ -80,8 +84,12 @@ type Task struct {
 	index int
 }
 
-func (t *Task) init() {
-	t.cond = ctxsync.NewCond(&t.mu)
+// NewTask returns a new, initialized task. The Task may be populated
+// and then submitted to the scheduler.
+func NewTask() *Task {
+	task := new(Task)
+	task.cond = ctxsync.NewCond(&task.mu)
+	return task
 }
 
 // State returns the task's current state.

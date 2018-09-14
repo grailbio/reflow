@@ -158,7 +158,7 @@ func (e *Executor) Get(ctx context.Context, id digest.Digest) (reflow.Exec, erro
 	defer e.mu.Unlock()
 	x := e.execs[id]
 	if x == nil {
-		return nil, errors.E("get", id, errors.NotExist)
+		return nil, errors.E("testutil.Executor", id, errors.NotExist)
 	}
 	return x, nil
 }

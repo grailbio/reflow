@@ -62,6 +62,10 @@ type Scheduler struct {
 	// collected.
 	MaxAllocIdleTime time.Duration
 
+	// MinAlloc is the smallest resource allocation that is made by
+	// the scheduler.
+	MinAlloc reflow.Resources
+
 	// Labels is the set of labels applied to newly created allocs.
 	Labels pool.Labels
 
@@ -75,6 +79,7 @@ func New() *Scheduler {
 		submitc:          make(chan []*Task),
 		MaxPendingAllocs: 5,
 		MaxAllocIdleTime: 5 * time.Minute,
+		MinAlloc:         reflow.Resources{"cpu": 1, "mem": 1 << 30, "disk": 10 << 30},
 	}
 }
 
@@ -83,7 +88,6 @@ func New() *Scheduler {
 // manages a task until it reaches the TaskDone state.
 func (s *Scheduler) Submit(tasks ...*Task) {
 	for _, task := range tasks {
-		task.init()
 		task.Log.Debugf("scheduler: task submitted with %v", task.Config)
 	}
 	s.submitc <- tasks
@@ -215,6 +219,7 @@ func (s *Scheduler) Do(ctx context.Context) error {
 			continue
 		}
 
+		req.Min.Max(s.MinAlloc, req.Min)
 		alloc := newAlloc()
 		alloc.Requirements = req
 		alloc.Available = req.Min
@@ -339,6 +344,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		case statePut:
 			x, err = alloc.Put(ctx, task.ID, task.Config)
 		case stateWait:
+			task.Exec = x
 			task.set(TaskRunning)
 			err = x.Wait(ctx)
 		case statePromote:

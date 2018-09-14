@@ -161,6 +161,26 @@ func (l *Logger) Tee(out Outputter, prefix string) *Logger {
 	}
 }
 
+// Prefix returns this logger with an added prefix.
+func (l *Logger) Prefix(prefix string) *Logger {
+	if l == nil {
+		return nil
+	}
+	m := new(Logger)
+	*m = *l
+	m.prefix += prefix
+	return m
+}
+
+// Prefixf formats a string in the manner of fmt.Sprintf,
+// returns logger l with this prefix.
+func (l *Logger) Prefixf(format string, v ...interface{}) *Logger {
+	if l == nil {
+		return nil
+	}
+	return l.Prefix(fmt.Sprintf(format, v...))
+}
+
 // Std is the standard global logger.
 // It is used by the package level logging functions.
 var Std = New(log.New(os.Stderr, "", log.LstdFlags), InfoLevel)

@@ -69,8 +69,8 @@ const (
 	// Exec runs a command in a docker container on the inputs
 	// represented by the Flow's dependencies.
 	Exec Op = 1 + iota
-	// OpIntern imports datasets from URLs.
-	OpIntern
+	// Intern imports datasets from URLs.
+	Intern
 	// Extern exports values to URLs.
 	Extern
 	// Groupby applies a regular expression to group an input value.
@@ -101,7 +101,7 @@ const (
 var opStrings = [maxOp]string{
 	0:            "BROKEN",
 	Exec:         "exec",
-	OpIntern:     "intern",
+	Intern:       "intern",
 	Extern:       "extern",
 	Groupby:      "groupby",
 	Map:          "map",
@@ -117,6 +117,15 @@ var opStrings = [maxOp]string{
 
 func (o Op) String() string {
 	return opStrings[o]
+}
+
+// External returns whether the op requires external execution.
+func (o Op) External() bool {
+	switch o {
+	case Exec, Intern, Extern:
+		return true
+	}
+	return false
 }
 
 // State is an enum representing the state of a Flow node during
@@ -158,8 +167,13 @@ const (
 	// be scheduled by the evaluator. A node is ready only once all of its
 	// dependent objects are available in the evaluator's repository.
 	Ready
+
+	// NeedSubmit indicates the task is ready to be submitted to the
+	// scheduler.
+	NeedSubmit
+
 	// Running indicates that the node is currently being evaluated by
-	// the evaluator.
+	// the evaluator, or has been submitted to the scheduler.
 	Running
 
 	// Done indicates that the node has completed evaluation.
@@ -293,6 +307,9 @@ type Flow struct {
 	Tracked bool
 
 	Status *status.Task
+	// StatusAux is the flow's auxilliary status string, printed
+	// alongside the task's status.
+	StatusAux string
 
 	Data []byte // Data
 
@@ -394,7 +411,7 @@ func (f *Flow) String() string {
 	switch f.Op {
 	case Exec:
 		s += fmt.Sprintf(" image %s cmd %q", f.Image, f.Cmd)
-	case OpIntern:
+	case Intern:
 		s += fmt.Sprintf(" url %q", f.URL)
 	case Extern:
 		s += fmt.Sprintf(" url %q", f.URL)
@@ -439,7 +456,7 @@ func (f *Flow) DebugString() string {
 			}
 			fmt.Fprintf(b, "args(%s)", strings.Join(args, ", "))
 		}
-	case OpIntern:
+	case Intern:
 		fmt.Fprintf(b, "intern<%s>(%q", dstr, f.URL)
 	case Extern:
 		fmt.Fprintf(b, "extern<%s>(%q", dstr, f.URL)
@@ -512,7 +529,7 @@ func (f *Flow) ExecString(cache bool) string {
 				}
 			}
 			s = fmt.Sprintf("exec %q", fmt.Sprintf(f.Cmd, argv...))
-		case OpIntern:
+		case Intern:
 			s = fmt.Sprintf("intern %q", f.URL)
 		case Extern:
 			s = fmt.Sprintf("extern flow(%v) %q", f.Deps[0].Digest().Short(), f.URL)
@@ -560,7 +577,7 @@ func (f *Flow) ExecString(cache bool) string {
 				}
 			}
 			s = fmt.Sprintf("exec %q", fmt.Sprintf(f.Cmd, argv...))
-		case OpIntern:
+		case Intern:
 			s = fmt.Sprintf("intern %q", f.URL)
 		case Extern:
 			if fs, ok := f.Deps[0].Value.(reflow.Fileset); ok {
@@ -654,6 +671,58 @@ func (f *Flow) ExecArg(i int) ExecArg {
 	}
 }
 
+// ExecConfig returns the flow's exec configuration. The flows dependencies
+// must already be computed before invoking ExecConfig. ExecConfig is valid
+// only for Intern, Extern, and Exec ops.
+func (f *Flow) ExecConfig() reflow.ExecConfig {
+	switch f.Op {
+	case Intern:
+		return reflow.ExecConfig{
+			Type:  "intern",
+			Ident: f.Ident,
+			URL:   f.URL.String(),
+		}
+	case Extern:
+		fs := f.Deps[0].Value.(reflow.Fileset)
+		return reflow.ExecConfig{
+			Type:  "extern",
+			Ident: f.Ident,
+			URL:   f.URL.String(),
+			Args:  []reflow.Arg{{Fileset: &fs}},
+		}
+	case Exec:
+		if f.Argmap == nil {
+			f.Argmap = make([]ExecArg, len(f.Deps))
+			for i := range f.Deps {
+				f.Argmap[i] = ExecArg{Index: i}
+			}
+		}
+		args := make([]reflow.Arg, f.NExecArg())
+		for i := range args {
+			earg := f.ExecArg(i)
+			if earg.Out {
+				args[i].Out = true
+				args[i].Index = earg.Index
+			} else {
+				fs := f.Deps[earg.Index].Value.(reflow.Fileset)
+				args[i].Fileset = &fs
+			}
+		}
+
+		return reflow.ExecConfig{
+			Type:        "exec",
+			Ident:       f.Ident,
+			Image:       f.Image,
+			Cmd:         f.Cmd,
+			Args:        args,
+			Resources:   f.Resources,
+			OutputIsDir: f.OutputIsDir,
+		}
+	default:
+		panic("no exec config for op " + f.Op.String())
+	}
+}
+
 // Digest produces a digest of Flow f. The digest captures the
 // entirety of the Flows semantics: two flows with the same digest
 // must evaluate to the same value. Map Flows are canonicalized
@@ -707,7 +776,7 @@ func (f *Flow) WriteDigest(w io.Writer) {
 
 	io.WriteString(w, f.Op.DigestString())
 	switch f.Op {
-	case OpIntern, Extern:
+	case Intern, Extern:
 		io.WriteString(w, f.URL.String())
 	case Exec:
 		io.WriteString(w, f.Image)

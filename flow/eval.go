@@ -28,6 +28,7 @@ import (
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/liveset/bloomlive"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/trace"
 	"github.com/grailbio/reflow/values"
 	"github.com/willf/bloom"
@@ -94,6 +95,15 @@ type EvalConfig struct {
 	// The executor to which execs are submitted.
 	Executor reflow.Executor
 
+	// Scheduler is used to run tasks. Either a scheduler or Executor
+	// must be defined. Note that the plan is to deprecate using
+	// executors directly from the evaluator, leaving Scheduler the
+	// only option, and at which time we can simplify some aspects
+	// of the flow evaluator.
+	//
+	// The scheduler must use the same repository as the evaluator.
+	Scheduler *sched.Scheduler
+
 	// Resolver is the resolver used to resolve source URLs into unloaded
 	// filesets.
 	Resolver Resolver
@@ -154,7 +164,12 @@ type EvalConfig struct {
 // String returns a human-readable form of the evaluation configuration.
 func (e EvalConfig) String() string {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "executor %T transferer %T", e.Executor, e.Transferer)
+	if e.Executor != nil {
+		fmt.Fprintf(&b, "executor %T", e.Executor)
+	} else {
+		fmt.Fprintf(&b, "scheduler %T", e.Scheduler)
+	}
+	fmt.Fprintf(&b, " transferer %T", e.Transferer)
 	var flags []string
 	if e.NoCacheExtern {
 		flags = append(flags, "nocacheextern")
@@ -226,6 +241,9 @@ type Eval struct {
 	// Informational channels for printing status.
 	needLog []*Flow
 
+	// Repo is the repository from which execs have object access.
+	repo reflow.Repository
+
 	// these maintain status printing state
 	begin                           time.Time
 	prevStateCounts, prevByteCounts counters
@@ -271,7 +289,12 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 		newStealer: make(chan *Stealer),
 		wakeupch:   make(chan bool, 1),
 		pending:    map[*Flow]bool{}, // TODO: name e.ready; but really we should just traverse the tree
-		total:      config.Executor.Resources(),
+	}
+	if config.Executor != nil {
+		e.repo = config.Executor.Repository()
+		e.total = config.Executor.Resources()
+	} else {
+		e.repo = e.Repository
 	}
 	if e.CacheLookupTimeout == time.Duration(0) {
 		e.CacheLookupTimeout = defaultCacheLookupTimeout
@@ -390,6 +413,8 @@ func (e *Eval) Do(ctx context.Context) error {
 		// end of each iteration, we wait for one task to complete, and
 		// gather any new Flows that have become ready.
 		e.todo(flow)
+
+		var tasks []*sched.Task // the set of tasks to be submitted after this iteration
 	dequeue:
 		for v := flow.Visitor(); v.Walk(); {
 			f := v.Flow
@@ -410,6 +435,15 @@ func (e *Eval) Do(ctx context.Context) error {
 					v.Resources["cpu"] = minExecCPU
 				}
 			}
+			if e.Scheduler != nil && f.Op.External() {
+				switch f.State {
+				case NeedTransfer, Ready:
+					// If we're using a scheduler, then we can skip transfer, and
+					// submit directly to the scheduler.
+					e.Mutate(f, NeedSubmit)
+				}
+			}
+
 			switch f.State {
 			case NeedLookup:
 				// TODO(marius): we should perform batch lookups
@@ -417,22 +451,21 @@ func (e *Eval) Do(ctx context.Context) error {
 				// bundle requests automatically.
 				e.Mutate(f, Lookup)
 				e.pending[f] = true
-				go func(f *Flow) {
+				e.step(f, func(f *Flow) error {
 					e.lookup(ctx, f)
-					e.returnch <- f
-				}(f)
+					return nil
+				})
 			case NeedTransfer:
 				e.Mutate(f, Transfer)
 				e.pending[f] = true
-				go func(f *Flow) {
+				e.step(f, func(f *Flow) error {
 					files, err := e.needTransfer(ctx, f)
 					if err != nil {
 						e.Log.Errorf("need transfer: %v", err)
 					} else if len(files) == 0 {
 						// No transfer needed; we're ready to go.
 						e.Mutate(f, Ready)
-						e.returnch <- f
-						return
+						return nil
 					}
 					// Compute the transfer size, so that we can log it. Note that
 					// this is of course subject to race conditions: when multiple
@@ -448,18 +481,14 @@ func (e *Eval) Do(ctx context.Context) error {
 					}
 					e.Mutate(f, Refresh) // TransferSize is updated
 					e.LogFlow(ctx, f)
-					if err := e.transfer(ctx, f); err != nil {
-						e.errors <- err
-					} else {
-						e.returnch <- f
-					}
-				}(f)
-
+					return e.transfer(ctx, f)
+				})
 			case Ready:
 				if !e.total.Available(f.Resources) {
 					// TODO(marius): we could also attach this error to the node.
 					return errors.E(errors.ResourcesExhausted,
-						errors.Errorf("eval %v: requested resources %v exceeds total available %v", f.Ident, f.Resources, e.total))
+						errors.Errorf("eval %v: requested resources %v exceeds total available %v",
+							f.Ident, f.Resources, e.total))
 				}
 				if !e.available.Available(f.Resources) {
 					continue dequeue
@@ -467,14 +496,56 @@ func (e *Eval) Do(ctx context.Context) error {
 				e.available.Sub(e.available, f.Resources)
 				e.Mutate(f, Running, Reserve(f.Resources))
 				e.pending[f] = true
-				go func(f *Flow) {
-					if err := e.eval(ctx, f); err != nil {
-						e.errors <- err
-					} else {
-						e.returnch <- f
+				e.step(f, func(f *Flow) error { return e.eval(ctx, f) })
+			case NeedSubmit:
+				var err *errors.Error
+				// Propagate errors immediately. We have to do this manually
+				// here since we're not going through the evaluator.
+				for _, dep := range f.Deps {
+					if err = dep.Err; err != nil {
+						break
 					}
-				}(f)
+				}
+
+				e.Mutate(f, Running, Reserve(f.Resources))
+				e.pending[f] = true
+				if err != nil {
+					go func(err *errors.Error) {
+						e.Mutate(f, err, Done)
+						e.returnch <- f
+					}(err)
+					break
+				}
+
+				task := sched.NewTask()
+				task.ID = f.Digest()
+				task.Config = f.ExecConfig()
+				task.Log = e.Log.Prefixf("task %s: ", f.Digest().Short())
+				tasks = append(tasks, task)
+				e.step(f, func(f *Flow) error {
+					if err := task.Wait(ctx, sched.TaskRunning); err != nil {
+						return err
+					}
+					e.LogFlow(ctx, f)
+					if err := task.Wait(ctx, sched.TaskDone); err != nil {
+						return err
+					}
+					if task.Err != nil {
+						e.Mutate(f, task.Err, Done)
+					} else {
+						e.Mutate(f, task.Result.Err, task.Result.Fileset, Done)
+					}
+					if e.CacheMode.Writing() {
+						e.Mutate(f, Incr) // just so the cache write can decr it
+						e.cacheWriteAsync(ctx, f)
+					}
+					return nil
+				})
 			}
+		}
+		if e.Scheduler != nil && len(tasks) > 0 {
+			e.Scheduler.Submit(tasks...)
+			tasks = tasks[:0]
 		}
 		if flow.State == Done {
 			break
@@ -537,7 +608,7 @@ func (e *Eval) LogSummary(log *log.Logger) {
 			continue
 		}
 		switch v.Op {
-		case Exec, OpIntern, Extern:
+		case Exec, Intern, Extern:
 		default:
 			continue
 		}
@@ -613,6 +684,20 @@ func (e *Eval) Stealer() *Stealer {
 	return s
 }
 
+// Step asynchronously invokes proc on the provided flow. Once
+// processing is complete, the flow is returned. If an error is
+// returned, the error is communicated to the evaluation loop.
+func (e *Eval) step(f *Flow, proc func(f *Flow) error) {
+	go func() {
+		err := proc(f)
+		if err != nil {
+			e.errors <- err
+		} else {
+			e.returnch <- f
+		}
+	}()
+}
+
 // wakeup wakes up a sleeping evaluator. Wakeup requests garbage collection
 // when needCollect is true.
 func (e *Eval) wakeup(needCollect bool) {
@@ -672,7 +757,7 @@ func (e *Eval) wait(ctx context.Context) (err error) {
 					nrunning++
 				} else {
 					switch v.Op {
-					case Exec, OpIntern, Extern:
+					case Exec, Intern, Extern:
 						nrunning++
 					}
 				}
@@ -731,7 +816,7 @@ func (e *Eval) reportStatus() {
 			}
 		}
 		switch v.Op {
-		case Exec, OpIntern, Extern:
+		case Exec, Intern, Extern:
 		default:
 			continue
 		}
@@ -918,7 +1003,7 @@ func (e *Eval) todo(f *Flow) {
 	switch f.State {
 	case Init:
 		switch f.Op {
-		case OpIntern, Exec, Extern:
+		case Intern, Exec, Extern:
 			if !e.BottomUp && e.CacheMode.Reading() && !e.dirty(f) {
 				e.Mutate(f, NeedLookup)
 				return
@@ -949,7 +1034,7 @@ func (e *Eval) todo(f *Flow) {
 		}
 		// The node is ready to run. This is done according to the evaluator's mode.
 		switch f.Op {
-		case OpIntern, Exec, Extern:
+		case Intern, Exec, Extern:
 			// We're ready to run. If we're in bottom up mode, this means we're ready
 			// for our cache lookup.
 			if e.BottomUp {
@@ -1007,12 +1092,12 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 	}
 
 	switch f.Op {
-	case OpIntern, Extern, Exec:
+	case Intern, Extern, Exec:
 		var name string
 		switch f.Op {
 		case Extern:
 			name = fmt.Sprintf("extern %s %s", f.URL, data.Size(f.Deps[0].Value.(reflow.Fileset).Size()))
-		case OpIntern:
+		case Intern:
 			name = fmt.Sprintf("intern %s", f.URL)
 		case Exec:
 			name = fmt.Sprintf("exec %s", abbrevCmd(f))
@@ -1103,7 +1188,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 	case Requirements:
 		e.Mutate(f, Value{f.Deps[0].Value}, Incr, Done)
 	case Data:
-		if id, err := e.Executor.Repository().Put(ctx, bytes.NewReader(f.Data)); err != nil {
+		if id, err := e.repo.Put(ctx, bytes.NewReader(f.Data)); err != nil {
 			e.Mutate(f, err, Incr, Done)
 		} else {
 			e.Mutate(f, reflow.Fileset{
@@ -1126,15 +1211,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 	// they might be overfetched, and then wittled down later. It is
 	// also extra protection for reproducibility, though ideally this will
 	// be tackled by filesets.
-	bgctx := Background(ctx)
-	go func() {
-		err := e.CacheWrite(bgctx, f, e.Executor.Repository())
-		if err != nil {
-			e.Log.Errorf("cache write %v: %v", f, err)
-		}
-		bgctx.Complete()
-		e.Mutate(f, Decr)
-	}()
+	e.cacheWriteAsync(ctx, f)
 	return nil
 }
 
@@ -1143,7 +1220,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 // encountered.
 func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) error {
 	switch f.Op {
-	case OpIntern, Extern, Exec:
+	case Intern, Extern, Exec:
 	default:
 		return nil
 	}
@@ -1185,17 +1262,19 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) 
 		} else {
 			log.Errorf("encoder marshal profile: %v", err)
 		}
-		if rc, err := f.Exec.Logs(ctx, true, false, false); err == nil {
-			if stdout, err = e.Repository.Put(ctx, rc); err != nil {
-				log.Errorf("repository put stdout: %v", err)
+		if f.Exec != nil {
+			if rc, err := f.Exec.Logs(ctx, true, false, false); err == nil {
+				if stdout, err = e.Repository.Put(ctx, rc); err != nil {
+					log.Errorf("repository put stdout: %v", err)
+				}
+				rc.Close()
 			}
-			rc.Close()
-		}
-		if rc, err := f.Exec.Logs(ctx, false, true, false); err == nil {
-			if stderr, err = e.Repository.Put(ctx, rc); err != nil {
-				log.Errorf("repository put stderr: %v", err)
+			if rc, err := f.Exec.Logs(ctx, false, true, false); err == nil {
+				if stderr, err = e.Repository.Put(ctx, rc); err != nil {
+					log.Errorf("repository put stderr: %v", err)
+				}
+				rc.Close()
 			}
-			rc.Close()
 		}
 	}
 
@@ -1224,6 +1303,18 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) 
 		})
 	}
 	return g.Wait()
+}
+
+func (e *Eval) cacheWriteAsync(ctx context.Context, f *Flow) {
+	bgctx := Background(ctx)
+	go func() {
+		err := e.CacheWrite(bgctx, f, e.repo)
+		if err != nil {
+			e.Log.Errorf("cache write %v: %v", f, err)
+		}
+		bgctx.Complete()
+		e.Mutate(f, Decr)
+	}()
 }
 
 // lookupFailed marks the flow f as having failed lookup. Lookup
@@ -1392,54 +1483,6 @@ func (e *Eval) transfer(ctx context.Context, f *Flow) error {
 // exec tries each step up to numExecTries. Exec returns a value
 // pointer which has been registered as live.
 func (e *Eval) exec(ctx context.Context, f *Flow) error {
-	var cfg reflow.ExecConfig
-	switch f.Op {
-	case OpIntern:
-		cfg = reflow.ExecConfig{
-			Type:  "intern",
-			Ident: f.Ident,
-			URL:   f.URL.String(),
-		}
-	case Extern:
-		fs := f.Deps[0].Value.(reflow.Fileset)
-		cfg = reflow.ExecConfig{
-			Type:  "extern",
-			Ident: f.Ident,
-			URL:   f.URL.String(),
-			Args:  []reflow.Arg{{Fileset: &fs}},
-		}
-	case Exec:
-		if f.Argmap == nil {
-			f.Argmap = make([]ExecArg, len(f.Deps))
-			for i := range f.Deps {
-				f.Argmap[i] = ExecArg{Index: i}
-			}
-		}
-		args := make([]reflow.Arg, f.NExecArg())
-		for i := range args {
-			earg := f.ExecArg(i)
-			if earg.Out {
-				args[i].Out = true
-				args[i].Index = earg.Index
-			} else {
-				fs := f.Deps[earg.Index].Value.(reflow.Fileset)
-				args[i].Fileset = &fs
-			}
-		}
-
-		cfg = reflow.ExecConfig{
-			Type:        "exec",
-			Ident:       f.Ident,
-			Image:       f.Image,
-			Cmd:         f.Cmd,
-			Args:        args,
-			Resources:   f.Resources,
-			OutputIsDir: f.OutputIsDir,
-		}
-	default:
-		panic("bad op")
-	}
-
 	type state int
 	const (
 		statePut state = iota
@@ -1456,6 +1499,7 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 		n   = 0
 		s   = statePut
 		id  = f.Digest()
+		cfg = f.ExecConfig()
 	)
 	// TODO(marius): we should distinguish between fatal and nonfatal errors.
 	// The fatal ones are useless to retry.
@@ -1537,6 +1581,9 @@ type Reserve reflow.Resources
 // Unreserve subtracts resources from the flow's reservation.
 type Unreserve reflow.Resources
 
+// Status amends the task's status string.
+type Status string
+
 const (
 	// Incr is the mutation that increments the reference count used for
 	// GC.
@@ -1598,7 +1645,7 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 		case Unreserve:
 			f.Reserved.Sub(f.Reserved, reflow.Resources(arg))
 		default:
-			panic("invalid argument " + fmt.Sprint(arg))
+			panic(fmt.Sprintf("invalid argument type %T", arg))
 		}
 	}
 	e.muGC.RUnlock()
@@ -1607,7 +1654,7 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 		return
 	}
 	switch f.Op {
-	case Exec, OpIntern, Extern:
+	case Exec, Intern, Extern:
 	default:
 		return
 	}
@@ -1618,37 +1665,44 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 	if f.Status == nil || (!refresh && prevState == thisState) {
 		return
 	}
+	var status string
 	switch f.State {
 	case Done:
 		if f.Err != nil {
-			f.Status.Printf("%s error %v", f.Op, f.Err)
+			status = fmt.Sprintf("%s error %v", f.Op, f.Err)
 		} else {
 			switch f.Op {
 			case Extern:
-				f.Status.Print("extern done")
-			case Exec, OpIntern:
-				f.Status.Printf("%s done %s", f.Op, data.Size(f.Value.(reflow.Fileset).Size()))
+				status = "done"
+			case Exec, Intern:
+				status = fmt.Sprintf("done %s", data.Size(f.Value.(reflow.Fileset).Size()))
 			}
 		}
-		f.Status.Done()
-		f.Status = nil
 	case Running:
 		switch f.Op {
 		case Extern:
-			f.Status.Printf("extern %s %s", f.URL, data.Size(f.Deps[0].Value.(reflow.Fileset).Size()))
-		case OpIntern:
-			f.Status.Printf("intern %s", f.URL)
+			status = fmt.Sprintf("%s %s", f.URL, data.Size(f.Deps[0].Value.(reflow.Fileset).Size()))
+		case Intern:
+			status = fmt.Sprintf("%s", f.URL)
 		case Exec:
-			f.Status.Printf("exec %s", abbrevCmd(f))
+			status = fmt.Sprintf("%s", abbrevCmd(f))
 		}
 	case Transfer:
-		if f.TransferSize == 0 {
-			f.Status.Print("transfer")
-		} else {
-			f.Status.Printf("transfer %s", data.Size(f.TransferSize))
+		if f.TransferSize > 0 {
+			status = fmt.Sprintf("%s", data.Size(f.TransferSize))
 		}
 	case Ready:
-		f.Status.Print("waiting")
+		status = "waiting"
+	}
+	if f.StatusAux != "" {
+		status = fmt.Sprintf("%s (%s) %s", f.Op, f.StatusAux, status)
+	} else {
+		status = f.Op.String() + " " + status
+	}
+	f.Status.Print(status)
+	if f.State == Done {
+		f.Status.Done()
+		f.Status = nil
 	}
 }
 
@@ -1781,7 +1835,7 @@ var statusPrinters = [maxOp]struct {
 			fmt.Fprintf(w, "    tmp mean=%s max=%s\n", data.Size(profile["tmp"].Mean), data.Size(profile["tmp"].Max))
 		},
 	},
-	OpIntern: {
+	Intern: {
 		run: func(w io.Writer, f *Flow) {
 			url := leftabbrev(f.URL.String(), nabbrev)
 			io.WriteString(w, url)

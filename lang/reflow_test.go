@@ -112,7 +112,7 @@ func TestEval(t *testing.T) {
 	}{
 		{`"hello world"`, Val{typ: typeString, str: "hello world"}},
 		{`let a = "hello" in let b = "world" in concat(a, b)`, Val{typ: typeString, str: "helloworld"}},
-		{`intern("s3://blah")`, Val{typ: typeFlow, flow: &flow.Flow{Op: flow.OpIntern, URL: mustURL("s3://blah")}}},
+		{`intern("s3://blah")`, Val{typ: typeFlow, flow: &flow.Flow{Op: flow.Intern, URL: mustURL("s3://blah")}}},
 		{
 			`groupby(intern("s3://blah"), "(.*)")`,
 			Val{
@@ -120,7 +120,7 @@ func TestEval(t *testing.T) {
 				flow: &flow.Flow{
 					Op:   flow.Groupby,
 					Re:   regexp.MustCompile("(.*)"),
-					Deps: []*flow.Flow{{Op: flow.OpIntern, URL: mustURL("s3://blah")}},
+					Deps: []*flow.Flow{{Op: flow.Intern, URL: mustURL("s3://blah")}},
 				},
 			},
 		},

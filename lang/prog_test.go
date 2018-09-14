@@ -45,7 +45,7 @@ func TestProgInclude(t *testing.T) {
 					Cmd:   "\n\techo %s >$out\n",
 					Image: "ubuntu",
 					Deps: []*flow.Flow{{
-						Op:  flow.OpIntern,
+						Op:  flow.Intern,
 						URL: mustURL("file://blah"),
 					}},
 				}},
@@ -83,7 +83,7 @@ func TestProgParams(t *testing.T) {
 				Op:  flow.Extern,
 				URL: mustURL("file://output"),
 				Deps: []*flow.Flow{{
-					Op:  flow.OpIntern,
+					Op:  flow.Intern,
 					URL: mustURL("file://input"),
 				}},
 			},

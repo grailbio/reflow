@@ -26,7 +26,7 @@ func Intern(rawurl string) *flow.Flow {
 	if err != nil {
 		panic(err)
 	}
-	return &flow.Flow{Op: flow.OpIntern, URL: u}
+	return &flow.Flow{Op: flow.Intern, URL: u}
 }
 
 // Extern constructs a new flow.Extern node.

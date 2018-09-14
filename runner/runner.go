@@ -176,6 +176,9 @@ func (r *Runner) Do(ctx context.Context) bool {
 	if r.Created.IsZero() {
 		r.Created = time.Now()
 	}
+	if r.Scheduler != nil && r.Phase == Init {
+		r.Phase = Eval
+	}
 	switch r.Phase {
 	case Init:
 		if err := r.Allocate(ctx); err != nil {
@@ -194,7 +197,7 @@ func (r *Runner) Do(ctx context.Context) bool {
 		r.Phase = Eval
 	case Eval:
 		r.LastTry = time.Now()
-		if r.Alloc == nil {
+		if r.Scheduler == nil && r.Alloc == nil {
 			var err error
 			r.Alloc, err = r.Cluster.Alloc(ctx, r.AllocID)
 			if err != nil {
@@ -266,35 +269,43 @@ func (r *Runner) Allocate(ctx context.Context) error {
 func (r *Runner) Eval(ctx context.Context) (string, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		err := pool.Keepalive(ctx, r.Log, r.Alloc)
-		if err != ctx.Err() {
-			r.Log.Errorf("keepalive: %v", err)
-			r.Alloc = nil
-		}
-		cancel()
-		wg.Done()
-	}()
+	if r.Alloc != nil {
+		wg.Add(1)
+		go func() {
+			err := pool.Keepalive(ctx, r.Log, r.Alloc)
+			if err != ctx.Err() {
+				r.Log.Errorf("keepalive: %v", err)
+				r.Alloc = nil
+			}
+			cancel()
+			wg.Done()
+		}()
+	}
 
 	config := r.EvalConfig
 	config.Executor = r.Alloc
 	eval := flow.NewEval(r.Flow, config)
-	stealer := &Stealer{
-		Cluster: r.ClusterAux,
-		Log:     r.Log,
-		Labels:  r.labels().Add("type", "aux"),
-	}
-	if stealer.Cluster == nil {
-		stealer.Cluster = r.Cluster
-	}
+
 	ctx, done := trace.Start(ctx, trace.Run, r.Flow.Digest(), r.Cmdline)
 	traceid := trace.URL(ctx)
 	if traceid != "" {
 		r.Log.Printf("Trace ID: %v", traceid)
 	}
 
-	go stealer.Go(ctx, eval)
+	// Run stealers if we're running with an alloc. Otherwise,
+	// tasks are submitted directly to the scheduler.
+	if r.Alloc != nil {
+		stealer := &Stealer{
+			Cluster: r.ClusterAux,
+			Log:     r.Log,
+			Labels:  r.labels().Add("type", "aux"),
+		}
+		if stealer.Cluster == nil {
+			stealer.Cluster = r.Cluster
+		}
+		go stealer.Go(ctx, eval)
+	}
+
 	err := eval.Do(ctx)
 	done()
 	if err == nil {

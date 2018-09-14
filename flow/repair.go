@@ -154,7 +154,7 @@ func (r *Repair) Do(ctx context.Context, f *Flow) {
 // outright.
 func (r *Repair) eval(f *Flow) {
 	switch f.Op {
-	case OpIntern, Exec:
+	case Intern, Exec:
 		f.Err = errors.Recover(errors.New("cannot recompute execs or interns"))
 		f.State = Done
 	case Extern:

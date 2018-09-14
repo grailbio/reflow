@@ -145,7 +145,7 @@ func Stdlib() (*types.Env, *values.Env) {
 
 				return &flow.Flow{
 					Deps: []*flow.Flow{{
-						Op:       flow.OpIntern,
+						Op:       flow.Intern,
 						URL:      u,
 						Position: loc.Position,
 						Ident:    loc.Ident,
@@ -230,7 +230,7 @@ func Stdlib() (*types.Env, *values.Env) {
 				}
 				return &flow.Flow{
 					Deps: []*flow.Flow{{
-						Op:       flow.OpIntern,
+						Op:       flow.Intern,
 						URL:      u,
 						Position: loc.Position,
 						Ident:    loc.Ident,

@@ -189,6 +189,12 @@ func (m *Manager) Transfer(ctx context.Context, dst, src reflow.Repository, file
 	if err != nil {
 		return err
 	}
+	if src == dst {
+		if len(files) > 0 {
+			return errors.E(errors.NotExist, errors.Errorf("missing %d files", len(files)))
+		}
+		return nil
+	}
 	return m.transfer(ctx, dst, src, files...)
 }
 

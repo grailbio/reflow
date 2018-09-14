@@ -710,13 +710,13 @@ func internURLFlow(u, ident string) (*flow.Flow, string, error) {
 	}
 	i = strings.Index(u[:i], "=")
 	if i < 0 {
-		flow := &flow.Flow{Op: flow.OpIntern, Ident: ident}
+		flow := &flow.Flow{Op: flow.Intern, Ident: ident}
 		var err error
 		flow.URL, err = url.Parse(u)
 		return flow, "", err
 	}
 	name, u := u[:i], u[i+1:]
-	flow := &flow.Flow{Op: flow.OpIntern, Ident: ident}
+	flow := &flow.Flow{Op: flow.Intern, Ident: ident}
 	var err error
 	flow.URL, err = url.Parse(u)
 	return flow, name, err

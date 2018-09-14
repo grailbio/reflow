@@ -153,7 +153,7 @@ func TestExec(t *testing.T) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	f = f.Deps[0]
-	if got, want := f.Op, flow.OpIntern; got != want {
+	if got, want := f.Op, flow.Intern; got != want {
 		t.Fatalf("got %s, want %s", got, want)
 	}
 	if got, want := len(f.Deps), 0; got != want {
