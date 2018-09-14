@@ -483,6 +483,9 @@ func (c *Cluster) maintain() {
 func (c *Cluster) updateState(update func(map[string]*reflowletInstance)) {
 	c.File.Lock()
 	instances, _ := c.unmarshalState()
+	if instances == nil {
+		instances = make(map[string]*reflowletInstance)
+	}
 	update(instances)
 	if err := c.File.Marshal(instances); err != nil {
 		c.Log.Printf("marshal state error: %v", err)
