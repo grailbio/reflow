@@ -1,0 +1,29 @@
+val TestMap = map([("a", 1), ("b", 2)])  == map([("b", 2), ("a", 1)])
+val TestMapa = map([("a", 1), ("b", 2), ("c", 3)])  == map([("c", 3), ("b", 2), ("a", 1)])
+val TestMap1 = [delay("b"): 2, "a": 1] == delay(["b": 2, "a": 1])
+val TestMap2 = ["b": 2, ...delay(["a": 1])] == ["b": 2, "a": 1]
+val TestMap3 = ["b": ["b" : 2],]  == ["b": ["b" : 2]]
+val TestMapDelay3 = ["b": ["b" : 2],]  == ["b": delay(["b" : 2])]
+val TestMap4  = ["b": 2, ...delay(["c": 1, "d": 2])] == ["b": 2, "c": 1, "d": 2]
+val TestMapNe = ["b": 2, ...["c": 1]] != ["b": 2, "a": 1]
+val TestMapNe1 = ["b": 2] != ["b": 2, "a": 1]
+val TestMapDelayed = map([(delay("a"), 1), (delay("b"), 2)]) == map([("a", 1), ("b", 2)])
+val TestMapDelayedNe = map([(delay("c"), 1), (delay("b"), 2)]) != map(delay([("a", 1), ("b", 2)]))
+val TestMapDelayed1 = map([(delay("a"), delay([1, 2])), (delay("b"), [2, 3])]) == map([("a", [1, delay(2)]), (delay("b"), delay([2, 3]))])
+val TestMapDelayed1Ne = map([(delay("a"), delay([1, 2, 4])), (delay("b"), [2, 3])]) != map([("a", [1, delay(2)]), (delay("b"), delay([2, 3]))])
+
+val TestListCompareDelayedNe = [delay([1, 4, 5]), [2], [3]] != [[1, 4], [2], [3]]
+val TestListCompare = [1, 2, 3] == [1, 2, 3]
+val TestEmptyListCompare = [[]] == [[]]
+val TestListCompareDelayed = [delay(1), 2, 3] == [1, 2, 3]
+val TestListCompareDeepDelayed = [delay([1, 2]), [2], [delay(3)]] == [[delay(1), 2], delay([2]), [3]]
+val TestListCompareNe = [1, 2, 3] != [1, 2, 4]
+val TestListCompareNe2 = [1, 2, 3, 4] != [1, 2, 3]
+
+val TestStructCompare1 = {a: 1, b: "str" , c: false} == {b: "str", a: 1, c: false}
+val TestStructCompareNe1 = {a: 2, b: "str" , c: false} != {b: "str", a: 1, c: false}
+val TestStructCompare2 = {a: 1, b: ["a": "b", "c": "d"], c: (1, "c")} == {b: ["a": "b", "c": "d"], a: 1, c: (1, "c")}
+val TestStructCompareNe2 = {a: 1, b: ["e": "b", "c": "d"], c: (1, "c")} != {b: ["a": "b", "c": "d"], a: 1, c: (1, "c")}
+
+val TestTupleCompare = (1, 2, "3") == (1, 2, "3")
+val TestTupleCompareNe = (1, 2, "3") != (1, 2, "4")

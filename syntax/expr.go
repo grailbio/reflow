@@ -273,6 +273,25 @@ func (e *Expr) err() error {
 	return el.Make()
 }
 
+func comparable(t *types.T) bool {
+	switch t.Kind {
+	case types.StringKind, types.IntKind, types.FloatKind, types.FileKind, types.DirKind, types.BoolKind, types.BottomKind:
+		return true
+	case types.ListKind:
+		return comparable(t.Elem)
+	case types.MapKind:
+		return comparable(t.Index) && comparable(t.Elem)
+	case types.TupleKind, types.StructKind:
+		for _, f := range t.Fields {
+			if !comparable(f.T) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 func (e *Expr) init(sess *Session, env *types.Env) {
 	switch e.Kind {
 	case ExprBlock:
@@ -362,10 +381,9 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 				e.Type = types.Errorf("binary operator %q not allowed for type %v", e.Op, e.Left.Type)
 			}
 		case "==", "!=":
-			switch e.Left.Type.Kind {
-			case types.StringKind, types.IntKind, types.FloatKind, types.FileKind, types.DirKind, types.BoolKind:
+			if comparable(e.Left.Type) {
 				e.Type = types.Bool
-			default:
+			} else {
 				e.Type = types.Errorf("cannot compare values of type %v", e.Left.Type)
 			}
 		case ">", "<", "<=", ">=":

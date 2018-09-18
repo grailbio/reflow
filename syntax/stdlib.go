@@ -238,12 +238,7 @@ func Stdlib() (*types.Env, *values.Env) {
 					Op:         flow.Coerce,
 					FlowDigest: reflow.Digester.FromString("$dir.fs2dir"),
 					Coerce: func(v values.T) (values.T, error) {
-						fs := v.(reflow.Fileset)
-						dir := make(values.Dir)
-						for k, v := range fs.Map {
-							dir[k] = values.File(v)
-						}
-						return dir, nil
+						return coerceFilesetToDir(v)
 					},
 				}, nil
 			},
@@ -266,7 +261,7 @@ var (
 	lib = map[string]*ModuleImpl{}
 )
 
-// Modules returns the names of the available systems modules.
+// Modules returns the names of the available system modules.
 func Modules() (names []string) {
 	mu.Lock()
 	for name := range lib {

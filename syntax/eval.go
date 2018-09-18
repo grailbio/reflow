@@ -8,12 +8,13 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log"
 	"math/big"
 	"os"
 	"runtime/debug"
 	"strings"
 
+	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/log"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
@@ -24,9 +25,10 @@ import (
 var (
 	coerceExecOutputDigest = reflow.Digester.FromString("grail.com/reflow/syntax.Eval.coerceExecOutput")
 	sequenceDigest         = reflow.Digester.FromString("grail.com/reflow/syntax.Eval.~>")
+	notDigest              = reflow.Digester.FromString("grail.com/reflow/syntax.Eval.not")
 	errMatch               = errors.New("match error")
-
-	one = big.NewInt(1)
+	compareDigest          = reflow.Digester.FromString("grail.com/reflow/syntax.evalEq")
+	one                    = big.NewInt(1)
 )
 
 // Eval evaluates the expression e and returns its value (or error).
@@ -135,6 +137,23 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 					}
 				},
 			}, nil
+		case "==", "!=":
+			eq := e.Op == "=="
+			switch e.Left.Type.Kind {
+			case types.ListKind, types.MapKind, types.TupleKind, types.StructKind:
+				return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+					v, err := e.evalEq(sess, env, ident, vs[0], vs[1], e.Left.Type)
+					if err != nil {
+						return nil, err
+					}
+					if !eq {
+						v, err = not(v)
+					}
+					return v, err
+				}, e.Left, e.Right)
+			default:
+				return e.k(sess, env, ident, e.evalBinop, e.Left, e.Right)
+			}
 		default:
 			return e.k(sess, env, ident, e.evalBinop, e.Left, e.Right)
 		}
@@ -692,6 +711,20 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 	panic("eval bug " + e.String())
 }
 
+func not(v values.T) (values.T, error) {
+	if _, ok := v.(*flow.Flow); !ok {
+		return !v.(bool), nil
+	}
+	return &flow.Flow{
+		Op:         flow.Coerce,
+		FlowDigest: notDigest,
+		Deps:       []*flow.Flow{v.(*flow.Flow)},
+		Coerce: func(v values.T) (values.T, error) {
+			return !(v.(bool)), nil
+		},
+	}, nil
+}
+
 func (e *Expr) evalRequirements(sess *Session, env *values.Env, ident string) (req reflow.Requirements, err error) {
 	env2 := values.NewEnv()
 	for _, d := range e.Decls {
@@ -726,6 +759,164 @@ var floatOps = map[string]func(*big.Float, *big.Float, *big.Float) *big.Float{
 	"*": (*big.Float).Mul,
 	"-": (*big.Float).Sub,
 	"/": (*big.Float).Quo,
+}
+
+func (e *Expr) evalMapKeysCompare(sess *Session, env *values.Env, ident string, keys []values.T, t *types.T, h map[digest.Digest]int, index map[int]int, j int) (values.T, error) {
+	if len(keys) == 0 {
+		return true, nil
+	}
+	return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+		var (
+			v  int
+			ok bool
+		)
+		if v, ok = h[values.Digest(vs[0], t)]; !ok {
+			return false, nil
+		}
+		index[v] = j
+		j++
+		return e.evalMapKeysCompare(sess, env, ident, keys[1:], t, h, index, j)
+	}, tval{t, keys[0]})
+}
+
+// EvalMapKeys evaluates all the lhs map keys and then evaluates and compares
+// the rhs keys one at a time with the corresponding lhs key. It also builds
+// an index that store the lhs-rhs mapping that can be used while comparing
+// values.
+func (e *Expr) evalMapKeys(sess *Session, env *values.Env, ident string, left, right []values.T, t *types.T, index map[int]int) (values.T, error) {
+	h := make(map[digest.Digest]int)
+	n := len(left)
+	k := make([]interface{}, n)
+	for i := 0; i < n; i++ {
+		k[i] = tval{t, left[i]}
+	}
+	return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+		for i, v := range vs {
+			h[values.Digest(v, t)] = i
+		}
+		return e.evalMapKeysCompare(sess, env, ident, right, t, h, index, n)
+	}, k...)
+}
+
+// EvalValueVector evaluates and compares two value vectors.
+func (e *Expr) evalValueVector(sess *Session, env *values.Env, ident string, left, right []values.T, t []*types.T, i int) (values.T, error) {
+	if i >= len(left) {
+		return true, nil
+	}
+	return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+		f, err := e.evalEq(sess, env, ident, vs[0], vs[1], t[i])
+		if err != nil {
+			return nil, err
+		}
+		return e.andK(sess, env, ident, f, func(vs []values.T) (values.T, error) {
+			return e.evalValueVector(sess, env, ident, left, right, t, i+1)
+		})
+	}, tval{t[i], left[i]}, tval{t[i], right[i]})
+}
+
+// andK is only valid for boolean expressions. Continues kfn(subs...) only when cond is true.
+func (e *Expr) andK(sess *Session, env *values.Env, ident string, cond values.T, kfn func([]values.T) (values.T, error), subs ...interface{}) (values.T, error) {
+	return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+		if !vs[0].(bool) {
+			return false, nil
+		}
+		return e.k(sess, env, ident, kfn, subs...)
+	}, tval{types.Bool, cond})
+}
+
+func (e *Expr) evalEqList(sess *Session, env *values.Env, ident string, l, r values.List, t *types.T) (values.T, error) {
+	return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+		v, err := e.evalEq(sess, env, ident, vs[0], vs[1], t.Elem)
+		if err != nil {
+			return nil, err
+		}
+		return e.andK(sess, env, ident, v, func(vs []values.T) (values.T, error) {
+			return e.evalEq(sess, env, ident, vs[0], vs[1], t)
+		}, tval{t, l[1:]}, tval{t, r[1:]})
+	}, tval{t.Elem, l[0]}, tval{t.Elem, r[0]})
+}
+
+func (e *Expr) evalEqTuple(sess *Session, env *values.Env, ident string, l, r values.Tuple, t *types.T) (values.T, error) {
+	return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+		v, err := e.evalEq(sess, env, ident, vs[0], vs[1], t.Fields[0].T)
+		if err != nil {
+			return nil, err
+		}
+		tt := types.Tuple(t.Fields[1:]...)
+		return e.andK(sess, env, ident, v, func(vs []values.T) (values.T, error) {
+			return e.evalEq(sess, env, ident, vs[0], vs[1], tt)
+		}, tval{tt, l[1:]}, tval{tt, r[1:]})
+	}, tval{t.Fields[0].T, l[0]}, tval{t.Fields[0].T, r[0]})
+}
+
+func (e *Expr) evalEq(sess *Session, env *values.Env, ident string, left, right values.T, t *types.T) (values.T, error) {
+	switch t.Kind {
+	case types.ListKind:
+		l := left.(values.List)
+		r := right.(values.List)
+		if len(l) != len(r) {
+			return false, nil
+		}
+		if len(l) == 0 {
+			return true, nil
+		}
+		return e.evalEqList(sess, env, ident, l, r, t)
+	case types.TupleKind:
+		l := left.(values.Tuple)
+		r := right.(values.Tuple)
+		if len(l) == 0 {
+			return true, nil
+		}
+		return e.evalEqTuple(sess, env, ident, l, r, t)
+	case types.MapKind:
+		l := left.(values.Map)
+		r := right.(values.Map)
+		if len(l) != len(r) {
+			return false, nil
+		}
+		n := len(l)
+		keys := make([]values.T, n*2)
+		vals := make([]values.T, n*2)
+		i := 0
+		l.Each(func(k, v values.T) {
+			keys[i], vals[i] = k, v
+			i++
+		})
+		r.Each(func(k, v values.T) {
+			keys[i], vals[i] = k, v
+			i++
+		})
+		index := make(map[int]int, n)
+		f, err := e.evalMapKeys(sess, env, ident, keys[:n], keys[n:], t.Index, index)
+		if err != nil {
+			return nil, err
+		}
+		return e.andK(sess, env, ident, f, func(vs []values.T) (values.T, error) {
+			tv := make([]*types.T, 0, len(vs))
+			for i := 0; i < n; i++ {
+				tv = append(tv, t.Elem)
+			}
+			right := make([]values.T, n)
+			for i := range index {
+				right[i] = vals[index[i]]
+			}
+			return e.evalValueVector(sess, env, ident, vals[0:n], right, tv, 0)
+		})
+	case types.StructKind:
+		l := left.(values.Struct)
+		r := right.(values.Struct)
+		n := len(l)
+		lt := make(values.Tuple, n)
+		rt := make(values.Tuple, n)
+		for i, f := range t.Fields {
+			lt[i] = l[f.Name]
+			rt[i] = r[f.Name]
+		}
+		tt := types.Tuple(t.Fields...)
+		return e.evalEqTuple(sess, env, ident, lt, rt, tt)
+	default:
+		return values.Equal(left, right), nil
+	}
 }
 
 func (e *Expr) evalBinop(vs []values.T) (values.T, error) {
@@ -768,21 +959,7 @@ func (e *Expr) evalBinop(vs []values.T) (values.T, error) {
 		default:
 			panic("bug")
 		}
-	case "==":
-		switch e.Left.Type.Kind {
-		case types.FloatKind:
-			return left.(*big.Float).Cmp(right.(*big.Float)) == 0, nil
-		default:
-			return values.Equal(left, right), nil
-		}
-	case "!=":
-		switch e.Left.Type.Kind {
-		case types.FloatKind:
-			return left.(*big.Float).Cmp(right.(*big.Float)) != 0, nil
-		default:
-			return !values.Equal(left, right), nil
-		}
-	case ">", "<", "<=", ">=":
+	case ">", "<", "<=", ">=", "!=", "==":
 		switch e.Left.Type.Kind {
 		case types.StringKind:
 			left, right := left.(string), right.(string)
@@ -835,7 +1012,14 @@ func (e *Expr) evalBinop(vs []values.T) (values.T, error) {
 				return cmp != 0, nil
 			}
 		default:
-			panic("bug")
+			switch e.Op {
+			case "==":
+				return values.Equal(left, right), nil
+			case "!=":
+				return !values.Equal(left, right), nil
+			default:
+				panic("bug")
+			}
 		}
 	}
 	panic("invalid binop")

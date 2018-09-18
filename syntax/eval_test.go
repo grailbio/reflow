@@ -181,6 +181,7 @@ func TestEval(t *testing.T) {
 		"testdata/delayed.rf",
 		"testdata/float.rf",
 		"testdata/regexp.rf",
+		"testdata/compare.rf",
 	}
 	RunReflowTests(t, tests)
 }
