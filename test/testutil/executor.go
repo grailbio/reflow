@@ -48,6 +48,11 @@ func (e *Exec) ID() digest.Digest { return e.id }
 // URI is not implemented
 func (e *Exec) URI() string { return "testexec" }
 
+// Config returns the exec's ExecConfig.
+func (e *Exec) Config() reflow.ExecConfig {
+	return e.config
+}
+
 // Value rendezvous the result (value or error) of this exec.
 func (e *Exec) Result(ctx context.Context) (reflow.Result, error) {
 	r, err := e.result(ctx)
@@ -126,6 +131,7 @@ func (e *Exec) result(ctx context.Context) (ExecResult, error) {
 // caller to await creation of Execs, to introspect execs in the
 // exeutor, and to set exec results.
 type Executor struct {
+	reflow.Executor
 	Have reflow.Resources
 
 	Repo  reflow.Repository
@@ -210,7 +216,8 @@ func (e *Executor) Equiv(flows ...*flow.Flow) bool {
 	return len(ids) == 0
 }
 
-func (e *Executor) exec(f *flow.Flow) *Exec {
+// Exec rendeszvous the Exec for the provided flow.
+func (e *Executor) Exec(f *flow.Flow) *Exec {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for {
@@ -223,7 +230,7 @@ func (e *Executor) exec(f *flow.Flow) *Exec {
 
 // Wait blocks until a Flow is defined in the executor.
 func (e *Executor) Wait(f *flow.Flow) {
-	e.exec(f)
+	e.Exec(f)
 }
 
 // WaitAny returns the first of flows to be defined.
@@ -244,9 +251,9 @@ func (e *Executor) WaitAny(flows ...*flow.Flow) *flow.Flow {
 func (e *Executor) Ok(f *flow.Flow, res interface{}) {
 	switch arg := res.(type) {
 	case reflow.Fileset:
-		e.exec(f).Ok(reflow.Result{Fileset: arg})
+		e.Exec(f).Ok(reflow.Result{Fileset: arg})
 	case error:
-		e.exec(f).Ok(reflow.Result{Err: errors.Recover(arg)})
+		e.Exec(f).Ok(reflow.Result{Err: errors.Recover(arg)})
 	default:
 		panic("invalid result")
 	}
@@ -254,5 +261,5 @@ func (e *Executor) Ok(f *flow.Flow, res interface{}) {
 
 // Error defines an erroneous result for the flow.
 func (e *Executor) Error(f *flow.Flow, err error) {
-	e.exec(f).Error(err)
+	e.Exec(f).Error(err)
 }

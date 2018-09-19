@@ -313,6 +313,10 @@ type Flow struct {
 
 	Data []byte // Data
 
+	// MustIntern is set to true if an OpIntern must be
+	// fully interned and cannot be pre-resolved.
+	MustIntern bool
+
 	digestOnce sync.Once
 	digest     digest.Digest
 }

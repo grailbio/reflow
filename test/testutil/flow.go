@@ -60,6 +60,16 @@ func WriteFiles(r reflow.Repository, files ...string) reflow.Fileset {
 	return Files(files...)
 }
 
+// WriteFile writes the provided contents into repository r and returns
+// the corresponding Reflow file.
+func WriteFile(r reflow.Repository, content string) reflow.File {
+	d, err := r.Put(context.Background(), bytes.NewReader([]byte(content)))
+	if err != nil {
+		panic(fmt.Sprintf("unexpected error writing to repository: %v", err))
+	}
+	return reflow.File{ID: d, Size: int64(len(content))}
+}
+
 // WriteCache writes the provided files into the eval's repository and registers
 // a Fileset cache assoc.
 func WriteCache(e *flow.Eval, key digest.Digest, files ...string) {

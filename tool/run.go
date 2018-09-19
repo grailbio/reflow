@@ -304,6 +304,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 		EvalConfig: flow.EvalConfig{
 			Log:        execLogger,
 			Repository: repo,
+			Resolver:   c.resolver(),
 			Assoc:      ass,
 			CacheMode:  c.Config.CacheMode(),
 			Transferer: transferer,

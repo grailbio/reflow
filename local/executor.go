@@ -104,7 +104,8 @@ type Executor struct {
 	// stream.
 	remoteStream remoteStream
 
-	s3client s3client.Client
+	s3client     s3client.Client
+	s3downloader *s3downloader
 
 	resources reflow.Resources
 
@@ -121,12 +122,6 @@ type Executor struct {
 // Start initializes the executor and recovers previously stored
 // state. It re-initializes all stored execs.
 func (e *Executor) Start() error {
-	e.s3client = &s3client.Config{
-		Config: &aws.Config{
-			Credentials: e.AWSCreds,
-			Region:      aws.String(defaultRegion),
-		},
-	}
 	if e.DigestLimiter == nil {
 		e.DigestLimiter = limiter.New()
 		e.DigestLimiter.Release(defaultDigestLimit)
@@ -141,6 +136,18 @@ func (e *Executor) Start() error {
 		e.FileRepository = &file.Repository{Root: filepath.Join(e.Prefix, e.Dir, objectsDir)}
 	}
 	os.MkdirAll(e.FileRepository.Root, 0777)
+	e.s3client = &s3client.Config{
+		Config: &aws.Config{
+			Credentials: e.AWSCreds,
+			Region:      aws.String(defaultRegion),
+		},
+	}
+	tempdir := filepath.Join(e.Prefix, e.Dir, "download")
+	if err := os.MkdirAll(tempdir, 0777); err != nil {
+		return err
+	}
+	e.s3downloader = newS3downloader(e.s3client, e.DigestLimiter, tempdir)
+
 	execdir := filepath.Join(e.Prefix, e.Dir, execsDir)
 	file, err := os.Open(execdir)
 	if os.IsNotExist(err) {
@@ -148,6 +155,7 @@ func (e *Executor) Start() error {
 	} else if err != nil {
 		return err
 	}
+
 	infos, err := file.Readdir(-1)
 	if err != nil {
 		return err
@@ -332,6 +340,57 @@ func (e *Executor) Remove(ctx context.Context, id digest.Digest) error {
 	delete(e.execs, id)
 	e.mu.Unlock()
 	return nil
+}
+
+func (e *Executor) Load(ctx context.Context, fs reflow.Fileset) (reflow.Fileset, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	g, ctx := errgroup.WithContext(ctx)
+	var (
+		mu       sync.Mutex
+		resolved = make(map[reflow.File]reflow.File)
+		files    = fs.Files()
+	)
+	for i := range files {
+		file := files[i]
+		if !file.IsRef() {
+			continue
+		}
+		u, err := url.Parse(file.Source)
+		if err != nil {
+			return reflow.Fileset{}, errors.E(errors.Invalid, "parse", file.Source, err)
+		}
+		// TODO(marius): Support localfile also? We should really generalize
+		// the "downloader" so we can push this handling down somewhere
+		// common.
+		if u.Scheme != "s3" {
+			return reflow.Fileset{}, errors.E(
+				errors.NotSupported, "load", file.Source,
+				errors.Errorf("scheme %q not supported", u.Scheme))
+		}
+		var (
+			bucket = u.Host
+			key    = strings.TrimPrefix(u.Path, "/")
+		)
+		g.Go(func() error {
+			res, err := e.s3downloader.Download(
+				ctx, e.FileRepository, bucket, key, file.Size, file.ETag)
+			if err == nil {
+				mu.Lock()
+				resolved[file] = res
+				mu.Unlock()
+			}
+			return err
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return reflow.Fileset{}, err
+	}
+	x, ok := fs.Subst(resolved)
+	if !ok {
+		return reflow.Fileset{}, errors.E(errors.Invalid, "load", fmt.Sprint(fs), errors.New("fileset not resolved"))
+	}
+	return x, nil
 }
 
 // Repository returns the repository attached to this executor.

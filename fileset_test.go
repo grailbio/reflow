@@ -5,14 +5,11 @@
 package reflow_test
 
 import (
-	"fmt"
-	"math"
-	"math/rand"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/test/testutil"
 )
 
 var (
@@ -100,9 +97,9 @@ func TestAnyEmpty(t *testing.T) {
 func TestEqual(t *testing.T) {
 	const N = 1000
 	var last reflow.Fileset
-	r := rand.New(rand.NewSource(N))
+	fuzz := testutil.NewFuzz(nil)
 	for i := 0; i < N; i++ {
-		fs := randomFileset(r, 0)
+		fs := fuzz.Fileset(true)
 		if !fs.Equal(fs) {
 			t.Errorf("fileset %v not equal to self", fs)
 		}
@@ -113,52 +110,30 @@ func TestEqual(t *testing.T) {
 	}
 }
 
-var genes = []string{
-	"ATM", "BARD1", "BRCA1", "BRCA2", "CDH1", "CHEK2", "NBN", "NF1", "PALB2", "PTEN", "STK11", "TP53",
-	"BRIP1", "RAD51C", "RAD51D", "EPCAM",
-	"MLH1", "MSH2", "MSH6", "PMS2", "STK11",
-	"EPCAM", "MLH1", "MSH2", "MSH6", "PMS2", "STK11",
-}
+func TestSubst(t *testing.T) {
+	fuzz := testutil.NewFuzz(nil)
 
-func randomString(r *rand.Rand, sep string) string {
-	var (
-		b strings.Builder
-		n = r.Intn(5)
-	)
-	for i := 0; i < n; i++ {
-		if i > 0 {
-			b.WriteString(sep)
-		}
-		b.WriteString(genes[r.Intn(len(genes))])
+	fs := fuzz.Fileset(true)
+	_, ok := fs.Subst(nil)
+	if ok {
+		t.Fatal("unexpected resolved fileset")
 	}
-	return b.String()
-}
 
-func randomFile(r *rand.Rand) reflow.File {
-	if r.Float64() < 0.5 {
-		return reflow.File{
-			Size:   int64(r.Uint64()),
-			Source: fmt.Sprintf("s3://%s/%s", randomString(r, ""), randomString(r, "/")),
-			ETag:   randomString(r, ""),
+	// Create a substitution map:
+	sub := make(map[reflow.File]reflow.File)
+	for _, file := range fs.Files() {
+		if !file.IsRef() {
+			continue
 		}
-	} else {
-		return reflow.File{ID: reflow.Digester.Rand(r)}
+		sub[file] = fuzz.File(false)
 	}
-}
-
-func randomFileset(r *rand.Rand, depth int) (fs reflow.Fileset) {
-	if r.Float64() < math.Pow(0.5, float64(depth+1)) {
-		n := r.Intn(10) + 1
-		fs.List = make([]reflow.Fileset, n)
-		for i := range fs.List {
-			fs.List[i] = randomFileset(r, depth+1)
-		}
-	} else {
-		n := r.Intn(10) + 1
-		fs.Map = make(map[string]reflow.File)
-		for i := 0; i < n; i++ {
-			fs.Map[randomString(r, "/")] = randomFile(r)
+	fs, ok = fs.Subst(sub)
+	if !ok {
+		t.Error("expected resolved fileset")
+	}
+	for _, file := range fs.Files() {
+		if file.IsRef() {
+			t.Errorf("unexpected reference file %v", file)
 		}
 	}
-	return
 }

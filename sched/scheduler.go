@@ -26,8 +26,10 @@ import (
 	"time"
 
 	"github.com/grailbio/reflow"
+
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
+	"golang.org/x/sync/errgroup"
 )
 
 const numExecTries = 5
@@ -287,7 +289,8 @@ func (s *Scheduler) allocate(ctx context.Context, alloc *alloc, notify, dead cha
 type execState int
 
 const (
-	stateTransferIn execState = iota
+	stateLoad execState = iota
+	stateTransferIn
 	statePut
 	stateWait
 	statePromote
@@ -301,8 +304,10 @@ func (e execState) String() string {
 	switch e {
 	default:
 		panic("bad state")
+	case stateLoad:
+		return "loading"
 	case stateTransferIn:
-		return "transfering input"
+		return "transferring input"
 	case statePut:
 		return "submitting"
 	case stateWait:
@@ -314,7 +319,7 @@ func (e execState) String() string {
 	case stateResult:
 		return "retrieving result"
 	case stateTransferOut:
-		return "transfering output"
+		return "transferring output"
 	case stateDone:
 		return "complete"
 	}
@@ -335,6 +340,26 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		switch state {
 		default:
 			panic("bad state")
+		case stateLoad:
+			// TODO(marius): inbound transfers and loading shoud be concurrent.
+			g, ctx := errgroup.WithContext(ctx)
+			for i, arg := range task.Config.Args {
+				if arg.Fileset == nil {
+					continue
+				}
+				i, arg := i, arg
+				g.Go(func() error {
+					task.Log.Debugf("loading %v", *arg.Fileset)
+					fs, err := alloc.Load(ctx, *arg.Fileset)
+					if err != nil {
+						return err
+					}
+					task.Log.Debugf("loaded %v", fs)
+					task.Config.Args[i].Fileset = &fs
+					return nil
+				})
+			}
+			err = g.Wait()
 		case stateTransferIn:
 			task.set(TaskStaging)
 			fs := reflow.Fileset{List: make([]reflow.Fileset, 0, len(task.Config.Args))}
@@ -376,6 +401,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		} else if err == ctx.Err() {
 			break
 		} else {
+			// TODO(marius): terminate early on NotSupported, Invalid
 			task.Log.Debugf("scheduler: %s: %s; try %d", state, err, n+1)
 			n++
 		}

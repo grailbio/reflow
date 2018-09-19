@@ -455,6 +455,11 @@ type Executor interface {
 	// Execs lists all Execs known to the Executor.
 	Execs(ctx context.Context) ([]Exec, error)
 
+	// Load fetches missing files from an un-resolved fileset
+	// into the executor's repository. The resolved fileset is
+	// returned.
+	Load(ctx context.Context, fs Fileset) (Fileset, error)
+
 	// Resources indicates the total amount of resources available at the Executor.
 	Resources() Resources
 

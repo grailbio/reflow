@@ -117,6 +117,10 @@ func (z *zombie) Execs(ctx context.Context) ([]reflow.Exec, error) {
 	return execs, nil
 }
 
+func (z *zombie) Load(ctx context.Context, fs reflow.Fileset) (reflow.Fileset, error) {
+	return reflow.Fileset{}, errors.E("load", errors.NotSupported, errZombieExec)
+}
+
 type zombieExec struct {
 	*zombie
 	id digest.Digest

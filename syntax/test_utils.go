@@ -100,6 +100,6 @@ func (nopexecutor) Repository() reflow.Repository {
 	return nil
 }
 
-func (nopexecutor) Resolve(context.Context, string) (reflow.Fileset, error) {
+func (nopexecutor) Load(context.Context, reflow.Fileset) (reflow.Fileset, error) {
 	panic("not implemented")
 }

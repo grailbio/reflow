@@ -5,6 +5,7 @@
 package reflow
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 	"sort"
@@ -33,6 +34,22 @@ type File struct {
 	ETag string `json:",omitempty"`
 }
 
+// Digest returns the file's digest: if the file is a reference, the
+// digest comprises the reference, source, and etag. Resolved files
+// return the file's digest.
+func (f File) Digest() digest.Digest {
+	if !f.IsRef() {
+		return f.ID
+	}
+	w := Digester.NewWriter()
+	var b [8]byte
+	binary.LittleEndian.PutUint64(b[:], uint64(f.Size))
+	w.Write(b[:])
+	io.WriteString(w, f.Source)
+	io.WriteString(w, f.ETag)
+	return w.Digest()
+}
+
 // IsRef returns whether this file is a file reference.
 func (f File) IsRef() bool {
 	return f.ID.IsZero()
@@ -54,6 +71,14 @@ func (f File) String() string {
 		fmt.Fprintf(&b, "etag: %vs", f.ETag)
 	}
 	return b.String()
+}
+
+func (f File) Short() string {
+	if f.IsRef() {
+		return f.Source
+	} else {
+		return f.ID.Short()
+	}
 }
 
 // Fileset is the result of an evaluated flow. Values may either be
@@ -155,6 +180,37 @@ func (v Fileset) Size() int64 {
 	return s
 }
 
+// Subst fileset v with references files substituted using the
+// provided map. Subst returns whether the fileset is fully resolved
+// after substitution.
+func (v Fileset) Subst(sub map[File]File) (out Fileset, resolved bool) {
+	resolved = true
+	if v.List != nil {
+		out.List = make([]Fileset, len(v.List))
+		for i := range out.List {
+			var ok bool
+			out.List[i], ok = v.List[i].Subst(sub)
+			if !ok {
+				resolved = false
+			}
+		}
+	}
+	if v.Map != nil {
+		out.Map = make(map[string]File, len(v.Map))
+		for path, file := range v.Map {
+			if f, ok := sub[file]; ok {
+				out.Map[path] = f
+			} else {
+				out.Map[path] = file
+				if file.IsRef() {
+					resolved = false
+				}
+			}
+		}
+	}
+	return
+}
+
 func (v Fileset) files(fs map[File]bool) {
 	for i := range v.List {
 		v.List[i].files(fs)
@@ -198,7 +254,7 @@ func (v Fileset) Short() string {
 		sort.Strings(paths)
 		path := paths[0]
 		file := v.Map[path]
-		s := fmt.Sprintf("val<%s=%s", path, file.ID.Short())
+		s := fmt.Sprintf("val<%s=%s", path, file.Short())
 		if len(paths) > 1 {
 			s += ", ..."
 		} else {
@@ -269,7 +325,7 @@ func (v Fileset) WriteDigest(w io.Writer) {
 		sort.Strings(paths)
 		for _, path := range paths {
 			io.WriteString(w, path)
-			digest.WriteDigest(w, v.Map[path].ID)
+			digest.WriteDigest(w, v.Map[path].Digest())
 		}
 	}
 }

@@ -305,7 +305,7 @@ func WriteDigest(w io.Writer, v T, t *types.T) {
 			w.Write(falseByte)
 		}
 	case types.FileKind:
-		digest.WriteDigest(w, v.(reflow.File).ID)
+		digest.WriteDigest(w, v.(reflow.File).Digest())
 	case types.DirKind:
 		dir := v.(Dir)
 		var keys []string

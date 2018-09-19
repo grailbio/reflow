@@ -151,6 +151,7 @@ func (e *s3Exec) Init(x *Executor) {
 		e.ExecURI = x.URI() + "/" + e.ID().Hex()
 		e.staging.Root = x.execPath(e.ID(), objectsDir)
 		e.staging.Log = x.Log
+
 	}
 	e.Manifest.Created = time.Now()
 	e.Manifest.Type = execS3

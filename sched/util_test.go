@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto"
 	"encoding/binary"
+	"errors"
 	"flag"
 	"fmt"
 	golog "log"
@@ -219,6 +220,15 @@ func (a *testAlloc) Resources() reflow.Resources {
 
 func (a *testAlloc) Repository() reflow.Repository {
 	return a.repository
+}
+
+func (a *testAlloc) Load(ctx context.Context, fs reflow.Fileset) (reflow.Fileset, error) {
+	for _, file := range fs.Files() {
+		if file.IsRef() {
+			return reflow.Fileset{}, errors.New("unexpected file reference")
+		}
+	}
+	return fs, nil
 }
 
 func (a *testAlloc) Put(ctx context.Context, id digest.Digest, config reflow.ExecConfig) (reflow.Exec, error) {

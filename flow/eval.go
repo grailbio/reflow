@@ -105,7 +105,7 @@ type EvalConfig struct {
 	Scheduler *sched.Scheduler
 
 	// Resolver is the resolver used to resolve source URLs into unloaded
-	// filesets.
+	// filesets. If non-nil, then files are delay-loaded.
 	Resolver Resolver
 
 	// An (optional) logger to which the evaluation transcript is printed.
@@ -168,6 +168,9 @@ func (e EvalConfig) String() string {
 		fmt.Fprintf(&b, "executor %T", e.Executor)
 	} else {
 		fmt.Fprintf(&b, "scheduler %T", e.Scheduler)
+	}
+	if e.Resolver != nil {
+		fmt.Fprintf(&b, " resolver %T", e.Resolver)
 	}
 	fmt.Fprintf(&b, " transferer %T", e.Transferer)
 	var flags []string
@@ -295,6 +298,10 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 		e.total = config.Executor.Resources()
 	} else {
 		e.repo = e.Repository
+	}
+	// We only support delayed loads when using a scheduler.
+	if e.Scheduler == nil {
+		e.Resolver = nil
 	}
 	if e.CacheLookupTimeout == time.Duration(0) {
 		e.CacheLookupTimeout = defaultCacheLookupTimeout
@@ -435,7 +442,22 @@ func (e *Eval) Do(ctx context.Context) error {
 					v.Resources["cpu"] = minExecCPU
 				}
 			}
-			if e.Scheduler != nil && f.Op.External() {
+			if e.Resolver != nil && f.Op == Intern && (f.State == Ready || f.State == NeedTransfer) && !f.MustIntern {
+				e.Mutate(f, Running)
+				e.pending[f] = true
+				e.step(f, func(f *Flow) error {
+					e.Log.Debugf("resolve %s", f.URL)
+					fs, err := e.Resolver.Resolve(ctx, f.URL.String())
+					if err != nil {
+						e.Log.Printf("must intern %q: resolve: %v", f.URL, err)
+						e.Mutate(f, Ready, MustIntern)
+					} else {
+						e.Mutate(f, fs, Done)
+					}
+					return nil
+				})
+				continue dequeue
+			} else if e.Scheduler != nil && f.Op.External() {
 				switch f.State {
 				case NeedTransfer, Ready:
 					// If we're using a scheduler, then we can skip transfer, and
@@ -1595,6 +1617,8 @@ const (
 	Cached
 	// Refresh is the mutation that refreshes the status of the flow node.
 	Refresh
+	// MustIntern sets the flow's MustIntern flag to true.
+	MustIntern
 )
 
 // Mutate safely applies a set of mutations vis-a-vis the garbage
@@ -1639,6 +1663,8 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 				f.Cached = true
 			case Refresh:
 				refresh = true
+			case MustIntern:
+				f.MustIntern = true
 			}
 		case Reserve:
 			f.Reserved.Add(f.Reserved, reflow.Resources(arg))

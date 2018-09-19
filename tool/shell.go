@@ -48,12 +48,12 @@ Note that exec URIs are of the form host:port/alloc/exec.`
 		for s.Scan() {
 			_, err := sw.Write([]byte(s.Text() + "\n"))
 			if err != nil {
-				c.Fatal("%s: %s", n.ID, err)
+				c.Fatalf("%s: %s", n.ID, err)
 			}
 		}
 		sw.Close()
 		if s.Err() != nil {
-			c.Fatal("%s: %s", n.ID, s.Err())
+			c.Fatalf("%s: %s", n.ID, s.Err())
 		}
 	}()
 

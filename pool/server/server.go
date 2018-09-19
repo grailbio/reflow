@@ -150,6 +150,22 @@ func (n allocNode) Walk(ctx context.Context, call *rest.Call, path string) rest.
 			return nil
 		}
 		return repositoryserver.Node{repo}
+	case "load":
+		return rest.DoFunc(func(ctx context.Context, call *rest.Call) {
+			if !call.Allow("POST") {
+				return
+			}
+			var fs reflow.Fileset
+			if call.Unmarshal(&fs) != nil {
+				return
+			}
+			fs, err := n.a.Load(ctx, fs)
+			if err != nil {
+				call.Error(err)
+				return
+			}
+			call.Reply(http.StatusOK, fs)
+		})
 	default:
 		return nil
 	}

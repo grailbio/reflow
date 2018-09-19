@@ -28,7 +28,7 @@ func (c *Cmd) logs(ctx context.Context, args ...string) {
 		c.Fatal(err)
 	}
 	if n.Kind != execName {
-		c.Fatal("%s: not an exec URI", arg)
+		c.Fatalf("%s: not an exec URI", arg)
 	}
 	cluster := c.Cluster(nil)
 	alloc, err := cluster.Alloc(ctx, n.AllocID)

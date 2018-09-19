@@ -247,6 +247,21 @@ func (a *clientAlloc) Execs(ctx context.Context) ([]reflow.Exec, error) {
 	return execs, nil
 }
 
+func (a *clientAlloc) Load(ctx context.Context, fs reflow.Fileset) (reflow.Fileset, error) {
+	call := a.Call("POST", "allocs/%s/load", a.id)
+	defer call.Close()
+	code, err := call.DoJSON(ctx, fs)
+	if err != nil {
+		return reflow.Fileset{}, errors.E("load", a.ID(), err)
+	}
+	if code != http.StatusOK {
+		return reflow.Fileset{}, call.Error()
+	}
+	fs = reflow.Fileset{}
+	err = call.Unmarshal(&fs)
+	return fs, err
+}
+
 type clientExec struct {
 	*Client
 	allocID string

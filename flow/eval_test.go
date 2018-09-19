@@ -11,6 +11,7 @@ import (
 	"math"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,6 +34,8 @@ var maxResources = reflow.Resources{
 	"cpu":  math.MaxFloat64,
 	"disk": math.MaxFloat64,
 }
+
+var errUnresolved = errors.New("unresolved fileset")
 
 func TestSimpleEval(t *testing.T) {
 	intern := op.Intern("internurl")
@@ -436,7 +439,13 @@ func TestData(t *testing.T) {
 // alloc, it implements sched.Cluster, handing itself out.
 type testAlloc struct {
 	testutil.Executor
+	// Repo is the alloc's repository.
 	Repo reflow.Repository
+	// Sub is the substitution map used for reference loading.
+	Sub map[reflow.File]reflow.File
+
+	mu        sync.Mutex
+	allocated bool
 }
 
 func (a *testAlloc) Repository() reflow.Repository {
@@ -468,30 +477,82 @@ func (a *testAlloc) Keepalive(ctx context.Context, interval time.Duration) (time
 }
 
 func (a *testAlloc) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.allocated {
+		return nil, errors.E(errors.ResourcesExhausted)
+	}
+	a.allocated = true
 	return a, ctx.Err()
 }
 
-func TestScheduler(t *testing.T) {
-	e := new(testAlloc)
-	e.Have = testutil.Resources
-	e.Repo = testutil.NewInmemoryRepository()
-	e.Init()
+func (a *testAlloc) Load(ctx context.Context, fs reflow.Fileset) (reflow.Fileset, error) {
+	fs, ok := fs.Subst(a.Sub)
+	if !ok {
+		return reflow.Fileset{}, errUnresolved
+	}
+	return fs, nil
+}
+
+// NewTestScheduler starts up a new scheduler intended for testing,
+// and returns the alloc to be scrutinized under this setup. The returned
+// config can be used to configure evaluation.
+func newTestScheduler() (alloc *testAlloc, config flow.EvalConfig, done func()) {
+	alloc = new(testAlloc)
+	alloc.Have = testutil.Resources
+	alloc.Repo = testutil.NewInmemoryRepository()
+	alloc.Init()
 
 	sched := sched.New()
 	sched.Transferer = testutil.Transferer
-	sched.Repository = e.Repo
-	sched.Cluster = e
+	sched.Repository = alloc.Repo
+	sched.Cluster = alloc
 	sched.MinAlloc = reflow.Resources{}
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go sched.Do(ctx)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	done = func() {
+		cancel()
+		wg.Wait()
+	}
+	go func() {
+		sched.Do(ctx)
+		wg.Done()
+	}()
+
+	var out *log.Logger // = log.New(golog.New(os.Stderr, "", golog.LstdFlags), log.DebugLevel)
+	config = flow.EvalConfig{
+		Repository: sched.Repository,
+		Scheduler:  sched,
+		Log:        out,
+		Trace:      out,
+	}
+	return
+}
+
+type resolver map[string]reflow.Fileset
+
+func (r resolver) Resolve(ctx context.Context, url string) (reflow.Fileset, error) {
+	fs, ok := r[url]
+	if !ok {
+		return reflow.Fileset{}, errors.E("resolve", url, errors.NotExist)
+	}
+	return fs, nil
+}
+
+func TestScheduler(t *testing.T) {
+	e, config, done := newTestScheduler()
+	defer done()
 
 	intern := op.Intern("internurl")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
 	extern := op.Extern("externurl", exec)
 
-	var out *log.Logger // = log.New(golog.New(os.Stderr, "", golog.LstdFlags), log.DebugLevel)
-	eval := flow.NewEval(extern, flow.EvalConfig{Repository: sched.Repository, Scheduler: sched, Log: out, Trace: out})
+	eval := flow.NewEval(extern, config)
 	rc := testutil.EvalAsync(context.Background(), eval)
 	e.Ok(intern, testutil.WriteFiles(e.Repo, "a/b/c", "a/b/d", "x/y/z"))
 	e.Ok(exec, testutil.WriteFiles(e.Repo, "execout"))
@@ -502,6 +563,105 @@ func TestScheduler(t *testing.T) {
 	}
 	if got := r.Val; !got.Empty() {
 		t.Fatalf("got %v, want <empty>", got)
+	}
+}
+
+func TestResolver(t *testing.T) {
+	e, config, done := newTestScheduler()
+	defer done()
+	resolver := make(resolver)
+	config.Resolver = resolver
+
+	resolver["s3://bucket/prefix"] = reflow.Fileset{
+		Map: map[string]reflow.File{
+			"x": reflow.File{Source: "s3://bucket/prefix/x", ETag: "x", Size: 1},
+			"y": reflow.File{Source: "s3://bucket/prefix/y", ETag: "y", Size: 2},
+			"z": reflow.File{Source: "s3://bucket/prefix/z", ETag: "z", Size: 3},
+		},
+	}
+	// Populate the substitution map for all known files.
+	e.Sub = make(map[reflow.File]reflow.File)
+	for _, fs := range resolver {
+		for _, file := range fs.Files() {
+			e.Sub[file] = testutil.WriteFile(e.Repo, file.Source)
+		}
+	}
+
+	intern := op.Intern("s3://bucket/prefix")
+	exec := op.Exec("image", "command", testutil.Resources, intern)
+	extern := op.Extern("externurl", exec)
+
+	eval := flow.NewEval(extern, config)
+	rc := testutil.EvalAsync(context.Background(), eval)
+	// We never see an intern op. Instead we see the resolved + loaded fileset.
+	// Make sure the config is correct.
+	cfg := e.Exec(exec).Config()
+	if got, want := len(cfg.Args), 1; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	resolved, _ := resolver["s3://bucket/prefix"].Subst(e.Sub)
+	if got, want := *cfg.Args[0].Fileset, resolved; !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	e.Ok(exec, testutil.WriteFiles(e.Repo, "execout"))
+	e.Ok(extern, reflow.Fileset{})
+
+	r := <-rc
+	if r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if got := r.Val; !got.Empty() {
+		t.Fatalf("got %v, want <empty>", got)
+	}
+}
+
+func TestResolverFail(t *testing.T) {
+	e, config, done := newTestScheduler()
+	defer done()
+	config.Resolver = make(resolver)
+
+	intern := op.Intern("s3://bucket/prefix")
+	exec := op.Exec("image", "command", testutil.Resources, intern)
+	extern := op.Extern("externurl", exec)
+
+	eval := flow.NewEval(extern, config)
+	rc := testutil.EvalAsync(context.Background(), eval)
+	// Now we do see an intern op: it was forced by the failing resolve.
+	e.Ok(intern, testutil.WriteFiles(e.Repo, "a/b/c", "a/b/d", "x/y/z"))
+	e.Ok(exec, testutil.WriteFiles(e.Repo, "execout"))
+	e.Ok(extern, reflow.Fileset{})
+
+	r := <-rc
+	if r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if got := r.Val; !got.Empty() {
+		t.Fatalf("got %v, want <empty>", got)
+	}
+}
+
+func TestLoadFail(t *testing.T) {
+	_, config, done := newTestScheduler()
+	defer done()
+	resolver := make(resolver)
+	config.Resolver = resolver
+
+	resolver["s3://bucket/prefix"] = reflow.Fileset{
+		Map: map[string]reflow.File{
+			".": reflow.File{Source: "s3://bucket/prefix", ETag: "xyz", Size: 1},
+		},
+	}
+
+	intern := op.Intern("s3://bucket/prefix")
+	exec := op.Exec("image", "command", testutil.Resources, intern)
+	extern := op.Extern("externurl", exec)
+
+	eval := flow.NewEval(extern, config)
+	rc := testutil.EvalAsync(context.Background(), eval)
+	// Here we see no ops at all, since the load fails the flow.
+	r := <-rc
+	if got, want := r.Err, errUnresolved; errors.Match(want, got) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
 
