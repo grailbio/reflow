@@ -311,7 +311,9 @@ func (c *Cluster) loop() {
 			for i, w := range waiters {
 				s[i] = fmt.Sprintf("waiter%d%s", i, w.Min)
 			}
-			c.Log.Debugf("pending%s %s", pending, strings.Join(s, ", "))
+			if len(pending) > 0 {
+				c.Log.Debugf("pending%s %s", pending, strings.Join(s, ", "))
+			}
 		}
 		var total, waiting reflow.Resources
 		for _, w := range waiters {
