@@ -11,8 +11,8 @@ import (
 
 	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
-	"github.com/grailbio/reflow/internal/s3client"
 	"github.com/grailbio/reflow/repository/file"
+	"github.com/grailbio/reflow/s3/s3client"
 	"github.com/grailbio/testutil"
 	"github.com/grailbio/testutil/s3test"
 )

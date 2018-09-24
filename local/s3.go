@@ -30,10 +30,10 @@ import (
 	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/internal/s3client"
 	"github.com/grailbio/reflow/internal/s3walker"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository/file"
+	"github.com/grailbio/reflow/s3/s3client"
 	"golang.org/x/sync/errgroup"
 )
 
