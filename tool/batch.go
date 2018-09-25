@@ -180,7 +180,7 @@ flags override any parameters in the batch sample file.
 	if err != nil {
 		c.Log.Errorf("batch failed with error %v", err)
 	}
-	c.WaitForCacheWrites(&wg, 20*time.Minute)
+	c.WaitForBackgroundTasks(&wg, 20*time.Minute)
 	bgcancel()
 	if err != nil {
 		c.Exit(1)

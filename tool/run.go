@@ -278,6 +278,9 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 		transferer.PendingTransfers.Set(repo.URL().String(), int(^uint(0)>>1))
 	}
 	var scheduler *sched.Scheduler
+	var wg wg.WaitGroup
+	// TODO(marius): teardown is too complicated
+	var donecancel func()
 	if config.sched {
 		scheduler = sched.New()
 		scheduler.Transferer = transferer
@@ -285,7 +288,16 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 		scheduler.Cluster = cluster
 		scheduler.Log = c.Log
 		scheduler.MinAlloc.Max(scheduler.MinAlloc, er.Flow.Requirements().Min)
-		go scheduler.Do(ctx)
+		var schedctx context.Context
+		schedctx, donecancel = context.WithCancel(ctx)
+		wg.Add(1)
+		go func() {
+			err := scheduler.Do(schedctx)
+			if err != nil && err != schedctx.Err() {
+				c.Log.Printf("scheduler: %v", err)
+			}
+			wg.Done()
+		}()
 	}
 	run := runner.Runner{
 		Flow: er.Flow,
@@ -315,8 +327,6 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 		run.AllocID = config.alloc
 		run.Phase = runner.Eval
 	}
-	var wg wg.WaitGroup
-	ctx, bgcancel := flow.WithBackground(ctx, &wg)
 	statefile, err := state.Open(base)
 	if err != nil {
 		c.Fatalf("failed to open state file: %v", err)
@@ -324,6 +334,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 	if err := statefile.Marshal(run.State); err != nil {
 		c.Log.Errorf("failed to marshal state: %v", err)
 	}
+	ctx, bgcancel := flow.WithBackground(ctx, &wg)
 	for ok := true; ok; {
 		ok = run.Do(ctx)
 		if run.State.Phase == runner.Retry {
@@ -339,7 +350,10 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 	} else {
 		c.Println(run.Result)
 	}
-	c.WaitForCacheWrites(&wg, 10*time.Minute)
+	if donecancel != nil {
+		donecancel()
+	}
+	c.WaitForBackgroundTasks(&wg, 10*time.Minute)
 	bgcancel()
 	cancel()
 	if run.Err != nil {
@@ -456,7 +470,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		}
 		c.Exit(1)
 	}
-	c.WaitForCacheWrites(&wg, 10*time.Minute)
+	c.WaitForBackgroundTasks(&wg, 10*time.Minute)
 	bgcancel()
 	if err := eval.Err(); err != nil {
 		c.Errorln(err)
@@ -488,9 +502,9 @@ func (c Cmd) Runbase(id digest.Digest) string {
 	return filepath.Join(c.rundir(), id.Hex())
 }
 
-// WaitForCacheWrites waits until all the cache writes to complete or timeouts if
-// it takes longer than the specified timeout.
-func (c Cmd) WaitForCacheWrites(wg *wg.WaitGroup, timeout time.Duration) {
+// WaitForBackgroundTasks waits until all background tasks complete, or if the provided
+// timeout expires.
+func (c Cmd) WaitForBackgroundTasks(wg *wg.WaitGroup, timeout time.Duration) {
 	waitc := wg.C()
 	select {
 	case <-waitc:
@@ -499,7 +513,7 @@ func (c Cmd) WaitForCacheWrites(wg *wg.WaitGroup, timeout time.Duration) {
 		if n == 0 {
 			return
 		}
-		c.Log.Debugf("waiting for %d cache writes to complete", n)
+		c.Log.Debugf("waiting for %d background tasks to complete", n)
 		select {
 		case <-waitc:
 		case <-time.After(timeout):

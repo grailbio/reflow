@@ -133,7 +133,9 @@ func (s *Scheduler) Do(ctx context.Context) error {
 		case <-ctx.Done():
 			// After being canceled, we fail all pending tasks, and then drain
 			// all tasks, current allocs, and pending allocs. (All of which
-			// will be canceled by teh same context cancellation.)
+			// will be canceled by the same context cancellation.)
+			//
+			// We also cancel keepalives
 			for _, task := range todo {
 				task.Err = ctx.Err()
 				task.set(TaskDone)
@@ -270,6 +272,12 @@ func (s *Scheduler) allocate(ctx context.Context, alloc *alloc, notify, dead cha
 	notify <- alloc
 	err = pool.Keepalive(alloc.Context, nil, alloc.Alloc)
 	alloc.Cancel()
+	if err != nil && err == ctx.Err() {
+		var cancel func()
+		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+		_, err = alloc.Keepalive(ctx, 0)
+		cancel()
+	}
 	if err != nil {
 		s.Log.Errorf("alloc keepalive failed: %v", err)
 	}
