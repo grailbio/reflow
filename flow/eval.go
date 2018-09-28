@@ -84,10 +84,10 @@ func (m CacheMode) Writing() bool {
 	return m&CacheWrite == CacheWrite
 }
 
-// Resolver provides an interface for resolving source URL data into
+// Snapshotter provides an interface for snapshotting source URL data into
 // unloaded filesets.
-type Resolver interface {
-	Resolve(ctx context.Context, url string) (reflow.Fileset, error)
+type Snapshotter interface {
+	Snapshot(ctx context.Context, url string) (reflow.Fileset, error)
 }
 
 // EvalConfig provides runtime configuration for evaluation instances.
@@ -104,9 +104,9 @@ type EvalConfig struct {
 	// The scheduler must use the same repository as the evaluator.
 	Scheduler *sched.Scheduler
 
-	// Resolver is the resolver used to resolve source URLs into unloaded
+	// Snapshotter is used to snapshot source URLs into unloaded
 	// filesets. If non-nil, then files are delay-loaded.
-	Resolver Resolver
+	Snapshotter Snapshotter
 
 	// An (optional) logger to which the evaluation transcript is printed.
 	Log *log.Logger
@@ -169,8 +169,8 @@ func (e EvalConfig) String() string {
 	} else {
 		fmt.Fprintf(&b, "scheduler %T", e.Scheduler)
 	}
-	if e.Resolver != nil {
-		fmt.Fprintf(&b, " resolver %T", e.Resolver)
+	if e.Snapshotter != nil {
+		fmt.Fprintf(&b, " snapshotter %T", e.Snapshotter)
 	}
 	fmt.Fprintf(&b, " transferer %T", e.Transferer)
 	var flags []string
@@ -301,7 +301,7 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 	}
 	// We only support delayed loads when using a scheduler.
 	if e.Scheduler == nil {
-		e.Resolver = nil
+		e.Snapshotter = nil
 	}
 	if e.CacheLookupTimeout == time.Duration(0) {
 		e.CacheLookupTimeout = defaultCacheLookupTimeout
@@ -442,12 +442,12 @@ func (e *Eval) Do(ctx context.Context) error {
 					v.Resources["cpu"] = minExecCPU
 				}
 			}
-			if e.Resolver != nil && f.Op == Intern && (f.State == Ready || f.State == NeedTransfer) && !f.MustIntern {
+			if e.Snapshotter != nil && f.Op == Intern && (f.State == Ready || f.State == NeedTransfer) && !f.MustIntern {
 				e.Mutate(f, Running)
 				e.pending[f] = true
 				e.step(f, func(f *Flow) error {
-					e.Log.Debugf("resolve %s", f.URL)
-					fs, err := e.Resolver.Resolve(ctx, f.URL.String())
+					e.Log.Debugf("snapshot %s", f.URL)
+					fs, err := e.Snapshotter.Snapshot(ctx, f.URL.String())
 					if err != nil {
 						e.Log.Printf("must intern %q: resolve: %v", f.URL, err)
 						e.Mutate(f, Ready, MustIntern)
@@ -1215,7 +1215,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 		} else {
 			e.Mutate(f, reflow.Fileset{
 				Map: map[string]reflow.File{
-					".": {id, int64(len(f.Data)), "", ""},
+					".": {ID: id, Size: int64(len(f.Data))},
 				},
 			}, Incr, Done)
 		}

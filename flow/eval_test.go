@@ -21,7 +21,7 @@ import (
 	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
-	"github.com/grailbio/reflow/repository/file"
+	"github.com/grailbio/reflow/repository/filerepo"
 	"github.com/grailbio/reflow/sched"
 	op "github.com/grailbio/reflow/test/flow"
 	"github.com/grailbio/reflow/test/testutil"
@@ -375,7 +375,7 @@ func TestGC(t *testing.T) {
 	e.Init()
 	objects, cleanup := grailtest.TempDir(t, "", "test-")
 	defer cleanup()
-	repo := file.Repository{Root: objects}
+	repo := filerepo.Repository{Root: objects}
 	e.Repo = &repo
 	eval := flow.NewEval(pullup, flow.EvalConfig{Executor: &e, GC: true})
 	rc := testutil.EvalAsync(context.Background(), eval)
@@ -534,12 +534,12 @@ func newTestScheduler() (alloc *testAlloc, config flow.EvalConfig, done func()) 
 	return
 }
 
-type resolver map[string]reflow.Fileset
+type snapshotter map[string]reflow.Fileset
 
-func (r resolver) Resolve(ctx context.Context, url string) (reflow.Fileset, error) {
-	fs, ok := r[url]
+func (s snapshotter) Snapshot(ctx context.Context, url string) (reflow.Fileset, error) {
+	fs, ok := s[url]
 	if !ok {
-		return reflow.Fileset{}, errors.E("resolve", url, errors.NotExist)
+		return reflow.Fileset{}, errors.E("snapshot", url, errors.NotExist)
 	}
 	return fs, nil
 }
@@ -566,13 +566,13 @@ func TestScheduler(t *testing.T) {
 	}
 }
 
-func TestResolver(t *testing.T) {
+func TestSnapshotter(t *testing.T) {
 	e, config, done := newTestScheduler()
 	defer done()
-	resolver := make(resolver)
-	config.Resolver = resolver
+	snapshotter := make(snapshotter)
+	config.Snapshotter = snapshotter
 
-	resolver["s3://bucket/prefix"] = reflow.Fileset{
+	snapshotter["s3://bucket/prefix"] = reflow.Fileset{
 		Map: map[string]reflow.File{
 			"x": reflow.File{Source: "s3://bucket/prefix/x", ETag: "x", Size: 1},
 			"y": reflow.File{Source: "s3://bucket/prefix/y", ETag: "y", Size: 2},
@@ -581,7 +581,7 @@ func TestResolver(t *testing.T) {
 	}
 	// Populate the substitution map for all known files.
 	e.Sub = make(map[reflow.File]reflow.File)
-	for _, fs := range resolver {
+	for _, fs := range snapshotter {
 		for _, file := range fs.Files() {
 			e.Sub[file] = testutil.WriteFile(e.Repo, file.Source)
 		}
@@ -599,7 +599,7 @@ func TestResolver(t *testing.T) {
 	if got, want := len(cfg.Args), 1; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
-	resolved, _ := resolver["s3://bucket/prefix"].Subst(e.Sub)
+	resolved, _ := snapshotter["s3://bucket/prefix"].Subst(e.Sub)
 	if got, want := *cfg.Args[0].Fileset, resolved; !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
@@ -618,7 +618,7 @@ func TestResolver(t *testing.T) {
 func TestResolverFail(t *testing.T) {
 	e, config, done := newTestScheduler()
 	defer done()
-	config.Resolver = make(resolver)
+	config.Snapshotter = make(snapshotter)
 
 	intern := op.Intern("s3://bucket/prefix")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
@@ -643,10 +643,10 @@ func TestResolverFail(t *testing.T) {
 func TestLoadFail(t *testing.T) {
 	_, config, done := newTestScheduler()
 	defer done()
-	resolver := make(resolver)
-	config.Resolver = resolver
+	snapshotter := make(snapshotter)
+	config.Snapshotter = snapshotter
 
-	resolver["s3://bucket/prefix"] = reflow.Fileset{
+	snapshotter["s3://bucket/prefix"] = reflow.Fileset{
 		Map: map[string]reflow.File{
 			".": reflow.File{Source: "s3://bucket/prefix", ETag: "xyz", Size: 1},
 		},

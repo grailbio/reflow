@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package s3
+package blobrepo
 
 import (
 	"bytes"
@@ -12,15 +12,24 @@ import (
 	"testing"
 
 	"github.com/grailbio/reflow"
-	"github.com/grailbio/testutil/s3test"
+	"github.com/grailbio/reflow/blob/testblob"
 )
 
 const bucket = "test"
 
+func newTestRepository(t *testing.T) *Repository {
+	t.Helper()
+	store := testblob.New("test")
+	bucket, err := store.Bucket(context.Background(), "repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &Repository{Bucket: bucket}
+}
+
 func TestRepository(t *testing.T) {
 	ctx := context.Background()
-	client := s3test.NewClient(t, bucket)
-	r := &Repository{Client: client, Bucket: bucket}
+	r := newTestRepository(t)
 	const content = "hello, world"
 	id, err := r.Put(ctx, bytes.NewReader([]byte(content)))
 	if err != nil {
@@ -33,7 +42,7 @@ func TestRepository(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := file, (reflow.File{ID: id, Size: int64(len(content))}); got != want {
+	if got, want := file, (reflow.File{ID: id, Size: int64(len(content))}); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	rc, err := r.Get(ctx, id)
@@ -52,8 +61,7 @@ func TestRepository(t *testing.T) {
 
 func TestPutGetFile(t *testing.T) {
 	ctx := context.Background()
-	client := s3test.NewClient(t, bucket)
-	r := &Repository{Client: client, Bucket: bucket}
+	r := newTestRepository(t)
 	const content = "another piece of content"
 	file := reflow.File{
 		ID:   reflow.Digester.FromString(content),

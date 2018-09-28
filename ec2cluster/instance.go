@@ -635,7 +635,7 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 			  -v /:/host \
 			  -v /var/run/docker.sock:/var/run/docker.sock \
 			  -v '/etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt' \
-			  {{.image}} -prefix /host -ec2cluster -ndigest 60 -config /host/etc/reflowconfig
+			  {{.image}} -prefix /host -ec2cluster  -config /host/etc/reflowconfig
 		`, args{"mortal": !i.Immortal, "image": i.ReflowletImage}),
 	})
 

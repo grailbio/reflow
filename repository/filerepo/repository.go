@@ -2,11 +2,11 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-// Package file implements a filesystem-backed repository. It stores
+// Package filerepo implements a filesystem-backed repository. It stores
 // objects in a directory on disk; the objects are named by the
 // string representation of their digest, i.e., of the form
 // sha256:d60e67ce9....
-package file
+package filerepo
 
 import (
 	"context"
@@ -138,7 +138,7 @@ func (r *Repository) ReadFrom(ctx context.Context, id digest.Digest, u *url.URL)
 			GetFile(ctx context.Context, id digest.Digest, w io.WriterAt) (int64, error)
 		}
 		if gf, ok := repo.(getFiler); ok {
-			temp, err := r.tempfile("getfile-")
+			temp, err := r.TempFile("getfile-")
 			if err != nil {
 				return nil, err
 			}
@@ -237,7 +237,7 @@ func (r *Repository) Contains(id digest.Digest) (bool, error) {
 
 // Put installs an object into the repository. Its digest identity is returned.
 func (r *Repository) Put(ctx context.Context, body io.Reader) (digest.Digest, error) {
-	temp, err := r.tempfile("create-")
+	temp, err := r.TempFile("create-")
 	if err != nil {
 		return digest.Digest{}, err
 	}
@@ -335,7 +335,11 @@ func (r *Repository) Collect(ctx context.Context, live liveset.Liveset) error {
 	return w.Err()
 }
 
-func (r *Repository) tempfile(prefix string) (*os.File, error) {
+// TempFile creates and returns a new temporary file adjacent to the
+// repository. Files created by TempFile can be efficiently ingested
+// by Repository.Install. The caller is responsible for cleaning up
+// temporary files.
+func (r *Repository) TempFile(prefix string) (*os.File, error) {
 	dir := filepath.Join(r.Root, "tmp")
 	os.MkdirAll(dir, 0777)
 	return ioutil.TempFile(dir, prefix)

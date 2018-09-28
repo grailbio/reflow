@@ -28,7 +28,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
-	"github.com/grailbio/reflow/repository/file"
+	"github.com/grailbio/reflow/repository/filerepo"
 )
 
 // Exec directory layout:
@@ -57,8 +57,8 @@ type dockerExec struct {
 
 	id      digest.Digest
 	client  *client.Client
-	repo    *file.Repository
-	staging file.Repository
+	repo    *filerepo.Repository
+	staging filerepo.Repository
 	stdout  *log.Logger
 	stderr  *log.Logger
 

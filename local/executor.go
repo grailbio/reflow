@@ -14,19 +14,17 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/grailbio/base/digest"
-	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/ecrauth"
 	"github.com/grailbio/reflow/internal/walker"
 	"github.com/grailbio/reflow/log"
-	"github.com/grailbio/reflow/repository/file"
-	"github.com/grailbio/reflow/s3/s3client"
+	"github.com/grailbio/reflow/repository/filerepo"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -39,8 +37,8 @@ const (
 )
 
 const (
-	defaultDigestLimit = 60
-	defaultS3FileLimit = 60
+	defaultDigestLimit   = 60
+	defaultDownloadLimit = 60
 )
 
 // TODO(marius): configure this from profiles
@@ -82,14 +80,6 @@ type Executor struct {
 	// Log is this executor's logger where operational status is printed.
 	Log *log.Logger
 
-	// DigestLimiter limits the number of concurrent digest operations
-	// performed while installing files into this executor's repository.
-	DigestLimiter *limiter.Limiter
-
-	// S3FileLimiter controls the number of S3 file downloads that may
-	// proceed concurrently.
-	S3FileLimiter *limiter.Limiter
-
 	// ExternalS3 defines whether to use external processes (AWS CLI tool
 	// running in docker) for S3 operations. At the moment, this flag only
 	// works for interns.
@@ -98,14 +88,13 @@ type Executor struct {
 	// FileRepository is the (file-based) object repository used by this
 	// Executor. It may be provided by the user, or else it is set to a
 	// default implementation when (*Executor).Start is called.
-	FileRepository *file.Repository
+	FileRepository *filerepo.Repository
+
+	Blob blob.Mux
 
 	// remoteStream is the client used to write logs to a remote cloud
 	// stream.
 	remoteStream remoteStream
-
-	s3client     s3client.Client
-	s3downloader *s3downloader
 
 	resources reflow.Resources
 
@@ -122,31 +111,16 @@ type Executor struct {
 // Start initializes the executor and recovers previously stored
 // state. It re-initializes all stored execs.
 func (e *Executor) Start() error {
-	if e.DigestLimiter == nil {
-		e.DigestLimiter = limiter.New()
-		e.DigestLimiter.Release(defaultDigestLimit)
-	}
-	if e.S3FileLimiter == nil {
-		e.S3FileLimiter = limiter.New()
-		e.S3FileLimiter.Release(defaultS3FileLimit)
-	}
 	e.execs = map[digest.Digest]exec{}
 	e.ctx, e.cancel = context.WithCancel(context.Background())
 	if e.FileRepository == nil {
-		e.FileRepository = &file.Repository{Root: filepath.Join(e.Prefix, e.Dir, objectsDir)}
+		e.FileRepository = &filerepo.Repository{Root: filepath.Join(e.Prefix, e.Dir, objectsDir)}
 	}
 	os.MkdirAll(e.FileRepository.Root, 0777)
-	e.s3client = &s3client.Config{
-		Config: &aws.Config{
-			Credentials: e.AWSCreds,
-			Region:      aws.String(defaultRegion),
-		},
-	}
 	tempdir := filepath.Join(e.Prefix, e.Dir, "download")
 	if err := os.MkdirAll(tempdir, 0777); err != nil {
 		return err
 	}
-	e.s3downloader = newS3downloader(e.s3client, e.DigestLimiter, tempdir)
 
 	execdir := filepath.Join(e.Prefix, e.Dir, execsDir)
 	file, err := os.Open(execdir)
@@ -189,17 +163,15 @@ func (e *Executor) Start() error {
 				log.New(stdout, log.InfoLevel), log.New(stderr, log.InfoLevel))
 			dx.Manifest = m
 			x = dx
-		case execS3:
+		case execBlob:
 			_, stderr := e.getRemoteStreams(id, false, true)
-			s3x := &s3Exec{
-				ExecID:        id,
-				FileLimiter:   e.S3FileLimiter,
-				DigestLimiter: e.DigestLimiter,
-				log:           e.Log.Tee(stderr, ""),
+			blobx := &blobExec{
+				ExecID: id,
+				log:    e.Log.Tee(stderr, ""),
 			}
-			s3x.Init(e)
-			s3x.Manifest = m
-			x = s3x
+			blobx.Init(e)
+			blobx.Manifest = m
+			x = blobx
 		default:
 			e.Log.Errorf("unknown exec type %v", m.Type)
 			continue
@@ -279,22 +251,16 @@ func (e *Executor) Put(ctx context.Context, id digest.Digest, cfg reflow.ExecCon
 		switch u.Scheme {
 		case "localfile":
 			exec = newLocalfileExec(id, e, cfg)
-		case "s3":
-			_, stderr := e.getRemoteStreams(id, false, true)
-			s3 := &s3Exec{
-				ExecID:        id,
-				FileLimiter:   e.S3FileLimiter,
-				DigestLimiter: e.DigestLimiter,
-				log:           e.Log.Tee(stderr, ""),
-			}
-			s3.Config = cfg
-			s3.Init(e)
-			exec = s3
 		default:
-			e.mu.Unlock()
-			return nil, errors.E("put", id, errors.NotSupported, errors.Errorf("unsupported scheme %v", u.Scheme))
+			_, stderr := e.getRemoteStreams(id, false, true)
+			blob := &blobExec{
+				ExecID: id,
+				log:    e.Log.Tee(stderr, ""),
+			}
+			blob.Config = cfg
+			blob.Init(e)
+			exec = blob
 		}
-
 	default:
 		stdout, stderr := e.getRemoteStreams(id, true, true)
 		exec = newDockerExec(id, e, cfg, log.New(stdout, log.InfoLevel), log.New(stderr, log.InfoLevel))
@@ -356,25 +322,19 @@ func (e *Executor) Load(ctx context.Context, fs reflow.Fileset) (reflow.Fileset,
 		if !file.IsRef() {
 			continue
 		}
-		u, err := url.Parse(file.Source)
-		if err != nil {
-			return reflow.Fileset{}, errors.E(errors.Invalid, "parse", file.Source, err)
-		}
-		// TODO(marius): Support localfile also? We should really generalize
-		// the "downloader" so we can push this handling down somewhere
-		// common.
-		if u.Scheme != "s3" {
-			return reflow.Fileset{}, errors.E(
-				errors.NotSupported, "load", file.Source,
-				errors.Errorf("scheme %q not supported", u.Scheme))
-		}
-		var (
-			bucket = u.Host
-			key    = strings.TrimPrefix(u.Path, "/")
-		)
 		g.Go(func() error {
-			res, err := e.s3downloader.Download(
-				ctx, e.FileRepository, bucket, key, file.Size, file.ETag)
+			bucket, key, err := e.Blob.Bucket(ctx, file.Source)
+			if err != nil {
+				return err
+			}
+			dl := download{
+				Bucket: bucket,
+				Key:    key,
+				Size:   file.Size,
+				ETag:   file.ETag,
+				Log:    e.Log,
+			}
+			res, err := dl.Do(ctx, e.FileRepository)
 			if err == nil {
 				mu.Lock()
 				resolved[file] = res
@@ -571,7 +531,7 @@ func (e *Executor) rewriteConfig(cfg *reflow.ExecConfig) error {
 // returns a value representing the tree. If replace is true, the
 // original files are replaced with a symlink pointing to a textual
 // representation of the file's digest.
-func (e *Executor) install(ctx context.Context, path string, replace bool, repo *file.Repository) (reflow.Fileset, error) {
+func (e *Executor) install(ctx context.Context, path string, replace bool, repo *filerepo.Repository) (reflow.Fileset, error) {
 	w := new(walker.Walker)
 	w.Init(path)
 	g, ctx := errgroup.WithContext(ctx)
@@ -583,13 +543,9 @@ func (e *Executor) install(ctx context.Context, path string, replace bool, repo 
 		if w.Info().IsDir() {
 			continue
 		}
-		if err := e.DigestLimiter.Acquire(ctx, 1); err != nil {
-			return reflow.Fileset{}, err
-		}
 		path, relpath, size := w.Path(), w.Relpath(), w.Info().Size()
 		g.Go(func() error {
 			file, err := repo.Install(path)
-			e.DigestLimiter.Release(1)
 			mu.Lock()
 			val.Map[relpath] = reflow.File{ID: file.ID, Size: size}
 			mu.Unlock()

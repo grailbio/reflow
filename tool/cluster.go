@@ -10,12 +10,12 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/ec2cluster"
+	"github.com/grailbio/reflow/repository/blobrepo"
 	repositoryhttp "github.com/grailbio/reflow/repository/http"
-	reflows3 "github.com/grailbio/reflow/repository/s3"
 	"github.com/grailbio/reflow/runner"
 	"golang.org/x/net/http2"
 )
@@ -52,7 +52,7 @@ func (c *Cmd) Cluster(status *status.Group) runner.Cluster {
 	if err != nil {
 		c.Fatal(err)
 	}
-	reflows3.SetClient(s3.New(sess))
+	blobrepo.Register("s3", s3blob.New(sess))
 	transport := &http.Transport{TLSClientConfig: clientConfig}
 	http2.ConfigureTransport(transport)
 	repositoryhttp.HTTPClient = &http.Client{Transport: transport}

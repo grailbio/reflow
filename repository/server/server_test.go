@@ -20,7 +20,7 @@ import (
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/liveset/bloomlive"
 	"github.com/grailbio/reflow/repository/client"
-	"github.com/grailbio/reflow/repository/file"
+	"github.com/grailbio/reflow/repository/filerepo"
 	"github.com/grailbio/reflow/rest"
 	"github.com/grailbio/reflow/test/testutil"
 	grailtest "github.com/grailbio/testutil"
@@ -29,9 +29,9 @@ import (
 
 const maxBlobSize = 1 << 20
 
-func newFileRepository(t *testing.T) (*file.Repository, func()) {
+func newFileRepository(t *testing.T) (*filerepo.Repository, func()) {
 	objects, cleanup := grailtest.TempDir(t, "", "test-")
-	return &file.Repository{Root: objects}, cleanup
+	return &filerepo.Repository{Root: objects}, cleanup
 }
 
 func newBlob() ([]byte, digest.Digest) {

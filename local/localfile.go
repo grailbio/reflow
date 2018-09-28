@@ -17,7 +17,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
-	"github.com/grailbio/reflow/repository/file"
+	"github.com/grailbio/reflow/repository/filerepo"
 )
 
 // localfileExec implements an exec for interning and externing
@@ -30,7 +30,7 @@ type localfileExec struct {
 	// The (possibly nil) Logger that logs exec's actions, for external consumption.
 	Log *log.Logger
 
-	staging file.Repository
+	staging filerepo.Repository
 
 	id    digest.Digest
 	cfg   reflow.ExecConfig

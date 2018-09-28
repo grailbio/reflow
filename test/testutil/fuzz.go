@@ -39,7 +39,7 @@ var genes = []string{
 func (f *Fuzz) String(sep string) string {
 	var (
 		b strings.Builder
-		n = f.Intn(5)
+		n = f.Intn(5) + 1
 	)
 	for i := 0; i < n; i++ {
 		if i > 0 {

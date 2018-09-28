@@ -17,7 +17,7 @@ type execType int
 
 const (
 	execDocker execType = iota
-	execS3
+	execBlob
 )
 
 // Manifest stores the state of an exec. It is serialized to JSON and

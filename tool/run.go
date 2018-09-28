@@ -19,11 +19,12 @@ import (
 	"sort"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/blob"
+	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
@@ -31,9 +32,7 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/repository"
-	"github.com/grailbio/reflow/resolver"
 	"github.com/grailbio/reflow/runner"
-	"github.com/grailbio/reflow/s3/s3client"
 	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/trace"
 	"github.com/grailbio/reflow/types"
@@ -302,14 +301,14 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 	run := runner.Runner{
 		Flow: er.Flow,
 		EvalConfig: flow.EvalConfig{
-			Log:        execLogger,
-			Repository: repo,
-			Resolver:   c.resolver(),
-			Assoc:      ass,
-			CacheMode:  c.Config.CacheMode(),
-			Transferer: transferer,
-			Status:     c.Status.Group(runID.Short()),
-			Scheduler:  scheduler,
+			Log:         execLogger,
+			Repository:  repo,
+			Snapshotter: c.blob(),
+			Assoc:       ass,
+			CacheMode:   c.Config.CacheMode(),
+			Transferer:  transferer,
+			Status:      c.Status.Group(runID.Short()),
+			Scheduler:   scheduler,
 		},
 		Type:    er.Type,
 		Labels:  make(pool.Labels),
@@ -421,6 +420,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		Authenticator: ec2authenticator.New(sess),
 		AWSImage:      awstool,
 		AWSCreds:      creds,
+		Blob:          c.blob(),
 		Log:           c.Log.Tee(nil, "executor: "),
 	}
 
@@ -442,14 +442,14 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		log.Fatal(err)
 	}
 	evalConfig := flow.EvalConfig{
-		Executor:   x,
-		Resolver:   c.resolver(),
-		Transferer: transferer,
-		Log:        execLogger,
-		Repository: repo,
-		Assoc:      ass,
-		CacheMode:  c.Config.CacheMode(),
-		Status:     c.Status.Group(runID.Short()),
+		Executor:    x,
+		Snapshotter: c.blob(),
+		Transferer:  transferer,
+		Log:         execLogger,
+		Repository:  repo,
+		Assoc:       ass,
+		CacheMode:   c.Config.CacheMode(),
+		Status:      c.Status.Group(runID.Short()),
 	}
 	config.Configure(&evalConfig)
 	if config.trace {
@@ -523,25 +523,13 @@ func (c Cmd) WaitForBackgroundTasks(wg *wg.WaitGroup, timeout time.Duration) {
 	}
 }
 
-func (c Cmd) resolver() resolver.Resolver {
-	// TODO(marius): we should really provide a means of configuring
-	// a session with an override (ala session.New), so that we don't have
-	// to use AWSCreds for this.
-	creds, err := c.Config.AWSCreds()
+// Blob returns the configured blob muxer.
+func (c Cmd) blob() blob.Mux {
+	sess, err := c.Config.AWS()
 	if err != nil {
 		c.Fatal(err)
 	}
-	region, err := c.Config.AWSRegion()
-	if err != nil {
-		c.Fatal(err)
-	}
-	client := &s3client.Config{
-		Config: &aws.Config{
-			Credentials: creds,
-			Region:      aws.String(region),
-		},
-	}
-	return resolver.Mux{
-		"s3": s3client.Resolver(client),
+	return blob.Mux{
+		"s3": s3blob.New(sess),
 	}
 }

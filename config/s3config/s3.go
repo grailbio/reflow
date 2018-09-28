@@ -7,16 +7,17 @@
 package s3config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/config/dynamodbconfig"
 	"github.com/grailbio/reflow/flow"
-	reflows3 "github.com/grailbio/reflow/repository/s3"
+	"github.com/grailbio/reflow/repository/blobrepo"
 )
 
 func init() {
@@ -56,13 +57,16 @@ func (r *repository) Repository() (reflow.Repository, error) {
 	if err != nil {
 		return nil, err
 	}
+	blob := s3blob.New(sess)
 	// Set the default client for dialing here.
 	// TODO(marius): this should be done outside of the specific configs.
-	reflows3.SetClient(s3.New(sess))
-	return &reflows3.Repository{
-		Bucket: r.Bucket,
-		Client: s3.New(sess),
-	}, nil
+	blobrepo.Register("s3", blob)
+	ctx := context.Background()
+	bucket, err := blob.Bucket(ctx, r.Bucket)
+	if err != nil {
+		return nil, err
+	}
+	return &blobrepo.Repository{Bucket: bucket}, nil
 }
 
 type cacheMode struct {

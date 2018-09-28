@@ -12,7 +12,7 @@ import (
 
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/repository"
-	"github.com/grailbio/reflow/repository/file"
+	"github.com/grailbio/reflow/repository/filerepo"
 	"github.com/grailbio/testutil"
 )
 
@@ -24,10 +24,10 @@ func mustInstall(t *testing.T, r reflow.Repository, contents string) reflow.File
 	return reflow.File{ID: id, Size: int64(len(contents))}
 }
 
-func mustRepositories(t *testing.T) (r1, r2 *file.Repository, cleanup func()) {
+func mustRepositories(t *testing.T) (r1, r2 *filerepo.Repository, cleanup func()) {
 	dir1, cleanup1 := testutil.TempDir(t, "", "manager-")
 	dir2, cleanup2 := testutil.TempDir(t, "", "manager-")
-	return &file.Repository{Root: dir1}, &file.Repository{Root: dir2}, func() {
+	return &filerepo.Repository{Root: dir1}, &filerepo.Repository{Root: dir2}, func() {
 		cleanup1()
 		cleanup2()
 	}

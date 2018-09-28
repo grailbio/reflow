@@ -121,7 +121,7 @@ flags override any parameters in the batch sample file.
 	b := &batch.Batch{
 		EvalConfig: flow.EvalConfig{
 			Log:            c.Log,
-			Resolver:       c.resolver(),
+			Snapshotter:    c.blob(),
 			Repository:     repo,
 			Assoc:          assoc,
 			CacheMode:      c.Config.CacheMode(),

@@ -9,36 +9,44 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
-	"github.com/grailbio/reflow/repository/file"
-	"github.com/grailbio/reflow/s3/s3client"
+	"github.com/grailbio/reflow/blob"
+	"github.com/grailbio/reflow/blob/s3blob"
+	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/repository/filerepo"
 	"github.com/grailbio/testutil"
 	"github.com/grailbio/testutil/s3test"
 )
 
-func newS3Test(t *testing.T, bucket, prefix string) (s3 *s3Exec, client *s3test.Client, repo *file.Repository, cleanup func()) {
+type testStore map[string]blob.Bucket
+
+func (s testStore) Bucket(ctx context.Context, name string) (blob.Bucket, error) {
+	bucket, ok := s[name]
+	if !ok {
+		return nil, errors.E("testStore.Bucket", name, errors.NotExist)
+	}
+	return bucket, nil
+}
+
+func newS3Test(t *testing.T, bucket, prefix string) (exec *blobExec, client *s3test.Client, repo *filerepo.Repository, cleanup func()) {
 	var dir string
 	dir, cleanup = testutil.TempDir(t, "", "s3test")
-	repo = &file.Repository{Root: filepath.Join(dir, "repo")}
+	repo = &filerepo.Repository{Root: filepath.Join(dir, "repo")}
 	client = s3test.NewClient(t, bucket)
 	client.Region = "us-west-2"
-	s3 = &s3Exec{
-		S3Client:      &s3client.Static{client},
-		Repository:    repo,
-		Root:          filepath.Join(dir, "exec"),
-		FileLimiter:   limiter.New(),
-		DigestLimiter: limiter.New(),
-		ExecID:        reflow.Digester.FromString("s3test"),
+	store := testStore{"testbucket": s3blob.NewBucket("testbucket", client)}
+	exec = &blobExec{
+		Blob:       blob.Mux{"s3": store},
+		Repository: repo,
+		Root:       filepath.Join(dir, "exec"),
+		ExecID:     reflow.Digester.FromString("s3test"),
 	}
-	s3.staging.Root = filepath.Join(dir, "staging")
-	s3.FileLimiter.Release(10)
-	s3.DigestLimiter.Release(10)
-	s3.Config = reflow.ExecConfig{
+	exec.staging.Root = filepath.Join(dir, "staging")
+	exec.Config = reflow.ExecConfig{
 		Type: "intern",
 		URL:  "s3://" + bucket + "/" + prefix,
 	}
-	s3.Init(nil)
+	exec.Init(nil)
 	return
 }
 

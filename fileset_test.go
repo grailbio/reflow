@@ -13,9 +13,9 @@ import (
 )
 
 var (
-	file1 = reflow.File{reflow.Digester.FromString("foo"), 3, "", ""}
-	file2 = reflow.File{reflow.Digester.FromString("bar"), 3, "", ""}
-	file3 = reflow.File{reflow.Digester.FromString("a/b/c"), 5, "", ""}
+	file1 = reflow.File{ID: reflow.Digester.FromString("foo"), Size: 3}
+	file2 = reflow.File{ID: reflow.Digester.FromString("bar"), Size: 3}
+	file3 = reflow.File{ID: reflow.Digester.FromString("a/b/c"), Size: 5}
 
 	v1 = reflow.Fileset{Map: map[string]reflow.File{
 		"foo": file1,

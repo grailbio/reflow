@@ -146,7 +146,7 @@ func (z *zombieExec) Inspect(ctx context.Context) (reflow.ExecInspect, error) {
 		Status:  "zombie",
 		Profile: manifest.Stats.Profile(),
 	}
-	// S3 execs don't have Docker manifests.
+	// Blob execs don't have Docker manifests.
 	if manifest.Docker.ContainerJSONBase == nil {
 		return inspect, nil
 	}

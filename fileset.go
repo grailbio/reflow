@@ -10,6 +10,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
@@ -32,6 +33,9 @@ type File struct {
 
 	// ETag stores an optional entity tag for the Source file.
 	ETag string `json:",omitempty"`
+
+	// LastModified stores the file's last modified time.
+	LastModified time.Time
 }
 
 // Digest returns the file's digest: if the file is a reference, the
@@ -48,6 +52,15 @@ func (f File) Digest() digest.Digest {
 	io.WriteString(w, f.Source)
 	io.WriteString(w, f.ETag)
 	return w.Digest()
+}
+
+// Equal returns whether files f and g represent the same content.
+func (f File) Equal(g File) bool {
+	if f.IsRef() || g.IsRef() {
+		// When we compare references, we require nonempty etags.
+		return f.Size == g.Size && f.Source == g.Source && f.ETag != "" && f.ETag == g.ETag
+	}
+	return f.ID == g.ID
 }
 
 // IsRef returns whether this file is a file reference.
@@ -103,7 +116,7 @@ func (v Fileset) Equal(w Fileset) bool {
 	}
 	for key, f := range v.Map {
 		g, ok := w.Map[key]
-		if !ok || f != g {
+		if !ok || !f.Equal(g) {
 			return false
 		}
 	}

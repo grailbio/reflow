@@ -21,8 +21,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
-	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/fs"
 	"github.com/grailbio/reflow/log"
@@ -78,14 +78,10 @@ type Pool struct {
 	// AWSCreds is a credentials provider used to mint AWS credentials.
 	// They are used to access AWS services.
 	AWSCreds *credentials.Credentials
+	// Blob is the blob store implementation used to fetch data from interns.
+	Blob blob.Mux
 	// Log
 	Log *log.Logger
-	// DigestLimiter controls the number of digest operations that may
-	// proceed concurrently.
-	DigestLimiter *limiter.Limiter
-	// S3FileLimiter controls the number of S3 file downloads that may
-	// proceed concurrently.
-	S3FileLimiter *limiter.Limiter
 
 	mu        sync.Mutex
 	allocs    map[string]*alloc // the set of active allocs
@@ -118,14 +114,6 @@ func (p *Pool) saveState() error {
 // that all zombie allocs are collected.
 func (p *Pool) Start() error {
 	ctx := context.Background()
-	if p.DigestLimiter == nil {
-		p.DigestLimiter = limiter.New()
-		p.DigestLimiter.Release(defaultDigestLimit)
-	}
-	if p.S3FileLimiter == nil {
-		p.S3FileLimiter = limiter.New()
-		p.S3FileLimiter.Release(defaultS3FileLimit)
-	}
 
 	info, err := p.Client.Info(ctx)
 	if err != nil {
@@ -450,8 +438,8 @@ func (p *Pool) newAlloc(id string, keepalive time.Duration) *alloc {
 		Authenticator: p.Authenticator,
 		AWSImage:      p.AWSImage,
 		AWSCreds:      p.AWSCreds,
+		Blob:          p.Blob,
 		Log:           p.Log.Tee(nil, id+": "),
-		DigestLimiter: p.DigestLimiter,
 	}
 
 	// TODO(pgopal) - Get this info from Config.

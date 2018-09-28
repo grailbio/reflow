@@ -16,16 +16,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/s3"
 	dockerclient "github.com/docker/docker/client"
-	"github.com/grailbio/base/limiter"
+	"github.com/grailbio/reflow/blob"
+	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool/server"
+	"github.com/grailbio/reflow/repository/blobrepo"
 	repositoryhttp "github.com/grailbio/reflow/repository/http"
-	reflows3 "github.com/grailbio/reflow/repository/s3"
 	"github.com/grailbio/reflow/rest"
 	"golang.org/x/net/http2"
 	"gopkg.in/yaml.v2"
@@ -50,8 +50,6 @@ type Server struct {
 	Insecure bool
 	// Dir is the runtime data directory.
 	Dir string
-	// NDigest is the number of allowable concurrent digest operations.
-	NDigest int
 	// EC2Cluster tells whether this reflowlet is part of an EC2cluster.
 	// When true, the reflowlet shuts down if it is idle after 10 minutes.
 	EC2Cluster bool
@@ -77,7 +75,6 @@ func (s *Server) AddFlags(flags *flag.FlagSet) {
 	flags.StringVar(&s.Prefix, "prefix", "", "prefix used for directory lookup")
 	flags.BoolVar(&s.Insecure, "insecure", false, "listen on HTTP, not HTTPS")
 	flags.StringVar(&s.Dir, "dir", "/mnt/data/reflow", "runtime data directory")
-	flags.IntVar(&s.NDigest, "ndigest", 32, "number of allowable concurrent digest ops")
 	flags.BoolVar(&s.EC2Cluster, "ec2cluster", false, "this reflowlet is part of an ec2cluster")
 	flags.BoolVar(&s.HTTPDebug, "httpdebug", false, "turn on HTTP debug logging")
 }
@@ -129,13 +126,11 @@ func (s *Server) ListenAndServe() error {
 	// Default HTTPS and s3 clients for repository dialers.
 	// TODO(marius): handle this more elegantly, perhaps by
 	// avoiding global registration altogether.
-	reflows3.SetClient(s3.New(sess))
+	blobrepo.Register("s3", s3blob.New(sess))
 	transport := &http.Transport{TLSClientConfig: clientConfig}
 	http2.ConfigureTransport(transport)
 	repositoryhttp.HTTPClient = &http.Client{Transport: transport}
 
-	lim := limiter.New()
-	lim.Release(s.NDigest)
 	p := &local.Pool{
 		Client:        client,
 		Dir:           s.Dir,
@@ -143,8 +138,10 @@ func (s *Server) ListenAndServe() error {
 		Authenticator: ec2authenticator.New(sess),
 		AWSImage:      tool,
 		AWSCreds:      creds,
-		Log:           log.Std.Tee(nil, "executor: "),
-		DigestLimiter: lim,
+		Blob: blob.Mux{
+			"s3": s3blob.New(sess),
+		},
+		Log: log.Std.Tee(nil, "executor: "),
 	}
 	if err := p.Start(); err != nil {
 		return err

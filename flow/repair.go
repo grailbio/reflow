@@ -249,7 +249,7 @@ func (r *Repair) eval(f *Flow) {
 		id := Digester.FromBytes(f.Data)
 		f.Value = reflow.Fileset{
 			Map: map[string]reflow.File{
-				".": {id, int64(len(f.Data)), "", ""},
+				".": {ID: id, Size: int64(len(f.Data))},
 			},
 		}
 		f.State = Done
