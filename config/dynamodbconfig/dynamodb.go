@@ -43,5 +43,6 @@ func (a *Assoc) Assoc() (assoc.Assoc, error) {
 		DB:        dynamodb.New(sess),
 		TableName: a.Table,
 		Limiter:   lim,
+		Labels:    a.Labels(),
 	}, nil
 }

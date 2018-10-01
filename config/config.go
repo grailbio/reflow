@@ -71,6 +71,7 @@ import (
 // The following are the set of keys provisioned by Config.
 const (
 	BaseConfig = "base"
+	Labels     = "labels"
 	Logger     = "logger"
 	AWS        = "aws"
 	AWSTool    = "awstool"
@@ -90,6 +91,7 @@ const (
 // configuration provided by providers for keys earlier in the list.
 var AllKeys = []string{
 	BaseConfig,
+	Labels,
 	Logger,
 	AWS,
 	AWSTool,

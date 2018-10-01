@@ -32,12 +32,6 @@ type Func func(*Cmd, context.Context, ...string)
 // Cmd holds the configuration, flag definitions, and runtime objects
 // required for tool invocations.
 type Cmd struct {
-	Flag struct {
-		Cache         bool
-		NoCacheExtern bool
-		Project       string
-	}
-
 	// Config must be specified.
 	Config            config.Config
 	DefaultConfigFile string
@@ -376,7 +370,6 @@ func (c *Cmd) Flags() *flag.FlagSet {
 	if c.flags == nil {
 		c.flags = flag.NewFlagSet("reflow", flag.ExitOnError)
 		c.flags.Usage = func() { c.usage(c.flags) }
-		c.flags.StringVar(&c.Flag.Project, "project", "", "project for which the job is launched (for accounting)")
 		c.flags.StringVar(&flow.Universe, "universe", "", "digest namespace")
 		c.flags.StringVar(&c.ConfigFile, "config", c.DefaultConfigFile, "path to configuration file; otherwise use default (builtin) config")
 		c.flags.StringVar(&c.httpFlag, "http", "", "run a diagnostic HTTP server on this port")

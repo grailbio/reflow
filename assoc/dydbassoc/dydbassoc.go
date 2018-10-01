@@ -24,6 +24,7 @@ import (
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/liveset"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/pool"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
 )
@@ -43,6 +44,9 @@ type Assoc struct {
 	DB        *dynamodb.DynamoDB
 	Limiter   *limiter.Limiter
 	TableName string
+	// Labels to assign to cache entries.
+	Labels pool.Labels
+	labels []*string
 }
 
 // Store associates the digest v with the key digest k of the provided kind. If v is zero,
@@ -58,7 +62,7 @@ func (a *Assoc) Store(ctx context.Context, kind assoc.Kind, k, v digest.Digest) 
 		return err
 	}
 	defer a.Limiter.Release(1)
-	updateExpr, attrValues, attrNames := getUpdateComponents(kind, k, v)
+	updateExpr, attrValues, attrNames := a.getUpdateComponents(kind, k, v)
 	input := &dynamodb.UpdateItemInput{
 		Key: map[string]*dynamodb.AttributeValue{
 			"ID": {S: aws.String(k.String())},
@@ -88,7 +92,7 @@ func (a *Assoc) Store(ctx context.Context, kind assoc.Kind, k, v digest.Digest) 
 	return err
 }
 
-func getUpdateComponents(kind assoc.Kind, k, v digest.Digest) (expr string, av map[string]*dynamodb.AttributeValue, an map[string]*string) {
+func (a *Assoc) getUpdateComponents(kind assoc.Kind, k, v digest.Digest) (expr string, av map[string]*dynamodb.AttributeValue, an map[string]*string) {
 	av = make(map[string]*dynamodb.AttributeValue)
 	an = make(map[string]*string)
 	switch kind {
@@ -137,6 +141,17 @@ func getUpdateComponents(kind assoc.Kind, k, v digest.Digest) (expr string, av m
 			av[":empty_list"] = &dynamodb.AttributeValue{L: []*dynamodb.AttributeValue{}}
 		}
 
+	}
+	if !v.IsZero() && len(a.Labels) > 0 {
+		an["#l"] = aws.String("Labels")
+		if a.labels == nil {
+			for k, v := range a.Labels {
+				s := fmt.Sprintf("%s=%s", k, v)
+				a.labels = append(a.labels, &s)
+			}
+		}
+		expr += " ADD #l :labels"
+		av[":labels"] = &dynamodb.AttributeValue{SS: a.labels}
 	}
 	return
 }
