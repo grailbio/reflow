@@ -90,3 +90,29 @@ func TestPutGetFile(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestAbbrevGet(t *testing.T) {
+	ctx := context.Background()
+	r := newTestRepository(t)
+	content := []byte("hello world")
+	id, err := r.Put(ctx, bytes.NewReader(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id.Truncate(4)
+	if !id.IsAbbrev() {
+		panic("!id.IsAbbrev")
+	}
+	rc, err := r.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rc.Close()
+	p, err := ioutil.ReadAll(rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := p, content; bytes.Compare(got, want) != 0 {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

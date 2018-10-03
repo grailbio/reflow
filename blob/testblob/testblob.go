@@ -83,8 +83,46 @@ func (b *bucket) File(ctx context.Context, key string) (reflow.File, error) {
 	return file, nil
 }
 
+type scanner struct {
+	scanned bool
+	b       *bucket
+	keys    []string
+}
+
+func (s *scanner) Scan(ctx context.Context) bool {
+	if s.scanned {
+		s.keys = s.keys[1:]
+	} else {
+		s.scanned = true
+	}
+	return len(s.keys) != 0
+}
+
+func (s *scanner) Err() error {
+	return nil
+}
+
+func (s *scanner) Key() string {
+	return s.keys[0]
+}
+
+func (s scanner) File() reflow.File {
+	file, _, ok := s.b.file(s.Key())
+	if !ok {
+		panic("file notexist")
+	}
+	return file
+}
+
 func (b *bucket) Scan(prefix string) blob.Scanner {
-	panic("not implemented")
+	s := &scanner{b: b}
+	for k := range b.objects {
+		if strings.HasPrefix(k, prefix) {
+			s.keys = append(s.keys, k)
+		}
+	}
+	sort.Strings(s.keys)
+	return s
 }
 
 func (b *bucket) Download(ctx context.Context, key string, etag string, w io.WriterAt) (int64, error) {

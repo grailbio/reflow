@@ -51,6 +51,10 @@ func (r *Repository) String() string {
 
 // Stat queries the repository for object metadata.
 func (r *Repository) Stat(ctx context.Context, id digest.Digest) (reflow.File, error) {
+	id, err := r.resolve(ctx, id)
+	if err != nil {
+		return reflow.File{}, err
+	}
 	file, err := r.Bucket.File(ctx, path.Join(r.Prefix, objectsPath, id.String()))
 	if err == nil {
 		file.ID = id
@@ -60,6 +64,10 @@ func (r *Repository) Stat(ctx context.Context, id digest.Digest) (reflow.File, e
 
 // Get retrieves an object from the repository.
 func (r *Repository) Get(ctx context.Context, id digest.Digest) (io.ReadCloser, error) {
+	id, err := r.resolve(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	rc, _, err := r.Bucket.Get(ctx, path.Join(r.Prefix, objectsPath, id.String()), "")
 	return rc, err
 }
@@ -67,6 +75,10 @@ func (r *Repository) Get(ctx context.Context, id digest.Digest) (io.ReadCloser, 
 // GetFile retrieves an object from the repository directly to the a io.WriterAt.
 // This uses the S3 download manager to download chunks concurrently.
 func (r *Repository) GetFile(ctx context.Context, id digest.Digest, w io.WriterAt) (int64, error) {
+	id, err := r.resolve(ctx, id)
+	if err != nil {
+		return 0, err
+	}
 	return r.Bucket.Download(ctx, path.Join(r.Prefix, objectsPath, id.String()), "", w)
 }
 
@@ -113,6 +125,33 @@ func (r *Repository) Collect(ctx context.Context, live liveset.Liveset) error {
 	return errors.E("collect", errors.NotSupported)
 }
 
+// Resolve resolves the appropriate ID if it is abbreviated.
+// Unabbreviated IDs are returned immediately.
+func (r *Repository) resolve(ctx context.Context, id digest.Digest) (digest.Digest, error) {
+	if !id.IsAbbrev() {
+		return id, nil
+	}
+	var (
+		abbrev = id.ShortString(id.NPrefix())
+		prefix = path.Join(r.Prefix, objectsPath, abbrev)
+		scan   = r.Bucket.Scan(prefix)
+	)
+	if !scan.Scan(ctx) {
+		return id, errors.E("blobrepo.resolve", id, errors.NotExist)
+	}
+	key := scan.Key()
+
+	if scan.Scan(ctx) {
+		return id, errors.E("blobrepo.resolve", id,
+			errors.Errorf("abbreviated id %s not unique", abbrev))
+	}
+	if err := scan.Err(); err != nil {
+		return id, errors.E("blobrepo.resolve", id, err)
+	}
+	_, name := path.Split(key)
+	return reflow.Digester.Parse(name)
+}
+
 const (
 	deleteMaxTries   = 6
 	deleteMaxObjects = 1000
@@ -120,7 +159,7 @@ const (
 
 var deletePolicy = retry.MaxTries(retry.Backoff(2*time.Second, 30*time.Second, 2), deleteMaxTries)
 
-// deleteObjects deletes objects from the repository's bucket, with exponential backoff.
+// delete deletes objects from the repository's bucket, with exponential backoff.
 func (r *Repository) delete(ctx context.Context, keys []string) error {
 	var err error
 	for try := 0; ; try++ {
