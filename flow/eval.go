@@ -237,6 +237,11 @@ type Eval struct {
 	// TODO(marius): encode this into the flow state as well,
 	// so that execution state is not straddled across the two.
 	pending map[*Flow]bool
+
+	// Roots stores the set of roots to be visited in the next
+	// evaluation iteration.
+	roots FlowVisitor
+
 	// Ticker for reporting.
 	ticker *time.Ticker
 	// Total execution time.
@@ -408,38 +413,43 @@ func (e *Eval) Do(ctx context.Context) error {
 	defer cancel()
 	e.ticker = time.NewTicker(10 * time.Second)
 	defer e.ticker.Stop()
-	flow := e.root
 
-	for flow.State != Done {
-		if flow.Digest().IsZero() {
-			panic("invalid flow, zero digest: " + flow.DebugString())
+	root := e.root
+	e.roots.Push(root)
+
+	var todo FlowVisitor
+	for root.State != Done {
+		if root.Digest().IsZero() {
+			panic("invalid flow, zero digest: " + root.DebugString())
 		}
 
 		// This is the meat of the evaluation: we gather Flows that are
 		// ready (until steady state), and then execute this batch. At the
 		// end of each iteration, we wait for one task to complete, and
 		// gather any new Flows that have become ready.
-		e.todo(flow)
+
+		nroots := len(e.roots.q)
+		todo.Reset()
+		visited := make(flowOnce)
+		for e.roots.Walk() {
+			e.todo(e.roots.Flow, visited, &todo)
+		}
+		e.roots.Reset()
+		e.Trace.Debugf("todo %d from %d roots", len(todo.q), nroots)
 
 		var tasks []*sched.Task // the set of tasks to be submitted after this iteration
 	dequeue:
-		for v := flow.Visitor(); v.Walk(); {
-			f := v.Flow
+		for todo.Walk() {
+			f := todo.Flow
 			if e.pending[f] {
 				continue
 			}
-			// If our state is >= Ready, all of our children are completed,
-			// so no need to traverse.
-			if f.State < Ready {
-				v.Visit()
-			}
-
-			if v.Op == Exec {
-				if v.Resources["mem"] < minExecMemory {
-					v.Resources["mem"] = minExecMemory
+			if f.Op == Exec {
+				if f.Resources["mem"] < minExecMemory {
+					f.Resources["mem"] = minExecMemory
 				}
-				if v.Resources["cpu"] < minExecCPU {
-					v.Resources["cpu"] = minExecCPU
+				if f.Resources["cpu"] < minExecCPU {
+					f.Resources["cpu"] = minExecCPU
 				}
 			}
 			if e.Snapshotter != nil && f.Op == Intern && (f.State == Ready || f.State == NeedTransfer) && !f.MustIntern {
@@ -513,6 +523,7 @@ func (e *Eval) Do(ctx context.Context) error {
 							f.Ident, f.Resources, e.total))
 				}
 				if !e.available.Available(f.Resources) {
+					e.roots.Push(f)
 					continue dequeue
 				}
 				e.available.Sub(e.available, f.Resources)
@@ -569,10 +580,10 @@ func (e *Eval) Do(ctx context.Context) error {
 			e.Scheduler.Submit(tasks...)
 			tasks = tasks[:0]
 		}
-		if flow.State == Done {
+		if root.State == Done {
 			break
 		}
-		if len(e.pending) == 0 && flow.State != Done {
+		if len(e.pending) == 0 && root.State != Done {
 			var states [Max][]*Flow
 			for v := e.root.Visitor(); v.Walk(); v.Visit() {
 				states[v.State] = append(states[v.State], v.Flow)
@@ -594,7 +605,7 @@ func (e *Eval) Do(ctx context.Context) error {
 	// all pending tasks so that all logs are properly displayed. We
 	// also perform another collection, so that the executor may be
 	// archived without data.
-	if flow.Err != nil {
+	if root.Err != nil {
 		return nil
 	}
 	for len(e.pending) > 0 {
@@ -878,6 +889,18 @@ func (e *Eval) reportStatus() {
 
 func (e *Eval) returnFlow(f *Flow) {
 	delete(e.pending, f)
+	switch f.State {
+	case Done:
+		for _, flow := range f.Dirty {
+			delete(flow.Pending, f)
+			if len(flow.Pending) == 0 {
+				e.roots.Push(flow)
+			}
+		}
+	default:
+		// Might need re-evaluation, so we need to re-traverse.
+		e.roots.Push(f)
+	}
 	e.needCollect = true
 	e.available.Add(e.available, f.Reserved)
 	e.Mutate(f, Unreserve(f.Reserved))
@@ -1017,16 +1040,25 @@ func (e *Eval) valid(f *Flow) bool {
 	return !invalid
 }
 
-// todo adds to e.list the set of ready Flows in f.
-func (e *Eval) todo(f *Flow) {
-	if f == nil {
+// todo adds to e.list the set of ready Flows in f. Todo adds all nodes
+// that require evaluation to the provided visitor.
+func (e *Eval) todo(f *Flow, visited flowOnce, v *FlowVisitor) {
+	if f == nil || !visited.Visit(f) {
 		return
 	}
 	switch f.State {
 	case Init:
+		f.Pending = make(map[*Flow]bool)
+		for _, dep := range f.Deps {
+			if dep.State != Done {
+				f.Pending[dep] = true
+				dep.Dirty = append(dep.Dirty, f)
+			}
+		}
 		switch f.Op {
 		case Intern, Exec, Extern:
 			if !e.BottomUp && e.CacheMode.Reading() && !e.dirty(f) {
+				v.Push(f)
 				e.Mutate(f, NeedLookup)
 				return
 			}
@@ -1035,7 +1067,7 @@ func (e *Eval) todo(f *Flow) {
 		fallthrough
 	case TODO:
 		for _, dep := range f.Deps {
-			e.todo(dep)
+			e.todo(dep, visited, v)
 		}
 		// In the case of multiple dependencies, we short-circuit
 		// computation on error. This is because we want to return early,
@@ -1046,6 +1078,7 @@ func (e *Eval) todo(f *Flow) {
 			}
 			if dep.State == Done && dep.Err != nil {
 				e.Mutate(f, Ready)
+				v.Push(f)
 				return
 			}
 		}
@@ -1073,6 +1106,9 @@ func (e *Eval) todo(f *Flow) {
 			// and do not need access to the objects.
 			e.Mutate(f, Ready)
 		}
+		v.Push(f)
+	default:
+		v.Push(f)
 	}
 }
 
@@ -1166,7 +1202,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 		for i := range v.List {
 			ff.Deps[i] = f.MapFunc(filesetFlow(v.List[i]))
 		}
-		e.Mutate(f, Fork(ff), TODO)
+		e.Mutate(f, Fork(ff), Init)
 		e.Mutate(f.Parent, Done)
 	case Collect:
 		v := f.Deps[0].Value.(reflow.Fileset)
@@ -1199,7 +1235,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 			vs[i] = dep.Value
 		}
 		ff := f.K(vs)
-		e.Mutate(f, Fork(ff), TODO)
+		e.Mutate(f, Fork(ff), Init)
 		e.Mutate(f.Parent, Done)
 	case Coerce:
 		if v, err := f.Coerce(f.Deps[0].Value); err != nil {

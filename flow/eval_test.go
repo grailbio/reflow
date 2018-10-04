@@ -7,8 +7,11 @@ package flow_test
 import (
 	"bytes"
 	"context"
+	"flag"
 	"fmt"
+	golog "log"
 	"math"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -29,6 +32,22 @@ import (
 	grailtest "github.com/grailbio/testutil"
 )
 
+var (
+	debug       = flag.Bool("flow.trace", false, "log verbose flow scheduler traces")
+	logOnce     sync.Once
+	debugLogger *log.Logger
+)
+
+func logger() *log.Logger {
+	if !*debug {
+		return nil
+	}
+	logOnce.Do(func() {
+		debugLogger = log.New(golog.New(os.Stderr, "trace: ", 0), log.DebugLevel)
+	})
+	return debugLogger
+}
+
 var maxResources = reflow.Resources{
 	"mem":  math.MaxFloat64,
 	"cpu":  math.MaxFloat64,
@@ -44,7 +63,11 @@ func TestSimpleEval(t *testing.T) {
 
 	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
-	eval := flow.NewEval(extern, flow.EvalConfig{Executor: &e})
+	eval := flow.NewEval(extern, flow.EvalConfig{
+		Executor: &e,
+		Log:      logger(),
+		Trace:    logger(),
+	})
 	rc := testutil.EvalAsync(context.Background(), eval)
 	e.Ok(intern, testutil.Files("a/b/c", "a/b/d", "x/y/z"))
 	e.Ok(exec, testutil.Files("execout"))
@@ -67,7 +90,11 @@ func TestGroupbyMapCollect(t *testing.T) {
 
 	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
-	eval := flow.NewEval(mapCollect, flow.EvalConfig{Executor: &e})
+	eval := flow.NewEval(mapCollect, flow.EvalConfig{
+		Executor: &e,
+		Log:      logger(),
+		Trace:    logger(),
+	})
 	rc := testutil.EvalAsync(context.Background(), eval)
 	e.Ok(intern, testutil.Files("a/one:one", "a/two:two", "a/three:three", "b/1:four", "b/2:five", "c/xxx:six"))
 	r := <-rc
@@ -85,7 +112,11 @@ func TestExecRetry(t *testing.T) {
 	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
 
-	eval := flow.NewEval(exec, flow.EvalConfig{Executor: &e})
+	eval := flow.NewEval(exec, flow.EvalConfig{
+		Executor: &e,
+		Log:      logger(),
+		Trace:    logger(),
+	})
 	rc := testutil.EvalAsync(context.Background(), eval)
 	e.Error(exec, errors.New("failed"))
 	e.Ok(exec, testutil.Files("execout"))
@@ -108,10 +139,14 @@ func TestSteal(t *testing.T) {
 
 	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
-	eval := flow.NewEval(merge, flow.EvalConfig{Executor: &e})
+	eval := flow.NewEval(merge, flow.EvalConfig{
+		Executor: &e,
+		Log:      logger(),
+		Trace:    logger(),
+	})
 	rc := testutil.EvalAsync(context.Background(), eval)
 	for i := 0; i < N; i++ {
-		e.Wait(execs[i])
+		e.Wait(execs[N-i-1])
 		s := eval.Stealer()
 		stolen := make([]*flow.Flow, N-i-1)
 		for j := range stolen {
@@ -122,7 +157,7 @@ func TestSteal(t *testing.T) {
 			t.Errorf("stole too much %d: %v", i, f)
 		default:
 		}
-		e.Ok(execs[i], reflow.Fileset{})
+		e.Ok(execs[N-i-1], reflow.Fileset{})
 		// Return the rest undone.
 		for _, f := range stolen {
 			s.Return(f)
@@ -155,7 +190,8 @@ func TestCacheWrite(t *testing.T) {
 			Transferer: testutil.Transferer,
 			Repository: repo,
 			BottomUp:   bottomup,
-			//			Log:      log.New(golog.New(os.Stderr, "", golog.LstdFlags), log.InfoLevel),
+			Log:        logger(),
+			Trace:      logger(),
 		})
 		rc := testutil.EvalAsync(context.Background(), eval)
 		var (
@@ -191,6 +227,7 @@ func TestCacheLookup(t *testing.T) {
 	extern := op.Extern("externurl", pullup)
 
 	e := testutil.Executor{Have: testutil.Resources}
+
 	e.Init()
 	e.Repo = testutil.NewInmemoryRepository()
 	eval := flow.NewEval(extern, flow.EvalConfig{
@@ -199,15 +236,17 @@ func TestCacheLookup(t *testing.T) {
 		Assoc:      testutil.NewInmemoryAssoc(),
 		Repository: testutil.NewInmemoryRepository(),
 		Transferer: testutil.Transferer,
+		Log:        logger(),
+		Trace:      logger(),
 	})
 
-	testutil.WriteCache(eval, extern.Digest() /*empty*/)
+	testutil.WriteCache(eval, extern.Digest())
 	rc := testutil.EvalAsync(context.Background(), eval)
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if !e.Equiv( /*no flows were executed*/ ) {
+	if !e.Equiv() { //no flows to be executed
 		t.Error("did not expect any flows to be executed")
 	}
 
@@ -219,6 +258,8 @@ func TestCacheLookup(t *testing.T) {
 		Assoc:      testutil.NewInmemoryAssoc(),
 		Repository: testutil.NewInmemoryRepository(),
 		Transferer: testutil.Transferer,
+		Log:        logger(),
+		Trace:      logger(),
 	})
 	testutil.WriteCache(eval, intern.Digest(), "a", "b")
 	rc = testutil.EvalAsync(context.Background(), eval)
@@ -268,7 +309,8 @@ func TestCacheLookupBottomup(t *testing.T) {
 		// traces, or a way of observing individual nodes. (Observers would
 		// need to be shared across canonicalizations.)
 		CacheLookupTimeout: 100 * time.Millisecond,
-		//			Trace:    log.New(golog.New(os.Stderr, "", golog.LstdFlags), log.InfoLevel),
+		Log:                logger(),
+		Trace:              logger(),
 	})
 	testutil.WriteCache(eval, intern.Digest(), "a", "b")
 	// "a" gets a cache hit, "b" a miss.
@@ -303,6 +345,8 @@ func TestCacheLookupMissing(t *testing.T) {
 		Transferer:         testutil.Transferer,
 		BottomUp:           true,
 		CacheLookupTimeout: 100 * time.Millisecond,
+		Log:                logger(),
+		Trace:              logger(),
 	})
 	testutil.WriteCache(eval, intern.Digest(), "a", "b")
 	// Make sure the assoc and fileset exists, but not all of the objects.
@@ -343,6 +387,8 @@ func TestNoCacheExtern(t *testing.T) {
 			Transferer:    testutil.Transferer,
 			BottomUp:      bottomup,
 			NoCacheExtern: true,
+			Log:           logger(),
+			Trace:         logger(),
 		})
 		testutil.WriteCache(eval, intern.Digest(), "a", "b")
 		rc := testutil.EvalAsync(context.Background(), eval)
@@ -377,7 +423,12 @@ func TestGC(t *testing.T) {
 	defer cleanup()
 	repo := filerepo.Repository{Root: objects}
 	e.Repo = &repo
-	eval := flow.NewEval(pullup, flow.EvalConfig{Executor: &e, GC: true})
+	eval := flow.NewEval(pullup, flow.EvalConfig{
+		Executor: &e,
+		GC:       true,
+		Log:      logger(),
+		Trace:    logger(),
+	})
 	rc := testutil.EvalAsync(context.Background(), eval)
 	files := []string{
 		"a/x:x", "a/y:y", "a/z:z", "b/1:1", "b/2:2", "c/xxx:xxx",
@@ -424,7 +475,11 @@ func TestData(t *testing.T) {
 	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
 	e.Repo = testutil.NewInmemoryRepository()
-	eval := flow.NewEval(op.Data(hello), flow.EvalConfig{Executor: &e})
+	eval := flow.NewEval(op.Data(hello), flow.EvalConfig{
+		Executor: &e,
+		Log:      logger(),
+		Trace:    logger(),
+	})
 	r := <-testutil.EvalAsync(context.Background(), eval)
 	if r.Err != nil {
 		t.Fatal(r.Err)

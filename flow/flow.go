@@ -317,6 +317,16 @@ type Flow struct {
 	// fully interned and cannot be pre-resolved.
 	MustIntern bool
 
+	// Dirty is used by the evaluator to track which nodes are dirtied
+	// by this node: once the node has been evaluated, these flows
+	// may be eligble for evaluation.
+	Dirty []*Flow
+
+	// Pending maintains a map of this node's dependent nodes that
+	// are pending evaluation. It is maintained by the evaluator to trigger
+	// evaluation.
+	Pending map[*Flow]bool
+
 	digestOnce sync.Once
 	digest     digest.Digest
 }
@@ -927,15 +937,21 @@ func (f *Flow) canonicalize(m *flowMap, config Config) *Flow {
 type FlowVisitor struct {
 	*Flow
 	q    []*Flow
-	seen map[*Flow]bool
+	seen flowOnce
+}
+
+// Reset resets the flow visitor state.
+func (v *FlowVisitor) Reset() {
+	v.seen.Forget()
+	v.q = v.q[:0]
 }
 
 // Push pushes node f onto visitor stack.
 func (v *FlowVisitor) Push(f *Flow) {
 	if v.seen == nil {
-		v.seen = map[*Flow]bool{}
+		v.seen = make(flowOnce)
 	}
-	v.q = append([]*Flow{f}, v.q...)
+	v.q = append(v.q, f)
 }
 
 // Visit pushes the current node's children on to the visitor stack,
@@ -949,12 +965,11 @@ func (v *FlowVisitor) Visit() {
 // node is visited only once.
 func (v *FlowVisitor) Walk() bool {
 	for len(v.q) > 0 {
-		v.Flow, v.q = v.q[0], v.q[1:]
-		if v.Flow == nil || v.seen[v.Flow] {
-			continue
+		v.Flow = v.q[len(v.q)-1]
+		v.q = v.q[:len(v.q)-1]
+		if v.Flow != nil && v.seen.Visit(v.Flow) {
+			return true
 		}
-		v.seen[v.Flow] = true
-		return true
 	}
 	return false
 }
@@ -985,6 +1000,26 @@ func (m *flowMap) Put(flow *Flow) *Flow {
 	}
 	m.flows[d] = flow
 	return flow
+}
+
+// FlowOnce maintains a set of visited flows, so that each may
+// be visited only once.
+type flowOnce map[*Flow]struct{}
+
+// Visit returns true the first time flow f is visited.
+func (o flowOnce) Visit(f *Flow) bool {
+	if _, ok := o[f]; ok {
+		return false
+	}
+	o[f] = struct{}{}
+	return true
+}
+
+// Forget removes all visited flows.
+func (o flowOnce) Forget() {
+	for f := range o {
+		delete(o, f)
+	}
 }
 
 func writeN(w io.Writer, n int) {
