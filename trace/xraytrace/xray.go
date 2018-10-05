@@ -7,37 +7,9 @@ import (
 	"regexp"
 
 	"github.com/aws/aws-xray-sdk-go/header"
-	"github.com/aws/aws-xray-sdk-go/strategy/sampling"
 	"github.com/aws/aws-xray-sdk-go/xray"
-	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/trace"
 )
-
-func init() {
-	b := []byte(`{
-		"version": 1,
-		"default": {
-			"fixed_target": 1,
-			"rate": 1.0
-		},
-		"rules": [ ]
-	}`)
-	l, err := sampling.NewLocalizedStrategyFromJSONBytes(b)
-	if err != nil {
-		log.Debugf("parse xray strategy: %s", err)
-		l, _ = sampling.NewLocalizedStrategy()
-	}
-	addr := "127.0.0.1:2000"
-	err = xray.Configure(xray.Config{
-		// TODO(pgopal) - Make the daemon address configurable
-		DaemonAddr:       addr,    // default
-		LogLevel:         "error", // default
-		SamplingStrategy: l,
-	})
-	if err != nil {
-		log.Debug("xray: ", err)
-	}
-}
 
 // Tracer is the reflow tracer implementation for xray.
 type tracer struct{}
