@@ -4,9 +4,7 @@
 
 package types
 
-import (
-	"testing"
-)
+import "testing"
 
 var (
 	ty1 = Struct(
@@ -48,6 +46,11 @@ var (
 		},
 		nil,
 	)
+
+	mapTy  = Map(Int, String)
+	listTy = List(String)
+
+	types = []*T{ty1, ty2, ty12, mty1, mty2, mty12}
 )
 
 func TestUnify(t *testing.T) {
@@ -57,6 +60,16 @@ func TestUnify(t *testing.T) {
 	}
 	u = mty1.Unify(mty2)
 	if got, want := u.String(), "module{a int, c (int, string)}"; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+
+	if got, want := listTy.Unify(List(Bottom)), listTy; !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := mapTy.Unify(Map(Top, Bottom)), mapTy; !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := Map(Int, ty1).Unify(Map(Int, ty2)).String(), `[int:{a int, c (int, string)}]`; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
@@ -79,6 +92,16 @@ func TestSub(t *testing.T) {
 	}
 	if !mty12.Sub(mty2) {
 		t.Errorf("%s is a subtype of %s", ty12, ty2)
+	}
+	for _, typ := range types {
+		if !Bottom.Sub(typ) {
+			t.Errorf("bottom is a subtype of %v", typ)
+		}
+	}
+	for _, typ := range types {
+		if !typ.Sub(Top) {
+			t.Errorf("%s is a subtype of top", typ)
+		}
 	}
 }
 

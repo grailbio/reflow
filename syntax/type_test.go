@@ -74,6 +74,14 @@ func TestSynth(t *testing.T) {
 			`error: exec parameter mem is not immediate`,
 		},
 		{`[{a: 1, b: 2}, {a: 1}]`, `[{a int}]`},
+		{`[]`, `[bottom]`},
+		{`[:]`, `[top:bottom]`},
+		{`(func(x [string:int]) => x)([:])`, `[string:int]`},
+		{`{val x [int:int] = [:]; x}`, `[int:int]`},
+		{`[] + [1]`, `[int]`},
+		{`[1] + []`, `[int]`},
+		{`[:] + [1:1]`, `[int:int]`},
+		{`[1:1] + [:]`, `[int:int]`},
 	} {
 		p := Parser{Mode: ParseExpr, Body: bytes.NewReader([]byte(ex.expr))}
 		if err := p.Parse(); err != nil {

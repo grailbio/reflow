@@ -288,7 +288,7 @@ func WriteDigest(w io.Writer, v T, t *types.T) {
 		return
 	}
 
-	w.Write([]byte{byte(t.Kind)})
+	w.Write([]byte{t.Kind.ID()})
 	switch t.Kind {
 	case types.ErrorKind, types.BottomKind, types.RefKind:
 		panic("illegal type")

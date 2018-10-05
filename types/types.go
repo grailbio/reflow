@@ -10,6 +10,7 @@
 // A Reflow type is one of:
 //
 //	bottom                                    the type of no values
+//	top                                       the type of any value
 //	int                                       the type of arbitrary precision integers
 //	float                                     the type of arbitrary precision float point numbers
 //	string                                    the type of (utf-8 encoded) strings
@@ -52,6 +53,9 @@ const (
 
 	// BottomKind is a value-less type.
 	BottomKind
+
+	// TopKind is the type of any value.
+	TopKind
 
 	// Kind 0 types.
 
@@ -119,10 +123,47 @@ var kindStrings = [typeMax]string{
 	FuncKind:    "func",
 	StructKind:  "struct",
 	ModuleKind:  "module",
+	TopKind:     "top",
 }
 
 func (k Kind) String() string {
 	return kindStrings[k]
+}
+
+// KindsInOrder stores the order in which kinds were added.
+var kindsInOrder = [...]Kind{
+	ErrorKind,
+	BottomKind,
+	IntKind,
+	StringKind,
+	BoolKind,
+	FileKind,
+	DirKind,
+	UnitKind,
+	ListKind,
+	MapKind,
+	TupleKind,
+	FuncKind,
+	StructKind,
+	ModuleKind,
+	RefKind,
+	FloatKind,
+	FilesetKind,
+	TopKind,
+}
+
+var kindID [typeMax]byte
+
+func init() {
+	for i, k := range kindsInOrder {
+		kindID[k] = byte(i)
+	}
+}
+
+// ID returns the kind's stable identifier, which may be used
+// for serialization.
+func (k Kind) ID() byte {
+	return kindID[k]
 }
 
 var typeError = Error(errors.New("type error"))
@@ -198,6 +239,7 @@ type T struct {
 // Convenience vars for common types.
 var (
 	Bottom  = &T{Kind: BottomKind}
+	Top     = &T{Kind: TopKind}
 	Int     = &T{Kind: IntKind}
 	Float   = &T{Kind: FloatKind}
 	String  = &T{Kind: StringKind}
@@ -258,7 +300,7 @@ func List(elem *T) *T {
 // Map returns a new map type with the given index and element types.
 func Map(index, elem *T) *T {
 	switch index.Kind {
-	case StringKind, IntKind, FloatKind, BoolKind, FileKind:
+	case StringKind, IntKind, FloatKind, BoolKind, FileKind, TopKind:
 	default:
 		return Errorf("%v is not a valid map key type", index)
 	}
@@ -360,6 +402,8 @@ func (t *T) String() string {
 		s += "}"
 	case BottomKind:
 		s = "bottom"
+	case TopKind:
+		s = "top"
 	case FilesetKind:
 		s = "fileset"
 	}
@@ -523,10 +567,11 @@ func (t *T) Unify(u *T) *T {
 	case ListKind:
 		return List(t.Elem.Unify(u.Elem))
 	case MapKind:
-		if !t.Index.Equal(u.Index) {
-			return Errorf("map key mismatch: %v != %v", t.Index, u.Index)
+		k := t.Index
+		if u.Index.Sub(k) {
+			k = u.Index
 		}
-		return Map(t.Index, t.Elem.Unify(u.Elem))
+		return Map(k, t.Elem.Unify(u.Elem))
 	case TupleKind:
 		if nt, nu := len(t.Fields), len(u.Fields); nt != nu {
 			return Errorf("mismatched tuple length: %v != %v", nt, nu)
@@ -588,6 +633,9 @@ func (t *T) Sub(u *T) bool {
 	if t.Kind == BottomKind {
 		return true
 	}
+	if u.Kind == TopKind {
+		return true
+	}
 	if t.Kind != u.Kind {
 		return false
 	}
@@ -599,7 +647,7 @@ func (t *T) Sub(u *T) bool {
 	case ListKind:
 		return t.Elem.Sub(u.Elem)
 	case MapKind:
-		return t.Index.Equal(u.Index) && t.Elem.Sub(u.Elem)
+		return u.Index.Sub(t.Index) && t.Elem.Sub(u.Elem)
 	case TupleKind:
 		if len(t.Fields) != len(u.Fields) {
 			return false

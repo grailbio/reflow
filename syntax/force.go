@@ -183,7 +183,7 @@ func (r *resolver) Resolve(proc func()) values.T {
 		return r.v
 	}
 	var once sync.Once
-	writeN(r.dw, int(r.t.Kind))
+	writeN(r.dw, int(r.t.Kind.ID()))
 	return &flow.Flow{
 		Op:         flow.K,
 		Deps:       r.deps,

@@ -344,6 +344,10 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			}
 			return
 		}
+		if e.Op == "+" && (e.Left.Type.Kind == types.ListKind || e.Left.Type.Kind == types.MapKind) {
+			e.Type = e.Left.Type.Unify(e.Right.Type)
+			return
+		}
 
 		if !e.Left.Type.Equal(e.Right.Type) {
 			e.Type = types.Errorf(
@@ -355,7 +359,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		case "+":
 			switch e.Left.Type.Kind {
 			// TODO(marius): for maps and lists, we should unify here.
-			case types.StringKind, types.IntKind, types.FloatKind, types.ListKind, types.MapKind:
+			case types.StringKind, types.IntKind, types.FloatKind:
 				e.Type = e.Left.Type.Assign(nil)
 			default:
 				e.Type = types.Errorf("binary operator %s not allowed for type %v", e.Op, e.Left.Type)
@@ -441,7 +445,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		}
 		e.Type = e.Left.Type.Elem.Assign(e.Left.Type)
 		for i, f := range e.Fields {
-			if !f.Type.Equal(e.Left.Type.Fields[i].T) {
+			if !f.Type.Sub(e.Left.Type.Fields[i].T) {
 				e.Type = types.Errorf(
 					"cannot use type %v as type %v in argument to %s (type %s)",
 					f.Type, e.Left.Type.Fields[i].T, e.Left.identOr("function"), e.Left.Type)
@@ -489,7 +493,13 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			kts = append(kts, k.Type)
 			vts = append(vts, v.Type)
 		}
-		e.Type = types.Map(unify(kts...), unify(vts...))
+		var kt *types.T
+		if len(kts) == 0 {
+			kt = types.Top
+		} else {
+			kt = unify(kts...)
+		}
+		e.Type = types.Map(kt, unify(vts...))
 	case ExprExec:
 		params := map[string]bool{}
 		for _, d := range e.Decls {
