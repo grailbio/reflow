@@ -25,7 +25,7 @@ type label struct {
 }
 
 func parse(cfg Config, arg string) (Config, error) {
-	l := label{cfg, make(pool.Labels)}
+	l := label{Config: cfg, m: make(pool.Labels)}
 	sp := strings.Split(arg, ",")
 	for _, v := range sp {
 		s := strings.Split(v, "=")
@@ -38,5 +38,15 @@ func parse(cfg Config, arg string) (Config, error) {
 }
 
 func (l *label) Labels() pool.Labels {
-	return l.m
+	labels := make(pool.Labels)
+	for k, v := range l.m {
+		labels[k] = v
+	}
+	d := l.Config.Labels()
+	if d != nil {
+		for k, v := range d {
+			labels[k] = v
+		}
+	}
+	return labels
 }

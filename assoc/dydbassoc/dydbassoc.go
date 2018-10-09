@@ -46,7 +46,9 @@ type Assoc struct {
 	TableName string
 	// Labels to assign to cache entries.
 	Labels pool.Labels
-	labels []*string
+
+	labelsOnce sync.Once
+	labels     []*string
 }
 
 // Store associates the digest v with the key digest k of the provided kind. If v is zero,
@@ -143,13 +145,12 @@ func (a *Assoc) getUpdateComponents(kind assoc.Kind, k, v digest.Digest) (expr s
 
 	}
 	if !v.IsZero() && len(a.Labels) > 0 {
-		an["#l"] = aws.String("Labels")
-		if a.labels == nil {
+		a.labelsOnce.Do(func() {
 			for k, v := range a.Labels {
-				s := fmt.Sprintf("%s=%s", k, v)
-				a.labels = append(a.labels, &s)
+				a.labels = append(a.labels, aws.String(fmt.Sprintf("%s=%s", k, v)))
 			}
-		}
+		})
+		an["#l"] = aws.String("Labels")
 		expr += " ADD #l :labels"
 		av[":labels"] = &dynamodb.AttributeValue{SS: a.labels}
 	}
