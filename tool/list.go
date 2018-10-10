@@ -97,7 +97,7 @@ The columns displayed by list are:
 	}
 
 	inspects := make([]interface{}, len(entries))
-	err := traverse.Each(len(entries)).Do(func(i int) error {
+	err := traverse.Each(len(entries), func(i int) error {
 		var err error
 		switch entry := entries[i].(type) {
 		case reflow.Exec:

@@ -331,7 +331,7 @@ func (m *Mux) Alloc(ctx context.Context, uri string) (Alloc, error) {
 func (m *Mux) Allocs(ctx context.Context) ([]Alloc, error) {
 	pools := m.Pools()
 	allocss := make([][]Alloc, len(pools))
-	err := traverse.Each(len(allocss)).Do(func(i int) error {
+	err := traverse.Each(len(allocss), func(i int) error {
 		var err error
 		allocss[i], err = pools[i].Allocs(ctx)
 		return err
@@ -375,7 +375,7 @@ func (m *Mux) Offers(ctx context.Context) ([]Offer, error) {
 	} else {
 		ctx, cancel = context.WithDeadline(ctx, deadline)
 	}
-	err := traverse.Each(len(offerss)).Do(func(i int) error {
+	err := traverse.Each(len(offerss), func(i int) error {
 		var err error
 		offerss[i], err = pools[i].Offers(ctx)
 		if err == context.DeadlineExceeded {
