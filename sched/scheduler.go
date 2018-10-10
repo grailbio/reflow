@@ -102,23 +102,23 @@ func (s *Scheduler) Do(ctx context.Context) error {
 	defer cancel()
 
 	// We maintain a priority queue of runnable tasks, and priority
-	// queues for live and pending allocs. The priority queues are
+	// queues for live and pending live. The priority queues are
 	// ordered by the resource measure (scaled distance). This leads to
 	// a straightforward allocation strategy: we try to match tasks with
-	// allocs in order, thus allocating the "smallest" runnable task
+	// live in order, thus allocating the "smallest" runnable task
 	// onto the "smallest" available alloc, progressively trying larger
-	// allocs until we succeed. If we run out of allocs, we have to
+	// live until we succeed. If we run out of live, we have to
 	// allocate (or wait for pending allocations).
 	//
-	// Similarly, we maintain a set of pending allocs. When we fail to
-	// assign all tasks onto running allocs, we attempt to assign the
-	// remaining tasks onto the pending allocs. Any remaining tasks
+	// Similarly, we maintain a set of pending live. When we fail to
+	// assign all tasks onto running live, we attempt to assign the
+	// remaining tasks onto the pending live. Any remaining tasks
 	// represent needed resources for which we do not have any pending
-	// allocs. Thus we craft an allocation requirement from the
+	// live. Thus we craft an allocation requirement from the
 	// remaining task list.
 	var (
-		allocs, pending allocq
-		todo            taskq
+		live, pending allocq
+		todo          taskq
 
 		nrunning int
 
@@ -153,7 +153,7 @@ func (s *Scheduler) Do(ctx context.Context) error {
 				case TaskDone:
 				}
 			}
-			for n := len(allocs); n > 0; n-- {
+			for n := len(live); n > 0; n-- {
 				<-deadc
 			}
 			for n := len(pending); n > 0; n-- {
@@ -161,8 +161,8 @@ func (s *Scheduler) Do(ctx context.Context) error {
 			}
 			return ctx.Err()
 		case <-tick.C:
-			for _, alloc := range allocs {
-				if alloc.IdleTime() > s.MaxAllocIdleTime {
+			for _, alloc := range live {
+				if alloc.IdleFor() > s.MaxAllocIdleTime {
 					alloc.Cancel()
 				}
 			}
@@ -175,7 +175,7 @@ func (s *Scheduler) Do(ctx context.Context) error {
 			alloc := task.alloc
 			alloc.Unassign(task)
 			if alloc.index != -1 {
-				heap.Fix(&allocs, alloc.index)
+				heap.Fix(&live, alloc.index)
 			}
 			switch task.State() {
 			default:
@@ -190,14 +190,14 @@ func (s *Scheduler) Do(ctx context.Context) error {
 			heap.Remove(&pending, alloc.index)
 			if alloc.Alloc != nil {
 				alloc.Init()
-				heap.Push(&allocs, alloc)
+				heap.Push(&live, alloc)
 			}
 		case alloc := <-deadc:
 			// The allocs tasks will be returned with state TaskLost.
-			heap.Remove(&allocs, alloc.index)
+			heap.Remove(&live, alloc.index)
 		}
 
-		assigned := s.assign(&todo, &allocs)
+		assigned := s.assign(&todo, &live)
 		for _, task := range assigned {
 			task.Log.Debugf("scheduler: assigning task to alloc %v", task.alloc)
 			nrunning++

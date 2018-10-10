@@ -21,13 +21,9 @@ type allocq []*alloc
 func (q allocq) Len() int { return len(q) }
 
 // Less implements sort.Interface/heap.Interface.
-// We consider the alloc with the greatest amount of
+// We consider the alloc with the least amount of
 // available resources the min alloc.
 func (q allocq) Less(i, j int) bool {
-	if q[i].Alloc != nil && q[j].Alloc == nil {
-		return true
-	}
-
 	return q[i].Available.ScaledDistance(nil) < q[j].Available.ScaledDistance(nil)
 }
 
@@ -114,9 +110,9 @@ func (a *alloc) Unassign(task *Task) {
 	task.alloc = nil
 }
 
-// IdleTime returns the time passed since the alloc had zero
+// IdleFor returns the time passed since the alloc had zero
 // assigned tasks.
-func (a *alloc) IdleTime() time.Duration {
+func (a *alloc) IdleFor() time.Duration {
 	if a.Pending > 0 {
 		return 0
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/log"
 )
 
 var (
@@ -81,7 +82,7 @@ func Transfer(ctx context.Context, dst, src reflow.Repository, id digest.Digest)
 			return err
 		}
 	}
-	//	log.Printf("local transfer %v %v %v", dst.URL(), src.URL(), id)
+	log.Printf("local transfer %v %v %v", dst.URL(), src.URL(), id)
 	return transferLocal(ctx, dst, src, id)
 }
 
