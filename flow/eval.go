@@ -559,6 +559,8 @@ func (e *Eval) Do(ctx context.Context) error {
 					if err := task.Wait(ctx, sched.TaskRunning); err != nil {
 						return err
 					}
+					// Grab the task's exec so that it can be logged properly.
+					f.Exec = task.Exec
 					e.LogFlow(ctx, f)
 					if err := task.Wait(ctx, sched.TaskDone); err != nil {
 						return err
