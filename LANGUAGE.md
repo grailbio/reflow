@@ -93,7 +93,7 @@ The following is an overview of Reflow's syntactic features:
   <dt>assignment</dt>
   <dd>Values can be assigned identifiers with <code>val</code>; example: <code>val ident = 123</code> (the identifier <code>ident</code> has type <code>int</code>). Assignments can specify a type annotation: <code>val ident int = 123</code> and can also perform pattern matching (see below), and a syntax shortcut is provided for simple assignments where neither is required: <code>ident := 123</code>.</dd>
   <dt>conditionals</dt>
-  <dd>Conditionals compute a branch depending on a condition; example: <code>if x < 0 { -x } else { x }</code></dd>
+  <dd>Conditionals compute a branch depending on a condition; example: <code>if x < 0 { -x } else if x >= 0 && x < 2 { x } else { x - 2 }</code></dd>
   <dt>functions (type <code>func(a1, a2) r</code>)</dt>
   <dd>Functions abstract code over a list of parameters, they are lexically scoped; examples: <code>func(x int, y int) => x*y</code> (type <code>func(x, y int) int</code>. It is very common to declare a function and assign it to an identifier; Reflow provides syntax sugar for this:
 <pre>

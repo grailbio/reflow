@@ -82,7 +82,7 @@ type typearg struct {
 
 %type	<decllist>		defs defs1 commadefs  paramdef paramdefs 
 %type	<decl>		val valdef typedef def  commadef
-%type	<expr>		expr  term  keyspace exprblock ifelseblock
+%type	<expr>		expr  term  keyspace exprblock ifelseblock elseifexpr
 %type	<exprlist>	 listargs  listappendargs
 %type	<exprmap>	mapargs
 %type	<comprclauses>	comprclauses
@@ -475,8 +475,8 @@ expr: term
 	{$$ = &Expr{Position: $1.Position, Kind: ExprBinop, Op: ">>", Left: $1, Right: $3}}
 |	expr tokSquiggleArrow expr
 	{$$ = &Expr{Position: $1.Position, Kind: ExprBinop, Op: "~>", Left: $1, Right: $3}}
-|	tokIf expr ifelseblock tokElse ifelseblock
-	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprCond, Cond: $2, Left: $3, Right: $5}}
+|	tokIf expr ifelseblock elseifexpr
+	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprCond, Cond: $2, Left: $3, Right: $4}}
 |	expr '[' expr ']'
 	{$$ = &Expr{Position: $1.Position, Kind: ExprIndex, Left: $1, Right: $3}}
 |	expr '(' applyargs commaOk ')'  
@@ -487,6 +487,12 @@ expr: term
 	{$$ = &Expr{Position: $1.Position, Kind: ExprUnop, Op: "!", Left: $2}}
 |	'-' expr %prec unary
 	{$$ = &Expr{Position: $1.Position, Kind: ExprUnop, Op: "-", Left: $2}}
+
+elseifexpr:
+      tokElse ifelseblock
+      {$$ = &Expr{Position: $1.Position, Kind: ExprBlock, Left: $2}}
+|     tokElse tokIf expr ifelseblock elseifexpr
+      {$$ = &Expr{Position: $1.Position, Kind: ExprCond, Cond: $3, Left: $4, Right: $5}}
 
 term:
 	tokExpr

@@ -1,0 +1,5 @@
+val TestIf1 = if 1 == 1 { 1 } else { 2 } == 1
+val TestIf2 = if 1 != 1 { 1 } else { 2 } == 2
+val TestIf3 = if 1 != 1 { 1 } else if 3 == 3 { 3 } else { 2 } == 3
+val TestIf4 = if 1 != 1 { 1 } else if 3 != 3 { 2 } else if 4 == 4 { 4 } else { 2 } == 4
+val TestIf5 = if 1 != 1 { 1 } else if 3 != 3 { 2 } else if 4 != 4 { 4 } else { 2 } == 2
