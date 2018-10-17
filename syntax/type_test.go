@@ -106,6 +106,7 @@ func TestFlow(t *testing.T) {
 		{`exec(image := "blah") (ok dir) {" "}`, true},
 		{`(exec(image := "blah") (ok dir) {" "}, 123)`, true},
 		{`{ x := 1; y := 2; x+y}`, false},
+		{`{ x := 1; y := delay(2); x+y}`, true},
 		{`{ x := file("x"); y := 2; len(x)+y}`, true},
 	} {
 		p := Parser{Mode: ParseExpr, Body: bytes.NewReader([]byte(ex.expr))}

@@ -299,7 +299,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		for _, d := range e.Decls {
 			d.Init(sess, env)
 			if d.Type.Kind == types.ErrorKind {
-				e.Type = d.Type.Assign(nil)
+				e.Type = d.Type.Derive(nil)
 			} else if err := d.Pat.BindTypes(env, d.Type); err != nil {
 				d.Type = types.Error(err)
 			}
@@ -332,16 +332,10 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		e.Type = env.Type(e.Ident)
 		if e.Type == nil {
 			e.Type = types.Errorf("identifier %q not defined", e.Ident)
-		} else {
-			e.Type = e.Type.Assign(nil)
 		}
 	case ExprBinop:
 		if e.Op == "~>" {
-			if e.Left.Type.Kind == types.ErrorKind {
-				e.Type = e.Left.Type.Assign(nil)
-			} else {
-				e.Type = e.Right.Type.Assign(nil)
-			}
+			e.Type = e.Right.Type.Derive(e.Left.Type)
 			return
 		}
 		if e.Op == "+" && (e.Left.Type.Kind == types.ListKind || e.Left.Type.Kind == types.MapKind) {
@@ -355,45 +349,46 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 				e.Op, e.Left.Type, e.Right.Type)
 			return
 		}
+		unified := e.Left.Type.Unify(e.Right.Type)
 		switch e.Op {
 		case "+":
 			switch e.Left.Type.Kind {
 			// TODO(marius): for maps and lists, we should unify here.
 			case types.StringKind, types.IntKind, types.FloatKind:
-				e.Type = e.Left.Type.Assign(nil)
+				e.Type = unified
 			default:
 				e.Type = types.Errorf("binary operator %s not allowed for type %v", e.Op, e.Left.Type)
 			}
 		case "%", "<<", ">>":
 			switch e.Left.Type.Kind {
 			case types.IntKind:
-				e.Type = e.Left.Type.Assign(nil)
+				e.Type = unified
 			default:
 				e.Type = types.Errorf("binary operator \"%s\" not allowed for type %v", e.Op, e.Left.Type)
 			}
 		case "*", "-", "/":
 			switch e.Left.Type.Kind {
 			case types.IntKind, types.FloatKind:
-				e.Type = e.Left.Type.Assign(nil)
+				e.Type = unified
 			default:
 				e.Type = types.Errorf("binary operator \"%s\" not allowed for type %v", e.Op, e.Left.Type)
 			}
 		case "&&", "||":
 			if e.Left.Type.Kind == types.BoolKind {
-				e.Type = types.Bool
+				e.Type = types.Bool.Derive(unified)
 			} else {
 				e.Type = types.Errorf("binary operator %q not allowed for type %v", e.Op, e.Left.Type)
 			}
 		case "==", "!=":
 			if comparable(e.Left.Type) {
-				e.Type = types.Bool
+				e.Type = types.Bool.Derive(unified)
 			} else {
 				e.Type = types.Errorf("cannot compare values of type %v", e.Left.Type)
 			}
 		case ">", "<", "<=", ">=":
 			switch e.Left.Type.Kind {
 			case types.StringKind, types.IntKind, types.FloatKind:
-				e.Type = types.Bool
+				e.Type = types.Bool.Derive(unified)
 			default:
 				e.Type = types.Errorf("cannot compare values of type %v", e.Left.Type)
 			}
@@ -408,12 +403,12 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			if e.Left.Type.Kind != types.BoolKind {
 				e.Type = types.Errorf("unary operator \"!\" is only valid for bools, not %s", e.Left.Type)
 			} else {
-				e.Type = types.Bool.Assign(e.Left.Type)
+				e.Type = types.Bool.Derive(e.Left.Type)
 			}
 		case "-":
 			switch e.Left.Type.Kind {
 			case types.IntKind, types.FloatKind:
-				e.Type = e.Left.Type.Assign(nil)
+				e.Type = e.Left.Type
 			default:
 				e.Type = types.Errorf("unary operator \"-\" is only valid for integers and floats, not %s", e.Left.Type)
 			}
@@ -443,7 +438,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 				e.Left.identOr("function"), types.FieldsString(have), types.FieldsString(e.Left.Type.Fields))
 			return
 		}
-		e.Type = e.Left.Type.Elem.Assign(e.Left.Type)
+		e.Type = e.Left.Type.Elem.Derive(e.Left.Type)
 		for i, f := range e.Fields {
 			if !f.Type.Sub(e.Left.Type.Fields[i].T) {
 				e.Type = types.Errorf(
@@ -451,18 +446,17 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 					f.Type, e.Left.Type.Fields[i].T, e.Left.identOr("function"), e.Left.Type)
 				return
 			}
-			e.Type = e.Type.Assign(f.Type)
+			e.Type = e.Type.Derive(f.Type)
 		}
 		return
 	case ExprConst:
-		e.Type = e.Type.Assign(nil)
 	case ExprAscribe:
 		if !e.Left.Type.Sub(e.Type) {
 			e.Type = types.Errorf("cannot use %s (type %v) as type %v", e.Left.identOr("value"), e.Left.Type, e.Type)
 		}
-		e.Type = e.Type.Assign(e.Left.Type)
+		e.Type = e.Type.Derive(e.Left.Type)
 	case ExprBlock:
-		e.Type = e.Left.Type.Assign(nil)
+		e.Type = e.Left.Type
 	case ExprFunc:
 		if len(e.Args) > 128 {
 			e.Type = types.Errorf("functions can have at most 128 arguments")
@@ -610,13 +604,13 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 				e.Type = types.Errorf("expected %v, got %v", types.Int, e.Right.Type)
 				return
 			}
-			e.Type = e.Left.Type.Elem.Assign(nil)
+			e.Type = e.Left.Type.Elem.Derive(e.Right.Type)
 		case types.MapKind:
 			if !e.Left.Type.Index.Equal(e.Right.Type) {
 				e.Type = types.Errorf("expected %v, got %v", e.Right.Type, e.Left.Type)
 				return
 			}
-			e.Type = e.Left.Type.Elem.Assign(e.Left.Type.Index)
+			e.Type = e.Left.Type.Elem.Derive(e.Right.Type)
 		default:
 			e.Type = types.Errorf("expected a map or list, got %v", e.Left.Type)
 			return
@@ -626,7 +620,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		for i, clause := range e.ComprClauses {
 			clause.Expr.init(sess, env)
 			if clause.Expr.Type.Kind == types.ErrorKind {
-				e.Type = clause.Expr.Type.Assign(nil)
+				e.Type = clause.Expr.Type
 				return
 			}
 			switch clause.Kind {
@@ -696,7 +690,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		}
 		// Modules are never flow values because their evaluation never depends
 		// on parameters fully evaluating.
-		e.Type = e.Module.Type().Assign(nil)
+		e.Type = e.Module.Type()
 	case ExprBuiltin:
 		switch e.Op {
 		default:
@@ -704,14 +698,14 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		case "len":
 			switch e.Left.Type.Kind {
 			case types.FileKind, types.DirKind, types.ListKind, types.MapKind:
-				e.Type = types.Int.Assign(e.Left.Type)
+				e.Type = types.Int.Derive(e.Left.Type)
 			default:
 				e.Type = types.Errorf("cannot apply len operator to value of type %s", e.Left.Type)
 			}
 		case "int":
 			switch e.Left.Type.Kind {
 			case types.FloatKind:
-				e.Type = types.Int.Assign(e.Left.Type)
+				e.Type = types.Int.Derive(e.Left.Type)
 			default:
 				e.Type = types.Errorf("cannot convert type %s to int", e.Left.Type)
 			}
@@ -719,7 +713,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		case "float":
 			switch e.Left.Type.Kind {
 			case types.IntKind:
-				e.Type = types.Float.Assign(e.Left.Type)
+				e.Type = types.Float.Derive(e.Left.Type)
 			default:
 				e.Type = types.Errorf("cannot convert type %s to float", e.Left.Type)
 			}
@@ -749,7 +743,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			if e.Left.Type.Kind != types.ListKind || e.Left.Type.Elem.Kind != types.ListKind {
 				e.Type = types.Errorf("flatten expects a list of lists, got %s", e.Left.Type)
 			} else {
-				e.Type = e.Left.Type.Elem.Assign(nil)
+				e.Type = e.Left.Type.Elem
 			}
 		case "map":
 			switch e.Left.Type.Kind {
@@ -788,9 +782,9 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 				e.Type = types.Bottom
 			}
 		case "delay":
-			e.Type = types.Flow(e.Left.Type.Assign(nil))
+			e.Type = types.Flow(e.Left.Type)
 		case "trace":
-			e.Type = e.Left.Type.Assign(nil)
+			e.Type = e.Left.Type
 		case "range":
 			if e.Left.Type.Kind != types.IntKind {
 				e.Type = types.Errorf("range expects an integer, not %s", e.Left.Type)
@@ -798,15 +792,15 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 				e.Type = types.Errorf("range expects an integer, not %s", e.Right.Type)
 			} else {
 				e.Type = types.List(types.Int)
-				e.Type = e.Type.Assign(e.Left.Type)
-				e.Type = e.Type.Assign(e.Right.Type)
+				e.Type = e.Type.Derive(e.Left.Type)
+				e.Type = e.Type.Derive(e.Right.Type)
 			}
 		}
 	case ExprRequires:
 		if err := e.initResources(sess, env); err != nil {
 			e.Type = types.Error(err)
 		} else {
-			e.Type = e.Left.Type.Assign(nil)
+			e.Type = e.Left.Type
 		}
 	}
 }

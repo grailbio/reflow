@@ -520,10 +520,10 @@ func (t *T) equal(u *T, refok bool) bool {
 	return true
 }
 
-// Assign assigns type t from type u: if either t or u are error
+// Derive derives type t from type u: if either t or u are error
 // types, it returns a new error; if u is a Flow type, this flag is
 // set on the returned type. Otherwise, t is returned unadulterated.
-func (t *T) Assign(u *T) *T {
+func (t *T) Derive(u *T) *T {
 	if t.Kind == ErrorKind {
 		return t
 	}

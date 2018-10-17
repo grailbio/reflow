@@ -87,7 +87,7 @@ func (d *Decl) init(sess *Session, env *types.Env) {
 		return
 	case DeclAssign:
 		d.Expr.init(sess, env)
-		d.Type = d.Expr.Type.Assign(nil)
+		d.Type = d.Expr.Type.Derive(nil)
 	}
 }
 
