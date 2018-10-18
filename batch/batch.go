@@ -209,23 +209,13 @@ func (r *Run) flow() (*flow.Flow, *types.T, error) {
 			return nil, nil, err
 		}
 		flags := prog.Flags()
-		// Parse additional flags.
-		flags.Usage = func() {
-			err = errors.New("bad flags")
-		}
-		flags.Parse(r.batch.Args)
+		err = parseFlags(flags, r.Args, r.batch.Args)
 		if err != nil {
 			return nil, nil, err
 		}
 		flags.VisitAll(func(f *flag.Flag) {
 			if f.Value.String() == "" {
-				// Unfortunately, Go's flag package does not tell us about
-				// the "settedness" of a flag directly. This is a hack, since,
-				// for example, a string flag could be set to "" on purpose.
-				f.Value.Set(r.Args[f.Name])
-			}
-			if f.Value.String() == "" {
-				err = fmt.Errorf("argument %q is undefined\n", f.Name)
+				err = fmt.Errorf("argument %q is undefined", f.Name)
 			}
 		})
 		return prog.Eval(), nil, err
@@ -253,22 +243,10 @@ func (r *Run) flow() (*flow.Flow, *types.T, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		// Parse additional flags.
-		flags.Usage = func() {
-			err = errors.New("bad flags")
-		}
-		flags.Parse(r.batch.Args)
+		err = parseFlags(flags, r.Args, r.batch.Args)
 		if err != nil {
 			return nil, nil, err
 		}
-		flags.VisitAll(func(f *flag.Flag) {
-			// Unfortunately, Go's flag package does not tell us about
-			// the "settedness" of a flag directly. This is a hack, since,
-			// for example, a string flag could be set to "" on purpose.
-			if v, ok := r.Args[f.Name]; f.Value.String() == "" && ok {
-				f.Value.Set(v)
-			}
-		})
 		env := sess.Values.Push()
 		if err := m.FlagEnv(flags, env, types.NewEnv()); err != nil {
 			return nil, nil, err
