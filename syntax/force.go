@@ -58,10 +58,10 @@ func Force(v values.T, t *types.T) values.T {
 		return r.Resolve(nil)
 	case types.MapKind:
 		var (
-			m    = v.(values.Map)
-			copy = make(values.Map)
+			m    = v.(*values.Map)
+			copy = new(values.Map)
 			r    = newResolver(copy, t)
-			kvs  = make([]kpvp, 0, len(m))
+			kvs  = make([]kpvp, 0, m.Len())
 		)
 		m.Each(func(k, v values.T) {
 			kk := Force(k, t.Index)

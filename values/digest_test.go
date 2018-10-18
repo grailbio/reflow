@@ -16,7 +16,7 @@ func TestDigest(t *testing.T) {
 		types.Struct(
 			&types.Field{"field1", types.Int},
 			&types.Field{"field2", types.String}))
-	m := make(Map)
+	m := new(Map)
 	m.Insert(Digest("hello", types.String), "hello", Struct{
 		"field1": NewInt(123),
 		"field2": T("hello world"),

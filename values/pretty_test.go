@@ -10,8 +10,8 @@ import (
 	"github.com/grailbio/reflow/types"
 )
 
-func makeMap(entries map[string]string) Map {
-	m := make(Map)
+func makeMap(entries map[string]string) *Map {
+	m := new(Map)
 	for k, v := range entries {
 		m.Insert(Digest(k, types.String), k, v)
 	}

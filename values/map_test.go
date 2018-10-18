@@ -5,8 +5,10 @@
 package values
 
 import (
+	"math/rand"
 	"testing"
 
+	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/types"
 )
 
@@ -23,6 +25,48 @@ func TestMap(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	if got, want := m.Len(), 3; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestMapDigestCollision(t *testing.T) {
+	const N = 100
+
+	r := rand.New(rand.NewSource(0))
+	d := reflow.Digester.Rand(r)
+
+	m := new(Map)
+	expect := make(map[int64]int64)
+	for i := 0; i < N; i++ {
+		k, v := r.Int63(), r.Int63()
+		expect[k] = v
+		m.Insert(d, NewInt(k), NewInt(v))
+	}
+	for k, v := range expect {
+		if got, want := m.Lookup(d, NewInt(k)), NewInt(v); !Equal(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	}
+
+	// Pick some keys to override and test these too.
+	var i int
+	for k := range expect {
+		if i > 100 {
+			break
+		}
+		i++
+		v := r.Int63()
+		expect[k] = v
+		m.Insert(d, NewInt(k), NewInt(v))
+	}
+
+	for k, v := range expect {
+		if got, want := m.Lookup(d, NewInt(k)), NewInt(v); !Equal(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	}
+
+	if got, want := m.Len(), N; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }

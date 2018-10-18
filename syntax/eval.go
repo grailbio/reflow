@@ -236,7 +236,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 		}
 		return e.k(sess, env, ident,
 			func(vs []values.T) (values.T, error) {
-				m := make(values.Map)
+				m := new(values.Map)
 				for i, k := range vs {
 					v, err := e.Map[sortedKeys[i]].eval(sess, env, ident)
 					if err != nil {
@@ -461,7 +461,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 		switch e.Left.Type.Kind {
 		case types.MapKind:
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
-				m, k := vs[0].(values.Map), vs[1]
+				m, k := vs[0].(*values.Map), vs[1]
 				v := m.Lookup(values.Digest(k, e.Left.Type.Index), k)
 				if v == nil {
 					return nil, fmt.Errorf("key %s not found", values.Sprint(vs[1], e.Right.Type))
@@ -537,7 +537,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 					list := vs[0].(values.List)
 					return values.NewInt(int64(len(list))), nil
 				case types.MapKind:
-					m := vs[0].(values.Map)
+					m := vs[0].(*values.Map)
 					return values.NewInt(int64(m.Len())), nil
 				default:
 					panic("bug")
@@ -611,7 +611,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 							keys[i] = k
 						}
 						return e.k(sess, env, ident, func(keys []values.T) (values.T, error) {
-							m := make(values.Map)
+							m := new(values.Map)
 							for i, v := range tuples {
 								m.Insert(values.Digest(keys[i], e.Left.Type.Elem.Fields[0].T), keys[i], v.(values.Tuple)[1])
 							}
@@ -619,7 +619,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 						}, keys...)
 					}, tuples...)
 				case types.DirKind:
-					m := make(values.Map)
+					m := new(values.Map)
 					d := vs[0].(values.Dir)
 					for k, v := range d {
 						m.Insert(values.Digest(k, types.String), k, v)
@@ -634,7 +634,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				var list values.List
 				switch e.Left.Type.Kind {
 				case types.MapKind:
-					vs[0].(values.Map).Each(func(k, v values.T) {
+					vs[0].(*values.Map).Each(func(k, v values.T) {
 						list = append(list, values.Tuple{k, v})
 					})
 				case types.DirKind:
@@ -873,12 +873,12 @@ func (e *Expr) evalEq(sess *Session, env *values.Env, ident string, left, right 
 		}
 		return e.evalEqTuple(sess, env, ident, l, r, t)
 	case types.MapKind:
-		l := left.(values.Map)
-		r := right.(values.Map)
-		if len(l) != len(r) {
+		l := left.(*values.Map)
+		r := right.(*values.Map)
+		if l.Len() != r.Len() {
 			return false, nil
 		}
-		n := len(l)
+		n := l.Len()
 		keys := make([]values.T, n*2)
 		vals := make([]values.T, n*2)
 		i := 0
@@ -956,11 +956,11 @@ func (e *Expr) evalBinop(vs []values.T) (values.T, error) {
 			)
 			return values.List(append(append(make(values.List, 0, len(left)+len(right)), left...), right...)), nil
 		case types.MapKind:
-			m := make(values.Map)
-			left.(values.Map).Each(func(k, v values.T) {
+			m := new(values.Map)
+			left.(*values.Map).Each(func(k, v values.T) {
 				m.Insert(values.Digest(k, e.Left.Type.Index), k, v)
 			})
-			right.(values.Map).Each(func(k, v values.T) {
+			right.(*values.Map).Each(func(k, v values.T) {
 				m.Insert(values.Digest(k, e.Right.Type.Index), k, v)
 			})
 			return m, nil
@@ -1125,7 +1125,7 @@ func (e *Expr) evalCompr(sess *Session, env *values.Env, ident string, begin int
 					}
 				}
 			case types.MapKind:
-				left := vs[0].(values.Map)
+				left := vs[0].(*values.Map)
 				var err error
 				left.Each(func(k, v values.T) {
 					env2 := env.Push()

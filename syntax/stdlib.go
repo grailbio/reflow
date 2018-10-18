@@ -351,7 +351,7 @@ var dirsDecls = []*Decl{
 				}
 				v[path] = file
 			}
-			m := make(values.Map)
+			m := new(values.Map)
 			for key, group := range groups {
 				m.Insert(values.Digest(key, types.String), key, group)
 			}
@@ -366,7 +366,7 @@ var dirsDecls = []*Decl{
 		Type: types.Func(types.Dir,
 			&types.Field{Name: "map", T: types.Map(types.String, types.File)}),
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
-			m := args[0].(values.Map)
+			m := args[0].(*values.Map)
 			dir := make(values.Dir)
 			m.Each(func(path, file values.T) {
 				dir[path.(string)] = file.(reflow.File)

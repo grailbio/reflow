@@ -59,3 +59,19 @@ func TestDigestCompr(t *testing.T) {
 		}
 	}
 }
+
+func TestDigestMap(t *testing.T) {
+	for _, expr := range []string{
+		`delay(["x": 1, "y": 4, "z": 100])`,
+		`delay(["y": 4, "z": 100, "x": 1])`,
+	} {
+		v, _, _, err := eval(expr)
+		if err != nil {
+			t.Fatalf("%s: %v", expr, err)
+		}
+		f := v.(*flow.Flow)
+		if got, want := f.Digest().String(), "sha256:f8a6305d5c748c774a08c8db12d02a322e64562f9c11b83a0ca59b5642fcf631"; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	}
+}
