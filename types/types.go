@@ -642,7 +642,7 @@ func (t *T) Sub(u *T) bool {
 	switch t.Kind {
 	default:
 		return false
-	case IntKind, FloatKind, StringKind, BoolKind, FileKind, DirKind, BottomKind:
+	case IntKind, FloatKind, StringKind, BoolKind, FileKind, DirKind, BottomKind, FilesetKind:
 		return true
 	case ListKind:
 		return t.Elem.Sub(u.Elem)
