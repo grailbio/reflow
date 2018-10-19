@@ -1,0 +1,5 @@
+param x = 123
+
+val X = x
+val Y = "a truly constant string"
+val Z = x*x

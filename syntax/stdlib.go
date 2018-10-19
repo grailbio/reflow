@@ -87,7 +87,7 @@ func (s SystemFunc) Decl() *Decl {
 		Kind:    DeclAssign,
 		Comment: s.Doc,
 		Pat:     &Pat{Kind: PatIdent, Ident: s.Id},
-		Expr:    &Expr{Kind: ExprConst, Val: s, Type: s.Type},
+		Expr:    &Expr{Kind: ExprLit, Val: s, Type: s.Type},
 		Type:    s.Type,
 	}
 }

@@ -49,11 +49,11 @@ func (c *Cmd) doc(ctx context.Context, args ...string) {
 
 	c.Println("Declarations")
 	c.Println()
-	for _, f := range m.Type().Aliases {
+	for _, f := range m.Type(nil).Aliases {
 		c.Printf("type %s %s\n", f.Name, f.T)
 		c.printdoc(m.Doc(f.Name), "\n")
 	}
-	for _, f := range m.Type().Fields {
+	for _, f := range m.Type(nil).Fields {
 		c.Printf("val %s %s\n", f.Name, f.T)
 		c.printdoc(m.Doc(f.Name), "\n")
 	}

@@ -123,13 +123,13 @@ func TestParseDecls(t *testing.T) {
 			Kind: ExprAscribe,
 			Type: types.Int,
 			Left: &Expr{
-				Kind: ExprConst,
+				Kind: ExprLit,
 				Type: types.Int,
 				Val:  values.NewInt(111),
 			},
 		}},
 		{Kind: DeclAssign, Pat: &Pat{Kind: PatIdent, Ident: "Bar"}, Expr: &Expr{
-			Kind: ExprConst,
+			Kind: ExprLit,
 			Type: types.Int,
 			Val:  values.NewInt(123),
 		}},
@@ -141,7 +141,7 @@ func TestParseDecls(t *testing.T) {
 				{Kind: PatIgnore},
 			}},
 			Expr: &Expr{
-				Kind: ExprConst,
+				Kind: ExprLit,
 				Type: types.String,
 				Val:  "ok",
 			},

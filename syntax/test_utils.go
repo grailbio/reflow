@@ -26,7 +26,7 @@ Prog:
 			continue
 		}
 		var tests []string
-		for _, f := range m.Type().Fields {
+		for _, f := range m.Type(nil).Fields {
 			if strings.HasPrefix(f.Name, "Test") {
 				tests = append(tests, f.Name)
 				if f.T.Kind != types.BoolKind {

@@ -29,19 +29,37 @@
 //	       type a1 at1, type a2 at2}          the type of module with values I1, ... In, of types t1, ..., tn
 //	                                          and type aliases a1, a2 of at1, at2.
 //
-//
 // See package grail.com/reflow/syntax for parsing concrete syntax into
 // type trees.
+//
+// Each type carries a const level: NotConst, CanConst, or Const.
+// Level Const indicates that values of this type do not depend on
+// dynamic program input, and can be computed constantly within a
+// simple module-level lexical scope. CanConst types may be upgraded
+// to Const by static analysis, whereas NotConst types may never be
+// Const. Unification imposes a maximum const level, and a type's
+// constedness is affirmed by T.Const. This API requires the static
+// analyzer to explicitly propagate const levels.
+//
+// Types of level Const may also carry a set of predicates,
+// indicating that their constedness is conditional. The static
+// analyzer can mint fresh predicates (for example indicating that a
+// module's parameter is satisfied by a constant type), and then
+// later derive types based on satisfied predicates. This is used to
+// implement cross-module constant propagation within Reflow.
 //
 // Two types are unified by recursively computing the common subtype
 // of the two arguments. Subtyping is limited to structs and modules;
 // type equality is required for all other types.
 package types
 
+//go:generate stringer -type=ConstLevel
+
 import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 )
 
 // Kind represents a type's kind.
@@ -61,6 +79,8 @@ const (
 
 	// IntKind is the type of arbitrary precision integers.
 	IntKind
+	// FloatKind is the type of arbitrary precision floats.
+	FloatKind
 	// StringKind is the type of UTF-8 encoded strings.
 	StringKind
 	// BoolKind is the type of booleans.
@@ -69,9 +89,12 @@ const (
 	FileKind
 	// DirKind is the type of directories.
 	DirKind
-
+	// FilesetKind is the type of filesets.
+	FilesetKind
 	// UnitKind is a 1-valued type.
 	UnitKind
+
+	kind0
 
 	// Kind >0 types.
 
@@ -95,12 +118,6 @@ const (
 
 	// RefKind is a pseudo-kind to carry type alias references.
 	RefKind
-
-	// FloatKind is the type of arbitrary precision floats.
-	FloatKind
-
-	// FilesetKind is the type of filesets.
-	FilesetKind
 
 	typeMax
 )
@@ -166,6 +183,113 @@ func (k Kind) ID() byte {
 	return kindID[k]
 }
 
+// ConstLevel determines the "constedness" of a type.
+// See definitions below.
+type ConstLevel int
+
+const (
+	// NotConst indicates that the value represented by this type
+	// cannot be computed statically by the compiler.
+	NotConst ConstLevel = -1
+	// CanConst indicates that the value represented by this type is
+	// derived from IsConst values, and thus may be promoted to
+	// IsConst if the underlying operation allows for it.
+	CanConst ConstLevel = 0
+	// Const indicates that the value represented by this type can
+	// be computed statically by the compiler.
+	Const ConstLevel = 1
+)
+
+// Min returns the smaller (more conservative) of m and l.
+func (l ConstLevel) Min(m ConstLevel) ConstLevel {
+	if m < l {
+		return m
+	}
+	return l
+}
+
+var nextPredicate int64
+
+// A Predicate represents a condition upon which a type's constedness
+// is predictated.
+type Predicate int
+
+// FreshPredicate returns a fresh predicate.
+func FreshPredicate() Predicate {
+	return Predicate(atomic.AddInt64(&nextPredicate, 1))
+}
+
+// Predicates is a predicate set.
+type Predicates map[Predicate]bool
+
+// Satisfies determines whether the predicate set p meets the predicate
+// set q: that is, whether all predicates in q are present in p.
+func (p Predicates) Satisfies(q Predicates) bool {
+	for pr := range q {
+		if !p[pr] {
+			return false
+		}
+	}
+	return true
+}
+
+// Clear removes all predicates from the set.
+func (p *Predicates) Clear() {
+	*p = nil
+}
+
+// Copy returns a copy of the the predicate set p.
+func (p Predicates) Copy() Predicates {
+	if p == nil {
+		return nil
+	}
+	q := make(Predicates)
+	for k := range p {
+		q[k] = true
+	}
+	return q
+}
+
+// Add adds predicate pred to the predicate set.
+func (p *Predicates) Add(pred Predicate) {
+	if *p == nil {
+		*p = make(map[Predicate]bool)
+	}
+	(*p)[pred] = true
+}
+
+// AddAll adds all predicates in q to p.
+func (p *Predicates) AddAll(q Predicates) {
+	if len(q) > 0 && *p == nil {
+		*p = make(map[Predicate]bool)
+	}
+	for k := range q {
+		(*p)[k] = true
+	}
+}
+
+// RemoveAll removes from set p all predicates in q.
+func (p Predicates) RemoveAll(q Predicates) {
+	if p == nil {
+		return
+	}
+	for k := range q {
+		delete(p, k)
+	}
+}
+
+// NIntersect returns the number of predicates shared by predicate
+// sets p and q.
+func (p Predicates) NIntersect(q Predicates) int {
+	var n int
+	for k := range p {
+		if q[k] {
+			n++
+		}
+	}
+	return n
+}
+
 var typeError = Error(errors.New("type error"))
 
 func typeErrorf(format string, args ...interface{}) *T {
@@ -180,6 +304,10 @@ func typeErrorf(format string, args ...interface{}) *T {
 type Field struct {
 	Name string
 	*T
+}
+
+func (f *Field) String() string {
+	return fmt.Sprintf("%s %s", f.Name, f.T)
 }
 
 // Equal checks whether Field f is equivalent to Field e.
@@ -206,7 +334,7 @@ func FieldsString(fields []*Field) string {
 	return strings.Join(args, ", ")
 }
 
-// A T is a Reflow type. The zero of a T is a TypeError.
+// A T is a Reflow type. The zero T is a TypeError.
 type T struct {
 	// Kind is the kind of the type. See above.
 	Kind Kind
@@ -234,6 +362,12 @@ type T struct {
 	// from *flow.Flow evaluations. This is used in the type checker
 	// to check for "immediate" evaluation.
 	Flow bool
+
+	// Level is this type's const level.
+	Level ConstLevel
+	// Predicates is the set of predicates upon which the types
+	// constedness is predicated.
+	Predicates Predicates
 }
 
 // Convenience vars for common types.
@@ -250,36 +384,23 @@ var (
 	Fileset = &T{Kind: FilesetKind}
 )
 
-// Promote promotes errors and flow flags in the type t.
-func Promote(t *T) *T {
-	if t.Index != nil {
-		index := Promote(t.Index)
-		if index.Error != nil {
-			return index
+// Make initializes type t and returns it, propagating errors
+// of any child type.
+func Make(t *T) *T {
+	return t.Map(func(t *T) *T {
+		if t.Index != nil && t.Index.Error != nil {
+			return t.Index
 		}
-		if index.Flow {
-			t.Flow = true
+		if t.Elem != nil && t.Elem.Error != nil {
+			return t.Elem
 		}
-	}
-	if t.Elem != nil {
-		elem := Promote(t.Elem)
-		if elem.Error != nil {
-			return elem
+		for _, f := range t.Fields {
+			if f.T.Error != nil {
+				return f.T
+			}
 		}
-		if elem.Flow {
-			t.Flow = true
-		}
-	}
-	for _, f := range t.Fields {
-		field := Promote(f.T)
-		if field.Error != nil {
-			return field
-		}
-		if field.Flow {
-			t.Flow = true
-		}
-	}
-	return t
+		return t
+	})
 }
 
 // Error constructs a new error type.
@@ -294,7 +415,7 @@ func Errorf(format string, args ...interface{}) *T {
 
 // List returns a new list type with the given element type.
 func List(elem *T) *T {
-	return Promote(&T{Kind: ListKind, Elem: elem})
+	return Make(&T{Kind: ListKind, Elem: elem})
 }
 
 // Map returns a new map type with the given index and element types.
@@ -304,33 +425,33 @@ func Map(index, elem *T) *T {
 	default:
 		return Errorf("%v is not a valid map key type", index)
 	}
-	return Promote(&T{Kind: MapKind, Index: index, Elem: elem})
+	return Make(&T{Kind: MapKind, Index: index, Elem: elem})
 }
 
 // Tuple returns a new tuple type with the given fields.
 func Tuple(fields ...*Field) *T {
-	return Promote(&T{Kind: TupleKind, Fields: fields})
+	return Make(&T{Kind: TupleKind, Fields: fields})
 }
 
 // Func returns a new func type with the given element
 // (return type) and argument fields.
 func Func(elem *T, fields ...*Field) *T {
-	return Promote(&T{Kind: FuncKind, Fields: fields, Elem: elem})
+	return Make(&T{Kind: FuncKind, Fields: fields, Elem: elem})
 }
 
 // Struct returns a new struct type with the given fields.
 func Struct(fields ...*Field) *T {
-	return Promote(&T{Kind: StructKind, Fields: fields})
+	return Make(&T{Kind: StructKind, Fields: fields})
 }
 
 // Module returns a new module type with the given fields.
 func Module(fields []*Field, aliases []*Field) *T {
-	return Promote(&T{Kind: ModuleKind, Fields: fields, Aliases: aliases})
+	return Make(&T{Kind: ModuleKind, Fields: fields, Aliases: aliases})
 }
 
 // Ref returns a new pseudo-type reference to the given path.
 func Ref(path ...string) *T {
-	return Promote(&T{Kind: RefKind, Path: path})
+	return Make(&T{Kind: RefKind, Path: path})
 }
 
 // Labeled returns a labeled version of type t.
@@ -344,6 +465,8 @@ func Labeled(label string, t *T) *T {
 func Flow(t *T) *T {
 	t = t.Copy()
 	t.Flow = true
+	t.Level = NotConst
+	t.Predicates = Predicates{}
 	return t
 }
 
@@ -351,6 +474,14 @@ func Flow(t *T) *T {
 func (t *T) Copy() *T {
 	u := new(T)
 	*u = *t
+	u.Predicates = t.Predicates.Copy()
+	if u.Fields != nil {
+		u.Fields = make([]*Field, len(t.Fields))
+		for i := range t.Fields {
+			u.Fields[i] = new(Field)
+			*u.Fields[i] = *t.Fields[i]
+		}
+	}
 	return u
 }
 
@@ -520,110 +651,6 @@ func (t *T) equal(u *T, refok bool) bool {
 	return true
 }
 
-// Derive derives type t from type u: if either t or u are error
-// types, it returns a new error; if u is a Flow type, this flag is
-// set on the returned type. Otherwise, t is returned unadulterated.
-func (t *T) Derive(u *T) *T {
-	if t.Kind == ErrorKind {
-		return t
-	}
-	if u != nil && u.Kind == ErrorKind {
-		return u
-	}
-	if u != nil && u.Flow {
-		t = t.Copy()
-		t.Flow = true
-	}
-	return t
-}
-
-// Unify unifies type t with type u. It returns an error type if
-// unification is not possible. Unificiation is conservative: structs
-// and modules may be subtyped (by narrowing available fields), but
-// all other compound types require equality.
-func (t *T) Unify(u *T) *T {
-	if t.Kind == RefKind || u.Kind == RefKind {
-		panic("reference types cannot be unified")
-	}
-	if t.Kind == BottomKind {
-		return u
-	}
-	if u.Kind == BottomKind {
-		return t
-	}
-	if t.Kind != u.Kind {
-		return Errorf("kind mismatch: %v != %v", t.Kind, u.Kind)
-	}
-	switch t.Kind {
-	default:
-		return Errorf("unknown kind %v", t.Kind)
-	case IntKind, FloatKind, StringKind, BoolKind, FileKind, DirKind:
-		if u.Flow {
-			return u
-		}
-		return t
-	case ErrorKind:
-		return typeError
-	case ListKind:
-		return List(t.Elem.Unify(u.Elem))
-	case MapKind:
-		k := t.Index
-		if u.Index.Sub(k) {
-			k = u.Index
-		}
-		return Map(k, t.Elem.Unify(u.Elem))
-	case TupleKind:
-		if nt, nu := len(t.Fields), len(u.Fields); nt != nu {
-			return Errorf("mismatched tuple length: %v != %v", nt, nu)
-		}
-		fields := make([]*Field, len(t.Fields))
-		for i := range t.Fields {
-			fields[i] = &Field{T: t.Fields[i].T.Unify(u.Fields[i].T)}
-		}
-		return Tuple(fields...)
-	case FuncKind:
-		if nt, nu := len(t.Fields), len(u.Fields); nt != nu {
-			return Errorf("mismatched argument length: %v != %v", nt, nu)
-		}
-		for i := range t.Fields {
-			if tt, ut := t.Fields[i], u.Fields[i]; !tt.Equal(ut) {
-				return Errorf("argument %v does not match: %v != %v", i, tt, ut)
-			}
-		}
-		return Func(t.Elem.Unify(u.Elem), t.Fields...)
-	case StructKind:
-		tfields := t.FieldMap()
-		var fields []*Field
-		for _, uf := range u.Fields {
-			tty := tfields[uf.Name]
-			if tty == nil {
-				continue
-			}
-			fields = append(fields, &Field{Name: uf.Name, T: tty.Unify(uf.T)})
-		}
-		if len(fields) == 0 {
-			return Errorf("%s %v and %v have no fields in common", t.Kind, t, u)
-		}
-		return Struct(fields...)
-	case ModuleKind:
-		tfields := t.FieldMap()
-		var fields []*Field
-		for _, uf := range u.Fields {
-			tty := tfields[uf.Name]
-			if tty == nil {
-				continue
-			}
-			fields = append(fields, &Field{Name: uf.Name, T: tty.Unify(uf.T)})
-		}
-		if len(fields) == 0 {
-			return Errorf("%s %v and %v have no fields in common", t.Kind, t, u)
-		}
-		// TODO(marius): unify type aliases too. Now we just drop them and
-		// this could lead to perplexing type errors.
-		return Module(fields, nil)
-	}
-}
-
 // Sub tells whether t is a subtype of u. Subtyping is only
 // applied to structs and modules, as in (*T).Unify.
 func (t *T) Sub(u *T) bool {
@@ -683,71 +710,252 @@ func (t *T) Sub(u *T) bool {
 	}
 }
 
-// Symtab is a symbol table of *Ts.
-type Symtab map[string]*T
-
-// Env represents a type environment that binds
-// value and type identifiers to *Ts.
-type Env struct {
-	Values, Types Symtab
-
-	next *Env
-}
-
-// NewEnv creates and initializes a new Env.
-func NewEnv() *Env {
-	var e *Env
-	return e.Push()
-}
-
-// Bind binds the identifier id to type t.
-func (e *Env) Bind(id string, t *T) {
-	e.Values[id] = t
-}
-
-// BindAlias binds the type t to the type alias with the provided identifier.
-func (e *Env) BindAlias(id string, t *T) {
-	e.Types[id] = t
-}
-
-// Type returns the type bound to identifier id, if any.
-func (e *Env) Type(id string) *T {
-	for ; e != nil; e = e.next {
-		if t := e.Values[id]; t != nil {
-			return t
+// Map applies fn structurally in a depth-first fashion. If fn
+// performs modifications to type t, it should return a copy.
+func (t *T) Map(fn func(*T) *T) *T {
+	if t == nil {
+		return t
+	}
+	u := t
+	if index := t.Index.Map(fn); index != t.Index {
+		set(&u, t).Index = index
+	}
+	if elem := t.Elem.Map(fn); elem != t.Elem {
+		set(&u, t).Elem = elem
+	}
+	for i, f := range t.Fields {
+		if ftyp := f.T.Map(fn); ftyp != f.T {
+			set(&u, t).Fields[i].T = ftyp
 		}
 	}
-	return nil
+	return fn(u)
 }
 
-// Alias returns the type alias bound to identifier id, if any.
-func (e *Env) Alias(id string) *T {
-	for ; e != nil; e = e.next {
-		if t := e.Types[id]; t != nil {
-			return t
-		}
-	}
-	return nil
-}
-
-// Push returns a new environment level linked to e.
-func (e *Env) Push() *Env {
-	return &Env{
-		Values: make(Symtab),
-		Types:  make(Symtab),
-		next:   e,
-	}
-}
-
-// Symbols returns the full value environment as a map.
-func (e *Env) Symbols() map[string]*T {
-	sym := map[string]*T{}
-	for ; e != nil; e = e.next {
-		for s, t := range e.Values {
-			if sym[s] == nil {
-				sym[s] = t
+// Const affirms type t's constedness with an additional set of
+// predicates. The returned type is const only if all child types are
+// also const.
+func (t *T) Const(predicates ...Predicate) *T {
+	if t.Level == Const {
+		if len(predicates) > 0 {
+			if len(t.Predicates) > 0 {
+				t = t.Copy()
+			}
+			for _, p := range predicates {
+				t.Predicates.Add(p)
 			}
 		}
+		return t
 	}
-	return sym
+	t = t.Map(func(t *T) *T {
+		if t.Level != CanConst ||
+			(t.Index != nil && t.Index.Level < Const) ||
+			(t.Elem != nil && t.Elem.Level < Const) {
+			return t
+		}
+		for _, f := range t.Fields {
+			if f.T.Level < Const {
+				return t
+			}
+		}
+		t = t.Copy()
+		t.Level = Const
+		return t
+	})
+	if len(predicates) > 0 {
+		t = t.Copy()
+		for _, p := range predicates {
+			t.Predicates.Add(p)
+		}
+	}
+	return t
+}
+
+// NotConst denies constedness to type t. NotConst is tainting: all
+// child types are marked NotConst as well. Thus NotConst can be used
+// in static analysis where non-const dataflow is introduced.
+func (t *T) NotConst() *T {
+	if t.Level == NotConst {
+		return t
+	}
+	return t.Map(func(t *T) *T {
+		if t.Level == NotConst {
+			return t
+		}
+		t = t.Copy()
+		t.Level = NotConst
+		return t
+	})
+}
+
+// IsConst tells whether type t is const given the provided predicates.
+func (t *T) IsConst(predicates Predicates) bool {
+	return t.Level == Const && predicates.Satisfies(t.Predicates)
+}
+
+// Satisfied returns type t with the given predicates satisfied.
+func (t *T) Satisfied(predicates Predicates) *T {
+	return t.Map(func(t *T) *T {
+		if t.Level != Const || predicates.NIntersect(t.Predicates) == 0 {
+			return t
+		}
+		t = t.Copy()
+		t.Predicates.RemoveAll(predicates)
+		return t
+	})
+}
+
+// Swizzle returns a version of t with modified const and flow flags:
+//	- if any of the type ts are NotConst, the returned type is also NotConst
+//	- const predicates from type ts are added to t's predicate set
+//	- t's flow flag is set if any of type ts are
+//	- the returned type's level is at most maxlevel
+func Swizzle(t *T, maxlevel ConstLevel, ts ...*T) *T {
+	if t.Kind == ErrorKind {
+		return t
+	}
+	u := t
+	for _, w := range ts {
+		if w.Kind == ErrorKind {
+			return w
+		}
+		if !u.Flow && w.Flow {
+			set(&u, t).Flow = true
+		}
+		if w.Level == NotConst && u.Level > NotConst {
+			set(&u, t).Level = NotConst
+		}
+		if len(w.Predicates) > 0 {
+			set(&u, t).Predicates.AddAll(w.Predicates)
+		}
+	}
+	return u.Map(func(t *T) *T {
+		if t.Level <= maxlevel {
+			return t
+		}
+		t = t.Copy()
+		t.Level = maxlevel
+		return t
+	})
+}
+
+// Unify returns the greatest common subtype of all ts. That is,
+// where u := Unify(ts), then forall t in ts. u <: t. Unify returns
+// an error type if unification is impossible. The returned type's
+// const level is limited by the provided maxlevel.
+func Unify(maxlevel ConstLevel, ts ...*T) *T {
+	if len(ts) == 0 {
+		return Bottom
+	}
+	var (
+		t          = ts[0]
+		level      = t.Level
+		predicates = t.Predicates.Copy()
+	)
+	for _, u := range ts[1:] {
+		if t.Kind == RefKind || u.Kind == RefKind {
+			panic("reference types cannot be unified")
+		}
+		if t.Kind == BottomKind {
+			t = Swizzle(u, maxlevel, t)
+			continue
+		}
+		if u.Kind == BottomKind {
+			t = Swizzle(t, maxlevel, u)
+			continue
+		}
+		if t.Kind != u.Kind {
+			return Errorf("kind mismatch: %v != %v", t.Kind, u.Kind)
+		}
+		predicates.AddAll(u.Predicates)
+		level = level.Min(u.Level)
+		switch t.Kind {
+		default:
+			return Errorf("unknown kind %v", t.Kind)
+		case IntKind, FloatKind, StringKind, BoolKind, FileKind, DirKind:
+			t = Swizzle(t, maxlevel, u)
+		case ErrorKind:
+			return typeError
+		case ListKind:
+			t = List(Unify(level, t.Elem, u.Elem))
+		case MapKind:
+			// Manually check subtypes here and Swizzle instead since
+			// map keys are contravariant.
+			var kt *T
+			if u.Index.Sub(t.Index) {
+				kt = Swizzle(u.Index, maxlevel, t.Index)
+			} else {
+				kt = Swizzle(t.Index, maxlevel, u.Index)
+			}
+			t = Map(kt, Unify(maxlevel, t.Elem, u.Elem))
+		case TupleKind:
+			if nt, nu := len(t.Fields), len(u.Fields); nt != nu {
+				return Errorf("mismatched tuple length: %v != %v", nt, nu)
+			}
+			fields := make([]*Field, len(t.Fields))
+			for i := range t.Fields {
+				fields[i] = &Field{T: Unify(maxlevel, t.Fields[i].T, u.Fields[i].T)}
+			}
+			t = Tuple(fields...)
+		case FuncKind:
+			if nt, nu := len(t.Fields), len(u.Fields); nt != nu {
+				return Errorf("mismatched argument length: %v != %v", nt, nu)
+			}
+			for i := range t.Fields {
+				if tt, ut := t.Fields[i], u.Fields[i]; !tt.Equal(ut) {
+					return Errorf("argument %v does not match: %v != %v", i, tt, ut)
+				}
+			}
+			t = Func(Unify(maxlevel, t.Elem, u.Elem), t.Fields...)
+		case StructKind:
+			tfields := t.FieldMap()
+			var fields []*Field
+			for _, uf := range u.Fields {
+				tty := tfields[uf.Name]
+				if tty == nil {
+					continue
+				}
+				fields = append(fields, &Field{Name: uf.Name, T: Unify(maxlevel, tty, uf.T)})
+			}
+			if len(fields) == 0 {
+				return Errorf("%s %v and %v have no fields in common", t.Kind, t, u)
+			}
+			t = Struct(fields...)
+		case ModuleKind:
+			tfields := t.FieldMap()
+			var fields []*Field
+			for _, uf := range u.Fields {
+				tty := tfields[uf.Name]
+				if tty == nil {
+					continue
+				}
+				fields = append(fields, &Field{Name: uf.Name, T: Unify(maxlevel, tty, uf.T)})
+			}
+			if len(fields) == 0 {
+				return Errorf("%s %v and %v have no fields in common", t.Kind, t, u)
+			}
+			// TODO(marius): unify type aliases too. Now we just drop them and
+			// this could lead to perplexing type errors.
+			t = Module(fields, nil)
+		}
+	}
+	if t == ts[0] {
+		t = t.Copy()
+	}
+	t.Level = level
+	if t.Level > maxlevel {
+		t = t.Copy()
+		t.Level = maxlevel
+		t.Predicates = predicates
+	} else if len(predicates) > 0 {
+		t = t.Copy()
+		t.Predicates = predicates
+	}
+	return t
+}
+
+func set(u **T, t *T) *T {
+	if *u == t {
+		*u = t.Copy()
+	}
+	return *u
 }

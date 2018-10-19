@@ -81,13 +81,13 @@ func (d *Decl) Init(sess *Session, env *types.Env) error {
 func (d *Decl) init(sess *Session, env *types.Env) {
 	switch d.Kind {
 	case DeclError:
-		d.Type = typeError
+		d.Type = types.Errorf("illegal declaration")
 		return
 	case DeclDeclare, DeclType:
 		return
 	case DeclAssign:
 		d.Expr.init(sess, env)
-		d.Type = d.Expr.Type.Derive(nil)
+		d.Type = d.Expr.Type
 	}
 }
 

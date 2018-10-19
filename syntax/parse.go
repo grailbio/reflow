@@ -212,7 +212,7 @@ var tokens = map[rune]int{
 	scanner.Rsh:           tokRSH,
 	scanner.Ellipsis:      tokEllipsis,
 	scanner.SquiggleArrow: tokSquiggleArrow,
-	'@': tokAt,
+	'@':                   tokAt,
 }
 
 // insertionToks defines the sets of tokens after which
@@ -279,7 +279,7 @@ Scan:
 		case "true", "false":
 			yy.expr = &Expr{
 				Position: x.scanner.Pos(),
-				Kind:     ExprConst,
+				Kind:     ExprLit,
 				Type:     types.Bool,
 				Val:      values.T(text == "true"),
 			}
@@ -290,7 +290,7 @@ Scan:
 	case scanner.Int:
 		yy.expr = &Expr{
 			Position: pos,
-			Kind:     ExprConst,
+			Kind:     ExprLit,
 			Type:     types.Int,
 		}
 		i := new(big.Int)
@@ -304,7 +304,7 @@ Scan:
 	case scanner.Float:
 		yy.expr = &Expr{
 			Position: pos,
-			Kind:     ExprConst,
+			Kind:     ExprLit,
 			Type:     types.Float,
 		}
 		f := new(big.Float)
@@ -319,7 +319,7 @@ Scan:
 	case scanner.String, scanner.RawString:
 		yy.expr = &Expr{
 			Position: pos,
-			Kind:     ExprConst,
+			Kind:     ExprLit,
 			Type:     types.String,
 			Val:      values.T(text[1 : len(text)-1]),
 		}

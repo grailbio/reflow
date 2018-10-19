@@ -28,8 +28,8 @@ func TestRequirements(t *testing.T) {
 		t.Fatal(err)
 	}
 	var tests []string
-	fm := m.Type().FieldMap()
-	for _, f := range m.Type().Fields {
+	fm := m.Type(nil).FieldMap()
+	for _, f := range m.Type(nil).Fields {
 		if !strings.HasPrefix(f.Name, "Test") {
 			continue
 		}

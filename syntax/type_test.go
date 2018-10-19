@@ -6,6 +6,7 @@ package syntax
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/grailbio/reflow/types"
@@ -101,10 +102,10 @@ func TestFlow(t *testing.T) {
 		flow bool
 	}{
 		{`{f1: 123, f2: "okay", f3: [1,2,3]}`, false},
-		{`{x: file("x")}`, true},
+		{`({x: file("x")}).x`, true},
 		{`"x"+"y"`, false},
 		{`exec(image := "blah") (ok dir) {" "}`, true},
-		{`(exec(image := "blah") (ok dir) {" "}, 123)`, true},
+		{`{val (x, _) = (exec(image := "blah") (ok dir) {" "}, 123); x}`, true},
 		{`{ x := 1; y := 2; x+y}`, false},
 		{`{ x := 1; y := delay(2); x+y}`, true},
 		{`{ x := file("x"); y := 2; len(x)+y}`, true},
@@ -119,5 +120,75 @@ func TestFlow(t *testing.T) {
 		if got, want := p.Expr.Type.Flow, ex.flow; got != want {
 			t.Errorf("%s: got flow=%v, want flow=%v", ex.expr, got, want)
 		}
+	}
+}
+
+func TestConst(t *testing.T) {
+	for _, ex := range []struct {
+		expr  string
+		level types.ConstLevel
+	}{
+		{`{f1: 123, f2: "okay", f3: delay(3)}`, types.CanConst},
+		{`({f1: 123, f2: "okay", f3: delay(3)}).f2`, types.Const},
+		{`({x := {f1: 123, f2: "okay", f3: delay(3)}; x}).f2`, types.NotConst},
+		{`({f1: 123, f2: "okay", f3: delay(3)}).f3`, types.NotConst},
+		{`delay({f1: 123, f2: "okay", f3: delay(3)}).f2`, types.NotConst},
+		{`["x": 1, "y": 2]["x"]`, types.Const},
+		{`["x": 1, "y": 2]`, types.Const},
+		{`["x": 1, "y": delay(2)]["x"]`, types.NotConst},
+		{`{fn := func(x int) => x; fn(123)}`, types.NotConst},
+		{`{x := delay(123); 123}`, types.Const},
+		{`{x := delay(123); 123+x}`, types.NotConst},
+		{`[1,2,3]+[4,5,6]`, types.Const},
+		{`[1,2,3]+[4,5,6]+delay([])`, types.NotConst},
+		{`{val (x, _) = ("ok", delay(2)); x}`, types.NotConst},
+		{`1 > 2`, types.Const},
+		{`[1,2][0] > ({x:2, y:delay("x")}).x`, types.Const},
+		{`90*90`, types.Const},
+	} {
+		p := Parser{Mode: ParseExpr, Body: bytes.NewReader([]byte(ex.expr))}
+		if err := p.Parse(); err != nil {
+			t.Errorf("parsing expression %q: %v", ex.expr, err)
+			continue
+		}
+		tenv, _ := Stdlib()
+		p.Expr.init(nil, tenv)
+		if got, want := p.Expr.Type.Level, ex.level; got != want {
+			t.Errorf("%s: got level=%v, want level=%v", ex.expr, got, want)
+		}
+	}
+}
+
+func TestConstModule(t *testing.T) {
+	sess := NewSession(nil)
+	m, err := sess.Open("testdata/instantiate.rf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mtyp := m.Type(nil)
+	for _, f := range mtyp.Fields {
+		isconst := strings.HasPrefix(f.Name, "Const")
+		if isconst != f.T.IsConst(nil) {
+			t.Errorf("field %v: %v", f, isconst)
+		}
+	}
+}
+
+func TestImageWarn(t *testing.T) {
+	sess := NewSession(nil)
+	var b bytes.Buffer
+	sess.Stdwarn = &b
+	_, err := sess.Open("testdata/imagewarn.rf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := sess.NWarn(), 3; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := b.String(), `testdata/imagewarn.rf:7:13: image is not a const value
+testdata/imagewarn.rf:8:13: image is not a const value
+testdata/imagewarn.rf:12:13: image is not a const value
+`; got != want {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }

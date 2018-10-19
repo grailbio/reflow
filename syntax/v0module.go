@@ -142,7 +142,7 @@ func (m *v0module) Doc(ident string) string {
 	return ""
 }
 
-func (m *v0module) Type() *types.T {
+func (m *v0module) Type(*types.Env) *types.T {
 	return m.typ
 }
 

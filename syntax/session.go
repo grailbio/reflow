@@ -18,6 +18,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/internal/scanner"
 	"github.com/grailbio/reflow/lang"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
@@ -28,6 +29,9 @@ import (
 type Session struct {
 	// Stdout and stderr is the writer to which standard output and error are written.
 	Stdout, Stderr io.Writer
+
+	// Stdwarn is the writer to which warnings are printed.
+	Stdwarn io.Writer
 
 	Types  *types.Env
 	Values *values.Env
@@ -41,6 +45,8 @@ type Session struct {
 	entrypointPath string
 
 	mu sync.Mutex
+
+	nwarn int
 
 	// images is a collection of Docker image names from exec expressions.
 	// It's populated during expression evaluation. Values are all true.
@@ -234,6 +240,37 @@ func (s *Session) Images() []string {
 		images = append(images, imageName)
 	}
 	return images
+}
+
+// Warn formats a message in the manner of fmt.Sprint and
+// writes it as session warning.
+func (s *Session) Warn(pos scanner.Position, v ...interface{}) {
+	if s == nil || s.Stdwarn == nil {
+		return
+	}
+	fmt.Fprintf(s.Stdwarn, "%s: %s\n", pos, fmt.Sprint(v...))
+	s.mu.Lock()
+	s.nwarn++
+	s.mu.Unlock()
+}
+
+// Warnf formats a message in the manner of fmt.Sprintf and
+// writes it as a session warning.
+func (s *Session) Warnf(pos scanner.Position, format string, v ...interface{}) {
+	if s == nil || s.Stdwarn == nil {
+		return
+	}
+	fmt.Fprintf(s.Stdwarn, "%s: %s\n", pos, fmt.Sprintf(format, v...))
+	s.mu.Lock()
+	s.nwarn++
+	s.mu.Unlock()
+}
+
+// NWarn returns the number of warnings emitted in this session.
+func (s *Session) NWarn() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.nwarn
 }
 
 // Sourcer is an interface that provides access to Reflow source

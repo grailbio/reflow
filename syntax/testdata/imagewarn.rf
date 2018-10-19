@@ -1,0 +1,12 @@
+param paramImage = "xyz"
+
+val constImage = "x"+"y"+"z"
+
+func cat(x, y string) = x+y
+
+val _ = exec(image := paramImage) (out file) {" "}
+val _ = exec(image := paramImage+"x") (out file) {" "}
+val _ = exec(image := constImage) (out file) {" "}
+val _ = exec(image := "xyz") (out file) {" "}
+val _ = exec(image := constImage+"x") (out file) {" "}
+val _ = exec(image := cat(constImage, "x")) (out file) {" "}

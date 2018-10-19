@@ -172,7 +172,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}
 			return fn.Apply(values.Location{Position: e.Position.String(), Ident: ident}, fields)
 		}, e.Left)
-	case ExprConst:
+	case ExprLit:
 		return e.Val, nil
 	case ExprAscribe:
 		return e.Left.eval(sess, env, ident)

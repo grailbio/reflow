@@ -107,7 +107,7 @@ func (c *Cmd) evalV1(sess *syntax.Session, file string, args []string) (EvalResu
 		return EvalResult{}, err
 	}
 	var maintyp *types.T
-	for _, f := range m.Type().Fields {
+	for _, f := range m.Type(nil).Fields {
 		if f.Name == "Main" {
 			maintyp = f.T
 			break

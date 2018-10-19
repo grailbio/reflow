@@ -45,8 +45,12 @@ type Module interface {
 	Params() []Param
 	// Doc returns the docstring for a toplevel identifier.
 	Doc(string) string
-	// Type returns the type of the module.
-	Type() *types.T
+	// Type returns the type of the module, given the types of the
+	// parameters passed. Typechecking is done at the module's creation
+	// time, but this creates predicated const types. The returned type
+	// satisfies all predicates implied by the provided params, and thus
+	// represents a unique type for an instantiation site.
+	Type(params *types.Env) *types.T
 	// Eager tells whether the module requires eager parameters.
 	// When it does, all parameters are forced and fully evaluated
 	// before instantiating a new module instance.
@@ -83,6 +87,10 @@ type ModuleImpl struct {
 	injectedArgs []string
 	fenv         *values.Env
 	ftenv        *types.Env
+
+	penv       *types.Env
+	predicates types.Predicates
+	required   map[string]bool
 }
 
 // Source gets the source code of this module.
@@ -97,11 +105,20 @@ func (m *ModuleImpl) Eager() bool { return false }
 func (m *ModuleImpl) Init(sess *Session, env *types.Env) error {
 	var el errlist
 	env = env.Push()
+	m.required = make(map[string]bool)
+	m.predicates = make(types.Predicates)
 	for _, p := range m.ParamDecls {
-		// TODO(marius): enforce no flow types here.
+		// TODO(marius): enforce const types here?
 		if err := p.Init(sess, env); err != nil {
 			el = el.Append(err)
 			continue
+		}
+		// The constedness of parameters must also be predicated on
+		// their instantiations being const.
+		if p.Type.Level == types.Const {
+			pred := types.FreshPredicate()
+			m.predicates.Add(pred)
+			p.Type = p.Type.Const(pred)
 		}
 		switch p.Kind {
 		default:
@@ -111,12 +128,15 @@ func (m *ModuleImpl) Init(sess *Session, env *types.Env) error {
 			el = el.Errorf(p.Position, "declaration error")
 		case DeclDeclare:
 			env.Bind(p.Ident, p.Type)
+			m.required[p.Ident] = true
 		case DeclAssign:
 			if err := p.Pat.BindTypes(env, p.Type); err != nil && p.Type.Kind != types.ErrorKind {
 				p.Type = types.Error(err)
 			}
 		}
 	}
+	m.penv = env.Pop()
+
 	for _, d := range m.Decls {
 		if err := d.Init(sess, env); err != nil {
 			el = el.Append(err)
@@ -172,19 +192,7 @@ func (m *ModuleImpl) Init(sess *Session, env *types.Env) error {
 // Param returns the type  of the module parameter with identifier id,
 // and whether it is mandatory.
 func (m *ModuleImpl) Param(id string) (*types.T, bool) {
-	env := types.NewEnv()
-	for _, p := range m.ParamDecls {
-		switch p.Kind {
-		case DeclError:
-		case DeclDeclare:
-			if p.Ident == id {
-				return p.Type, true
-			}
-		case DeclAssign:
-			p.Pat.BindTypes(env, p.Type)
-		}
-	}
-	return env.Type(id), false
+	return m.penv.Type(id), m.required[id]
 }
 
 // ParamErr type checks the type environment env against the
@@ -455,7 +463,7 @@ func (m *ModuleImpl) Params() []Param {
 			if m.fenv.Contains(p.Ident) {
 				param.Required = false
 				param.Expr = &Expr{
-					Kind: ExprConst,
+					Kind: ExprLit,
 					Val:  m.fenv.Value(p.Ident),
 					Type: p.Type,
 				}
@@ -471,7 +479,7 @@ func (m *ModuleImpl) Params() []Param {
 					Ident: id,
 					Doc:   p.Comment,
 					Expr: &Expr{
-						Kind: ExprConst,
+						Kind: ExprLit,
 						Val:  m.fenv.Value(id),
 						Type: m.ftenv.Type(id),
 					},
@@ -492,8 +500,15 @@ func (m *ModuleImpl) Doc(ident string) string {
 }
 
 // Type returns the module type of m.
-func (m *ModuleImpl) Type() *types.T {
-	return m.typ
+func (m *ModuleImpl) Type(penv *types.Env) *types.T {
+	predicates := m.predicates.Copy()
+	for id, t := range penv.Symbols() {
+		if !t.IsConst(nil) {
+			predicates.RemoveAll(m.penv.Type(id).Predicates)
+		}
+	}
+	typ := m.typ.Satisfied(predicates)
+	return typ
 }
 
 // InjectArgs parameterizes the module with the provided flags.

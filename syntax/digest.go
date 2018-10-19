@@ -84,7 +84,7 @@ func (e *Expr) digest(w io.Writer, env *values.Env) {
 			f.Expr.digest(w, env)
 		}
 		e.Left.digest(w, env)
-	case ExprConst:
+	case ExprLit:
 		digest.WriteDigest(w, values.Digest(e.Val, e.Type))
 	case ExprBlock:
 		for _, decl := range e.Decls {
@@ -230,7 +230,7 @@ func (e *Expr) digest1(w io.Writer) {
 	case ExprBinop, ExprUnop:
 		io.WriteString(w, e.Op)
 	case ExprApply:
-	case ExprConst:
+	case ExprLit:
 		digest.WriteDigest(w, values.Digest(e.Val, e.Type))
 	case ExprBlock:
 	case ExprFunc:

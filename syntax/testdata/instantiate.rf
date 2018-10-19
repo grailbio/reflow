@@ -1,0 +1,7 @@
+
+val NotConst_1 = make("./constmodule.rf", x := delay(321)).X
+val m = make("./constmodule.rf", x := 321)
+val Const_2 = m.Y
+val Const_3 = m.Z
+val Const_3 = make("./constmodule.rf", x := delay(321)).Y
+val NotConst_2 = { x := Const_3; x }

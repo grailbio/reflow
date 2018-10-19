@@ -7,6 +7,9 @@ package types
 import "testing"
 
 var (
+	p0 = FreshPredicate()
+	p1 = FreshPredicate()
+
 	ty1 = Struct(
 		&Field{Name: "a", T: Int},
 		&Field{Name: "b", T: String},
@@ -25,7 +28,7 @@ var (
 		[]*Field{
 			&Field{Name: "a", T: Int},
 			&Field{Name: "b", T: String},
-			&Field{Name: "c", T: Tuple(&Field{T: Int}, &Field{T: String})},
+			&Field{Name: "c", T: Tuple(&Field{T: Int.Const(p0)}, &Field{T: String.Const(p1)})},
 		},
 		nil,
 	)
@@ -46,6 +49,14 @@ var (
 		},
 		nil,
 	)
+	mty3 = Module(
+		[]*Field{
+			&Field{Name: "a", T: Int},
+			&Field{Name: "b", T: String},
+			&Field{Name: "c", T: Tuple(&Field{T: Int.Const(p0)}, &Field{T: String.Const(p1)}).Const()},
+		},
+		nil,
+	)
 
 	mapTy  = Map(Int, String)
 	listTy = List(String)
@@ -54,22 +65,22 @@ var (
 )
 
 func TestUnify(t *testing.T) {
-	u := ty1.Unify(ty2)
+	u := Unify(Const, ty1, ty2)
 	if got, want := u.String(), "{a int, c (int, string)}"; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	u = mty1.Unify(mty2)
+	u = Unify(Const, mty1, mty2)
 	if got, want := u.String(), "module{a int, c (int, string)}"; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 
-	if got, want := listTy.Unify(List(Bottom)), listTy; !got.Equal(want) {
+	if got, want := Unify(Const, listTy, List(Bottom)), listTy; !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	if got, want := mapTy.Unify(Map(Top, Bottom)), mapTy; !got.Equal(want) {
+	if got, want := Unify(Const, mapTy, Map(Top, Bottom)), mapTy; !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	if got, want := Map(Int, ty1).Unify(Map(Int, ty2)).String(), `[int:{a int, c (int, string)}]`; got != want {
+	if got, want := Unify(Const, Map(Int, ty1), Map(Int, ty2)).String(), `[int:{a int, c (int, string)}]`; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
@@ -88,7 +99,7 @@ func TestSub(t *testing.T) {
 		t.Errorf("%s is not a subtype of %s", ty1, ty2)
 	}
 	if !mty12.Sub(mty1) {
-		t.Errorf("%s is a subtype of %s", ty12, ty1)
+		t.Errorf("%s is not a subtype of %s", ty12, ty1)
 	}
 	if !mty12.Sub(mty2) {
 		t.Errorf("%s is a subtype of %s", ty12, ty2)
@@ -123,5 +134,94 @@ func TestEnv(t *testing.T) {
 	}
 	if got, want := e.Type("b"), String; got != want {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestConstUnify(t *testing.T) {
+	cty := mty1.Field("c")
+	if got, want := cty.Level, CanConst; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	for _, f := range cty.Fields {
+		if got, want := f.T.Level, Const; got != want {
+			t.Errorf("field %v: got %v, want %v", f, got, want)
+		}
+	}
+
+	ty := Unify(Const, mty1, mty1)
+	if got, want := ty.Level, CanConst; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	cty = ty.Field("c")
+	if got, want := cty.Level, CanConst; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := len(cty.Fields), 2; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	for i, f := range cty.Fields {
+		if got, want := f.T.Level, Const; got != want {
+			t.Errorf("field %v: got %v, want %v", f, got, want)
+		}
+		var ps Predicates
+		switch i {
+		case 0:
+			ps.Add(p0)
+		case 1:
+			ps.Add(p1)
+		}
+		if !ps.Satisfies(f.T.Predicates) {
+			t.Errorf("predicates %v not satisfied by %v", f.T.Predicates, ps)
+		}
+	}
+}
+
+func TestConstPromoteUnify(t *testing.T) {
+	cty := mty3.Field("c")
+	if got, want := cty.Level, Const; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	ty := Unify(Const, mty3, mty3)
+	if got, want := ty.Level, CanConst; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	cty = ty.Field("c")
+	if got, want := cty.Level, Const; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := len(cty.Fields), 2; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	for i, f := range cty.Fields {
+		if got, want := f.T.Level, Const; got != want {
+			t.Errorf("field %v: got %v, want %v", f, got, want)
+		}
+		var ps Predicates
+		switch i {
+		case 0:
+			ps.Add(p0)
+		case 1:
+			ps.Add(p1)
+		}
+		if !ps.Satisfies(f.T.Predicates) {
+			t.Errorf("predicates %v not satisfied by %v", f.T.Predicates, ps)
+		}
+	}
+	ps := Predicates{p0: true, p1: true}
+	if !ps.Satisfies(cty.Predicates) {
+		t.Errorf("predicates %v not satisfied by %v", cty.Predicates, ps)
+	}
+}
+
+func TestSatisfy(t *testing.T) {
+	sty1 := mty1.Satisfied(Predicates{p0: true, p1: true})
+	cty := sty1.Field("c")
+	if got, want := len(cty.Fields), 2; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	for i := range cty.Fields {
+		if !cty.Fields[i].T.IsConst(nil) {
+			t.Errorf("%v field %d: expected const", cty, i)
+		}
 	}
 }
