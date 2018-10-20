@@ -151,6 +151,11 @@ type EvalConfig struct {
 	// Config stores the flow config to be used.
 	Config Config
 
+	// ImageMap stores the canonical names of the images.
+	// A canonical name has a fully qualified registry host,
+	// and image digest instead of image tag.
+	ImageMap map[string]string
+
 	// CacheLookupTimeout is the timeout for cache lookups.
 	// After the timeout expires, a cache lookup is considered
 	// a miss.
@@ -207,6 +212,7 @@ func (e EvalConfig) String() string {
 	fmt.Fprintf(&b, " flags %s", strings.Join(flags, ","))
 	fmt.Fprintf(&b, " flowconfig %s", e.Config)
 	fmt.Fprintf(&b, " cachelookuptimeout %s", e.CacheLookupTimeout)
+	fmt.Fprintf(&b, " imagemap %v", e.ImageMap)
 	return b.String()
 }
 
@@ -450,6 +456,12 @@ func (e *Eval) Do(ctx context.Context) error {
 				}
 				if f.Resources["cpu"] < minExecCPU {
 					f.Resources["cpu"] = minExecCPU
+				}
+			}
+			if e.ImageMap != nil && f.OriginalImage == "" {
+				f.OriginalImage = f.Image
+				if img, ok := e.ImageMap[f.Image]; ok {
+					f.Image = img
 				}
 			}
 			if e.Snapshotter != nil && f.Op == Intern && (f.State == Ready || f.State == NeedTransfer) && !f.MustIntern {

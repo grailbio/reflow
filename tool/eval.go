@@ -5,6 +5,7 @@
 package tool
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/lang"
 	"github.com/grailbio/reflow/syntax"
@@ -21,13 +23,14 @@ import (
 
 // EvalResult contains the program Flow, params and args.
 type EvalResult struct {
-	Program string
-	Flow    *flow.Flow
-	Type    *types.T
-	Params  map[string]string
-	Args    []string
-	V1      bool
-	Bundle  *syntax.Bundle
+	Program  string
+	Flow     *flow.Flow
+	Type     *types.T
+	Params   map[string]string
+	Args     []string
+	V1       bool
+	Bundle   *syntax.Bundle
+	ImageMap map[string]string
 }
 
 // Eval evaluates a Reflow program to a Flow. It can evaluate both legacy (".reflow")
@@ -88,7 +91,7 @@ func (c *Cmd) Eval(args []string) (EvalResult, error) {
 	}
 }
 
-// EvalV1 is a helper function to evaluats a reflow v1 program.
+// EvalV1 is a helper function to evaluate a reflow v1 program.
 func (c *Cmd) evalV1(sess *syntax.Session, file string, args []string) (EvalResult, error) {
 	er := EvalResult{Params: make(map[string]string)}
 	er.V1 = true
@@ -128,6 +131,7 @@ func (c *Cmd) evalV1(sess *syntax.Session, file string, args []string) (EvalResu
 		fmt.Fprintln(os.Stderr, err)
 		flags.Usage()
 	}
+
 	v, err := m.Make(sess, env)
 	if err != nil {
 		return EvalResult{}, err
@@ -138,6 +142,20 @@ func (c *Cmd) evalV1(sess *syntax.Session, file string, args []string) (EvalResu
 	flags.VisitAll(func(f *flag.Flag) {
 		er.Params[f.Name] = f.Value.String()
 	})
+
+	awsSess, err := c.Config.AWS()
+	if err != nil {
+		// We fail later if and when we try to authenticate for an ECR image.
+		awsSess = nil
+	}
+	r := imageResolver{
+		authenticator: ec2authenticator.New(awsSess),
+	}
+	er.ImageMap, err = r.resolveImages(context.Background(), sess.Images())
+	if err != nil {
+		return EvalResult{}, err
+	}
+
 	switch v := v.(type) {
 	case *flow.Flow:
 		if v.Requirements().Equal(reflow.Requirements{}) {

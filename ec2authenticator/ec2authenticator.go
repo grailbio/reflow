@@ -43,6 +43,9 @@ func (a *T) Authenticates(ctx context.Context, image string) (bool, error) {
 // Authenticate deposits Docker repository authentication material
 // for the ECR repository into the provided cfg object.
 func (a *T) Authenticate(ctx context.Context, cfg *types.AuthConfig) error {
+	if a.Session == nil {
+		return errors.New("AWS credentials not present")
+	}
 	resp, err := ecr.New(a.Session).GetAuthorizationToken(&ecr.GetAuthorizationTokenInput{})
 	if err != nil {
 		return err

@@ -260,7 +260,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 	ctx = trace.WithTracer(ctx, tracer)
 	defer cancel()
 	if config.local {
-		c.runLocal(ctx, config, execLogger, runID, er.Flow, er.Type, cmdline)
+		c.runLocal(ctx, config, execLogger, runID, er.Flow, er.Type, er.ImageMap, cmdline)
 		return
 	}
 
@@ -309,6 +309,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 			Transferer:  transferer,
 			Status:      c.Status.Group(runID.Short()),
 			Scheduler:   scheduler,
+			ImageMap:    er.ImageMap,
 		},
 		Type:    er.Type,
 		Labels:  make(pool.Labels),
@@ -370,7 +371,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 	}
 }
 
-func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID digest.Digest, f *flow.Flow, typ *types.T, cmdline string) {
+func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID digest.Digest, f *flow.Flow, typ *types.T, imageMap map[string]string, cmdline string) {
 	addr := os.Getenv("DOCKER_HOST")
 	if addr == "" {
 		addr = "unix:///var/run/docker.sock"
@@ -450,6 +451,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		Assoc:       ass,
 		CacheMode:   c.Config.CacheMode(),
 		Status:      c.Status.Group(runID.Short()),
+		ImageMap:    imageMap,
 	}
 	config.Configure(&evalConfig)
 	if config.trace {

@@ -248,6 +248,9 @@ type Flow struct {
 	// OutputIsDir tells whether the output i is a directory.
 	OutputIsDir []bool
 
+	// Original fields if this Flow was rewritten with canonical values.
+	OriginalImage string
+
 	// Argstrs stores a symbolic argument name, used for pretty printing
 	// and debugging.
 	Argstrs []string
@@ -452,7 +455,7 @@ func (f *Flow) String() string {
 // for debugging.
 func (f *Flow) DebugString() string {
 	dstr := f.Digest().Short()
-	if d := f.PhysicalDigest(); !d.IsZero() {
+	for _, d := range f.PhysicalDigests() {
 		dstr += "/" + d.Short()
 	}
 	b := new(bytes.Buffer)
@@ -840,36 +843,18 @@ func (f *Flow) WriteDigest(w io.Writer) {
 	}
 }
 
-// PhysicalDigest computes the physical digest of the Flow f,
-// reflecting the actual underlying operation to be performed, and
-// not the logical one.
-//
-// It is an error to call PhysicalDigest on nodes whose dependencies
-// are not fully resolved (i.e., state Done, contains a Fileset
-// value), or on nodes not of type OpExec, OpIntern, or Extern.
-// This is because the physical input values must be available to
-// compute the digest.
-//
-// Physical digest returns an empty digest a physical digest is not
-// computable for node f.
-func (f *Flow) PhysicalDigest() digest.Digest {
-	switch f.Op {
-	case Extern, Exec:
-	default:
-		return digest.Digest{}
-	}
+// PhysicalDigest returns the digest for this node substituting the
+// image name in the node with the provided one, if an exec node.
+func (f *Flow) physicalDigest(image string) digest.Digest {
 	w := Digester.NewWriter()
 	for _, dep := range f.Deps {
-		if dep.State != Done || dep.Err != nil {
-			return digest.Digest{}
-		}
 		dep.Value.(reflow.Fileset).WriteDigest(w)
 	}
 	switch f.Op {
 	case Extern:
 		io.WriteString(w, f.URL.String())
 	case Exec:
-		io.WriteString(w, f.Image)
+		io.WriteString(w, image)
 		io.WriteString(w, f.Cmd)
 		for _, arg := range f.Argmap {
 			if arg.Out {
@@ -882,14 +867,48 @@ func (f *Flow) PhysicalDigest() digest.Digest {
 	return w.Digest()
 }
 
+// PhysicalDigests computes the physical digests of the Flow f,
+// reflecting the actual underlying operation to be performed, and
+// not the logical one. If there are multiple representations of
+// the underlying operation, then multiple digests are returned, in
+// the order of most concrete to least concrete.
+//
+// If PhysicalDigests is called on nodes whose dependencies
+// are not fully resolved (i.e., state Done, contains a Fileset
+// value), or on nodes not of type OpExec, or OpExtern, a nil
+// slice is returned. This is because the physical input values
+// must be available to compute the digest.
+func (f *Flow) PhysicalDigests() []digest.Digest {
+	switch f.Op {
+	case Extern, Exec:
+	default:
+		return nil
+	}
+
+	for _, dep := range f.Deps {
+		if dep.State != Done || dep.Err != nil {
+			return nil
+		}
+	}
+
+	digests := make([]digest.Digest, 1, 2)
+	switch f.Op {
+	case Extern:
+		digests[0] = f.physicalDigest("")
+	case Exec:
+		digests[0] = f.physicalDigest(f.Image)
+		if f.OriginalImage != "" && f.OriginalImage != f.Image {
+			digests = append(digests, f.physicalDigest(f.OriginalImage))
+		}
+	}
+
+	return digests
+}
+
 // CacheKeys returns all the valid cache keys for this flow node.
 // They are returned in order from most concrete to least concrete.
 func (f *Flow) CacheKeys() []digest.Digest {
-	var digests []digest.Digest
-	if d := f.PhysicalDigest(); !d.IsZero() {
-		digests = append(digests, d)
-	}
-	return append(digests, f.Digest())
+	return append(f.PhysicalDigests(), f.Digest())
 }
 
 // Visitor returns a new FlowVisitor rooted at this node.

@@ -58,6 +58,26 @@ func TestCanonicalize(t *testing.T) {
 	}
 }
 
+func TestPhysicalDigests(t *testing.T) {
+	e1 := op.Exec("image", "cmd1", reflow.Resources{"mem": 10, "cpu": 1, "disk": 110})
+	n := len(e1.PhysicalDigests())
+	if n != 1 {
+		t.Errorf("expected 1 physical digest; got %d", n)
+	}
+
+	e1.OriginalImage = "image"
+	n = len(e1.PhysicalDigests())
+	if n != 1 {
+		t.Errorf("expected 1 physical digest; got %d", n)
+	}
+
+	e1.OriginalImage = "origImage"
+	n = len(e1.PhysicalDigests())
+	if n != 2 {
+		t.Errorf("expected 2 physical digests; got %d", n)
+	}
+}
+
 func TestVisitor(t *testing.T) {
 	intern1 := op.Intern("url")
 	intern2 := op.Intern("url")
@@ -74,8 +94,8 @@ func TestVisitor(t *testing.T) {
 }
 
 func TestFlowRequirements(t *testing.T) {
-	e1 := op.Exec("cmd1", "image", reflow.Resources{"mem": 10, "cpu": 1, "disk": 110})
-	e2 := op.Exec("cmd2", "image", reflow.Resources{"mem": 20, "cpu": 1, "disk": 100})
+	e1 := op.Exec("image", "cmd1", reflow.Resources{"mem": 10, "cpu": 1, "disk": 110})
+	e2 := op.Exec("image", "cmd2", reflow.Resources{"mem": 20, "cpu": 1, "disk": 100})
 	merge := op.Merge(e1, e2)
 	req := merge.Requirements()
 	if req.Width != 0 {

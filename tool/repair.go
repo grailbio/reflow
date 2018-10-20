@@ -94,6 +94,8 @@ supplied via a CSV batch file as in "reflow runbatch".`
 					return err
 				}
 				c.Log.Printf("repair: %s", strings.Join(args, " "))
+				// TODO(sbagaria): thread-safe append the resolved canonical images to repair.ImageMap.
+				// Or instead of storing imageMap, store tool.imageResolver instead in EvalConfig.
 				repair.Do(ctx, er.Flow)
 				return nil
 			})
@@ -103,6 +105,7 @@ supplied via a CSV batch file as in "reflow runbatch".`
 		}
 	} else {
 		er, err := c.Eval(flags.Args())
+		repair.ImageMap = er.ImageMap
 		if err != nil {
 			c.Fatal(err)
 		}
