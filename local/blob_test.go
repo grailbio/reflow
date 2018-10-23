@@ -14,6 +14,7 @@ import (
 	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/repository/filerepo"
+	reflowtestutil "github.com/grailbio/reflow/test/testutil"
 	"github.com/grailbio/testutil"
 	"github.com/grailbio/testutil/s3test"
 )
@@ -28,7 +29,7 @@ func (s testStore) Bucket(ctx context.Context, name string) (blob.Bucket, error)
 	return bucket, nil
 }
 
-func newS3Test(t *testing.T, bucket, prefix string) (exec *blobExec, client *s3test.Client, repo *filerepo.Repository, cleanup func()) {
+func newS3Test(t *testing.T, bucket, prefix string, transferType string) (exec *blobExec, client *s3test.Client, repo *filerepo.Repository, cleanup func()) {
 	var dir string
 	dir, cleanup = testutil.TempDir(t, "", "s3test")
 	repo = &filerepo.Repository{Root: filepath.Join(dir, "repo")}
@@ -36,26 +37,53 @@ func newS3Test(t *testing.T, bucket, prefix string) (exec *blobExec, client *s3t
 	client.Region = "us-west-2"
 	store := testStore{"testbucket": s3blob.NewBucket("testbucket", client)}
 	exec = &blobExec{
-		Blob:       blob.Mux{"s3": store},
-		Repository: repo,
-		Root:       filepath.Join(dir, "exec"),
-		ExecID:     reflow.Digester.FromString("s3test"),
+		Blob:         blob.Mux{"s3": store},
+		Repository:   repo,
+		Root:         filepath.Join(dir, "exec"),
+		ExecID:       reflow.Digester.FromString("s3test"),
+		transferType: transferType,
 	}
-	exec.staging.Root = filepath.Join(dir, "staging")
+	if transferType == intern {
+		exec.staging.Root = filepath.Join(dir, "staging")
+	}
 	exec.Config = reflow.ExecConfig{
-		Type: "intern",
+		Type: transferType,
 		URL:  "s3://" + bucket + "/" + prefix,
 	}
 	exec.Init(nil)
 	return
 }
 
-func TestS3ExecPrefix(t *testing.T) {
+func executeAndGetResult(ctx context.Context, t *testing.T, s3 *blobExec) reflow.Result {
+	t.Helper()
+	go s3.Go(ctx)
+	if err := s3.Wait(ctx); err != nil {
+		t.Fatal(err)
+	}
+	inspect, err := s3.Inspect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := inspect.Error; err != nil {
+		t.Fatalf("unexpected error %v", err)
+	}
+	if got, want := inspect.State, "complete"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+
+	res, err := s3.Result(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func TestS3ExecInternPrefix(t *testing.T) {
 	const (
 		bucket = "testbucket"
 		prefix = "prefix/"
 	)
-	s3, client, repo, cleanup := newS3Test(t, bucket, prefix)
+	s3, client, repo, cleanup := newS3Test(t, bucket, prefix, intern)
 	defer cleanup()
 
 	files := []string{"a", "a/b", "d", "d/e/f/g", "abcdefg"}
@@ -71,24 +99,8 @@ func TestS3ExecPrefix(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	go s3.Go(ctx)
-	if err := s3.Wait(ctx); err != nil {
-		t.Fatal(err)
-	}
-	inspect, err := s3.Inspect(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := inspect.Error; err != nil {
-		t.Fatalf("unexpected error %v", err)
-	}
-	if got, want := inspect.State, "complete"; got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-	res2, err := s3.Result(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	res2 := executeAndGetResult(ctx, t, s3)
+
 	if got, want := res2, (reflow.Result{Fileset: val}); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
@@ -108,13 +120,44 @@ func TestS3ExecPrefix(t *testing.T) {
 	}
 }
 
+func TestS3ExecExternPrefix(t *testing.T) {
+	const (
+		bucket = "testbucket"
+		prefix = "prefix/"
+	)
+	s3, client, repo, cleanup := newS3Test(t, bucket, prefix, extern)
+	defer cleanup()
+
+	files := []string{"a", "a/b", "d", "d/e/f/g", "abcdefg"}
+	fileset := reflowtestutil.WriteFiles(repo, files...)
+	s3.Config.Args = []reflow.Arg{{Fileset: &fileset}}
+
+	ctx := context.Background()
+	res := executeAndGetResult(ctx, t, s3)
+
+	if got, want := res, (reflow.Result{Fileset: fileset}); !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+
+	// Verify that everything is in the blob.
+	for _, file := range files {
+		content, ok := client.GetFile(prefix + file)
+		if !ok {
+			t.Errorf("blob is missing %v", file)
+		}
+		if content.Content.Size() != int64(len(file)) {
+			t.Errorf("blob content mismatch %v", file)
+		}
+	}
+}
+
 func TestS3ExecPath(t *testing.T) {
 	const (
 		bucket   = "testbucket"
 		key      = "somefile"
 		contents = "file contents"
 	)
-	s3, client, repo, cleanup := newS3Test(t, bucket, key)
+	s3, client, repo, cleanup := newS3Test(t, bucket, key, intern)
 	defer cleanup()
 
 	client.SetFile(key, []byte(contents), "unused")
@@ -122,24 +165,7 @@ func TestS3ExecPath(t *testing.T) {
 	client.SetFile("someotherfile", []byte("blah"), "unused")
 
 	ctx := context.Background()
-	go s3.Go(ctx)
-	if err := s3.Wait(ctx); err != nil {
-		t.Fatal(err)
-	}
-	inspect, err := s3.Inspect(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := inspect.Error; err != nil {
-		t.Fatalf("unexpected error %v", err)
-	}
-	if got, want := inspect.State, "complete"; got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-	got, err := s3.Result(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	got := executeAndGetResult(ctx, t, s3)
 	if err := s3.Promote(ctx); err != nil {
 		t.Fatal(err)
 	}

@@ -31,10 +31,10 @@ import (
 )
 
 var (
-	waitingFiles     = expvar.NewInt("blobwaiting")
 	fetchingFiles    = expvar.NewInt("blobfetching")
 	downloadingFiles = expvar.NewInt("blobdownloading")
 	digestingFiles   = expvar.NewInt("blobdigesting")
+	uploadingFiles   = expvar.NewInt("blobuploading")
 )
 
 // a canceler rendezvous a cancellation function with a
@@ -107,9 +107,10 @@ type blobExec struct {
 	// ExecURI is returned by URI.
 	ExecURI string
 
-	// downloadedSize stores the total amount of downloaded and installed
-	// data.
-	downloadedSize uint64
+	// transferType stores the type of transfer (ie "intern" or "extern")
+	transferType string
+	// transferredSize stores the total amount of data either downloaded and installed or uploaded.
+	transferredSize uint64
 
 	canceler canceler
 
@@ -127,6 +128,22 @@ type blobExec struct {
 	err error
 }
 
+const (
+	intern = "intern"
+	extern = "extern"
+)
+
+// transferTypeStr returns a human-readable string for the transfer type.
+func (e *blobExec) transferTypeStr() string {
+	switch e.transferType {
+	case intern:
+		return "download"
+	case extern:
+		return "upload"
+	}
+	return "unknown"
+}
+
 // Init initializes an blobExec from (optionally) an executor.
 func (e *blobExec) Init(x *Executor) {
 	if x != nil {
@@ -134,9 +151,10 @@ func (e *blobExec) Init(x *Executor) {
 		e.Root = x.execPath(e.ID())
 		e.Repository = x.FileRepository
 		e.ExecURI = x.URI() + "/" + e.ID().Hex()
-		e.staging.Root = x.execPath(e.ID(), objectsDir)
-		e.staging.Log = x.Log
-
+		if e.transferType == intern {
+			e.staging.Root = x.execPath(e.ID(), objectsDir)
+			e.staging.Log = x.Log
+		}
 	}
 	e.Manifest.Created = time.Now()
 	e.Manifest.Type = execBlob
@@ -174,7 +192,11 @@ func (e *blobExec) Go(ctx context.Context) {
 		case execCreated:
 			state = execRunning
 		case execRunning:
-			err = e.do(ctx)
+			if e.transferType == intern {
+				err = e.doIntern(ctx)
+			} else {
+				err = e.doExtern(ctx)
+			}
 			if err == nil {
 				state = execComplete
 				break
@@ -184,7 +206,7 @@ func (e *blobExec) Go(ctx context.Context) {
 				break
 			}
 			state = execComplete
-			e.Manifest.Result.Err = errors.Recover(errors.E("intern", fmt.Sprint(e.Config.URL), err))
+			e.Manifest.Result.Err = errors.Recover(errors.E(e.transferType, fmt.Sprint(e.Config.URL), err))
 			err = nil
 		default:
 			panic("bug")
@@ -236,13 +258,13 @@ func (e *blobExec) init(ctx context.Context) (execState, error) {
 	return execCreated, nil
 }
 
-func (e *blobExec) do(ctx context.Context) error {
+func (e *blobExec) doIntern(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	e.canceler.Set(cancel)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if e.Config.Type != "intern" {
+	if e.Config.Type != intern {
 		return errors.E("exec", e.ID(), errors.NotSupported, errors.Errorf("unsupported exec type %v", e.Config.Type))
 	}
 	bucket, prefix, err := e.Blob.Bucket(ctx, e.Config.URL)
@@ -251,8 +273,6 @@ func (e *blobExec) do(ctx context.Context) error {
 	}
 
 	// Define the error group under which we will perform all of our fetches.
-	// We thread the common context through an http round tripper that will
-	// terminate all pending requests when that context is cancelled.
 	g, ctx := errgroup.WithContext(ctx)
 
 	e.mu.Lock()
@@ -275,7 +295,7 @@ func (e *blobExec) do(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		atomic.AddUint64(&e.downloadedSize, uint64(file.Size))
+		atomic.AddUint64(&e.transferredSize, uint64(file.Size))
 		e.mu.Lock()
 		e.Manifest.Result.Fileset.Map["."] = file
 		e.mu.Unlock()
@@ -304,7 +324,7 @@ func (e *blobExec) do(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			atomic.AddUint64(&e.downloadedSize, uint64(file.Size))
+			atomic.AddUint64(&e.transferredSize, uint64(file.Size))
 			e.mu.Lock()
 			e.Manifest.Result.Fileset.Map[key[nprefix:]] = file
 			e.mu.Unlock()
@@ -318,10 +338,63 @@ func (e *blobExec) do(ctx context.Context) error {
 	if err := g.Wait(); err != nil {
 		return err
 	}
-	if err := scan.Err(); err != nil {
+	return scan.Err()
+}
+
+func (e *blobExec) doExtern(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	e.canceler.Set(cancel)
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return nil
+	if e.Config.Type != extern {
+		return errors.E("exec", e.ID(), errors.NotSupported, errors.Errorf("unsupported exec type %v", e.Config.Type))
+	}
+	bucket, prefix, err := e.Blob.Bucket(ctx, e.Config.URL)
+	if err != nil {
+		return err
+	}
+
+	if len(e.Config.Args) != 1 {
+		return errors.E(errors.Precondition,
+			errors.Errorf("unexpected args (must be 1, but was %d): %v", len(e.Config.Args), e.Config.Args))
+	}
+	fileset := e.Config.Args[0].Fileset.Pullup()
+
+	// Define the error group under which we will perform all of our fetches.
+	g, ctx := errgroup.WithContext(ctx)
+
+	e.mu.Lock()
+	e.Manifest.Result.Fileset.Map = map[string]reflow.File{}
+	e.mu.Unlock()
+
+	for k, v := range fileset.Map {
+		fn, f := k, v
+		g.Go(func() error {
+			key := prefix + fn
+			ul := upload{
+				Repository: e.Repository,
+				Bucket:     bucket,
+				Key:        key,
+				ID:         f.ID,
+				Size:       f.Size,
+				Log:        e.log,
+			}
+			err = ul.Do(ctx)
+			if err != nil {
+				return err
+			}
+			atomic.AddUint64(&e.transferredSize, uint64(f.Size))
+			e.mu.Lock()
+			e.Manifest.Result.Fileset.Map[fn] = f
+			e.mu.Unlock()
+			return nil
+		})
+	}
+	// Always wait for work to complete regardless of error.
+	// If there is an error, the context will be cancelled and
+	// waiting will be quick.
+	return g.Wait()
 }
 
 func (e *blobExec) Kill(ctx context.Context) error {
@@ -358,7 +431,10 @@ func (e *blobExec) Result(ctx context.Context) (reflow.Result, error) {
 }
 
 func (e *blobExec) Promote(ctx context.Context) error {
-	return e.Repository.Vacuum(ctx, &e.staging)
+	if e.transferType == intern {
+		return e.Repository.Vacuum(ctx, &e.staging)
+	}
+	return nil
 }
 
 // Inspect returns exec metadata.
@@ -374,24 +450,26 @@ func (e *blobExec) Inspect(ctx context.Context) (reflow.ExecInspect, error) {
 	switch state {
 	case execUnstarted, execInit, execCreated:
 		inspect.State = "initializing"
-		inspect.Status = "download has not yet started"
+		inspect.Status = fmt.Sprintf("%s has not yet started", e.transferTypeStr())
 	case execRunning:
-		inspect.Gauges = make(reflow.Gauges)
-		// These gauges values are racy: we can observe an outdated disk size
-		// with respect to tmp.
-		inspect.Gauges["disk"] = float64(atomic.LoadUint64(&e.downloadedSize))
-		path := e.path("download")
-		n, err := du(path)
-		if err != nil {
-			e.log.Errorf("du %s: %v", path, err)
-		} else {
-			inspect.Gauges["tmp"] = float64(n)
+		if e.transferType == intern {
+			inspect.Gauges = make(reflow.Gauges)
+			// These gauges values are racy: we can observe an outdated disk size
+			// with respect to tmp.
+			inspect.Gauges["disk"] = float64(atomic.LoadUint64(&e.transferredSize))
+			path := e.path("download")
+			n, err := du(path)
+			if err != nil {
+				e.log.Errorf("du %s: %v", path, err)
+			} else {
+				inspect.Gauges["tmp"] = float64(n)
+			}
 		}
 		inspect.State = "running"
-		inspect.Status = "downloading from bucket"
+		inspect.Status = fmt.Sprintf("%sing from/to bucket", e.transferTypeStr())
 	case execComplete:
 		inspect.State = "complete"
-		inspect.Status = "download complete"
+		inspect.Status = fmt.Sprintf("%s complete", e.transferTypeStr())
 	}
 	return inspect, nil
 }
@@ -430,9 +508,11 @@ func (d *download) Do(ctx context.Context, repo *filerepo.Repository) (reflow.Fi
 	}
 	defer func() {
 		if err := os.Remove(f.Name()); err != nil {
-			d.Log.Errorf("failed to remove file %q: %v", f.Name(), err)
+			d.Log.Errorf("remove %s: %v", f.Name(), err)
 		}
-		f.Close()
+		if err := f.Close(); err != nil {
+			d.Log.Errorf("close %s: %v", f.Name(), err)
+		}
 	}()
 	var w bytewatch
 	w.Reset()
@@ -458,7 +538,42 @@ func (d *download) Do(ctx context.Context, repo *filerepo.Repository) (reflow.Fi
 		d.Log.Errorf("install %s%s: %v", d.Bucket.Location(), d.Key, err)
 	} else {
 		dur, bps := w.Lap(d.Size)
-		d.Log.Printf("installed %s%s to %v in %s (%s/s)", d.Bucket.Location(), d.Key, f, dur, data.Size(bps))
+		d.Log.Printf("installed %s%s to %v in %s (%s/s)", d.Bucket.Location(), d.Key, f.Name(), dur, data.Size(bps))
 	}
 	return file, err
+}
+
+type upload struct {
+	Repository *filerepo.Repository
+	Bucket     blob.Bucket
+	Key        string
+	ID         digest.Digest
+	Size       int64
+	Log        *log.Logger
+}
+
+func (u *upload) Do(ctx context.Context) error {
+	f, err := u.Repository.Get(ctx, u.ID)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			_, path := u.Repository.Path(u.ID)
+			u.Log.Errorf("close %s: %v", path, err)
+		}
+	}()
+	var w bytewatch
+	w.Reset()
+	u.Log.Printf("upload %s (%s) to %s%s", u.Key, data.Size(u.Size), u.Bucket.Location(), u.Key)
+	uploadingFiles.Add(1)
+	err = u.Bucket.Put(ctx, u.Key, f)
+	uploadingFiles.Add(-1)
+	if err != nil {
+		u.Log.Printf("upload %s/%s: %v", u.Bucket.Location(), u.Key, err)
+		return err
+	}
+	dur, bps := w.Lap(u.Size)
+	u.Log.Printf("done %s/%s in %s (%s/s)", u.Bucket.Location(), u.Key, dur, data.Size(bps))
+	return nil
 }

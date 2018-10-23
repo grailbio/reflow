@@ -166,8 +166,9 @@ func (e *Executor) Start() error {
 		case execBlob:
 			_, stderr := e.getRemoteStreams(id, false, true)
 			blobx := &blobExec{
-				ExecID: id,
-				log:    e.Log.Tee(stderr, ""),
+				ExecID:       id,
+				transferType: m.Config.Type,
+				log:          e.Log.Tee(stderr, ""),
 			}
 			blobx.Init(e)
 			blobx.Manifest = m
@@ -242,7 +243,7 @@ func (e *Executor) Put(ctx context.Context, id digest.Digest, cfg reflow.ExecCon
 	}
 	var exec exec
 	switch cfg.Type {
-	case "intern", "extern":
+	case intern, extern:
 		u, err := url.Parse(cfg.URL)
 		if err != nil {
 			e.mu.Unlock()
@@ -254,8 +255,9 @@ func (e *Executor) Put(ctx context.Context, id digest.Digest, cfg reflow.ExecCon
 		default:
 			_, stderr := e.getRemoteStreams(id, false, true)
 			blob := &blobExec{
-				ExecID: id,
-				log:    e.Log.Tee(stderr, ""),
+				ExecID:       id,
+				transferType: cfg.Type,
+				log:          e.Log.Tee(stderr, ""),
 			}
 			blob.Config = cfg
 			blob.Init(e)
@@ -431,7 +433,7 @@ func (e *Executor) rewriteConfig(cfg *reflow.ExecConfig) error {
 			cfg.Image = e.AWSImage
 		}
 	}
-	if cfg.Type != "intern" && cfg.Type != "extern" {
+	if cfg.Type != intern && cfg.Type != extern {
 		return nil
 	}
 	u, err := url.Parse(cfg.URL)
@@ -442,7 +444,7 @@ func (e *Executor) rewriteConfig(cfg *reflow.ExecConfig) error {
 	case "localfile":
 		return nil
 	case "s3", "s3f":
-		if !e.ExternalS3 && cfg.Type == "intern" {
+		if !e.ExternalS3 {
 			return nil
 		}
 	default:
@@ -460,7 +462,7 @@ func (e *Executor) rewriteConfig(cfg *reflow.ExecConfig) error {
 	// [1] e.g., see https://github.com/aws/aws-cli/issues/2401
 	const awsCLIFlags = `--cli-read-timeout 1200 --cli-connect-timeout 1200`
 	switch cfg.Type {
-	case "intern":
+	case intern:
 		switch u.Scheme {
 		case "s3":
 			cfg.Cmd = fmt.Sprintf(`
@@ -502,7 +504,7 @@ func (e *Executor) rewriteConfig(cfg *reflow.ExecConfig) error {
 			done
 			exit 1`, creds.AccessKeyID, creds.SecretAccessKey, creds.SessionToken, awsCLIFlags, uu.String())
 		}
-	case "extern":
+	case extern:
 		cfg.Cmd = fmt.Sprintf(`
 			aws configure set default.region us-west-2
 			export AWS_ACCESS_KEY_ID=%q
