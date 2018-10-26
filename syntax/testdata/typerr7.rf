@@ -1,0 +1,3 @@
+
+// delayed image is not ok, but cpu is
+val Main = exec(image := delay("x"), cpu := delay(1)) (out file) {" "}

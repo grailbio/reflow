@@ -187,6 +187,10 @@ type Expr struct {
 	// Template is the exec template in ExprExec.
 	Template *Template
 
+	// Image is the (evaluated) image string used in the exec.
+	// It is populated during evaluation.
+	Image string
+
 	ComprExpr    *Expr
 	ComprClauses []*ComprClause
 
@@ -506,7 +510,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 				e.Type = types.Errorf("type error in parameter: %s", err)
 				return
 			}
-			if d.Expr.Type.Flow {
+			if d.Pat.Ident == "image" && d.Expr.Type.Flow {
 				e.Type = types.Errorf("exec parameter %s is not immediate", d.Pat.Ident)
 				return
 			}

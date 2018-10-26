@@ -237,7 +237,8 @@ func (e *Expr) digest1(w io.Writer) {
 		panic("ExprFunc invalid for digest1")
 	case ExprTuple, ExprStruct, ExprList, ExprMap:
 	case ExprExec:
-		panic("ExprExec invalid for digest1")
+		io.WriteString(w, e.Image)
+		io.WriteString(w, e.Template.String())
 	case ExprCond:
 	case ExprDeref:
 		io.WriteString(w, e.Ident)

@@ -248,197 +248,27 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			},
 			keys...)
 	case ExprExec:
-		// Execs are special. The interpolation environment also has the
-		// output ids.
-		narg := len(e.Template.Args)
-		outputs := map[string]*types.T{}
-		for _, f := range e.Type.Tupled().Fields {
-			outputs[f.Name] = f.T
-		}
-		varg := make([]values.T, narg)
-		for i, ae := range e.Template.Args {
-			if ae.Kind == ExprIdent && outputs[ae.Ident] != nil {
-				continue
-			}
-			var err error
-			varg[i], err = ae.eval(sess, env, ident)
-			if err != nil {
-				return nil, err
-			}
-			// Execs need to use the actual values, so we must force
-			// their evaluation.
-			varg[i] = Force(varg[i], ae.Type)
-		}
-		// TODO(marius): it might be useful to allow the declarations inside
-		// of an exec to just override the ones outside. This way, we can for
-		// example declare a module-wide image.
-		env2 := values.NewEnv()
-		for _, d := range e.Decls {
-			// These are all guaranteed to be const expressions by the
-			// type checker, so we can safely evaluate them here to an
-			// immediate result.
+		tvals := make([]interface{}, len(e.Decls))
+		for i, d := range e.Decls {
 			v, err := d.Expr.eval(sess, env, d.ID(ident))
 			if err != nil {
 				return nil, err
 			}
-			if !d.Pat.BindValues(env2, v) {
-				return nil, errors.E(fmt.Sprintf("%s:", d.Pat.Position), errMatch)
+			if d.Pat.Ident == "image" {
+				e.Image = v.(string)
 			}
+			tvals[i] = tval{d.Type, v}
 		}
-		image := env2.Value("image").(string)
-		resources := makeResources(env2)
-
-		// Now for each argument that must be evaluated through the flow
-		// evaluator, we attach as a dependency. Other arguments are inlined.
-		var (
-			deps    []*flow.Flow
-			earg    []flow.ExecArg
-			indexer = newIndexer()
-			argstrs []string
-			b       bytes.Buffer
-		)
-		b.WriteString(quotequote(e.Template.Frags[0]))
-		for i, ae := range e.Template.Args {
-			if ae.Kind == ExprIdent && outputs[ae.Ident] != nil {
-				// An output argument: we replace it with an output exec argument,
-				// indexed by its name.
-				b.WriteString("%s")
-				argstrs = append(argstrs, fmt.Sprintf("{{%s}}", ae.Ident))
-				earg = append(earg, flow.ExecArg{Out: true, Index: indexer.Index(ae.Ident)})
-			} else if f, ok := varg[i].(*flow.Flow); ok {
-				// Runtime dependency: we attach this to our exec nodes, and let
-				// the runtime perform argument substitution. Only files and dirs
-				// are allowed as dynamic dependencies. These are both
-				// represented by reflow.Fileset, and can be substituted by the
-				// runtime. Input arguments are indexed by dependency.
-				//
-				// Because OpExec expects filesets, we have to coerce the input by
-				// type.
-				//
-				// TODO(marius): collapse Vals here
-				f = coerceFlowToFileset(ae.Type, f)
-				b.WriteString("%s")
-				deps = append(deps, f)
-				earg = append(earg, flow.ExecArg{Index: len(deps) - 1})
-				if ae.Kind == ExprIdent {
-					argstrs = append(argstrs, fmt.Sprintf("{{%s}}", ae.Ident))
-				} else {
-					argstrs = append(argstrs, "{{flow}}")
-				}
-			} else {
-				// Immediate argument: we render it and inline it. The typechecker guarantees
-				// that only files, dirs, strings, and ints are allowed here.
-				v := varg[i]
-				switch e.Template.Args[i].Type.Kind {
-				case types.StringKind:
-					b.WriteString(strings.Replace(v.(string), "%", "%%", -1))
-				case types.IntKind:
-					vint := v.(*big.Int)
-					b.WriteString(vint.String())
-				case types.FloatKind:
-					vfloat := v.(*big.Float)
-					b.WriteString(vfloat.String())
-				case types.FileKind, types.DirKind, types.ListKind:
-					// Files and directories must be wrapped back into flows since
-					// this is the only way they can be inlined by reflow's executor
-					// (since it controls paths). Also, input arguments must be
-					// coerced into reflow filesets.
-					b.WriteString("%s")
-					deps = append(deps, &flow.Flow{
-						Op:    flow.Val,
-						Value: coerceToFileset(e.Template.Args[i].Type, v),
-					})
-					earg = append(earg, flow.ExecArg{Index: len(deps) - 1})
-					if ae.Kind == ExprIdent {
-						argstrs = append(argstrs, fmt.Sprintf("{{%s}}", ae.Ident))
-					} else {
-						argstrs = append(argstrs, fmt.Sprintf("{{%s}}", v))
-					}
-				default:
-					panic("illegal expression " + e.Template.Args[i].Type.String() + " ... " + fmt.Sprint(v))
+		return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+			penv := values.NewEnv()
+			for i, d := range e.Decls {
+				v := vs[i]
+				if !d.Pat.BindValues(penv, v) {
+					return nil, errors.E(fmt.Sprintf("%s:", d.Pat.Position), errMatch)
 				}
 			}
-			b.WriteString(quotequote(e.Template.Frags[i+1]))
-		}
-		dirs := make([]bool, indexer.N())
-		for name, typ := range outputs {
-			i, ok := indexer.Lookup(name)
-			if !ok {
-				continue
-			}
-			dirs[i] = typ.Kind == types.DirKind
-		}
-
-		sess.SeeImage(image)
-
-		// The output from an exec is a fileset, so we must coerce it back into a
-		// tuple indexed by the our indexer. We must also coerce filesets into
-		// files and dirs.
-		return &flow.Flow{
-			Ident: ident,
-
-			Deps: []*flow.Flow{{
-				Op:        flow.Exec,
-				Ident:     ident,
-				Position:  e.Position.String(), // XXX TODO full path
-				Image:     image,
-				Resources: resources,
-				// TODO(marius): use a better interpolation scheme that doesn't
-				// require us to do these gymnastics wrt string interpolation.
-				Cmd:         b.String(),
-				Deps:        deps,
-				Argmap:      earg,
-				Argstrs:     argstrs,
-				OutputIsDir: dirs,
-			}},
-
-			Op:         flow.Coerce,
-			FlowDigest: coerceExecOutputDigest,
-			Coerce: func(v values.T) (values.T, error) {
-				list := v.(reflow.Fileset).List
-				if got, want := len(list), indexer.N(); got != want {
-					return nil, fmt.Errorf("bad exec result: expected size %d, got %d (deps %v, argmap %v, outputisdir %v)", want, got, deps, earg, dirs)
-				}
-				tup := make(values.Tuple, len(outputs))
-				for i, f := range e.Type.Tupled().Fields {
-					idx, ok := indexer.Lookup(f.Name)
-					if ok {
-						fs := list[idx]
-						var v values.T
-						switch outputs[f.Name].Kind {
-						case types.FileKind:
-							file, ok := fs.Map["."]
-							if !ok {
-								return nil, errors.Errorf("output file not created in %s", ident)
-							}
-							v = file
-						case types.DirKind:
-							dir := make(values.Dir)
-							for k, file := range fs.Map {
-								dir[k] = file
-							}
-							v = dir
-						default:
-							panic("bad result type")
-						}
-						tup[i] = v
-					} else {
-						switch outputs[f.Name].Kind {
-						case types.FileKind:
-							tup[i] = reflow.File{}
-						case types.DirKind:
-							tup[i] = make(values.Dir)
-						default:
-							panic("bad result type")
-						}
-					}
-				}
-				if len(tup) == 1 {
-					return tup[0], nil
-				}
-				return tup, nil
-			},
-		}, nil
+			return e.exec(sess, env, ident, makeResources(penv))
+		}, tvals...)
 	case ExprCond:
 		return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 			if vs[0].(bool) {
@@ -709,6 +539,184 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 		return v, nil
 	}
 	panic("eval bug " + e.String())
+}
+
+// Exec returns a Flow value for an exec expression. The resolved
+// image and resources are passed by the caller.
+func (e *Expr) exec(sess *Session, env *values.Env, ident string, resources reflow.Resources) (values.T, error) {
+	// Execs are special. The interpolation environment also has the
+	// output ids.
+	narg := len(e.Template.Args)
+	outputs := map[string]*types.T{}
+	for _, f := range e.Type.Tupled().Fields {
+		outputs[f.Name] = f.T
+	}
+	varg := make([]values.T, narg)
+	for i, ae := range e.Template.Args {
+		if ae.Kind == ExprIdent && outputs[ae.Ident] != nil {
+			continue
+		}
+		var err error
+		varg[i], err = ae.eval(sess, env, ident)
+		if err != nil {
+			return nil, err
+		}
+		// Execs need to use the actual values, so we must force
+		// their evaluation.
+		varg[i] = Force(varg[i], ae.Type)
+	}
+
+	// Now for each argument that must be evaluated through the flow
+	// evaluator, we attach as a dependency. Other arguments are inlined.
+	var (
+		deps    []*flow.Flow
+		earg    []flow.ExecArg
+		indexer = newIndexer()
+		argstrs []string
+		b       bytes.Buffer
+	)
+	b.WriteString(quotequote(e.Template.Frags[0]))
+	for i, ae := range e.Template.Args {
+		if ae.Kind == ExprIdent && outputs[ae.Ident] != nil {
+			// An output argument: we replace it with an output exec argument,
+			// indexed by its name.
+			b.WriteString("%s")
+			argstrs = append(argstrs, fmt.Sprintf("{{%s}}", ae.Ident))
+			earg = append(earg, flow.ExecArg{Out: true, Index: indexer.Index(ae.Ident)})
+		} else if f, ok := varg[i].(*flow.Flow); ok {
+			// Runtime dependency: we attach this to our exec nodes, and let
+			// the runtime perform argument substitution. Only files and dirs
+			// are allowed as dynamic dependencies. These are both
+			// represented by reflow.Fileset, and can be substituted by the
+			// runtime. Input arguments are indexed by dependency.
+			//
+			// Because OpExec expects filesets, we have to coerce the input by
+			// type.
+			//
+			// TODO(marius): collapse Vals here
+			f = coerceFlowToFileset(ae.Type, f)
+			b.WriteString("%s")
+			deps = append(deps, f)
+			earg = append(earg, flow.ExecArg{Index: len(deps) - 1})
+			if ae.Kind == ExprIdent {
+				argstrs = append(argstrs, fmt.Sprintf("{{%s}}", ae.Ident))
+			} else {
+				argstrs = append(argstrs, "{{flow}}")
+			}
+		} else {
+			// Immediate argument: we render it and inline it. The typechecker guarantees
+			// that only files, dirs, strings, and ints are allowed here.
+			v := varg[i]
+			switch e.Template.Args[i].Type.Kind {
+			case types.StringKind:
+				b.WriteString(strings.Replace(v.(string), "%", "%%", -1))
+			case types.IntKind:
+				vint := v.(*big.Int)
+				b.WriteString(vint.String())
+			case types.FloatKind:
+				vfloat := v.(*big.Float)
+				b.WriteString(vfloat.String())
+			case types.FileKind, types.DirKind, types.ListKind:
+				// Files and directories must be wrapped back into flows since
+				// this is the only way they can be inlined by reflow's executor
+				// (since it controls paths). Also, input arguments must be
+				// coerced into reflow filesets.
+				b.WriteString("%s")
+				deps = append(deps, &flow.Flow{
+					Op:    flow.Val,
+					Value: coerceToFileset(e.Template.Args[i].Type, v),
+				})
+				earg = append(earg, flow.ExecArg{Index: len(deps) - 1})
+				if ae.Kind == ExprIdent {
+					argstrs = append(argstrs, fmt.Sprintf("{{%s}}", ae.Ident))
+				} else {
+					argstrs = append(argstrs, fmt.Sprintf("{{%s}}", v))
+				}
+			default:
+				panic("illegal expression " + e.Template.Args[i].Type.String() + " ... " + fmt.Sprint(v))
+			}
+		}
+		b.WriteString(quotequote(e.Template.Frags[i+1]))
+	}
+	dirs := make([]bool, indexer.N())
+	for name, typ := range outputs {
+		i, ok := indexer.Lookup(name)
+		if !ok {
+			continue
+		}
+		dirs[i] = typ.Kind == types.DirKind
+	}
+
+	sess.SeeImage(e.Image)
+
+	// The output from an exec is a fileset, so we must coerce it back into a
+	// tuple indexed by the our indexer. We must also coerce filesets into
+	// files and dirs.
+	return &flow.Flow{
+		Ident: ident,
+
+		Deps: []*flow.Flow{{
+			Op:        flow.Exec,
+			Ident:     ident,
+			Position:  e.Position.String(), // XXX TODO full path
+			Image:     e.Image,
+			Resources: resources,
+			// TODO(marius): use a better interpolation scheme that doesn't
+			// require us to do these gymnastics wrt string interpolation.
+			Cmd:         b.String(),
+			Deps:        deps,
+			Argmap:      earg,
+			Argstrs:     argstrs,
+			OutputIsDir: dirs,
+		}},
+
+		Op:         flow.Coerce,
+		FlowDigest: coerceExecOutputDigest,
+		Coerce: func(v values.T) (values.T, error) {
+			list := v.(reflow.Fileset).List
+			if got, want := len(list), indexer.N(); got != want {
+				return nil, fmt.Errorf("bad exec result: expected size %d, got %d (deps %v, argmap %v, outputisdir %v)", want, got, deps, earg, dirs)
+			}
+			tup := make(values.Tuple, len(outputs))
+			for i, f := range e.Type.Tupled().Fields {
+				idx, ok := indexer.Lookup(f.Name)
+				if ok {
+					fs := list[idx]
+					var v values.T
+					switch outputs[f.Name].Kind {
+					case types.FileKind:
+						file, ok := fs.Map["."]
+						if !ok {
+							return nil, errors.Errorf("output file not created in %s", ident)
+						}
+						v = file
+					case types.DirKind:
+						dir := make(values.Dir)
+						for k, file := range fs.Map {
+							dir[k] = file
+						}
+						v = dir
+					default:
+						panic("bad result type")
+					}
+					tup[i] = v
+				} else {
+					switch outputs[f.Name].Kind {
+					case types.FileKind:
+						tup[i] = reflow.File{}
+					case types.DirKind:
+						tup[i] = make(values.Dir)
+					default:
+						panic("bad result type")
+					}
+				}
+			}
+			if len(tup) == 1 {
+				return tup[0], nil
+			}
+			return tup, nil
+		},
+	}, nil
 }
 
 func not(v values.T) (values.T, error) {
@@ -1305,8 +1313,8 @@ func (k evalK) Continue(e *Expr, sess *Session, env *values.Env, ident string, k
 	// Otherwise, the node cannot be immediately evaluated; we defer its
 	// evaluation until all of its dependencies are resolved.
 	//
-	//We first compute the (single-node) digest to identify  the
-	//operation.
+	// We first compute the (single-node) digest to identify  the
+	// operation.
 	//
 	// Note that, except for operations that delay evaluating part of
 	// the tree, all dependencies are captured either directly through

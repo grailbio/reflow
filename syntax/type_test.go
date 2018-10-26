@@ -70,10 +70,6 @@ func TestSynth(t *testing.T) {
 		{`exec(image := "a"+ "b") file {" "}`, `error: output 0 (type file) must be labelled`},
 		{`exec(image := "a"+ "b") (xyz file) {" "}`, `(xyz file)`},
 		{`exec(image := "") (xxx string) {" "}`, `error: execs can only return files and dirs, not (xxx string)`},
-		{
-			`exec(image := "", mem := len(exec(image := "") (out file) {" echo 123 "})) (out file) {" echo foo >{{out}} "}`,
-			`error: exec parameter mem is not immediate`,
-		},
 		{`[{a: 1, b: 2}, {a: 1}]`, `[{a int}]`},
 		{`[]`, `[bottom]`},
 		{`[:]`, `[top:bottom]`},
