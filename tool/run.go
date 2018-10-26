@@ -162,8 +162,12 @@ retriable.`
 	if flags.NArg() == 0 {
 		flags.Usage()
 	}
-	er, err := c.Eval(flags.Args())
-	if er.V1 && config.gc {
+	e := Eval{
+		InputArgs:         flags.Args(),
+		NeedsRequirements: !config.sched,
+	}
+	err := c.Eval(&e)
+	if e.V1 && config.gc {
 		log.Errorf("garbage collection disabled for v1 reflows")
 		config.gc = false
 	} else if config.sched && config.gc {
@@ -173,14 +177,14 @@ retriable.`
 	if err != nil {
 		c.Fatal(err)
 	}
-	c.runCommon(ctx, config, er)
+	c.runCommon(ctx, config, e)
 }
 
 // runCommon is the helper function used by run commands.
-func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
+func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	// In the case where a flow is immediate, we print the result and quit.
-	if er.Flow.Op == flow.Val {
-		c.Println(sprintval(er.Flow.Value, er.Type))
+	if e.Flow.Op == flow.Val {
+		c.Println(sprintval(e.Flow.Value, e.Type))
 		c.Exit(0)
 	}
 	// Construct a unique name for this run, used to identify this invocation
@@ -220,31 +224,31 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 	defer func() {
 		c.Log.Outputter = saveOut
 	}()
-	path, err := filepath.Abs(er.Program)
+	path, err := filepath.Abs(e.Program)
 	if err != nil {
-		log.Errorf("abs %s: %v", er.Program, err)
-		path = er.Program
+		log.Errorf("abs %s: %v", e.Program, err)
+		path = e.Program
 	}
 	cmdline := path
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "evaluating program %s", path)
-	if len(er.Params) > 0 {
+	if len(e.Params) > 0 {
 		var keys []string
-		for key := range er.Params {
+		for key := range e.Params {
 			keys = append(keys, key)
 		}
 		sort.Strings(keys)
 		fmt.Fprintf(&b, "\n\tparams:")
 		for _, key := range keys {
-			fmt.Fprintf(&b, "\n\t\t%s=%s", key, er.Params[key])
-			cmdline += fmt.Sprintf(" -%s=%s", key, er.Params[key])
+			fmt.Fprintf(&b, "\n\t\t%s=%s", key, e.Params[key])
+			cmdline += fmt.Sprintf(" -%s=%s", key, e.Params[key])
 		}
 	} else {
 		fmt.Fprintf(&b, "\n\t(no params)")
 	}
-	if len(er.Args) > 0 {
+	if len(e.Args) > 0 {
 		fmt.Fprintf(&b, "\n\targuments:")
-		for _, arg := range er.Args {
+		for _, arg := range e.Args {
 			fmt.Fprintf(&b, "\n\t%s", arg)
 			cmdline += fmt.Sprintf(" %s", arg)
 		}
@@ -260,7 +264,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 	ctx = trace.WithTracer(ctx, tracer)
 	defer cancel()
 	if config.local {
-		c.runLocal(ctx, config, execLogger, runID, er.Flow, er.Type, er.ImageMap, cmdline)
+		c.runLocal(ctx, config, execLogger, runID, e.Flow, e.Type, e.ImageMap, cmdline)
 		return
 	}
 
@@ -286,7 +290,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 		scheduler.Repository = repo
 		scheduler.Cluster = cluster
 		scheduler.Log = c.Log
-		scheduler.MinAlloc.Max(scheduler.MinAlloc, er.Flow.Requirements().Min)
+		scheduler.MinAlloc.Max(scheduler.MinAlloc, e.Flow.Requirements().Min)
 		var schedctx context.Context
 		schedctx, donecancel = context.WithCancel(ctx)
 		wg.Add(1)
@@ -299,7 +303,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 		}()
 	}
 	run := runner.Runner{
-		Flow: er.Flow,
+		Flow: e.Flow,
 		EvalConfig: flow.EvalConfig{
 			Log:         execLogger,
 			Repository:  repo,
@@ -309,18 +313,18 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, er EvalResult) {
 			Transferer:  transferer,
 			Status:      c.Status.Group(runID.Short()),
 			Scheduler:   scheduler,
-			ImageMap:    er.ImageMap,
+			ImageMap:    e.ImageMap,
 		},
-		Type:    er.Type,
+		Type:    e.Type,
 		Labels:  make(pool.Labels),
 		Cluster: cluster,
 		Cmdline: cmdline,
 	}
 	config.Configure(&run.EvalConfig)
 	run.ID = runID
-	run.Program = er.Program
-	run.Params = er.Params
-	run.Args = er.Args
+	run.Program = e.Program
+	run.Params = e.Params
+	run.Args = e.Args
 	if config.trace {
 		run.Trace = c.Log
 	}
