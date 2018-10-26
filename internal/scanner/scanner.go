@@ -523,7 +523,7 @@ func (s *Scanner) scanRawString() {
 	}
 }
 
-func (s *Scanner) scanTemplate() {
+func (s *Scanner) scanTemplate() bool {
 	var (
 		prev rune
 		next = s.next()
@@ -531,10 +531,11 @@ func (s *Scanner) scanTemplate() {
 	for prev != '"' || next != '}' {
 		if next < 0 {
 			s.error("template literal not terminated")
-			return
+			return false
 		}
 		prev, next = next, s.next()
 	}
+	return true
 }
 
 func (s *Scanner) scanChar() {
@@ -733,9 +734,10 @@ redo:
 			ch = s.next()
 			if ch == '"' {
 				s.next()
-				s.scanTemplate()
-				tok = Template
-				ch = s.next()
+				if s.scanTemplate() {
+					tok = Template
+					ch = s.next()
+				}
 			}
 		case '~':
 			ch = s.next()
