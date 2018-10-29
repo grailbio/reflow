@@ -140,7 +140,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 		case "==", "!=":
 			eq := e.Op == "=="
 			switch e.Left.Type.Kind {
-			case types.ListKind, types.MapKind, types.TupleKind, types.StructKind:
+			case types.ListKind, types.MapKind, types.TupleKind, types.StructKind, types.DirKind:
 				return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 					v, err := e.evalEq(sess, env, ident, vs[0], vs[1], e.Left.Type)
 					if err != nil {
@@ -851,6 +851,10 @@ func (e *Expr) evalEqTuple(sess *Session, env *values.Env, ident string, l, r va
 
 func (e *Expr) evalEq(sess *Session, env *values.Env, ident string, left, right values.T, t *types.T) (values.T, error) {
 	switch t.Kind {
+	case types.FileKind:
+		l := left.(reflow.File)
+		r := right.(reflow.File)
+		return l.Equal(r), nil
 	case types.ListKind:
 		l := left.(values.List)
 		r := right.(values.List)
@@ -914,6 +918,10 @@ func (e *Expr) evalEq(sess *Session, env *values.Env, ident string, left, right 
 		}
 		tt := types.Tuple(t.Fields...)
 		return e.evalEqTuple(sess, env, ident, lt, rt, tt)
+	case types.DirKind:
+		l := left.(values.Dir)
+		r := right.(values.Dir)
+		return l.Equal(r), nil
 	default:
 		return values.Equal(left, right), nil
 	}
@@ -955,6 +963,15 @@ func (e *Expr) evalBinop(vs []values.T) (values.T, error) {
 			right.(values.Map).Each(func(k, v values.T) {
 				m.Insert(values.Digest(k, e.Right.Type.Index), k, v)
 			})
+			return m, nil
+		case types.DirKind:
+			m := make(values.Dir)
+			for k, v := range left.(values.Dir) {
+				m[k] = v
+			}
+			for k, v := range right.(values.Dir) {
+				m[k] = v
+			}
 			return m, nil
 		default:
 			panic("bug")

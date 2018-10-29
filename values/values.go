@@ -125,6 +125,19 @@ type Module map[string]T
 // Dir is the type of directory values.
 type Dir map[string]reflow.File
 
+// Equal compares the file names and digests in the directory.
+func (d Dir) Equal(e Dir) bool {
+	if len(d) != len(e) {
+		return false
+	}
+	for lk, lv := range d {
+		if rv, ok := e[lk]; !ok || !rv.Equal(lv) {
+			return false
+		}
+	}
+	return true
+}
+
 // Unit is the unit value.
 var Unit = struct{}{}
 

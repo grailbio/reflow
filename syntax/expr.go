@@ -338,7 +338,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			e.Type = e.Right.Type.Derive(e.Left.Type)
 			return
 		}
-		if e.Op == "+" && (e.Left.Type.Kind == types.ListKind || e.Left.Type.Kind == types.MapKind) {
+		if e.Op == "+" && (e.Left.Type.Kind == types.ListKind || e.Left.Type.Kind == types.MapKind || e.Left.Type.Kind == types.DirKind) {
 			e.Type = e.Left.Type.Unify(e.Right.Type)
 			return
 		}

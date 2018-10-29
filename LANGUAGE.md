@@ -200,6 +200,34 @@ resulting in <code>[(2, "a"), (2, "b"), (2, "c"), (4, "a"), (4, "b"), (4, "c")]<
   </dd>
 </dl>
 
+## Operators
+### Sum `+`
+The sum operator can be used with list, dir, map, int, float, string types.
+When summing a map or a dir, if the same key exists in the LHS and RHS, the RHS is picked.
+
+e.g.: ``` a := ["a": 2, "b": 1]
+    b := ["a": 3]
+	Main := a + b
+```
+. Main is `["a", 3, b: "1"]`.
+### Other arithmetic operators `-, *, /`
+Subtract, multiply and division operators can be used with int and float types.
+### modulo `%`
+Modulo operator is valid only for int types.
+### Negation `-`
+Negation operation is valid for int and float types.
+
+### Comparison
+- `==, !=` Equality/inequality operators can be used with list, map, tuple, record, dir, string, int and float types. 
+When comparing files, the digests of the files are compared. When comparing dirs, the names and digests of the files in the directories are compared.
+- `<, >, <=, >=` Comparison operators can be used with int, float and string types.
+
+### Bitwise shift `<<, >>`
+Bit shift operators can be used with int type.
+
+### Logical `||, &&, !`
+Logical operators can be used with boolean expressions.
+
 ## Builtins
 
 Reflow provides a number of builtin functions. They provide special semantics 
@@ -284,7 +312,7 @@ for example, the following prints the size of a file as it is evaluated.
 
 	val g = {
 		val input = trace(f)
-		exec(...) {" {{ nput}} "}
+		exec(...) {" {{ input}} "}
 	}
 
 ### Ranging: `range`
