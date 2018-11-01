@@ -582,6 +582,9 @@ func (e *Eval) Do(ctx context.Context) error {
 					if err := task.Wait(ctx, sched.TaskDone); err != nil {
 						return err
 					}
+					// The task's inspect is populated by the scheduler before marking
+					// the task as complete.
+					f.Inspect = task.Inspect
 					if task.Err != nil {
 						e.Mutate(f, task.Err, Done)
 					} else {
