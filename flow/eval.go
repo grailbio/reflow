@@ -465,10 +465,11 @@ func (e *Eval) Do(ctx context.Context) error {
 				}
 			}
 			if e.Snapshotter != nil && f.Op == Intern && (f.State == Ready || f.State == NeedTransfer) && !f.MustIntern {
-				e.Mutate(f, Running)
+				// In this case we don't display status, since we're not doing
+				// any appreciable work here, and it's confusing to the user.
+				e.Mutate(f, Running, NoStatus)
 				e.pending[f] = true
 				e.step(f, func(f *Flow) error {
-					e.Log.Debugf("snapshot %s", f.URL)
 					fs, err := e.Snapshotter.Snapshot(ctx, f.URL.String())
 					if err != nil {
 						e.Log.Printf("must intern %q: resolve: %v", f.URL, err)
@@ -1669,6 +1670,8 @@ const (
 	Refresh
 	// MustIntern sets the flow's MustIntern flag to true.
 	MustIntern
+	// NoStatus indicates that a flow node's status should not be updated.
+	NoStatus
 )
 
 // Mutate safely applies a set of mutations vis-a-vis the garbage
@@ -1686,6 +1689,7 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 	var (
 		prevState, thisState State
 		refresh              bool
+		statusOk             = true
 	)
 	for _, mut := range muts {
 		switch arg := mut.(type) {
@@ -1715,6 +1719,8 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 				refresh = true
 			case MustIntern:
 				f.MustIntern = true
+			case NoStatus:
+				statusOk = false
 			}
 		case Reserve:
 			f.Reserved.Add(f.Reserved, reflow.Resources(arg))
@@ -1734,7 +1740,7 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 	default:
 		return
 	}
-	if prevState < Transfer && thisState >= Transfer && f.Status == nil {
+	if (thisState == Transfer || thisState == Running) && f.Status == nil && statusOk {
 		// TODO(marius): digest? fmt("%-*s %s", n, ident, f.Digest().Short())
 		f.Status = e.Status.Start(f.Ident)
 	}
