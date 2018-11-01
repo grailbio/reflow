@@ -557,7 +557,7 @@ func (a *testAlloc) Load(ctx context.Context, fs reflow.Fileset) (reflow.Fileset
 // config can be used to configure evaluation.
 func newTestScheduler() (alloc *testAlloc, config flow.EvalConfig, done func()) {
 	alloc = new(testAlloc)
-	alloc.Have = testutil.Resources
+	alloc.Have.Scale(testutil.Resources, 2.0)
 	alloc.Repo = testutil.NewInmemoryRepository()
 	alloc.Init()
 
@@ -718,6 +718,40 @@ func TestLoadFail(t *testing.T) {
 	if got, want := r.Err, errUnresolved; errors.Match(want, got) {
 		t.Errorf("got %v, want %v", got, want)
 	}
+}
+
+func TestSchedulerSubmit(t *testing.T) {
+	e, config, done := newTestScheduler()
+	defer done()
+
+	intern := op.Intern("internurl")
+	exec1 := op.Exec("image", "command", testutil.Resources, intern)
+	exec2 := op.Exec("image", "command2", testutil.Resources, intern)
+	merged := op.Pullup(exec1, exec2)
+	extern := op.Extern("externurl", merged)
+
+	wa := newWaitAssoc()
+	config.Assoc = wa
+	config.Repository = testutil.NewInmemoryRepository()
+	config.CacheMode = flow.CacheRead
+	config.Transferer = testutil.Transferer
+	config.BottomUp = true
+	config.Log = logger()
+	config.Trace = logger()
+	eval := flow.NewEval(extern, config)
+	_ = testutil.EvalAsync(context.Background(), eval)
+
+	wa.Tick()
+	e.Ok(intern, testutil.WriteFiles(e.Repo, "a/b/c", "a/b/d", "x/y/z"))
+	for i := 0; i < 4; i++ {
+		if e.Pending(exec1) || e.Pending(exec2) {
+			t.Fatal("prematurely pending exec")
+		}
+		wa.Tick()
+	}
+	// These should now both available.
+	_ = e.Exec(exec1)
+	_ = e.Exec(exec2)
 }
 
 func flowFiles(files ...string) *flow.Flow {

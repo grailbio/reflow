@@ -233,6 +233,14 @@ func (e *Executor) Wait(f *flow.Flow) {
 	e.Exec(f)
 }
 
+// Pending returns whether the flow f has a pending execution.
+func (e *Executor) Pending(f *flow.Flow) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	_, ok := e.execs[f.Digest()]
+	return ok
+}
+
 // WaitAny returns the first of flows to be defined.
 func (e *Executor) WaitAny(flows ...*flow.Flow) *flow.Flow {
 	e.mu.Lock()

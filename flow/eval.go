@@ -52,7 +52,7 @@ const defaultCacheLookupTimeout = time.Minute
 // stateStatusOrder defines the order in which differenet flow
 // statuses are rendered.
 var stateStatusOrder = []State{
-	Running, Transfer, Ready, Done,
+	Execing, Running, Transfer, Ready, Done,
 
 	// DEBUG:
 	NeedLookup, Lookup, NeedTransfer, TODO,
@@ -240,9 +240,7 @@ type Eval struct {
 	// The number of Flows stolen.
 	nstolen int
 	// Contains pending (currently executing) flows.
-	// TODO(marius): encode this into the flow state as well,
-	// so that execution state is not straddled across the two.
-	pending map[*Flow]bool
+	pending *workingset
 
 	// Roots stores the set of roots to be visited in the next
 	// evaluation iteration.
@@ -302,7 +300,7 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 		returnch:   make(chan *Flow, 1024),
 		newStealer: make(chan *Stealer),
 		wakeupch:   make(chan bool, 1),
-		pending:    map[*Flow]bool{}, // TODO: name e.ready; but really we should just traverse the tree
+		pending:    newWorkingset(),
 	}
 	if config.Executor != nil {
 		e.repo = config.Executor.Repository()
@@ -423,7 +421,10 @@ func (e *Eval) Do(ctx context.Context) error {
 	root := e.root
 	e.roots.Push(root)
 
-	var todo FlowVisitor
+	var (
+		todo  FlowVisitor
+		tasks []*sched.Task // the set of tasks to be submitted after this iteration
+	)
 	for root.State != Done {
 		if root.Digest().IsZero() {
 			panic("invalid flow, zero digest: " + root.DebugString())
@@ -443,11 +444,10 @@ func (e *Eval) Do(ctx context.Context) error {
 		e.roots.Reset()
 		e.Trace.Debugf("todo %d from %d roots", len(todo.q), nroots)
 
-		var tasks []*sched.Task // the set of tasks to be submitted after this iteration
 	dequeue:
 		for todo.Walk() {
 			f := todo.Flow
-			if e.pending[f] {
+			if e.pending.Pending(f) {
 				continue
 			}
 			if f.Op == Exec {
@@ -468,7 +468,7 @@ func (e *Eval) Do(ctx context.Context) error {
 				// In this case we don't display status, since we're not doing
 				// any appreciable work here, and it's confusing to the user.
 				e.Mutate(f, Running, NoStatus)
-				e.pending[f] = true
+				e.pending.Add(f)
 				e.step(f, func(f *Flow) error {
 					fs, err := e.Snapshotter.Snapshot(ctx, f.URL.String())
 					if err != nil {
@@ -495,14 +495,14 @@ func (e *Eval) Do(ctx context.Context) error {
 				// as the underyling APIs (e.g., to DynamoDB) do not
 				// bundle requests automatically.
 				e.Mutate(f, Lookup)
-				e.pending[f] = true
+				e.pending.Add(f)
 				e.step(f, func(f *Flow) error {
 					e.lookup(ctx, f)
 					return nil
 				})
 			case NeedTransfer:
 				e.Mutate(f, Transfer)
-				e.pending[f] = true
+				e.pending.Add(f)
 				e.step(f, func(f *Flow) error {
 					files, err := e.needTransfer(ctx, f)
 					if err != nil {
@@ -540,8 +540,12 @@ func (e *Eval) Do(ctx context.Context) error {
 					continue dequeue
 				}
 				e.available.Sub(e.available, f.Resources)
-				e.Mutate(f, Running, Reserve(f.Resources))
-				e.pending[f] = true
+				state := Running
+				if f.Op.External() {
+					state = Execing
+				}
+				e.Mutate(f, state, Reserve(f.Resources))
+				e.pending.Add(f)
 				e.step(f, func(f *Flow) error { return e.eval(ctx, f) })
 			case NeedSubmit:
 				var err *errors.Error
@@ -553,8 +557,8 @@ func (e *Eval) Do(ctx context.Context) error {
 					}
 				}
 
-				e.Mutate(f, Running, Reserve(f.Resources))
-				e.pending[f] = true
+				e.Mutate(f, Execing, Reserve(f.Resources))
+				e.pending.Add(f)
 				if err != nil {
 					go func(err *errors.Error) {
 						e.Mutate(f, err, Done)
@@ -591,14 +595,20 @@ func (e *Eval) Do(ctx context.Context) error {
 				})
 			}
 		}
-		if e.Scheduler != nil && len(tasks) > 0 {
+		// Delay task submission until we have gathered all potential tasks
+		// that can be scheduled concurrently. This is represented by the
+		// set of tasks that are currently either performing cache lookups
+		// (Lookup) or else are undergoing local evaluation (Running). This
+		// helps the scheduler better allocate underlying resources since
+		// we always submit the largest available working set.
+		if e.Scheduler != nil && len(tasks) > 0 && e.pending.NState(Lookup)+e.pending.NState(Running) == 0 {
 			e.Scheduler.Submit(tasks...)
 			tasks = tasks[:0]
 		}
 		if root.State == Done {
 			break
 		}
-		if len(e.pending) == 0 && root.State != Done {
+		if e.pending.N() == 0 && root.State != Done {
 			var states [Max][]*Flow
 			for v := e.root.Visitor(); v.Walk(); v.Visit() {
 				states[v.State] = append(states[v.State], v.Flow)
@@ -608,7 +618,7 @@ func (e *Eval) Do(ctx context.Context) error {
 				n, tasks := accumulate(states[i])
 				s[i] = fmt.Sprintf("%s:%d<%s>", State(i).Name(), n, tasks)
 			}
-			e.Log.Printf("pending %d", len(e.pending))
+			e.Log.Printf("pending %d", e.pending.N())
 			e.Log.Printf("eval %s", strings.Join(s[:], " "))
 			panic("scheduler is stuck")
 		}
@@ -623,7 +633,7 @@ func (e *Eval) Do(ctx context.Context) error {
 	if root.Err != nil {
 		return nil
 	}
-	for len(e.pending) > 0 {
+	for e.pending.N() > 0 {
 		if err := e.wait(ctx); err != nil {
 			return err
 		}
@@ -800,7 +810,7 @@ func (e *Eval) wait(ctx context.Context) (err error) {
 		)
 		for v := e.root.Visitor(); v.Walk(); {
 			switch {
-			case e.pending[v.Flow]:
+			case e.pending.Pending(v.Flow):
 				if v.State == Transfer {
 					nrunning++
 				} else {
@@ -817,7 +827,7 @@ func (e *Eval) wait(ctx context.Context) (err error) {
 				admitted := false
 				for s := e.stealer; s != nil; s = s.next {
 					if admitted = s.admit(v.Flow); admitted {
-						e.pending[v.Flow] = true
+						e.pending.Add(v.Flow)
 						e.nstolen++
 						break
 					}
@@ -872,7 +882,7 @@ func (e *Eval) reportStatus() {
 		case Transfer:
 			byteCounts.Incr(v.State, v.Ident, int(v.TransferSize))
 			fallthrough
-		case Ready, Done, TODO, Running:
+		case Ready, Done, TODO, Running, Execing:
 			stateCounts.Incr(v.State, v.Ident, 1)
 		}
 	}
@@ -889,7 +899,7 @@ func (e *Eval) reportStatus() {
 		dur = fmt.Sprintf("%dh%dm", int(elapsed.Hours()), int(elapsed.Minutes()-60*elapsed.Hours()))
 	}
 	fmt.Fprintf(&b, "elapsed: %s", dur)
-	for _, state := range []State{Running, Transfer, Ready} {
+	for _, state := range []State{Execing, Running, Transfer, Ready} {
 		n := stateCounts.N(state)
 		if n == 0 {
 			continue
@@ -898,12 +908,12 @@ func (e *Eval) reportStatus() {
 	}
 	fmt.Fprintf(&b, ", completed: %d/%d",
 		stateCounts.N(Done),
-		stateCounts.N(Done)+stateCounts.N(Running)+stateCounts.N(Transfer)+stateCounts.N(TODO))
+		stateCounts.N(Done)+stateCounts.N(Execing)+stateCounts.N(Running)+stateCounts.N(Transfer)+stateCounts.N(TODO))
 	e.Status.Print(b.String())
 }
 
 func (e *Eval) returnFlow(f *Flow) {
-	delete(e.pending, f)
+	e.pending.Done(f)
 	switch f.State {
 	case Done:
 		for _, flow := range f.Dirty {
@@ -1740,7 +1750,7 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 	default:
 		return
 	}
-	if (thisState == Transfer || thisState == Running) && f.Status == nil && statusOk {
+	if (thisState == Transfer || thisState == Running || thisState == Execing) && f.Status == nil && statusOk {
 		// TODO(marius): digest? fmt("%-*s %s", n, ident, f.Digest().Short())
 		f.Status = e.Status.Start(f.Ident)
 	}
@@ -1760,7 +1770,7 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 				status = fmt.Sprintf("done %s", data.Size(f.Value.(reflow.Fileset).Size()))
 			}
 		}
-	case Running:
+	case Running, Execing:
 		switch f.Op {
 		case Extern:
 			status = fmt.Sprintf("%s %s", f.URL, data.Size(f.Deps[0].Value.(reflow.Fileset).Size()))
@@ -1972,6 +1982,8 @@ func (e *Eval) LogFlow(ctx context.Context, f *Flow) {
 	switch f.State {
 	case Running:
 		state = "run"
+	case Execing:
+		state = "exec"
 	case Done:
 		if f.Err != nil {
 			state = "err"
@@ -1984,7 +1996,7 @@ func (e *Eval) LogFlow(ctx context.Context, f *Flow) {
 	fmt.Fprintf(&b, "%-12s %s %-4s %6s ", f.Ident, f.Digest().Short(), state, f.Op.String())
 	pr := statusPrinters[f.Op]
 	switch f.State {
-	case Running:
+	case Running, Execing:
 		if pr.run != nil {
 			pr.run(&b, f)
 		}
@@ -2275,6 +2287,7 @@ func equal(c, d counters) bool {
 
 var humanState = map[State]string{
 	Running:  "running",
+	Execing:  "executing",
 	Transfer: "transferring",
 	Ready:    "waiting",
 }

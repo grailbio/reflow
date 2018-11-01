@@ -173,8 +173,10 @@ const (
 	NeedSubmit
 
 	// Running indicates that the node is currently being evaluated by
-	// the evaluator, or has been submitted to the scheduler.
+	// the evaluator.
 	Running
+
+	Execing
 
 	// Done indicates that the node has completed evaluation.
 	Done

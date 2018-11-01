@@ -71,7 +71,7 @@ func (w *worker) Go(ctx context.Context) {
 			}
 			w.Log.Debugf("stole %v", f)
 			available.Sub(available, f.Resources)
-			w.Eval.Mutate(f, flow.Running)
+			w.Eval.Mutate(f, flow.Execing)
 			npending++
 			go func(f *flow.Flow) {
 				if err := w.do(ctx, f); err != nil {
