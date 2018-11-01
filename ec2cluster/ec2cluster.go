@@ -189,15 +189,6 @@ func (c *Cluster) Init() error {
 // the request, it is returned immediately; otherwise new instance(s)
 // are spun up to handle the allocation.
 func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (alloc pool.Alloc, err error) {
-	task := c.Status.Startf("allocate %s", req)
-	defer func() {
-		if err != nil {
-			task.Print(err)
-		} else {
-			task.Print("alloc ", alloc.ID())
-		}
-		task.Done()
-	}()
 	c.Log.Debugf("allocate %s", req)
 	if !c.instanceState.Available(req.Min) {
 		return nil, errors.E(errors.ResourcesExhausted,
@@ -214,7 +205,6 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 		}
 		c.Log.Debugf("failed to allocate from existing pool: %v; provisioning from EC2", err)
 	}
-	task.Print("provisioning new instance")
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ticker := time.NewTicker(20 * time.Second)
