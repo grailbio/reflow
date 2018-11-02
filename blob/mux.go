@@ -62,12 +62,12 @@ func (m Mux) Scan(ctx context.Context, url string) (Scanner, error) {
 // provided io.WriterAt. If the provided etag is nonempty, then it is
 // checked as a precondition on downloading the object. Download may
 // download multiple chunks concurrently.
-func (m Mux) Download(ctx context.Context, url, etag string, w io.WriterAt) (int64, error) {
+func (m Mux) Download(ctx context.Context, url, etag string, size int64, w io.WriterAt) (int64, error) {
 	bucket, key, err := m.Bucket(ctx, url)
 	if err != nil {
 		return -1, err
 	}
-	return bucket.Download(ctx, key, etag, w)
+	return bucket.Download(ctx, key, etag, size, w)
 }
 
 // Get returns a (streaming) reader of the object named by the
@@ -82,12 +82,12 @@ func (m Mux) Get(ctx context.Context, url, etag string) (io.ReadCloser, reflow.F
 }
 
 // Put stores the contents of the provided io.Reader at the provided URL.
-func (m Mux) Put(ctx context.Context, url string, body io.Reader) error {
+func (m Mux) Put(ctx context.Context, url string, size int64, body io.Reader) error {
 	bucket, key, err := m.Bucket(ctx, url)
 	if err != nil {
 		return err
 	}
-	return bucket.Put(ctx, key, body)
+	return bucket.Put(ctx, key, size, body)
 }
 
 // Snapshot returns an un-loaded Reflow fileset representing the contents

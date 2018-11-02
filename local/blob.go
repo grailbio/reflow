@@ -518,7 +518,7 @@ func (d *download) Do(ctx context.Context, repo *filerepo.Repository) (reflow.Fi
 	w.Reset()
 	d.Log.Printf("download %s%s (%s) to %s", d.Bucket.Location(), d.Key, data.Size(d.Size), f.Name())
 	downloadingFiles.Add(1)
-	_, err = d.Bucket.Download(ctx, d.Key, d.ETag, f)
+	_, err = d.Bucket.Download(ctx, d.Key, d.ETag, d.Size, f)
 	downloadingFiles.Add(-1)
 	if err != nil {
 		d.Log.Printf("download %s%s: %v", d.Bucket.Location(), d.Key, err)
@@ -567,7 +567,7 @@ func (u *upload) Do(ctx context.Context) error {
 	w.Reset()
 	u.Log.Printf("upload %s (%s) to %s%s", u.Key, data.Size(u.Size), u.Bucket.Location(), u.Key)
 	uploadingFiles.Add(1)
-	err = u.Bucket.Put(ctx, u.Key, f)
+	err = u.Bucket.Put(ctx, u.Key, u.Size, f)
 	uploadingFiles.Add(-1)
 	if err != nil {
 		u.Log.Printf("upload %s/%s: %v", u.Bucket.Location(), u.Key, err)

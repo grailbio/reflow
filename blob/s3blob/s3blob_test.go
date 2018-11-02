@@ -43,7 +43,7 @@ func newTestBucket(t *testing.T) *Bucket {
 	const name = "testbucket"
 	client := s3test.NewClient(t, name)
 	client.Region = "us-west-2"
-	bucket := &Bucket{name, client}
+	bucket := NewBucket(name, client)
 	for k, v := range testKeys {
 		client.SetFileContentAt(k, v, "")
 	}
@@ -154,7 +154,7 @@ func TestPut(t *testing.T) {
 	ctx := context.Background()
 
 	c := content("new content")
-	if err := bucket.Put(ctx, "newkey", bytes.NewReader(c.Data)); err != nil {
+	if err := bucket.Put(ctx, "newkey", 0, bytes.NewReader(c.Data)); err != nil {
 		t.Fatal(err)
 	}
 	rc, file, err := bucket.Get(ctx, "newkey", "")
@@ -183,12 +183,12 @@ func TestDownload(t *testing.T) {
 	ctx := context.Background()
 
 	b := aws.NewWriteAtBuffer(nil)
-	_, err := bucket.Download(ctx, "notexist", "", b)
+	_, err := bucket.Download(ctx, "notexist", "", 0, b)
 	if !errors.Is(errors.NotExist, err) {
 		t.Errorf("expected NotExist, got %v", err)
 	}
 
-	_, err = bucket.Download(ctx, "test/z/foobar", "", b)
+	_, err = bucket.Download(ctx, "test/z/foobar", "", 0, b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,11 +196,11 @@ func TestDownload(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 
-	_, err = bucket.Download(ctx, "test/z/foobar", "random etag", b)
+	_, err = bucket.Download(ctx, "test/z/foobar", "random etag", 0, b)
 	if !errors.Is(errors.Precondition, err) {
 		t.Errorf("expected Precondition, got %v", err)
 	}
-	_, err = bucket.Download(ctx, "test/z/foobar", testFile("test/z/foobar").ETag, b)
+	_, err = bucket.Download(ctx, "test/z/foobar", testFile("test/z/foobar").ETag, 0, b)
 	if err != nil {
 		t.Errorf("unexpected error %v", err)
 	}

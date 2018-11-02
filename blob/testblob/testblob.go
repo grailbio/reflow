@@ -125,7 +125,7 @@ func (b *bucket) Scan(prefix string) blob.Scanner {
 	return s
 }
 
-func (b *bucket) Download(ctx context.Context, key string, etag string, w io.WriterAt) (int64, error) {
+func (b *bucket) Download(ctx context.Context, key, etag string, size int64, w io.WriterAt) (int64, error) {
 	file, p, ok := b.file(key)
 	if !ok {
 		return -1, errors.E("testblob.Download", b.name, key, errors.NotExist)
@@ -148,7 +148,7 @@ func (b *bucket) Get(ctx context.Context, key string, etag string) (io.ReadClose
 	return ioutil.NopCloser(bytes.NewReader(p)), file, nil
 }
 
-func (b *bucket) Put(ctx context.Context, key string, body io.Reader) error {
+func (b *bucket) Put(ctx context.Context, key string, size int64, body io.Reader) error {
 	p, err := ioutil.ReadAll(body)
 	if err != nil {
 		return err
@@ -191,7 +191,7 @@ func (b *bucket) Copy(ctx context.Context, src, dst string) error {
 	if !ok {
 		return errors.E("testblob.Copy", b.name, src, dst, errors.NotExist)
 	}
-	return b.Put(ctx, dst, bytes.NewReader(p))
+	return b.Put(ctx, dst, 0, bytes.NewReader(p))
 }
 
 func (b *bucket) Delete(ctx context.Context, keys ...string) error {

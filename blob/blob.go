@@ -38,7 +38,9 @@ type Bucket interface {
 	// writing to arbitrary offsets in the writer, potentially leaving
 	// holes on error on incomplete downloads. If the provided ETag is
 	// nonempty, then it is taken as a precondition for fetching.
-	Download(ctx context.Context, key, etag string, w io.WriterAt) (int64, error)
+	// If the provided size is non-zero, it is used as a hint to manage
+	// concurrency.
+	Download(ctx context.Context, key, etag string, size int64, w io.WriterAt) (int64, error)
 
 	// Get returns a (streaming) reader for the contents at the provided
 	// key. The returned reflow.File represents the known metadata of
@@ -48,7 +50,9 @@ type Bucket interface {
 
 	// Put streams the provided body to the provided key. Put overwrites
 	// any existing object at the same key.
-	Put(ctx context.Context, key string, body io.Reader) error
+	// If the provided size is non-zero, it is used as a hint to manage
+	// concurrency.
+	Put(ctx context.Context, key string, size int64, body io.Reader) error
 
 	// Snapshot returns an un-loaded Reflow fileset representing the
 	// contents of the provided prefix. This may then later be used to

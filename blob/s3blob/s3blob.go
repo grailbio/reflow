@@ -12,6 +12,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -19,6 +20,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/grailbio/base/admit"
+	"github.com/grailbio/base/retry"
 	"github.com/grailbio/base/sync/ctxsync"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
@@ -28,8 +31,10 @@ import (
 )
 
 const (
-	s3minpartsize = 100 << 20
-	s3concurrency = 20
+	s3minpartsize     = 100 << 20
+	s3concurrency     = 20
+	defaultS3Limit    = 2000
+	defaultMaxRetries = 3
 )
 
 // DefaultRegion is the region used for s3 requests if a bucket's
@@ -113,26 +118,41 @@ func (s *Store) newBucket(ctx context.Context, bucket string) (*Bucket, error) {
 		MaxRetries: aws.Int(10),
 		Region:     aws.String(region),
 	}
-	return &Bucket{bucket: bucket, client: s3.New(s.sess, &config)}, nil
+	return NewBucket(bucket, s3.New(s.sess, &config)), nil
+}
+
+// NewS3Policy returns a default admit.RetryPolicy useful for S3 operations.
+func newS3Policy(maxTokens int) admit.RetryPolicy {
+	rp := retry.MaxTries(retry.Backoff(100*time.Millisecond, time.Minute, 1.5), defaultMaxRetries)
+	return admit.ControllerWithRetry(maxTokens, rp)
 }
 
 // Bucket represents an s3 bucket; it implements blob.Bucket.
 type Bucket struct {
 	bucket string
 	client s3iface.S3API
+	policy admit.RetryPolicy
 }
 
 // NewBucket returns a new S3 bucket that uses the provided client
 // for SDK calls. NewBucket is primarily intended for testing.
 func NewBucket(name string, client s3iface.S3API) *Bucket {
-	return &Bucket{name, client}
+	return &Bucket{name, client, newS3Policy(defaultS3Limit)}
 }
 
 // File returns metadata for the provided key.
 func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
-	resp, err := b.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
-		Bucket: aws.String(b.bucket),
-		Key:    aws.String(key),
+	var resp *s3.HeadObjectOutput
+	err := admit.Do(ctx, b.policy, 1, func() error {
+		var err error
+		resp, err = b.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+			Bucket: aws.String(b.bucket),
+			Key:    aws.String(key),
+		})
+		if kind(err) == errors.ResourcesExhausted {
+			return admit.ErrOverCapacity
+		}
+		return err
 	})
 	if err != nil {
 		// The S3 API presents inconsistent error codes between GetObject
@@ -178,15 +198,37 @@ func (b *Bucket) Scan(prefix string) blob.Scanner {
 	}
 }
 
+// MaxS3Ops returns the optimal s3concurrency for parallel data transfers
+// based on the file size.  Returns a value from [1, s3concurrency]
+func maxS3Ops(size int64) int {
+	if size == 0 {
+		return s3concurrency
+	}
+	c := (size + s3minpartsize - 1) / s3minpartsize
+	if c > s3concurrency {
+		c = s3concurrency
+	}
+	return int(c)
+}
+
 // Download downloads the object named by the provided key. Download
 // uses the AWS SDK's download manager, performing concurrent
 // downloads to the provided io.WriterAt.
-func (b *Bucket) Download(ctx context.Context, key, etag string, w io.WriterAt) (int64, error) {
-	d := s3manager.NewDownloaderWithClient(b.client, func(d *s3manager.Downloader) {
-		d.Concurrency = s3concurrency
-		d.PartSize = s3minpartsize
+func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w io.WriterAt) (int64, error) {
+	var n int64
+	s3concurrency := maxS3Ops(size)
+	err := admit.Retry(ctx, b.policy, s3concurrency, func() error {
+		var err error
+		d := s3manager.NewDownloaderWithClient(b.client, func(d *s3manager.Downloader) {
+			d.PartSize = s3minpartsize
+			d.Concurrency = s3concurrency
+		})
+		n, err = d.DownloadWithContext(ctx, w, b.getObjectInput(key, etag))
+		if kind(err) == errors.ResourcesExhausted {
+			err = admit.ErrOverCapacity
+		}
+		return err
 	})
-	n, err := d.DownloadWithContext(ctx, w, b.getObjectInput(key, etag))
 	if err != nil {
 		err = errors.E("s3blob.download", b.bucket, key, kind(err), err)
 	}
@@ -208,15 +250,22 @@ func (b *Bucket) Get(ctx context.Context, key, etag string) (io.ReadCloser, refl
 }
 
 // Put stores the contents of the provided io.Reader at the provided key.
-func (b *Bucket) Put(ctx context.Context, key string, body io.Reader) error {
-	up := s3manager.NewUploaderWithClient(b.client, func(u *s3manager.Uploader) {
-		u.PartSize = s3minpartsize
-		u.Concurrency = s3concurrency
-	})
-	_, err := up.UploadWithContext(ctx, &s3manager.UploadInput{
-		Bucket: aws.String(b.bucket),
-		Key:    aws.String(key),
-		Body:   body,
+func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader) error {
+	s3concurrency := maxS3Ops(size)
+	err := admit.Retry(ctx, b.policy, s3concurrency, func() error {
+		up := s3manager.NewUploaderWithClient(b.client, func(u *s3manager.Uploader) {
+			u.PartSize = s3minpartsize
+			u.Concurrency = s3concurrency
+		})
+		_, err := up.UploadWithContext(ctx, &s3manager.UploadInput{
+			Bucket: aws.String(b.bucket),
+			Key:    aws.String(key),
+			Body:   body,
+		})
+		if kind(err) == errors.ResourcesExhausted {
+			return admit.ErrOverCapacity
+		}
+		return err
 	})
 	if err != nil {
 		return errors.E("s3blob.put", b.bucket, key, kind(err), err)

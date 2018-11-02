@@ -79,14 +79,14 @@ func (r *Repository) GetFile(ctx context.Context, id digest.Digest, w io.WriterA
 	if err != nil {
 		return 0, err
 	}
-	return r.Bucket.Download(ctx, path.Join(r.Prefix, objectsPath, id.String()), "", w)
+	return r.Bucket.Download(ctx, path.Join(r.Prefix, objectsPath, id.String()), "", 0, w)
 }
 
 // Put installs an object into the repository; its digest ID is returned.
 func (r *Repository) Put(ctx context.Context, body io.Reader) (digest.Digest, error) {
 	dw := reflow.Digester.NewWriter()
 	uploadKey := path.Join(r.Prefix, uploadsPath, newID())
-	err := r.Bucket.Put(ctx, uploadKey, io.TeeReader(body, dw))
+	err := r.Bucket.Put(ctx, uploadKey, 0, io.TeeReader(body, dw))
 	if err != nil {
 		return digest.Digest{}, err
 	}
@@ -103,7 +103,7 @@ func (r *Repository) PutFile(ctx context.Context, file reflow.File, body io.Read
 		return nil
 	}
 	key := path.Join(r.Prefix, objectsPath, file.ID.String())
-	return r.Bucket.Put(ctx, key, body)
+	return r.Bucket.Put(ctx, key, file.Size, body)
 }
 
 // WriteTo is unsupported by the blob repository.
