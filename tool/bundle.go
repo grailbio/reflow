@@ -12,6 +12,7 @@ import (
 func (c *Cmd) bundle(ctx context.Context, args ...string) {
 	flags := flag.NewFlagSet("bundle", flag.ExitOnError)
 	out := flags.String("o", "", "output path of bundle")
+	nowarn := flags.Bool("nowarn", false, "suppress warnings")
 	help := `Bundle type checks, then writes a self-contained Reflow bundle to a
 file named by the basename of the provided Reflow module with the
 suffix ".rfx".
@@ -29,6 +30,9 @@ parameters.`
 		c.Fatalf("extension %s not supported for bundling", ext)
 	}
 	sess := syntax.NewSession(nil)
+	if !*nowarn {
+		sess.Stdwarn = c.Stderr
+	}
 	m, err := sess.Open(file)
 	if err != nil {
 		c.Fatal(err)

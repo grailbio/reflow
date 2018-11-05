@@ -181,9 +181,9 @@ func TestImageWarn(t *testing.T) {
 	if got, want := sess.NWarn(), 3; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	if got, want := b.String(), `testdata/imagewarn.rf:7:13: image is not a const value
-testdata/imagewarn.rf:8:13: image is not a const value
-testdata/imagewarn.rf:12:13: image is not a const value
+	if got, want := b.String(), `testdata/imagewarn.rf:7:13: warning: image is not a const value
+testdata/imagewarn.rf:8:13: warning: image is not a const value
+testdata/imagewarn.rf:12:13: warning: image is not a const value
 `; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}

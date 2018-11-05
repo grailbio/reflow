@@ -248,7 +248,7 @@ func (s *Session) Warn(pos scanner.Position, v ...interface{}) {
 	if s == nil || s.Stdwarn == nil {
 		return
 	}
-	fmt.Fprintf(s.Stdwarn, "%s: %s\n", pos, fmt.Sprint(v...))
+	fmt.Fprintf(s.Stdwarn, "%s: warning: %s\n", pos, fmt.Sprint(v...))
 	s.mu.Lock()
 	s.nwarn++
 	s.mu.Unlock()
@@ -260,7 +260,7 @@ func (s *Session) Warnf(pos scanner.Position, format string, v ...interface{}) {
 	if s == nil || s.Stdwarn == nil {
 		return
 	}
-	fmt.Fprintf(s.Stdwarn, "%s: %s\n", pos, fmt.Sprintf(format, v...))
+	fmt.Fprintf(s.Stdwarn, "%s: warning: %s\n", pos, fmt.Sprintf(format, v...))
 	s.mu.Lock()
 	s.nwarn++
 	s.mu.Unlock()
