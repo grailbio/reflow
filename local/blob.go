@@ -502,14 +502,41 @@ type download struct {
 func (d *download) Do(ctx context.Context, repo *filerepo.Repository) (reflow.File, error) {
 	fetchingFiles.Add(1)
 	defer fetchingFiles.Add(-1)
-	f, err := repo.TempFile("download")
+	filename, err := d.download(ctx, repo)
 	if err != nil {
 		return reflow.File{}, err
 	}
 	defer func() {
-		if err := os.Remove(f.Name()); err != nil {
-			d.Log.Errorf("remove %s: %v", f.Name(), err)
+		if filename != "" {
+			if err := os.Remove(filename); err != nil {
+				d.Log.Errorf("remove %s: %v", filename, err)
+			}
 		}
+	}()
+	var w bytewatch
+	w.Reset()
+	digestingFiles.Add(1)
+	file, err := repo.Install(filename)
+	digestingFiles.Add(-1)
+	if err == nil && file.Size != d.Size {
+		err = errors.E(errors.Integrity,
+			errors.Errorf("expected size %d does not match actual size %d", d.Size, file.Size))
+	}
+	if err != nil {
+		d.Log.Errorf("install %s%s: %v", d.Bucket.Location(), d.Key, err)
+	} else {
+		dur, bps := w.Lap(d.Size)
+		d.Log.Printf("installed %s%s to %v in %s (%s/s)", d.Bucket.Location(), d.Key, filename, dur, data.Size(bps))
+	}
+	return file, err
+}
+
+func (d *download) download(ctx context.Context, repo *filerepo.Repository) (string, error) {
+	f, err := repo.TempFile("download")
+	if err != nil {
+		return "", err
+	}
+	defer func() {
 		if err := f.Close(); err != nil {
 			d.Log.Errorf("close %s: %v", f.Name(), err)
 		}
@@ -522,25 +549,11 @@ func (d *download) Do(ctx context.Context, repo *filerepo.Repository) (reflow.Fi
 	downloadingFiles.Add(-1)
 	if err != nil {
 		d.Log.Printf("download %s%s: %v", d.Bucket.Location(), d.Key, err)
-		return reflow.File{}, err
+		return "", err
 	}
 	dur, bps := w.Lap(d.Size)
 	d.Log.Printf("done %s%s in %s (%s/s)", d.Bucket.Location(), d.Key, dur, data.Size(bps))
-	w.Reset()
-	digestingFiles.Add(1)
-	file, err := repo.Install(f.Name())
-	digestingFiles.Add(-1)
-	if err == nil && file.Size != d.Size {
-		err = errors.E(errors.Integrity,
-			errors.Errorf("expected size %d does not match actual size %d", d.Size, file.Size))
-	}
-	if err != nil {
-		d.Log.Errorf("install %s%s: %v", d.Bucket.Location(), d.Key, err)
-	} else {
-		dur, bps := w.Lap(d.Size)
-		d.Log.Printf("installed %s%s to %v in %s (%s/s)", d.Bucket.Location(), d.Key, f.Name(), dur, data.Size(bps))
-	}
-	return file, err
+	return f.Name(), err
 }
 
 type upload struct {
