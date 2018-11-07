@@ -85,6 +85,7 @@ type ModuleImpl struct {
 	tenv   *types.Env
 
 	injectedArgs []string
+	flags        *flag.FlagSet
 	fenv         *values.Env
 	ftenv        *types.Env
 
@@ -260,15 +261,21 @@ func (m *ModuleImpl) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error
 					flags.Float64(p.Ident, fl, help)
 				case types.BoolKind:
 					flags.Bool(p.Ident, v.(bool), help)
+				case types.FileKind, types.DirKind:
+					// Hack to sneak in flag values as-defined.
+					// TODO(marius): rethink how injected args interact
+					// with the flag environment and default values. This ought
+					// to be simpler.
+					flags.String(p.Ident, m.flags.Lookup(p.Ident).Value.String(), help)
 				default:
-					return nil, fmt.Errorf("-%s: flags of type %s not supported (valid types are: string, int, bool, and float)", p.Ident, p.Type)
+					return nil, fmt.Errorf("-%s: flags of type %s not supported (valid types are: string, int, bool)", p.Ident, p.Type)
 				}
 			} else {
 				if p.Type.Kind != types.BoolKind {
 					help += "(required)"
 				}
 				switch p.Type.Kind {
-				case types.StringKind:
+				case types.StringKind, types.FileKind, types.DirKind:
 					flags.String(p.Ident, "", help)
 				case types.IntKind:
 					flags.Int(p.Ident, 0, help)
@@ -302,14 +309,30 @@ func (m *ModuleImpl) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error
 				env.Bind(id, w)
 				switch tenv.Type(id).Kind {
 				case types.StringKind:
-					flags.String(id, w.(string), p.Comment)
+					flags.String(id, v.(string), p.Comment)
 				case types.IntKind:
-					flags.Uint64(id, w.(*big.Int).Uint64(), p.Comment)
+					flags.Uint64(id, v.(*big.Int).Uint64(), p.Comment)
 				case types.FloatKind:
-					f, _ := w.(*big.Float).Float64()
-					flags.Float64(id, f, p.Comment)
+					fl, _ := v.(*big.Float).Float64()
+					flags.Float64(id, fl, p.Comment)
 				case types.BoolKind:
-					flags.Bool(id, w.(bool), p.Comment)
+					flags.Bool(id, v.(bool), p.Comment)
+				case types.FileKind, types.DirKind:
+					if p.Expr.Kind != ExprApply || p.Expr.Left.Kind != ExprIdent || (p.Expr.Left.Ident != "file" && p.Expr.Left.Ident != "dir") {
+						break
+					}
+					// TODO(marius): dismiss predicates for params that are
+					// themselves not exposed as flags.
+					if !p.Expr.Fields[0].Type.IsConst(nil) {
+						break
+					}
+					// In this case, we can safely evaluate the field (to a string), and
+					v, err := p.Expr.Fields[0].eval(sess, env, p.ID(""))
+					if err != nil {
+						// Impossible for const expressions.
+						panic(err)
+					}
+					flags.String(id, v.(string), p.Comment)
 				}
 			}
 		}
@@ -359,6 +382,32 @@ func (m *ModuleImpl) flagEnv(needMandatory bool, flags *flag.FlagSet, venv *valu
 			venv.Bind(f.Name, v)
 		case types.BoolKind:
 			venv.Bind(f.Name, f.Value.String() == "true")
+		case types.FileKind, types.DirKind:
+			ident := "file"
+			if t.Kind == types.DirKind {
+				ident = "dir"
+			}
+			e := &Expr{
+				Kind: ExprApply,
+				Left: &Expr{
+					Kind:  ExprIdent,
+					Ident: ident,
+				},
+				Fields: []*FieldExpr{
+					{
+						Expr: &Expr{
+							Kind: ExprLit,
+							Val:  values.T(f.Value.String()),
+						},
+					},
+				},
+			}
+			_, evalvenv := Stdlib()
+			v, err := e.eval(nil, evalvenv, f.Name)
+			if err != nil {
+				panic(err)
+			}
+			venv.Bind(f.Name, v)
 		default:
 			return
 		}
@@ -389,14 +438,18 @@ func (m *ModuleImpl) Make(sess *Session, params *values.Env) (values.T, error) {
 		case DeclDeclare:
 			// value is already bound in params.
 		case DeclAssign:
-			v, err := p.Expr.eval(sess, env, "")
-			if err != nil {
-				return nil, err
-			}
+			var v values.T
 			env = env.Push()
 			for id, m := range p.Pat.Matchers() {
 				// Passed parameters override definitions.
 				if !params.Contains(id) {
+					if v == nil {
+						var err error
+						v, err = p.Expr.eval(sess, env, "")
+						if err != nil {
+							return nil, err
+						}
+					}
 					w, err := coerceMatch(v, p.Type, p.Pat.Position, m.Path())
 					if err != nil {
 						return nil, err
@@ -525,6 +578,7 @@ func (m *ModuleImpl) InjectArgs(sess *Session, args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
+	m.flags = flags
 	m.fenv = m.fenv.Push()
 	m.ftenv = m.ftenv.Push()
 	m.injectedArgs = args

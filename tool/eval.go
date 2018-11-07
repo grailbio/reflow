@@ -148,7 +148,6 @@ func (c *Cmd) evalV1(sess *syntax.Session, e *Eval) error {
 		fmt.Fprintln(os.Stderr, err)
 		flags.Usage()
 	}
-
 	v, err := m.Make(sess, env)
 	if err != nil {
 		return err
