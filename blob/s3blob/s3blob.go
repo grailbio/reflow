@@ -33,7 +33,8 @@ import (
 const (
 	s3minpartsize     = 100 << 20
 	s3concurrency     = 20
-	defaultS3Limit    = 2000
+	defaultS3MinLimit = 2000
+	defaultS3MaxLimit = 10000
 	defaultMaxRetries = 3
 )
 
@@ -122,9 +123,9 @@ func (s *Store) newBucket(ctx context.Context, bucket string) (*Bucket, error) {
 }
 
 // NewS3Policy returns a default admit.RetryPolicy useful for S3 operations.
-func newS3Policy(maxTokens int) admit.RetryPolicy {
+func newS3Policy() admit.RetryPolicy {
 	rp := retry.MaxTries(retry.Jitter(retry.Backoff(500*time.Millisecond, time.Minute, 1.5), 0.5), defaultMaxRetries)
-	return admit.ControllerWithRetry(maxTokens, rp)
+	return admit.ControllerWithRetry(defaultS3MinLimit, defaultS3MaxLimit, rp)
 }
 
 // Bucket represents an s3 bucket; it implements blob.Bucket.
@@ -137,7 +138,7 @@ type Bucket struct {
 // NewBucket returns a new S3 bucket that uses the provided client
 // for SDK calls. NewBucket is primarily intended for testing.
 func NewBucket(name string, client s3iface.S3API) *Bucket {
-	return &Bucket{name, client, newS3Policy(defaultS3Limit)}
+	return &Bucket{name, client, newS3Policy()}
 }
 
 // File returns metadata for the provided key.
