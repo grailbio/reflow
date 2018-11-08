@@ -690,7 +690,7 @@ func (t *T) Sub(u *T) bool {
 			return false
 		}
 		for i := range t.Fields {
-			if !t.Fields[i].Equal(u.Fields[i]) {
+			if !t.Fields[i].T.Equal(u.Fields[i].T) {
 				return false
 			}
 		}
@@ -901,7 +901,7 @@ func Unify(maxlevel ConstLevel, ts ...*T) *T {
 				return Errorf("mismatched argument length: %v != %v", nt, nu)
 			}
 			for i := range t.Fields {
-				if tt, ut := t.Fields[i], u.Fields[i]; !tt.Equal(ut) {
+				if tt, ut := t.Fields[i].T, u.Fields[i].T; !tt.Equal(ut) {
 					return Errorf("argument %v does not match: %v != %v", i, tt, ut)
 				}
 			}
