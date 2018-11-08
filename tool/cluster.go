@@ -48,14 +48,11 @@ func (c *Cmd) Cluster(status *status.Group) runner.Cluster {
 	if err != nil {
 		c.Fatal(err)
 	}
-	clientConfig, _, err := c.Config.HTTPS()
+	blobrepo.Register("s3", s3blob.New(sess))
+	repositoryhttp.HTTPClient, err = c.httpClient()
 	if err != nil {
 		c.Fatal(err)
 	}
-	blobrepo.Register("s3", s3blob.New(sess))
-	transport := &http.Transport{TLSClientConfig: clientConfig}
-	http2.ConfigureTransport(transport)
-	repositoryhttp.HTTPClient = &http.Client{Transport: transport}
 	if n, ok := cluster.(needer); ok {
 		http.HandleFunc("/clusterneed", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != "GET" {
@@ -71,4 +68,16 @@ func (c *Cmd) Cluster(status *status.Group) runner.Cluster {
 		})
 	}
 	return cluster
+}
+
+func (c *Cmd) httpClient() (*http.Client, error) {
+	clientConfig, _, err := c.Config.HTTPS()
+	if err != nil {
+		c.Fatal(err)
+	}
+	transport := &http.Transport{TLSClientConfig: clientConfig}
+	if err := http2.ConfigureTransport(transport); err != nil {
+		c.Fatal(err)
+	}
+	return &http.Client{Transport: transport}, nil
 }
