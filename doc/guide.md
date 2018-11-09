@@ -22,6 +22,7 @@ and its runtime.
   * [Contents](#contents)
   * [Distribution](#distribution)
     * [Bundles](#bundles)
+  * [Porting Reflow](#porting-reflow)
 
 ## Distribution
 
@@ -87,3 +88,37 @@ when using `reflow run`:
 	% reflow run test.rfx -x="hello "
 	"hello hello"
 
+## Porting Reflow
+
+Reflow defines a small set of interfaces that are used to
+interact with external cloud services. To add support for
+new services (e.g., a storage or compute backends), 
+implementations of the relevant interfaces must be provided.
+
+The interfaces are:
+
+- [runner.Cluster](https://github.com/grailbio/reflow/blob/db37d993f656f2569481a0aebc97f64fbde795b1/runner/cluster.go#L17) 
+  for compute backends;
+- [blob.Store](https://github.com/grailbio/reflow/blob/db37d993f656f2569481a0aebc97f64fbde795b1/blob/blob.go#L21) 
+  for blob-storage backends (to access data within Reflow and to store cached objects);
+- [assoc.Assoc](https://github.com/grailbio/reflow/blob/db37d993f656f2569481a0aebc97f64fbde795b1/assoc/assoc.go#L49) 
+  for cache associations backends (roughly, a key to object mapping).
+
+Existing implementations of these include:
+
+- [ec2cluster.Cluster](https://github.com/grailbio/reflow/blob/db37d993f656f2569481a0aebc97f64fbde795b1/ec2cluster/ec2cluster.go#L61)
+  implements `runner.Cluster` on top of AWS's EC2 computer service;
+- [s3blob.Store](https://github.com/grailbio/reflow/blob/db37d993f656f2569481a0aebc97f64fbde795b1/blob/s3blob/s3blob.go#L48)
+  `blob.Store` on top of AWS's S3 storage service.
+- [dydbassoc.Assoc](https://github.com/grailbio/reflow/blob/db37d993f656f2569481a0aebc97f64fbde795b1/assoc/dydbassoc/dydbassoc.go#L43) 
+  implements a `assoc.Assoc` on top of AWS's DynamoDB service.
+
+Reflow's [configuration package](https://github.com/grailbio/reflow/tree/master/config)
+is used to wire together different implementations of these underlying services.
+New service implementations 
+should also implement configuration providers 
+for use with this package. 
+For example,
+blob stores based on `s3blob.Blob` 
+are configured through the configuration provider package
+[github.com/grailbio/reflow/blob/master/config/s3config](https://github.com/grailbio/reflow/blob/master/config/s3config/s3.go).
