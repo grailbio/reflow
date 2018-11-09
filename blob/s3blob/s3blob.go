@@ -125,7 +125,9 @@ func (s *Store) newBucket(ctx context.Context, bucket string) (*Bucket, error) {
 // NewS3Policy returns a default admit.RetryPolicy useful for S3 operations.
 func newS3Policy() admit.RetryPolicy {
 	rp := retry.MaxTries(retry.Jitter(retry.Backoff(500*time.Millisecond, time.Minute, 1.5), 0.5), defaultMaxRetries)
-	return admit.ControllerWithRetry(defaultS3MinLimit, defaultS3MaxLimit, rp)
+	c := admit.ControllerWithRetry(defaultS3MinLimit, defaultS3MaxLimit, rp)
+	admit.EnableVarExport(c, "s3ops")
+	return c
 }
 
 // Bucket represents an s3 bucket; it implements blob.Bucket.
