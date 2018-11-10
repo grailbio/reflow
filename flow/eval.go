@@ -1338,7 +1338,7 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) 
 	}
 	pid := digest.Digest{}
 	var stdout, stderr digest.Digest
-	if f.Op == Exec {
+	if f.Op.External() {
 		b := new(bytes.Buffer)
 		enc := json.NewEncoder(b)
 		if err = enc.Encode(f.Inspect); err == nil {
