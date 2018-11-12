@@ -6,10 +6,13 @@ package s3walker
 
 import (
 	"context"
+	"log"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
+	"github.com/grailbio/base/admit"
 )
 
 // S3Walker traverses s3 keys through a prefix scan.
@@ -18,6 +21,9 @@ type S3Walker struct {
 	S3 s3iface.S3API
 	// Bucket and Prefix name the location of the scan.
 	Bucket, Prefix string
+
+	// Admission policy for S3 operations (can be nil)
+	Policy admit.Policy
 
 	object  *s3.Object
 	objects []*s3.Object
@@ -43,13 +49,23 @@ func (w *S3Walker) Scan(ctx context.Context) bool {
 	if w.done {
 		return false
 	}
-	req, res := w.S3.ListObjectsV2Request(&s3.ListObjectsV2Input{
-		Bucket:            aws.String(w.Bucket),
-		ContinuationToken: w.token,
-		Prefix:            aws.String(w.Prefix),
-	})
-	req.HTTPRequest = req.HTTPRequest.WithContext(ctx)
-	w.err = req.Send()
+	var res *s3.ListObjectsV2Output
+	listObj := func() error {
+		var req *request.Request
+		req, res = w.S3.ListObjectsV2Request(&s3.ListObjectsV2Input{
+			Bucket:            aws.String(w.Bucket),
+			ContinuationToken: w.token,
+			Prefix:            aws.String(w.Prefix),
+		})
+		req.HTTPRequest = req.HTTPRequest.WithContext(ctx)
+		err := req.Send()
+		if request.IsErrorThrottle(err) {
+			log.Printf("s3walker.Scan: %s/%s: %v (over capacity)", w.Bucket, w.Prefix, err)
+			return admit.ErrOverCapacity
+		}
+		return err
+	}
+	w.err = admit.Do(ctx, w.Policy, 1, listObj)
 	if w.err != nil {
 		return false
 	}
