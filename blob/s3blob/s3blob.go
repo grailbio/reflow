@@ -16,6 +16,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
@@ -91,7 +92,7 @@ func (s *Store) Bucket(ctx context.Context, bucket string) (blob.Bucket, error) 
 			s.mu.Lock()
 			if err != nil {
 				if err != ctx.Err() {
-					log.Printf("s3blob: failed to create bucket for %s: %v", bucket, err)
+					log.Printf("s3blob.Bucket: failed to create bucket for %s: %v", bucket, err)
 				}
 				delete(s.buckets, bucket)
 			} else {
@@ -110,7 +111,7 @@ func (s *Store) newBucket(ctx context.Context, bucket string) (*Bucket, error) {
 			return nil, err
 		}
 		if kind(err) == errors.NotExist {
-			return nil, errors.E("s3blob.bucket", bucket, errors.NotExist, err)
+			return nil, errors.E("s3blob.newBucket", bucket, errors.NotExist, err)
 		}
 		log.Printf("s3blob: unable to determine region for bucket %s: %v", bucket, err)
 		region = DefaultRegion
@@ -122,8 +123,13 @@ func (s *Store) newBucket(ctx context.Context, bucket string) (*Bucket, error) {
 	return NewBucket(bucket, s3.New(s.sess, &config)), nil
 }
 
-// NewS3Policy returns a default admit.RetryPolicy useful for S3 operations.
-func newS3Policy() admit.RetryPolicy {
+// NewS3RetryPolicy returns a default retry.Policy useful for S3 operations.
+func newS3RetryPolicy() retry.Policy {
+	return retry.MaxTries(retry.Jitter(retry.Backoff(1*time.Second, time.Minute, 2), 0.25), defaultMaxRetries)
+}
+
+// NewS3AdmitPolicy returns a default admit.RetryPolicy useful for S3 operations.
+func newS3AdmitPolicy() admit.RetryPolicy {
 	rp := retry.MaxTries(retry.Jitter(retry.Backoff(500*time.Millisecond, time.Minute, 1.5), 0.5), defaultMaxRetries)
 	c := admit.ControllerWithRetry(defaultS3MinLimit, defaultS3MaxLimit, rp)
 	admit.EnableVarExport(c, "s3ops")
@@ -132,27 +138,29 @@ func newS3Policy() admit.RetryPolicy {
 
 // Bucket represents an s3 bucket; it implements blob.Bucket.
 type Bucket struct {
-	bucket string
-	client s3iface.S3API
-	policy admit.RetryPolicy
+	bucket   string
+	client   s3iface.S3API
+	admitter admit.RetryPolicy
+	retrier  retry.Policy
 }
 
 // NewBucket returns a new S3 bucket that uses the provided client
 // for SDK calls. NewBucket is primarily intended for testing.
 func NewBucket(name string, client s3iface.S3API) *Bucket {
-	return &Bucket{name, client, newS3Policy()}
+	return &Bucket{name, client, newS3AdmitPolicy(), newS3RetryPolicy()}
 }
 
 // File returns metadata for the provided key.
 func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 	var resp *s3.HeadObjectOutput
-	err := admit.Do(ctx, b.policy, 1, func() error {
+	err := admit.Do(ctx, b.admitter, 1, func() error {
 		var err error
 		resp, err = b.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
 			Bucket: aws.String(b.bucket),
 			Key:    aws.String(key),
 		})
 		if kind(err) == errors.ResourcesExhausted {
+			log.Printf("s3blob.File: %s/%s: %v (over capacity)\n", b.bucket, key, err)
 			return admit.ErrOverCapacity
 		}
 		return err
@@ -163,7 +171,7 @@ func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 		// a missing object, while HeadObject returns a body-less HTTP 404
 		// error, which is then assigned the fallback HTTP error code
 		// NotFound by the SDK.
-		return reflow.File{}, errors.E("s3blob.file", b.bucket, key, kind(err), err)
+		return reflow.File{}, errors.E("s3blob.File", b.bucket, key, kind(err), err)
 	}
 	// TODO(marius): support ID if x-sha256 is present.
 	return reflow.File{
@@ -196,7 +204,7 @@ func (s *scanner) Key() string {
 // provided prefix.
 func (b *Bucket) Scan(prefix string) blob.Scanner {
 	return &scanner{
-		S3Walker: &s3walker.S3Walker{S3: b.client, Bucket: b.bucket, Prefix: prefix, Policy: b.policy},
+		S3Walker: &s3walker.S3Walker{S3: b.client, Bucket: b.bucket, Prefix: prefix, Policy: b.admitter},
 		bucket:   b.bucket,
 	}
 }
@@ -220,20 +228,31 @@ func maxS3Ops(size int64) int {
 func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w io.WriterAt) (int64, error) {
 	var n int64
 	s3concurrency := maxS3Ops(size)
-	err := admit.Retry(ctx, b.policy, s3concurrency, func() error {
-		var err error
-		d := s3manager.NewDownloaderWithClient(b.client, func(d *s3manager.Downloader) {
-			d.PartSize = s3minpartsize
-			d.Concurrency = s3concurrency
+	var err error
+	for retries := 0; ; retries++ {
+		err = admit.Retry(ctx, b.admitter, s3concurrency, func() error {
+			var err error
+			d := s3manager.NewDownloaderWithClient(b.client, func(d *s3manager.Downloader) {
+				d.PartSize = s3minpartsize
+				d.Concurrency = s3concurrency
+			})
+			n, err = d.DownloadWithContext(ctx, w, b.getObjectInput(key, etag))
+			if kind(err) == errors.ResourcesExhausted {
+				log.Printf("s3blob.Download: %s/%s: %v (over capacity)\n", b.bucket, key, err)
+				err = admit.ErrOverCapacity
+			}
+			return err
 		})
-		n, err = d.DownloadWithContext(ctx, w, b.getObjectInput(key, etag))
-		if kind(err) == errors.ResourcesExhausted {
-			err = admit.ErrOverCapacity
+		if err == nil || kind(err) != errors.Temporary {
+			break
 		}
-		return err
-	})
-	if err != nil {
-		err = errors.E("s3blob.download", b.bucket, key, kind(err), err)
+		log.Printf("s3blob.Download: %s/%s (attempt %d): %v\n", b.bucket, key, retries, err)
+		if err = retry.Wait(ctx, b.retrier, retries); err != nil {
+			break
+		}
+	}
+	if err != nil && kind(err) != errors.Canceled {
+		err = errors.E("s3blob.Download", b.bucket, key, kind(err), err)
 	}
 	return n, err
 }
@@ -242,7 +261,7 @@ func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w i
 func (b *Bucket) Get(ctx context.Context, key, etag string) (io.ReadCloser, reflow.File, error) {
 	resp, err := b.client.GetObject(b.getObjectInput(key, etag))
 	if err != nil {
-		return nil, reflow.File{}, errors.E("s3blob.get", b.bucket, key, kind(err), err)
+		return nil, reflow.File{}, errors.E("s3blob.Get", b.bucket, key, kind(err), err)
 	}
 	return resp.Body, reflow.File{
 		Source:       fmt.Sprintf("s3://%s/%s", b.bucket, key),
@@ -255,25 +274,36 @@ func (b *Bucket) Get(ctx context.Context, key, etag string) (io.ReadCloser, refl
 // Put stores the contents of the provided io.Reader at the provided key.
 func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader) error {
 	s3concurrency := maxS3Ops(size)
-	err := admit.Retry(ctx, b.policy, s3concurrency, func() error {
-		up := s3manager.NewUploaderWithClient(b.client, func(u *s3manager.Uploader) {
-			u.PartSize = s3minpartsize
-			u.Concurrency = s3concurrency
+	var err error
+	for retries := 0; ; retries++ {
+		err = admit.Retry(ctx, b.admitter, s3concurrency, func() error {
+			up := s3manager.NewUploaderWithClient(b.client, func(u *s3manager.Uploader) {
+				u.PartSize = s3minpartsize
+				u.Concurrency = s3concurrency
+			})
+			_, err := up.UploadWithContext(ctx, &s3manager.UploadInput{
+				Bucket: aws.String(b.bucket),
+				Key:    aws.String(key),
+				Body:   body,
+			})
+			if kind(err) == errors.ResourcesExhausted {
+				log.Printf("s3blob.Put: %s/%s: %v (over capacity)\n", b.bucket, key, err)
+				return admit.ErrOverCapacity
+			}
+			return err
 		})
-		_, err := up.UploadWithContext(ctx, &s3manager.UploadInput{
-			Bucket: aws.String(b.bucket),
-			Key:    aws.String(key),
-			Body:   body,
-		})
-		if kind(err) == errors.ResourcesExhausted {
-			return admit.ErrOverCapacity
+		if err == nil || kind(err) != errors.Temporary {
+			break
 		}
-		return err
-	})
-	if err != nil {
-		return errors.E("s3blob.put", b.bucket, key, kind(err), err)
+		log.Printf("s3blob.Put: %s/%s (attempt %d): %v\n", b.bucket, key, retries, err)
+		if err = retry.Wait(ctx, b.retrier, retries); err != nil {
+			break
+		}
 	}
-	return nil
+	if err != nil && kind(err) != errors.Canceled {
+		err = errors.E("s3blob.Put", b.bucket, key, kind(err), err)
+	}
+	return err
 }
 
 // Snapshot returns an un-loaded Reflow fileset of the contents at the
@@ -285,10 +315,10 @@ func (b *Bucket) Snapshot(ctx context.Context, prefix string) (reflow.Fileset, e
 			Key:    aws.String(prefix),
 		})
 		if err != nil {
-			return reflow.Fileset{}, errors.E("s3blob.snapshot", b.bucket, prefix, kind(err), err)
+			return reflow.Fileset{}, errors.E("s3blob.Snapshot", b.bucket, prefix, kind(err), err)
 		}
 		if head.ContentLength == nil || head.ETag == nil {
-			return reflow.Fileset{}, errors.E("s3blob.snapshot", b.bucket, prefix, errors.Invalid, errors.New("incomplete metadata"))
+			return reflow.Fileset{}, errors.E("s3blob.Snapshot", b.bucket, prefix, errors.Invalid, errors.New("incomplete metadata"))
 		}
 		file := reflow.File{
 			Source:       fmt.Sprintf("s3://%s/%s", b.bucket, prefix),
@@ -368,11 +398,17 @@ func kind(err error) errors.Kind {
 	if !ok {
 		return errors.Other
 	}
+	if request.IsErrorThrottle(err) {
+		return errors.ResourcesExhausted
+	}
+	if request.IsErrorRetryable(err) {
+		return errors.Temporary
+	}
 	// The underlying error was an S3 error. Try to classify it.
 	// Best guess based on Amazon's descriptions:
 	switch aerr.Code() {
 	// Code NotFound is not documented, but it's what the API actually returns.
-	case "NoSuchBucket", "NoSuchKey", "NoSuchVersion", "NotFound":
+	case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey, "NoSuchVersion", "NotFound":
 		return errors.NotExist
 	case "AccessDenied":
 		return errors.NotAllowed
