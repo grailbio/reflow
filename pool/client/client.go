@@ -146,8 +146,14 @@ func (c *Client) InstallImage(ctx context.Context, digest string) error {
 	// We expect an error since the reflowlet would've started the new image
 	// before it has a chance to reply.
 	// We check at least that the error comes from the right place in the stack
-	if _, err := call.Do(ctx, strings.NewReader(digest)); err != nil && !errors.Is(errors.Net, err) {
+	code, err := call.Do(ctx, strings.NewReader(digest))
+	if err != nil && !errors.Is(errors.Net, err) {
 		return fmt.Errorf("installimage %v", err)
+	}
+	// If the call was successful and the image got 'exec'ed, we should get zero.
+	// Anything else should be treated as an error.
+	if code != 0 {
+		return fmt.Errorf("installimage, unhandled status code: %d", code)
 	}
 	return nil
 }

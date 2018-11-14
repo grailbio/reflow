@@ -27,12 +27,16 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
+	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/retry"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/base/status"
+	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/ecrauth"
+	"github.com/grailbio/reflow/internal/execimage"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/pool/client"
@@ -46,7 +50,10 @@ const (
 	statePollInterval = 10 * time.Second
 )
 
-var zeroResources = reflow.Resources{"cpu": 0, "mem": 0, "disk": 0}
+var (
+	localDigest digest.Digest
+	digestOnce  once.Task
+)
 
 // A Cluster implements a runner.Cluster backed by EC2. The cluster
 // is stateful (stored by a local state.File), and expands with
@@ -516,22 +523,18 @@ func (c *Cluster) update() {
 				c.Log.Printf("client %s: %v", baseurl, err)
 				continue
 			}
+			// TODO(swami): Remove all reflowlet version tracking and compatibility-check code.
 			// check version compatibility.
 			if reflowVer, err := getString(c.Config, "reflowversion"); err != nil {
-				c.Log.Debugf("unable to get reflow version: %v", err)
+				c.Log.Debugf("%s: unknown version: %v", *inst.InstanceId, err)
 			} else if reflowVer != inst.Version {
-				c.Log.Debugf("reflow (version: %s) incompatible with instance %v running reflowlet image: %s (version: %s)", reflowVer, id, c.ReflowletImage, inst.Version)
+				c.Log.Debugf("%s: image %s version %s incompatible with local %s", *inst.InstanceId, c.ReflowletImage, inst.Version, reflowVer)
 				continue
 			}
-			// For debugging, fetch and log the reflowlet's exec image info.
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			remoteDigest, err := clnt.ExecImage(ctx)
-			cancel()
-			if err != nil {
-				c.Log.Debugf("execimage[%s]: %v", *inst.InstanceId, err)
+			if err := c.maybeUpdateImage(context.Background(), inst); err != nil {
+				c.Log.Debugf("%s: update %v", *inst.InstanceId, err)
 				continue
 			}
-			c.Log.Debugf("execimage[%s]: digest %s", *inst.InstanceId, remoteDigest)
 			// Versions are compatible!
 			c.pools[*inst.InstanceId] = clnt
 		}
@@ -542,6 +545,87 @@ func (c *Cluster) update() {
 		}
 	}
 	c.SetPools(vals(c.pools))
+}
+
+func imageDigest() (digest.Digest, error) {
+	err := digestOnce.Do(func() error {
+		var err error
+		r, err := execimage.EmbeddedLinuxImage()
+		if err != nil {
+			return err
+		}
+		localDigest, err = execimage.Digest(r)
+		defer r.Close()
+		return err
+	})
+	return localDigest, err
+}
+
+func (c *Cluster) maybeUpdateImage(ctx context.Context, inst *reflowletInstance) error {
+	localDigest, err := imageDigest()
+	if err != nil {
+		return err
+	}
+	clnt, err := client.New(fmt.Sprintf("https://%s:9000/v1/", *inst.PublicDnsName), c.HTTPClient, nil)
+	if err != nil {
+		return err
+	}
+	policy := retry.MaxTries(retry.Backoff(50*time.Millisecond, 1*time.Second, 1.5), 3)
+	for retries := 0; ; retries++ {
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		remoteDigest, err := clnt.ExecImage(ctx)
+		cancel()
+		if err != nil {
+			if !errors.Is(errors.Net, err) {
+				return err
+			}
+			continue
+		}
+		if remoteDigest == localDigest {
+			c.Log.Printf("%s: image %s matches local", *inst.InstanceId, remoteDigest.Short())
+			return nil
+		}
+		c.Log.Printf("%s: image %s needs update %s", *inst.InstanceId, remoteDigest.Short(), localDigest.Short())
+		if err = c.maybeUploadImage(ctx, localDigest); err != nil {
+			return err
+		}
+		if err = clnt.InstallImage(ctx, localDigest.String()); err != nil {
+			return err
+		}
+		if err = retry.Wait(ctx, policy, retries); err != nil {
+			return err
+		}
+	}
+	return errors.New("update image failed")
+}
+
+func (c *Cluster) maybeUploadImage(ctx context.Context, localDigest digest.Digest) error {
+	repo, err := c.Config.Repository()
+	if err != nil {
+		return err
+	}
+	_, err = repo.Stat(ctx, localDigest)
+	if err != nil && !errors.Is(errors.NotExist, err) {
+		return err
+	}
+	if err == nil {
+		return err
+	}
+	// Image doesn't exist in repo, so upload it.
+	r, err := execimage.EmbeddedLinuxImage()
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	c.Log.Debugf("uploading reflow image (%s) to repo", localDigest.Short())
+	repoDigest, err := repo.Put(ctx, r)
+	if err != nil {
+		return err
+	}
+	if repoDigest != localDigest {
+		return errors.New("digests mismatch")
+	}
+	return nil
 }
 
 func (c *Cluster) reconcile() error {

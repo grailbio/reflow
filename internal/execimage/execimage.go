@@ -7,17 +7,20 @@ package execimage
 import (
 	"crypto"
 	_ "crypto/sha256" // Needed for crypto.SHA256
+	"debug/macho"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/sync/once"
+	"github.com/grailbio/reflow/errors"
 )
 
 var (
@@ -47,25 +50,31 @@ func ExecPath() (string, error) {
 // ImageDigest returns the digest of the executable of the current running process.
 func ImageDigest() (digest.Digest, error) {
 	err := digestOnce.Do(func() error {
+		var err error
 		path, err := ExecPath()
 		if err != nil {
 			return err
 		}
 		r, err := os.Open(path)
 		if err != nil {
-			return fmt.Errorf("image digest: %s %v", path, err)
+			return err
 		}
-		dw := digester.NewWriter()
-		if _, err := io.Copy(dw, r); err != nil {
-			return fmt.Errorf("image digest: %s %v", path, err)
-		}
-		binaryDigest = dw.Digest()
-		if err := r.Close(); err != nil {
-			return fmt.Errorf("image digest: %s %v", path, err)
-		}
-		return nil
+		defer r.Close()
+		binaryDigest, err = Digest(r)
+		return err
 	})
 	return binaryDigest, err
+}
+
+// Digest returns the digest of the given ReadCloser and closes it.
+func Digest(r io.Reader) (digest.Digest, error) {
+	var dig digest.Digest
+	dw := digester.NewWriter()
+	if _, err := io.Copy(dw, r); err != nil {
+		return dig, err
+	}
+	dig = dw.Digest()
+	return dig, nil
 }
 
 // InstallImage reads a new image from its argument and replaces the current
@@ -91,4 +100,44 @@ func InstallImage(exec io.ReadCloser, prefix string) error {
 	}
 	log.Printf("exec %s %s", path, strings.Join(os.Args, " "))
 	return syscall.Exec(path, os.Args, os.Environ())
+}
+
+// EmbeddedLinuxImage returns a reader pointing to an embedded linux image
+// with the following assumptions:
+// - if the current GOOS is linux, returns the current binary.
+// - if the current GOOS is darwin, and current binary size is larger
+// than what Mach-O reports, returns a reader to the current binary
+// offset by the size of the darwin binary.
+// - reports error if
+//   - if the current GOOS is not darwin
+//   - if the current GOOS is darwin, but there's no embedding.
+func EmbeddedLinuxImage() (io.ReadCloser, error) {
+	path, err := ExecPath()
+	if err != nil {
+		return nil, err
+	}
+	if runtime.GOOS == "linux" {
+		return os.Open(path)
+	}
+	fh, err := macho.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("unsupported binary, not mach-o: %v", err)
+	}
+	sg := fh.Segment("__LINKEDIT")
+	machoSize := int64(sg.SegmentHeader.Filesz + sg.SegmentHeader.Offset)
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if fi.Size() == machoSize {
+		return nil, errors.New("no embedded linux image")
+	}
+	r, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = r.Seek(machoSize, io.SeekStart); err != nil {
+		return nil, err
+	}
+	return r, nil
 }

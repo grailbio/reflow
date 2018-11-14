@@ -183,7 +183,6 @@ func (s *Server) ListenAndServe() error {
 		return fmt.Errorf("read config: %v", err)
 	}
 	http.Handle("/v1/config", rest.DoFuncHandler(cfgNode, httpLog))
-
 	repo, err := s.Config.Repository()
 	if err != nil {
 		return fmt.Errorf("repo: %v", err)
