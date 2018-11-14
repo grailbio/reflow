@@ -8,6 +8,7 @@ import (
 	"context"
 	"flag"
 	"io"
+	"sort"
 
 	"github.com/grailbio/reflow/syntax"
 	"v.io/x/lib/textutil"
@@ -20,7 +21,9 @@ func (c *Cmd) doc(ctx context.Context, args ...string) {
 
 	if flags.NArg() == 0 {
 		c.Println("Reflow's system modules are:")
-		for _, name := range syntax.Modules() {
+		names := syntax.Modules()
+		sort.Strings(names)
+		for _, name := range names {
 			c.Printf("	$/%s\n", name)
 		}
 		return
