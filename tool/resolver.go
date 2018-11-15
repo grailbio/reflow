@@ -9,11 +9,10 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	imgname "github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow/internal/ecrauth"
-)
-
-// ImageResolver maintains maps of image descriptions to their canonical values
+) // ImageResolver maintains maps of image descriptions to their canonical values
 // (fully qualified registry host, and digest based references)
 type imageResolver struct {
 	// Authenticator will have a nil AWS session if the config does not have
@@ -23,8 +22,7 @@ type imageResolver struct {
 
 	// Cached ECR credentials from the authenticator, populated only if needed.
 	ecrCreds *types.AuthConfig
-	authOnce sync.Once
-	authErr  error
+	authOnce once.Task
 
 	// TODO(sbagaria): When using this object for batch reflow runs, memoize
 	// the calls to resolveImage.
@@ -77,14 +75,13 @@ func (r *imageResolver) resolveImage(ctx context.Context, image string) (string,
 }
 
 func (r *imageResolver) authenticate(ctx context.Context) error {
-	r.authOnce.Do(func() {
+	return r.authOnce.Do(func() error {
 		if r.ecrCreds != nil {
-			return
+			return nil
 		}
 		r.ecrCreds = &types.AuthConfig{}
-		r.authErr = r.authenticator.Authenticate(ctx, r.ecrCreds)
+		return r.authenticator.Authenticate(ctx, r.ecrCreds)
 	})
-	return r.authErr
 }
 
 func imageDigestReference(image string, auth authn.Authenticator) (string, error) {

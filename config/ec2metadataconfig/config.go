@@ -10,13 +10,12 @@
 package ec2metadataconfig
 
 import (
-	"sync"
-
 	awspkg "github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/reflow/config"
 )
 
@@ -31,28 +30,28 @@ func init() {
 type aws struct {
 	config.Config
 
-	docOnce sync.Once
+	docOnce once.Task
 	sess    *session.Session
 	doc     ec2metadata.EC2InstanceIdentityDocument
 	creds   *credentials.Credentials
-	err     error
 }
 
-func (a *aws) get() {
-	a.sess, a.err = session.NewSession()
-	if a.err != nil {
-		return
+func (a *aws) get() error {
+	var err error
+	a.sess, err = session.NewSession()
+	if err != nil {
+		return err
 	}
 	metaClient := ec2metadata.New(a.sess)
 	provider := &ec2rolecreds.EC2RoleProvider{Client: metaClient}
 	a.creds = credentials.NewCredentials(provider)
-	a.doc, a.err = metaClient.GetInstanceIdentityDocument()
+	a.doc, err = metaClient.GetInstanceIdentityDocument()
+	return err
 }
 
 func (a *aws) AWS() (*session.Session, error) {
-	a.docOnce.Do(a.get)
-	if a.err != nil {
-		return nil, a.err
+	if err := a.docOnce.Do(a.get); err != nil {
+		return nil, err
 	}
 	return session.NewSession(&awspkg.Config{
 		Credentials: a.creds,
@@ -61,8 +60,8 @@ func (a *aws) AWS() (*session.Session, error) {
 }
 
 func (a *aws) AWSRegion() (string, error) {
-	a.docOnce.Do(a.get)
-	return a.doc.Region, a.err
+	err := a.docOnce.Do(a.get)
+	return a.doc.Region, err
 }
 
 func (*aws) AWSCreds() (*credentials.Credentials, error) {

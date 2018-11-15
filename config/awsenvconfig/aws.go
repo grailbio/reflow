@@ -8,11 +8,11 @@ package awsenvconfig
 
 import (
 	"fmt"
-	"sync"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/reflow/config"
 	yaml "gopkg.in/yaml.v2"
 )
@@ -47,9 +47,8 @@ type credentialsSessionValue struct {
 	Credentials   credentials.Value
 	Region        string
 
-	sessionOnce sync.Once
+	sessionOnce once.Task
 	session     *session.Session
-	err         error
 }
 
 func (v *credentialsSessionValue) Marshal(keys config.Keys) error {
@@ -65,14 +64,15 @@ func (v *credentialsSessionValue) AWSCreds() (*credentials.Credentials, error) {
 }
 
 func (v *credentialsSessionValue) AWS() (*session.Session, error) {
-	v.sessionOnce.Do(func() {
+	err := v.sessionOnce.Do(func() (err error) {
 		creds, _ := v.AWSCreds()
-		v.session, v.err = session.NewSession(&aws.Config{
+		v.session, err = session.NewSession(&aws.Config{
 			Credentials: creds,
 			Region:      aws.String(v.Region),
 		})
+		return
 	})
-	return v.session, v.err
+	return v.session, err
 }
 
 // AcredentialsSession implements derives AWS configuration
@@ -80,9 +80,8 @@ func (v *credentialsSessionValue) AWS() (*session.Session, error) {
 // ASDK's defaults.
 type credentialsSession struct {
 	config.Config
-	sessionOnce sync.Once
+	sessionOnce once.Task
 	session     *session.Session
-	err         error
 }
 
 func (c *credentialsSession) Marshal(keys config.Keys) error {
@@ -125,7 +124,7 @@ func (c *credentialsSession) AWSRegion() (string, error) {
 }
 
 func (c *credentialsSession) AWS() (*session.Session, error) {
-	c.sessionOnce.Do(func() {
+	err := c.sessionOnce.Do(func() error {
 		// session.NewSession() uses a chain provider that looks for
 		// credentials first in the environment variables, then in shared
 		// credential locations (e.g. ~/.aws/config.yaml), then at remote
@@ -145,16 +144,17 @@ func (c *credentialsSession) AWS() (*session.Session, error) {
 		// We do a retrieval here to catch NoCredentialProviders errors
 		// early on.
 		if _, err := credProvider.Retrieve(); err != nil {
-			c.err = fmt.Errorf("failed to retrieve AWS credentials: %v", err)
-			return
+			return fmt.Errorf("failed to retrieve AWS credentials: %v", err)
 		}
-		c.session, c.err = session.NewSessionWithOptions(session.Options{
+		var err error
+		c.session, err = session.NewSessionWithOptions(session.Options{
 			Config: aws.Config{
 				Credentials: credentials.NewCredentials(credProvider),
 			},
 			// This loads region configuration from ~/.aws/config.yaml.
 			SharedConfigState: session.SharedConfigEnable,
 		})
+		return err
 	})
-	return c.session, c.err
+	return c.session, err
 }
