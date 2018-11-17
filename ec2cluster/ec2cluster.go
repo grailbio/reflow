@@ -523,6 +523,15 @@ func (c *Cluster) update() {
 				c.Log.Debugf("reflow (version: %s) incompatible with instance %v running reflowlet image: %s (version: %s)", reflowVer, id, c.ReflowletImage, inst.Version)
 				continue
 			}
+			// For debugging, fetch and log the reflowlet's exec image info.
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			remoteDigest, err := clnt.ExecImage(ctx)
+			cancel()
+			if err != nil {
+				c.Log.Debugf("execimage[%s]: %v", *inst.InstanceId, err)
+				continue
+			}
+			c.Log.Debugf("execimage[%s]: digest %s", *inst.InstanceId, remoteDigest)
 			// Versions are compatible!
 			c.pools[*inst.InstanceId] = clnt
 		}

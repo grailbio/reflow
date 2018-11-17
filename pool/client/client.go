@@ -110,6 +110,24 @@ func (c *Client) Config(ctx context.Context) (config.Config, error) {
 	return cfg, nil
 }
 
+// ExecImage retrieves the reflowlet instance's executable image info.
+func (c *Client) ExecImage(ctx context.Context) (digest.Digest, error) {
+	var d digest.Digest
+	call := c.Call("GET", "execimage")
+	defer call.Close()
+	code, err := call.Do(ctx, nil)
+	if err != nil {
+		return d, errors.E("execimage", err)
+	}
+	if code != http.StatusOK {
+		return d, call.Error()
+	}
+	if err := call.Unmarshal(&d); err != nil {
+		return d, errors.E("unmarshall reflowlet execimage", err)
+	}
+	return d, nil
+}
+
 type clientAlloc struct {
 	*Client
 	id        string

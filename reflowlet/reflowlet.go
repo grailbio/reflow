@@ -17,6 +17,7 @@ import (
 	"time"
 
 	dockerclient "github.com/docker/docker/client"
+	"github.com/grailbio/base/errors"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/config"
@@ -179,6 +180,7 @@ func (s *Server) ListenAndServe() error {
 		return fmt.Errorf("unable to read config: %v", err)
 	}
 	http.Handle("/v1/config", rest.DoFuncHandler(cfgNode, httpLog))
+	http.Handle("/v1/execimage", rest.DoFuncHandler(newExecImageNode(), httpLog))
 	server := &http.Server{Addr: s.Addr}
 	if s.Insecure {
 		return server.ListenAndServe()
@@ -223,4 +225,18 @@ func newConfigNode(cfg config.Config) (rest.DoFunc, error) {
 		}
 		call.Reply(http.StatusOK, string(b))
 	}, nil
+}
+
+func newExecImageNode() rest.DoFunc {
+	return rest.DoFunc(func(ctx context.Context, call *rest.Call) {
+		if !call.Allow("GET") {
+			return
+		}
+		digest, err := ImageDigest()
+		if err != nil {
+			call.Error(errors.E("execimage", "GET", err))
+			return
+		}
+		call.Reply(http.StatusOK, digest)
+	})
 }
