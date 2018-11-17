@@ -61,3 +61,27 @@ func TestError(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestDoFuncHandler(t *testing.T) {
+	h := DoFuncHandler(DoFunc(func(ctx context.Context, call *Call) {
+		if !call.Allow("GET") {
+			return
+		}
+		call.Reply(http.StatusOK, call.URL().Path)
+	}), nil)
+	for _, target := range []string{"/test1", "/test2", "/testsomething"} {
+		r := httptest.NewRequest("GET", target, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if got, want := w.Result().StatusCode, http.StatusOK; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		var result string
+		if err := json.NewDecoder(w.Result().Body).Decode(&result); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := result, target; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	}
+}

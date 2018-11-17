@@ -281,6 +281,33 @@ func (h *nodeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	n.Do(ctx, call)
 }
 
+type doFuncHandler struct {
+	node DoFunc
+	log  *log.Logger
+}
+
+// DoFuncHandler creates a http.Handler from a DoFunc. The returned
+// handler serves requests by simply invoking the node's Do
+// method.
+// This handler should be registered directly on a leaf path.
+func DoFuncHandler(node DoFunc, log *log.Logger) http.Handler {
+	return &doFuncHandler{node, log}
+}
+
+func (h *doFuncHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h.log.At(log.DebugLevel) {
+		b, err := httputil.DumpRequest(r, true)
+		if err != nil {
+			panic(err)
+		}
+		h.log.Debugf("request %s", string(b))
+	}
+	ctx := r.Context()
+	call := &Call{writer: w, req: r, log: h.log}
+	defer call.flush()
+	h.node.Do(ctx, call)
+}
+
 func errorToHTTP(err error) (code int, reply interface{}) {
 	e := errors.Recover(err)
 	return e.HTTPStatus(), e
