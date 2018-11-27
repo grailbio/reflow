@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/grailbio/base/digest"
@@ -126,6 +127,29 @@ func (c *Client) ExecImage(ctx context.Context) (digest.Digest, error) {
 		return d, errors.E("unmarshall reflowlet execimage", err)
 	}
 	return d, nil
+}
+
+// InstallImage instructs the reflowlet instance to install and run a new image.
+// The image is referenced by the digest (in a format returned by digest.String())
+// and is expected to exist in the repository (or the call will fail).
+func (c *Client) InstallImage(ctx context.Context, digest string) error {
+	// install the image on the reflowlet and check if it worked
+	// by comparing the execimage digest again after waiting for some time
+	// (for the reflowlet to have restarted).
+	call := c.Call("POST", "execimage")
+	defer call.Close()
+	// Install the image onto the reflowlet. This will make the
+	// machine unresponsive, because it will not have a chance to reply
+	// to the exec call. We give it some time to recover.
+	ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
+	defer cancel()
+	// We expect an error since the reflowlet would've started the new image
+	// before it has a chance to reply.
+	// We check at least that the error comes from the right place in the stack
+	if _, err := call.Do(ctx, strings.NewReader(digest)); err != nil && !errors.Is(errors.Net, err) {
+		return fmt.Errorf("installimage %v", err)
+	}
+	return nil
 }
 
 type clientAlloc struct {

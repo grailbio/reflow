@@ -17,11 +17,14 @@ import (
 	"time"
 
 	dockerclient "github.com/docker/docker/client"
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/errors"
+	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/ec2authenticator"
+	"github.com/grailbio/reflow/internal/execimage"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool/server"
@@ -177,10 +180,15 @@ func (s *Server) ListenAndServe() error {
 	// Add the reflowlet version to the config and serve it from an API.
 	cfgNode, err := newConfigNode(&config.KeyConfig{s.Config, "reflowletversion", s.version})
 	if err != nil {
-		return fmt.Errorf("unable to read config: %v", err)
+		return fmt.Errorf("read config: %v", err)
 	}
 	http.Handle("/v1/config", rest.DoFuncHandler(cfgNode, httpLog))
-	http.Handle("/v1/execimage", rest.DoFuncHandler(newExecImageNode(), httpLog))
+
+	repo, err := s.Config.Repository()
+	if err != nil {
+		return fmt.Errorf("repo: %v", err)
+	}
+	http.Handle("/v1/execimage", rest.DoFuncHandler(newExecImageNode(p, repo), httpLog))
 	server := &http.Server{Addr: s.Addr}
 	if s.Insecure {
 		return server.ListenAndServe()
@@ -227,16 +235,45 @@ func newConfigNode(cfg config.Config) (rest.DoFunc, error) {
 	}, nil
 }
 
-func newExecImageNode() rest.DoFunc {
+func newExecImageNode(p *local.Pool, repo reflow.Repository) rest.DoFunc {
 	return rest.DoFunc(func(ctx context.Context, call *rest.Call) {
-		if !call.Allow("GET") {
+		if !call.Allow("GET", "POST") {
 			return
 		}
-		digest, err := ImageDigest()
-		if err != nil {
-			call.Error(errors.E("execimage", "GET", err))
-			return
+		switch call.Method() {
+		case "GET":
+			dig, err := execimage.ImageDigest()
+			if err != nil {
+				call.Error(fmt.Errorf("execimage GET: %v", err))
+				return
+			}
+			call.Reply(http.StatusOK, dig)
+		case "POST":
+			stopped := p.StopIfIdleFor(0)
+			if !stopped {
+				call.Error(errors.New("execimage POST: not idle"))
+				return
+			}
+			d, err := ioutil.ReadAll(call.Body())
+			if err != nil {
+				call.Error(fmt.Errorf("execimage POST: %v", err))
+				return
+			}
+			dig, err := digest.Parse(string(d))
+			if err != nil {
+				call.Error(fmt.Errorf("execimage POST: %v", err))
+				return
+			}
+			image, err := repo.Get(ctx, dig)
+			if err != nil {
+				call.Error(fmt.Errorf("execimage POST: %v", err))
+				return
+			}
+			if err := execimage.InstallImage(image, "reflowlet"); err != nil {
+				call.Error(fmt.Errorf("execimage POST: %v", err))
+				return
+			}
+			panic("should never reach")
 		}
-		call.Reply(http.StatusOK, digest)
 	})
 }
