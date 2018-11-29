@@ -75,9 +75,9 @@ func (v *credentialsSessionValue) AWS() (*session.Session, error) {
 	return v.session, err
 }
 
-// AcredentialsSession implements derives AWS configuration
-// A(AWSCreds, WSRegion, AWS) from the user's environment, using the
-// ASDK's defaults.
+// A credentialsSession implements derives AWS configuration
+// (AWSCreds, WSRegion, AWS) from the user's environment, using the
+// SDK's defaults.
 type credentialsSession struct {
 	config.Config
 	sessionOnce once.Task
