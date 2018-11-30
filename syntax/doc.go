@@ -89,7 +89,7 @@ A Reflow declaration is one of the following:
 	func id(a1, a2 t1) = e1            // sugar for id := func(a1, a2 t1) => e1
 
 Value declarations may be preceded by one of the following
-annoations, each of which takes a list of declarations.
+annotations, each of which takes a list of declarations.
 
 	@requires(...)                     // resource requirement annotation,
 	                                   // takes declarations mem int,
@@ -107,7 +107,7 @@ annoations, each of which takes a list of declarations.
 	                                   // known statically, for example
 	                                   // when processing sharded data.
 
-Value declarations can take destructive pattern bindings, mimicing
+Value declarations can take destructive pattern bindings, mimicking
 value constructors. Currently tuples and lists are supported.
 Patterns accept identifiers and "_" (ignore), but not yet literal
 values. Patterns follow the grammar:
@@ -125,7 +125,7 @@ For example, the declaration
 pattern matches e1 to a list of length three, whose elements are 2-tuples.
 The first two tuples are bound; the third is ignored.
 
-A Reflow module consists of, in order: a optional keyspace, a set of
+A Reflow module consists of, in order: an optional keyspace, a set of
 optional parameters, and a set of declarations.
 
 	keyspace "com.grail.WGSv1"         // defines the keyspace to "com.grail.WGS1"

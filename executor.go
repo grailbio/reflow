@@ -69,7 +69,7 @@ type Arg struct {
 	Index int
 }
 
-// ExecConfig  contains all the necessary information to perform an
+// ExecConfig contains all the necessary information to perform an
 // exec.
 type ExecConfig struct {
 	// The type of exec: "exec", "intern", "extern"
@@ -443,7 +443,7 @@ type Exec interface {
 
 // Executor manages Execs and their values.
 type Executor interface {
-	// Put creates a new Exec at id. It it idempotent.
+	// Put creates a new Exec at id. It is idempotent.
 	Put(ctx context.Context, id digest.Digest, exec ExecConfig) (Exec, error)
 
 	// Get retrieves the Exec named id.

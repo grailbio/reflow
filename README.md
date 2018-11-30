@@ -132,7 +132,7 @@ need it in order to use many of Reflow's sophisticated caching and
 incremental computation features. On AWS, Reflow implements a cache
 based on S3 and DynamoDB. A new S3-based cache is provisioned by
 `reflow setup-s3-repository` and `reflow setup-dynamodb-assoc`, each
-of which take one argument naming the S3 bucket and DynamoDB table
+of which takes one argument naming the S3 bucket and DynamoDB table
 name to be used, respectively. The S3 bucket is used to store file
 objects while the DynamoDB table is used to store associations
 between logically named computations and their concrete output. Note
@@ -191,7 +191,7 @@ inline for clarity.
 	// the BWA aligner, and so we'll need to retrieve a reference sequence
 	// and create an index that's usable from BWA.
 
-	// g1kv37 is the a human reference FASTA sequence. (All
+	// g1kv37 is a human reference FASTA sequence. (All
 	// chromosomes.) Reflow has a static type system, but most type
 	// annotations can be omitted: they are inferred by Reflow. In this
 	// case, we're creating a file: a reference to the contents of the
@@ -221,7 +221,7 @@ inline for clarity.
 	// files and directories are materialized to a local path before
 	// starting execution. Thus, in this case, {{g1kv37}} is replaced at
 	// runtime by a path on disk with a file with the contents of the
-	// file g1kv37 (i..e,
+	// file g1kv37 (i.e.,
 	// s3://1000genomes/technical/reference/human_g1k_v37.fasta.gz)
 	val reference = exec(image := "biocontainers/bwa", mem := GiB, cpu := 1) (out dir) {"
 		# Ignore failures here. The file from 1000genomes has a trailer
@@ -325,7 +325,7 @@ make use of multiple allocs to distribute work across multiple
 machines. The alloc is a URI, and the first component is the real 
 hostname. You can ssh into the host in order to inspect what's going on.
 Reflow launched the instance with your public SSH key (as long as it was
-setup by `reflow setup-ec2`, and `$HOME/.ssh/id_rsa.pub` existed at that time).
+set up by `reflow setup-ec2`, and `$HOME/.ssh/id_rsa.pub` existed at that time).
 
 	% ssh core@ec2-34-211-28-81.us-west-2.compute.amazonaws.com 
 	...
@@ -354,7 +354,7 @@ option, reflow ps also prints the task's exec URI.
 	1c8d032f align.reference         6:20PM 0:00 running 4.4GiB 1.0 6.5GiB bwa ec2-34-211-28-81.us-west-2.compute.amazonaws.com:9000/4ce44f4833b35ebc/1c8d032f8183a4995a5146fb2559b424dab525a949c0daa9c5891d087b65fb22
 
 An exec URI is a handle to the actual task being executed. It
-globally identifies all tasks, and can examined with "reflow info":
+globally identifies all tasks, and can be examined with "reflow info":
 
 	% reflow info ec2-54-71-191-10.us-west-2.compute.amazonaws.com:9000/89be753c95b4d5d3/1c8d032f8183a4995a5146fb2559b424dab525a949c0daa9c5891d087b65fb22
 	ec2-54-71-191-10.us-west-2.compute.amazonaws.com:9000/89be753c95b4d5d3/1c8d032f8183a4995a5146fb2559b424dab525a949c0daa9c5891d087b65fb22 (exec)
@@ -446,7 +446,7 @@ another reference sequence), Reflow will recompute the index again.
 The same will happen if the command (or Docker image) that's used to
 compute the index changes. Reflow keeps track of all the dependencies
 for a particular sub computation, and recomputes them only when
-dependencies have changed. This way, we always know what being
+dependencies have changed. This way, we always know what is being
 computed is correct (the result is the same as if we had computed the
 result from scratch), but avoid paying the cost of redundant
 computation.
@@ -576,7 +576,7 @@ And run it again:
 		
 	val<>
 
-Here we see that Reflow did not need to recompute the aligned file,
+Here we see that Reflow did not need to recompute the aligned file;
 it is instead retrieved from cache. The reference index generation is
 skipped altogether.  Status lines that indicate "xfer" (instead of
 "run") means that Reflow is performing a cache transfer in place of

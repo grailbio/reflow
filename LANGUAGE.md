@@ -85,11 +85,11 @@ The following is an overview of Reflow's syntactic features:
   <dt>tuples (type <code>(t1, t2, t3, ..)</code>)</dt>
   <dd>Tuples are an ordered, fixed-size list of heterogeneously typed elements; examples: <code>(1, "foo", "bar")</code> (type <code><(int, string, string)</code>), </code>("foo", (1,2,3), 3)</code> (type <code>(string, (int, int, int), int)</code>).</dd>
   <dt>lists (type <code>[t]</code>)</dt>
-  <dd>Lists are variable length collections of homogenously typed elemets; examples: <code>[1, 2, 3, 4]</code> (type <code>[int]</code>), <code>["a", "b", "c"]</code> (type <code>[string]</code>).</dd>
+  <dd>Lists are variable length collections of homogenously typed elements; examples: <code>[1, 2, 3, 4]</code> (type <code>[int]</code>), <code>["a", "b", "c"]</code> (type <code>[string]</code>).</dd>
   <dt>maps (type <code>[k:v]</code>)</dt>
   <dd>Maps are a mapping of keys to values; examples: <code>["one": 1, "two": 2]</code> (type <code>[string: int]</code>), <code>[1: 10, 2: 20]</code> (type <code>[int: int]</code>).</dd>
   <dt>records (type <code>{f1 t1, f2 t2, f3 t3}</code></dt>
-  <dd>Records store a unordered collection of typed fields; examples: <code>{a: 123, b: "hello world"}</code> (type <code>{a int, b string}</code>).</dd>
+  <dd>Records store an unordered collection of typed fields; examples: <code>{a: 123, b: "hello world"}</code> (type <code>{a int, b string}</code>).</dd>
   <dt>assignment</dt>
   <dd>Values can be assigned identifiers with <code>val</code>; example: <code>val ident = 123</code> (the identifier <code>ident</code> has type <code>int</code>). Assignments can specify a type annotation: <code>val ident int = 123</code> and can also perform pattern matching (see below), and a syntax shortcut is provided for simple assignments where neither is required: <code>ident := 123</code>.</dd>
   <dt>conditionals</dt>
@@ -136,7 +136,7 @@ at the usage site.
 exec(image := "ubuntu", cpu := 1, mem := 100*MiB) (out file) {"
 	echo hello world >{{out}}
 "}
-  </pre>
+</pre>
   (This exec has type <code>file</code>.)
   <p/>
   Execs can return multiple files or directories. The following defines a function that
@@ -203,13 +203,13 @@ resulting in <code>[(2, "a"), (2, "b"), (2, "c"), (4, "a"), (4, "b"), (4, "c")]<
 ## Operators
 ### Sum `+`
 The sum operator can be used with list, dir, map, int, float, string types.
-When summing a map or a dir, if the same key exists in the LHS and RHS, the RHS is picked.
-
-e.g.: ``` a := ["a": 2, "b": 1]
-    b := ["a": 3]
-	Main := a + b
+When summing a map or a dir, if the same key exists in the LHS and RHS, the RHS is picked.  e.g.:
 ```
-. Main is `["a", 3, b: "1"]`.
+    a := ["a": 2, "b": 1]
+    b := ["a": 3]
+    Main := a + b
+```
+Main is `["a", 3, b: "1"]`.
 ### Other arithmetic operators `-, *, /`
 Subtract, multiply and division operators can be used with int and float types.
 ### modulo `%`
@@ -263,7 +263,7 @@ Builtin `flatten` concatenates all the elements in a list of lists.
 
 Builtin `map` converts its argument to a map.
 Given a list of tuples, a map is constructed by 
-taking the first element of the tuple as a keys 
+taking the first element of the tuple as a key
 and the second element as values.
 Given a directory, a map is constructed using 
 the directory's paths as keys with its files as values.
