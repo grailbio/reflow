@@ -74,10 +74,7 @@ type instanceConfig struct {
 	NVMe bool
 }
 
-var (
-	instanceTypes     = map[string]instanceConfig{}
-	instanceTypesOnce sync.Once
-)
+var instanceTypes = map[string]instanceConfig{}
 
 func init() {
 	for _, typ := range instances.Types {
@@ -87,7 +84,7 @@ func init() {
 			Price:        typ.Price,
 			Resources: reflow.Resources{
 				"cpu": float64(typ.VCPU),
-				"mem": float64((1 - memoryDiscount) * typ.Memory * 1024 * 1024 * 1024),
+				"mem": (1 - memoryDiscount) * typ.Memory * 1024 * 1024 * 1024,
 			},
 			// According to Amazon, "t2" instances are the only current-generation
 			// instances not supported by spot.
@@ -256,7 +253,7 @@ type reflowletInstance struct {
 	Version string
 }
 
-// Err returns any error that occured while launching the instance.
+// Err returns any error that occurred while launching the instance.
 func (i *instance) Err() error {
 	return i.err
 }
@@ -635,7 +632,7 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 			  -v /:/host \
 			  -v /var/run/docker.sock:/var/run/docker.sock \
 			  -v '/etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt' \
-			  {{.image}} -prefix /host -ec2cluster  -config /host/etc/reflowconfig
+			  {{.image}} serve -prefix /host -ec2cluster  -config /host/etc/reflowconfig
 		`, args{"mortal": !i.Immortal, "image": i.ReflowletImage}),
 	})
 

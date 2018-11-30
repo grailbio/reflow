@@ -47,7 +47,7 @@ type Cmd struct {
 	MakeConfig func(config.Config) config.Config
 
 	// ConfigFile stores the path of the active configuration file.
-	// May be overriden by the -config flag.
+	// May be overridden by the -config flag.
 	ConfigFile string
 
 	// Intro is an additional introduction printed after the standard one.
@@ -101,6 +101,7 @@ var commands = map[string]Func{
 	"config":       (*Cmd).config,
 	"images":       (*Cmd).images,
 	"rmcache":      (*Cmd).rmcache,
+	"serve":        (*Cmd).serveCmd,
 	"shell":        (*Cmd).shell,
 	"repair":       (*Cmd).repair,
 	"collect":      (*Cmd).collect,
@@ -143,7 +144,7 @@ Reflow's configuration is documented by the config command:
 
 	reflow config -help
 
-Reflow's toplevel configuration keys may be overriden by flags. These
+Reflow's toplevel configuration keys may be overridden by flags. These
 are: -logger, -aws, -awscreds, -awstool, -user, -https, -cache, and
 -cluster. They take the same values as the configuration file: see 
 reflow config -help for details.`
@@ -175,7 +176,7 @@ func (c *Cmd) usage(flags *flag.FlagSet) {
 
 // Main parses command line flags and then invokes the requested
 // command. Main uses Cmd's config (and other initialization), which
-// may be overriden by flag configs. It should be invoked only once,
+// may be overridden by flag configs. It should be invoked only once,
 // at the beginning of command line execution.
 // The caller is expected to have parsed the flagset for us before
 // calling Main.

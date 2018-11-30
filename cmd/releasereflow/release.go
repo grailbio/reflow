@@ -19,10 +19,9 @@ import (
 )
 
 var (
-	vflag     = flag.Bool("v", false, "print subcommand output")
-	reflow    = flag.String("reflow", "github.com/grailbio/reflow/cmd/reflow", "reflow go get path")
-	reflowlet = flag.String("reflowlet", "github.com/grailbio/reflow/cmd/reflowlet", "reflowlet go get path")
-	repo      = flag.String("repo", "grailbio/reflowlet", "docker repository")
+	vflag  = flag.Bool("v", false, "print subcommand output")
+	reflow = flag.String("reflow", "github.com/grailbio/reflow/cmd/reflow", "reflow go get path")
+	repo   = flag.String("repo", "grailbio/reflowlet", "docker repository")
 )
 
 func usage() {
@@ -50,7 +49,7 @@ func main() {
 	defer os.RemoveAll(dir)
 
 	reflowletPath := filepath.Join(dir, "reflowlet")
-	cmd := command("go", "build", "-ldflags", fmt.Sprintf("-X main.version=%s", version), "-o", reflowletPath, *reflowlet)
+	cmd := command("go", "build", "-ldflags", fmt.Sprintf("-X main.version=%s", version), "-o", reflowletPath, *reflow)
 	log.Printf("command: %v", cmd)
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, "GOOS=linux")
