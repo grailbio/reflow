@@ -103,6 +103,7 @@ var commands = map[string]Func{
 	"rmcache":      (*Cmd).rmcache,
 	"serve":        (*Cmd).serveCmd,
 	"shell":        (*Cmd).shell,
+	"test":         (*Cmd).test,
 	"repair":       (*Cmd).repair,
 	"collect":      (*Cmd).collect,
 	"http":         (*Cmd).http,

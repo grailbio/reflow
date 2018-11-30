@@ -90,8 +90,7 @@ supplied via a CSV batch file as in "reflow runbatch".`
 					args = append(args, fmt.Sprintf("-%s=%s", key, record[i]))
 				}
 				e := Eval{
-					InputArgs:         args,
-					NeedsRequirements: true,
+					InputArgs: args,
 				}
 				if err := c.Eval(&e); err != nil {
 					return err
@@ -99,7 +98,7 @@ supplied via a CSV batch file as in "reflow runbatch".`
 				c.Log.Printf("repair: %s", strings.Join(args, " "))
 				// TODO(sbagaria): thread-safe append the resolved canonical images to repair.ImageMap.
 				// Or instead of storing imageMap, store tool.imageResolver instead in EvalConfig.
-				repair.Do(ctx, e.Flow)
+				repair.Do(ctx, e.Main())
 				return nil
 			})
 		}
@@ -108,14 +107,13 @@ supplied via a CSV batch file as in "reflow runbatch".`
 		}
 	} else {
 		e := Eval{
-			InputArgs:         flags.Args(),
-			NeedsRequirements: true,
+			InputArgs: flags.Args(),
 		}
 		if err := c.Eval(&e); err != nil {
 			c.Fatal(err)
 		}
 		repair.ImageMap = e.ImageMap
-		repair.Do(ctx, e.Flow)
+		repair.Do(ctx, e.Main())
 
 	}
 	if err := repair.Done(); err != nil {

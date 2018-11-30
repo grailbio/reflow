@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/lang"
@@ -21,23 +20,14 @@ import (
 	"github.com/grailbio/reflow/values"
 )
 
-// Eval represents an evaluation. Evaluations are performed by Cmd.Eval.
+// Eval represents the evaluation of a single module.
+// Evaluations are performed by Cmd.Eval.
 type Eval struct {
 	// InputArgs is the raw input arguments of the evaluation, as passed
 	// in by user.
 	InputArgs []string
-	// NeedsRequirements determines whether toplevel flow resource
-	// requirements are needed for this evaluation.
-	NeedsRequirements bool
-
 	// Program stores the reflow program's path.
 	Program string
-	// Flow is is the result of the evaluation. The flow is ready to be evaluated
-	// by the flow graph evaluator.
-	Flow *flow.Flow
-	// Type stores the toplevel type: i.e., the type of the value produced by
-	// evaluating the flow.
-	Type *types.T
 	// Params stores the evaluation's module parameters and raw values.
 	Params map[string]string
 	// Args stores the evaluation's command line arugments.
@@ -49,6 +39,32 @@ type Eval struct {
 	// ImageMap stores a mapping between image names and resolved
 	// image names, to be used in evaluation.
 	ImageMap map[string]string
+
+	// Type is the module type of the toplevel module that has been
+	// evaluated.
+	Type *types.T
+
+	// Module is the module value that was evaluated.
+	Module values.Module
+}
+
+// MainType returns the type of the module's Main identifier.
+func (e *Eval) MainType() *types.T {
+	return e.Type.Field("Main")
+}
+
+// Main returns the flow that represents the module's Main.
+func (e *Eval) Main() *flow.Flow {
+	v := e.Module["Main"]
+	if v == nil {
+		return nil
+	}
+	switch v := v.(type) {
+	case *flow.Flow:
+		return v
+	default:
+		return &flow.Flow{Op: flow.Val, Value: v}
+	}
 }
 
 // Eval evaluates a Reflow program to a Flow. It can evaluate both
@@ -93,7 +109,9 @@ func (c *Cmd) Eval(e *Eval) error {
 		})
 		prog.Args = flags.Args()
 		e.Args = prog.Args
-		e.Flow = prog.Eval()
+		e.Module = values.Module{
+			"Main": prog.Eval(),
+		}
 		return nil
 	case ".rf", ".rfx":
 		sess := syntax.NewSession(nil)
@@ -123,16 +141,6 @@ func (c *Cmd) evalV1(sess *syntax.Session, e *Eval) error {
 	if err != nil {
 		return err
 	}
-	var maintyp *types.T
-	for _, f := range m.Type(nil).Fields {
-		if f.Name == "Main" {
-			maintyp = f.T
-			break
-		}
-	}
-	if maintyp == nil {
-		return fmt.Errorf("module %v does not define symbol Main", file)
-	}
 	flags, err := m.Flags(sess, sess.Values)
 	if err != nil {
 		c.Fatal(err)
@@ -152,13 +160,11 @@ func (c *Cmd) evalV1(sess *syntax.Session, e *Eval) error {
 	if err != nil {
 		return err
 	}
-	v = v.(values.Module)["Main"]
-	v = syntax.Force(v, maintyp)
-	e.Type = maintyp
+	e.Module = v.(values.Module)
+	e.Type = m.Type(nil)
 	flags.VisitAll(func(f *flag.Flag) {
 		e.Params[f.Name] = f.Value.String()
 	})
-
 	awsSess, err := c.Config.AWS()
 	if err != nil {
 		// We fail later if and when we try to authenticate for an ECR image.
@@ -168,21 +174,7 @@ func (c *Cmd) evalV1(sess *syntax.Session, e *Eval) error {
 		authenticator: ec2authenticator.New(awsSess),
 	}
 	e.ImageMap, err = r.resolveImages(context.Background(), sess.Images())
-	if err != nil {
-		return err
-	}
-
-	switch v := v.(type) {
-	case *flow.Flow:
-		if e.NeedsRequirements && v.Requirements().Equal(reflow.Requirements{}) {
-			return errors.New("flow does not have resource requirements; add a @requires annotation to val Main")
-		}
-		e.Flow = v
-		return nil
-	default:
-		e.Flow = &flow.Flow{Op: flow.Val, Value: v}
-		return nil
-	}
+	return err
 }
 
 func sprintval(v values.T, t *types.T) string {

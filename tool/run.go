@@ -40,6 +40,7 @@ import (
 )
 
 const maxConcurrentStreams = 2000
+const defaultFlowDir = "/tmp/flow"
 
 type runConfig struct {
 	localDir       string
@@ -60,7 +61,7 @@ type runConfig struct {
 
 func (r *runConfig) Flags(flags *flag.FlagSet) {
 	flags.BoolVar(&r.local, "local", false, "execute flow on the local Docker instance")
-	flags.StringVar(&r.localDir, "localdir", "/tmp/flow", "directory where execution state is stored in local mode")
+	flags.StringVar(&r.localDir, "localdir", defaultFlowDir, "directory where execution state is stored in local mode")
 	flags.StringVar(&r.dir, "dir", "", "directory where execution state is stored in local mode (alias for local dir for backwards compatibilty)")
 	flags.StringVar(&r.alloc, "alloc", "", "use this alloc to execute program (don't allocate a fresh one)")
 	flags.BoolVar(&r.gc, "gc", false, "enable garbage collection during evaluation")
@@ -163,8 +164,7 @@ retriable.`
 		flags.Usage()
 	}
 	e := Eval{
-		InputArgs:         flags.Args(),
-		NeedsRequirements: !config.sched,
+		InputArgs: flags.Args(),
 	}
 	err := c.Eval(&e)
 	if e.V1 && config.gc {
@@ -177,14 +177,20 @@ retriable.`
 	if err != nil {
 		c.Fatal(err)
 	}
+	if e.Main() == nil {
+		c.Fatal("module has no Main")
+	}
+	if !config.sched && e.Main().Requirements().Equal(reflow.Requirements{}) && e.Main().Op != flow.Val {
+		c.Fatal("Main requirements unspecified; add a @requires annotation")
+	}
 	c.runCommon(ctx, config, e)
 }
 
 // runCommon is the helper function used by run commands.
 func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	// In the case where a flow is immediate, we print the result and quit.
-	if e.Flow.Op == flow.Val {
-		c.Println(sprintval(e.Flow.Value, e.Type))
+	if e.Main().Op == flow.Val {
+		c.Println(sprintval(e.Main().Value, e.MainType()))
 		c.Exit(0)
 	}
 	// Construct a unique name for this run, used to identify this invocation
@@ -264,7 +270,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	ctx = trace.WithTracer(ctx, tracer)
 	defer cancel()
 	if config.local {
-		c.runLocal(ctx, config, execLogger, runID, e.Flow, e.Type, e.ImageMap, cmdline)
+		c.runLocal(ctx, config, execLogger, runID, e.Main(), e.MainType(), e.ImageMap, cmdline)
 		return
 	}
 
@@ -290,7 +296,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 		scheduler.Repository = repo
 		scheduler.Cluster = cluster
 		scheduler.Log = c.Log
-		scheduler.MinAlloc.Max(scheduler.MinAlloc, e.Flow.Requirements().Min)
+		scheduler.MinAlloc.Max(scheduler.MinAlloc, e.Main().Requirements().Min)
 		var schedctx context.Context
 		schedctx, donecancel = context.WithCancel(ctx)
 		wg.Add(1)
@@ -303,7 +309,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 		}()
 	}
 	run := runner.Runner{
-		Flow: e.Flow,
+		Flow: e.Main(),
 		EvalConfig: flow.EvalConfig{
 			Log:         execLogger,
 			Repository:  repo,
@@ -376,16 +382,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 }
 
 func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID digest.Digest, f *flow.Flow, typ *types.T, imageMap map[string]string, cmdline string) {
-	addr := os.Getenv("DOCKER_HOST")
-	if addr == "" {
-		addr = "unix:///var/run/docker.sock"
-	}
-	client, err := dockerclient.NewClient(
-		addr, "1.22", /*client.DefaultVersion*/
-		nil, map[string]string{"user-agent": "reflow"})
-	if err != nil {
-		c.Fatal(err)
-	}
+	client, resources := c.dockerClient()
 	repo, err := c.Config.Repository()
 	if err != nil {
 		c.Fatal(err)
@@ -428,18 +425,8 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		Blob:          c.blob(),
 		Log:           c.Log.Tee(nil, "executor: "),
 	}
-
-	resources := config.resources
-	if resources.Equal(nil) {
-		info, err := client.Info(context.Background())
-		if err != nil {
-			log.Fatal(err)
-		}
-		resources = reflow.Resources{
-			"mem":  math.Floor(float64(info.MemTotal) * 0.95),
-			"cpu":  float64(info.NCPU),
-			"disk": 1e13, // Assume 10TB. TODO(marius): real disk management
-		}
+	if !config.resources.Equal(nil) {
+		resources = config.resources
 	}
 	x.SetResources(resources)
 
@@ -538,4 +525,27 @@ func (c Cmd) blob() blob.Mux {
 	return blob.Mux{
 		"s3": s3blob.New(sess),
 	}
+}
+
+func (c Cmd) dockerClient() (*dockerclient.Client, reflow.Resources) {
+	addr := os.Getenv("DOCKER_HOST")
+	if addr == "" {
+		addr = "unix:///var/run/docker.sock"
+	}
+	client, err := dockerclient.NewClient(
+		addr, "1.22", /*client.DefaultVersion*/
+		nil, map[string]string{"user-agent": "reflow"})
+	if err != nil {
+		c.Fatal(err)
+	}
+	info, err := client.Info(context.Background())
+	if err != nil {
+		c.Fatal(err)
+	}
+	resources := reflow.Resources{
+		"mem":  math.Floor(float64(info.MemTotal) * 0.95),
+		"cpu":  float64(info.NCPU),
+		"disk": 1e13, // Assume 10TB. TODO(marius): real disk management
+	}
+	return client, resources
 }
