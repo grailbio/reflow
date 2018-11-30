@@ -30,9 +30,10 @@ const (
 	// TODO(marius): make these configurable under config keys
 	driftMargin  = time.Minute
 	certDuration = 27 * 7 * 24 * time.Hour
-
-	httpsca = "httpsca"
+	httpsca      = "httpsca"
 )
+
+var caCertExpiry = time.Date(3000, time.January, 0, 0, 0, 0, 0, time.UTC)
 
 func init() {
 	config.Register(config.HTTPS, "httpsca", "pem", "configure a HTTPS CA from the provided PEM-encoded signing certificate",
@@ -91,13 +92,12 @@ func newCA(path string) (*ca, error) {
 			Subject: pkix.Name{
 				CommonName: "reflow", // make this configurable?
 			},
-			NotBefore: time.Now(),
-			NotAfter:  time.Now().Add(certDuration),
-
+			NotBefore:             time.Now(),
+			NotAfter:              caCertExpiry,
 			KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
 			ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 			BasicConstraintsValid: true,
-			IsCA: true,
+			IsCA:                  true,
 		}
 		cert, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
 		if err != nil {
