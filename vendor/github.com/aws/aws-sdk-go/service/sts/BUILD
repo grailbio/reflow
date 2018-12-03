@@ -9,7 +9,7 @@ go_library(
         "errors.go",
         "service.go",
     ],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/service/sts",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/service/sts",
     importpath = "github.com/aws/aws-sdk-go/service/sts",
     visibility = ["//visibility:public"],
     deps = [

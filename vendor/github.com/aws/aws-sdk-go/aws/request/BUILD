@@ -19,7 +19,7 @@ go_library(
         "validation.go",
         "waiter.go",
     ],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/aws/request",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/aws/request",
     importpath = "github.com/aws/aws-sdk-go/aws/request",
     visibility = ["//visibility:public"],
     deps = [

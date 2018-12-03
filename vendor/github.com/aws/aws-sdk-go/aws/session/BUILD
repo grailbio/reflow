@@ -8,7 +8,7 @@ go_library(
         "session.go",
         "shared_config.go",
     ],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/aws/session",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/aws/session",
     importpath = "github.com/aws/aws-sdk-go/aws/session",
     visibility = ["//visibility:public"],
     deps = [

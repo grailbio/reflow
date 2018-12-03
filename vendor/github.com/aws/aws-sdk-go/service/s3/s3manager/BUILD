@@ -9,7 +9,7 @@ go_library(
         "download.go",
         "upload.go",
     ],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/service/s3/s3manager",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/service/s3/s3manager",
     importpath = "github.com/aws/aws-sdk-go/service/s3/s3manager",
     visibility = ["//visibility:public"],
     deps = [

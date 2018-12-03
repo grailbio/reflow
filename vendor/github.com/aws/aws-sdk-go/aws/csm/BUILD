@@ -9,7 +9,7 @@ go_library(
         "metric_chan.go",
         "reporter.go",
     ],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/aws/csm",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/aws/csm",
     importpath = "github.com/aws/aws-sdk-go/aws/csm",
     visibility = ["//visibility:public"],
     deps = [

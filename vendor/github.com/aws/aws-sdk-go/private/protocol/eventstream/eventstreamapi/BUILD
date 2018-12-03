@@ -6,7 +6,7 @@ go_library(
         "api.go",
         "error.go",
     ],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/private/protocol/eventstream/eventstreamapi",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/private/protocol/eventstream/eventstreamapi",
     importpath = "github.com/aws/aws-sdk-go/private/protocol/eventstream/eventstreamapi",
     visibility = ["//visibility:public"],
     deps = [

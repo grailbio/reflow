@@ -3,7 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 go_library(
     name = "go_default_library",
     srcs = ["restjson.go"],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/private/protocol/restjson",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/private/protocol/restjson",
     importpath = "github.com/aws/aws-sdk-go/private/protocol/restjson",
     visibility = ["//visibility:public"],
     deps = [

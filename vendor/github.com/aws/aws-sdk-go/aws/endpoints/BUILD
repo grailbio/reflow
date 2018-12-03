@@ -9,7 +9,7 @@ go_library(
         "endpoints.go",
         "v3model.go",
     ],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/aws/endpoints",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/aws/endpoints",
     importpath = "github.com/aws/aws-sdk-go/aws/endpoints",
     visibility = ["//visibility:public"],
     deps = ["//go/src/vendor/github.com/aws/aws-sdk-go/aws/awserr:go_default_library"],

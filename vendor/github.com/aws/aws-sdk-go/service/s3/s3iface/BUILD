@@ -3,7 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 go_library(
     name = "go_default_library",
     srcs = ["interface.go"],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/service/s3/s3iface",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/service/s3/s3iface",
     importpath = "github.com/aws/aws-sdk-go/service/s3/s3iface",
     visibility = ["//visibility:public"],
     deps = [

@@ -19,7 +19,7 @@ go_library(
         "unmarshal_error.go",
         "waiters.go",
     ],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/service/s3",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/service/s3",
     importpath = "github.com/aws/aws-sdk-go/service/s3",
     visibility = ["//visibility:public"],
     deps = [

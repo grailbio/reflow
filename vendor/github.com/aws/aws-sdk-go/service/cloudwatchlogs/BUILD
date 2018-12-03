@@ -8,7 +8,7 @@ go_library(
         "errors.go",
         "service.go",
     ],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/service/cloudwatchlogs",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/service/cloudwatchlogs",
     importpath = "github.com/aws/aws-sdk-go/service/cloudwatchlogs",
     visibility = ["//visibility:public"],
     deps = [

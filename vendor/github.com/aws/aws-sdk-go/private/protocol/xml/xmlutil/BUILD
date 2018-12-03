@@ -7,7 +7,7 @@ go_library(
         "unmarshal.go",
         "xml_to_struct.go",
     ],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/private/protocol/xml/xmlutil",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/private/protocol/xml/xmlutil",
     importpath = "github.com/aws/aws-sdk-go/private/protocol/xml/xmlutil",
     visibility = ["//visibility:public"],
     deps = ["//go/src/vendor/github.com/aws/aws-sdk-go/private/protocol:go_default_library"],

@@ -24,7 +24,7 @@ go_library(
         "pkcs7_padder.go",
         "strategy.go",
     ],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/service/s3/s3crypto",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/service/s3/s3crypto",
     importpath = "github.com/aws/aws-sdk-go/service/s3/s3crypto",
     visibility = ["//visibility:public"],
     deps = [

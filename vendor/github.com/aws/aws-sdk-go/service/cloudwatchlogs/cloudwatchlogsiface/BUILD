@@ -3,7 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 go_library(
     name = "go_default_library",
     srcs = ["interface.go"],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/service/cloudwatchlogs/cloudwatchlogsiface",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/service/cloudwatchlogs/cloudwatchlogsiface",
     importpath = "github.com/aws/aws-sdk-go/service/cloudwatchlogs/cloudwatchlogsiface",
     visibility = ["//visibility:public"],
     deps = [

@@ -6,7 +6,7 @@ go_library(
         "build.go",
         "unmarshal.go",
     ],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/private/protocol/ec2query",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/private/protocol/ec2query",
     importpath = "github.com/aws/aws-sdk-go/private/protocol/ec2query",
     visibility = ["//visibility:public"],
     deps = [

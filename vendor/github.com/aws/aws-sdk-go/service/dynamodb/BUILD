@@ -11,7 +11,7 @@ go_library(
         "service.go",
         "waiters.go",
     ],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/service/dynamodb",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/service/dynamodb",
     importpath = "github.com/aws/aws-sdk-go/service/dynamodb",
     visibility = ["//visibility:public"],
     deps = [

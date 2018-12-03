@@ -10,7 +10,7 @@ go_library(
         "field.go",
         "tag.go",
     ],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute",
     importpath = "github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute",
     visibility = ["//visibility:public"],
     deps = [

@@ -7,7 +7,7 @@ go_library(
         "param_validator.go",
         "user_agent.go",
     ],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/aws/corehandlers",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/aws/corehandlers",
     importpath = "github.com/aws/aws-sdk-go/aws/corehandlers",
     visibility = ["//visibility:public"],
     deps = [

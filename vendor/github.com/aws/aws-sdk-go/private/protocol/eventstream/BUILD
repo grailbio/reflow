@@ -11,7 +11,7 @@ go_library(
         "header_value.go",
         "message.go",
     ],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/private/protocol/eventstream",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/private/protocol/eventstream",
     importpath = "github.com/aws/aws-sdk-go/private/protocol/eventstream",
     visibility = ["//visibility:public"],
     deps = ["//go/src/vendor/github.com/aws/aws-sdk-go/aws:go_default_library"],

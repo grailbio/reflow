@@ -8,7 +8,7 @@ go_library(
         "errors.go",
         "service.go",
     ],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/service/ecr",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/service/ecr",
     importpath = "github.com/aws/aws-sdk-go/service/ecr",
     visibility = ["//visibility:public"],
     deps = [

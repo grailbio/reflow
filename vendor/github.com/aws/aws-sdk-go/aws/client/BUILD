@@ -7,7 +7,7 @@ go_library(
         "default_retryer.go",
         "logger.go",
     ],
-    importmap = "grail/go/src/vendor/github.com/aws/aws-sdk-go/aws/client",
+    importmap = "go/src/vendor/github.com/aws/aws-sdk-go/aws/client",
     importpath = "github.com/aws/aws-sdk-go/aws/client",
     visibility = ["//visibility:public"],
     deps = [
