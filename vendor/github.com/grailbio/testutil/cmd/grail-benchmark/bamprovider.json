@@ -1,0 +1,16 @@
+{
+    "Targets": [
+        {
+            "Commandline": [
+                "@bazel://go/src/github.com/grailbio/bio/encoding/bamprovider:go_default_test",
+                "-test.run",
+                "xxx",
+                "-test.bench",
+                ".",
+                "-input",
+                "@file:go/src/grail.com/bio/encoding/bam/testdata/170614_WGS_LOD_Pre_Library_B3_27961B_05.merged.10000.bam"
+            ],
+            "Name": "bamprovider"
+        }
+    ]
+}

@@ -1,0 +1,14 @@
+{
+    "Targets": [
+        {
+            "Name": "bio-metrics",
+            "Commandline": [
+                "@bazel://go/src/grail.com/cmd/bio-binmetrics",
+                "-bam", "@cachedir:s3://grail-clinical-results/48402/S00J5QB/pam/dupmarked.merged",
+                "-sample-id", "S00KZ4A",
+                "-analysis-id", "methylation-v0",
+                "-output", "@out:binmetrics.grail-rpk"
+            ]
+        }
+    ]
+}
