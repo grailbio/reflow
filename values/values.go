@@ -72,6 +72,9 @@ type Map struct {
 // Lookup looks up the provided key in map m. The caller must provide
 // the key's digest which is used as a hash.
 func (m Map) Lookup(d digest.Digest, key T) T {
+	if _, ok := m.tab[d]; !ok {
+		return nil
+	}
 	entry := *m.tab[d]
 	for entry != nil && Less(entry.Key, key) {
 		entry = entry.Next

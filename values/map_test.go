@@ -29,6 +29,14 @@ func TestMap(t *testing.T) {
 	}
 }
 
+func TestMapEmpty(t *testing.T) {
+	var m Map
+	var want T
+	if got := m.Lookup(Digest("2", types.String), "2"); !Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
 func TestMapDigestCollision(t *testing.T) {
 	const N = 100
 
