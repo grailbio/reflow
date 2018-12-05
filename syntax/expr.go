@@ -1111,6 +1111,8 @@ func (e *Expr) String() string {
 			decls[i] = e.Decls[i].String()
 		}
 		fmt.Fprintf(b, "make(%s, %v)", e.Left, strings.Join(decls, ", "))
+	case ExprIndex:
+		fmt.Fprintf(b, "index(%s, %s)", e.Left, e.Right)
 	}
 	return b.String()
 }
