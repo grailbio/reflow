@@ -653,24 +653,28 @@ can retrieve Reflow and its dependencies with
 
 	% go get [-u] github.com/grailbio/reflow
 
-and build the "reflow" binary using
+and build the "reflow" binary in one of the following ways,
+depending on the platforms involved for your use case.
+Note that Reflow can run in server-mode (formerly known as reflowlets)
+which are compiled for Linux/amd64, and are invoked by
+the cluster manager during instance bootstrapping.
+If the client "reflow" binary and the ones running on a cluster are
+different, then the client binary "ships" the new image to the server.
+The following platform use-cases are supported.
+
+### Client/Server running on Linux/amd64
 
 	% go install github.com/grailbio/reflow/cmd/reflow
-	
-Note that Reflow makes use of its own agent binaries, called
-reflowlets.  These are compiled for Linux/amd64, and are invoked by
-the cluster manager during instance bootstrapping. Thus, when you
-make changes to the code, you may also have to update the agent
-docker image. This process is handled by command releasereflow, which
-can be installed by
 
-	% go install github.com/grailbio/reflow/cmd/releasereflow
+### Client on Mac, server on Linux/amd64 (eg: EC2)
 
-Releasereflow builds target agent binaries and uploads them to a
-Docker repository (the release builds use the grailbio/reflowlet
-repository). Releasereflow then updates the file
-[version.go](https://github.com/grailbio/reflow/blob/master/cmd/reflow/version.go)
-which is compiled into the standard reflow binary.
+	% go install github.com/grailbio/reflow/cmd/buildreflow
+
+	% buildreflow
+
+This command will output two binaries in the local directory: reflow and reflowdarwin.
+The former is for Linux/amd64 and latter is for Mac.
+
 
 ## Support and community
 

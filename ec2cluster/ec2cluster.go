@@ -572,8 +572,8 @@ func (c *Cluster) maybeUpdateImage(ctx context.Context, inst *reflowletInstance)
 	}
 	policy := retry.MaxTries(retry.Backoff(50*time.Millisecond, 1*time.Second, 1.5), 3)
 	for retries := 0; ; retries++ {
-		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		remoteDigest, err := clnt.ExecImage(ctx)
+		ctx2, cancel := context.WithTimeout(ctx, 10*time.Second)
+		remoteDigest, err := clnt.ExecImage(ctx2)
 		cancel()
 		if err != nil {
 			if !errors.Is(errors.Net, err) {
@@ -582,14 +582,20 @@ func (c *Cluster) maybeUpdateImage(ctx context.Context, inst *reflowletInstance)
 			continue
 		}
 		if remoteDigest == localDigest {
-			c.Log.Printf("%s: image %s matches local", *inst.InstanceId, remoteDigest.Short())
+			c.Log.Debugf("%s: image %s matches local", *inst.InstanceId, remoteDigest.Short())
 			return nil
 		}
-		c.Log.Printf("%s: image %s needs update %s", *inst.InstanceId, remoteDigest.Short(), localDigest.Short())
-		if err = c.maybeUploadImage(ctx, localDigest); err != nil {
+		c.Log.Debugf("%s: image %s needs update %s", *inst.InstanceId, remoteDigest.Short(), localDigest.Short())
+		ctx2, cancel = context.WithTimeout(ctx, 300*time.Second)
+		err = c.maybeUploadImage(ctx2, localDigest)
+		cancel()
+		if err != nil {
 			return err
 		}
-		if err = clnt.InstallImage(ctx, localDigest.String()); err != nil {
+		ctx2, cancel = context.WithTimeout(ctx, 10*time.Second)
+		err = clnt.InstallImage(ctx2, localDigest.String())
+		cancel()
+		if err != nil {
 			return err
 		}
 		if err = retry.Wait(ctx, policy, retries); err != nil {

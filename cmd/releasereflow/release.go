@@ -15,7 +15,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"time"
 )
 
 var (
@@ -27,7 +26,7 @@ var (
 func usage() {
 	fmt.Fprintf(os.Stderr, `usage: releasereflow version
 
-Releasereflow builds a new reflowlet, pushes it to the reflowlet
+Releasereflow builds a new reflow binary, pushes it to the reflowlet
 Docker repository, and then emits the corresponding version.go file
 in command reflow's package directory.
 `)
@@ -48,40 +47,41 @@ func main() {
 	}
 	defer os.RemoveAll(dir)
 
-	reflowletPath := filepath.Join(dir, "reflowlet")
-	cmd := command("go", "build", "-ldflags", fmt.Sprintf("-X main.version=%s", version), "-o", reflowletPath, *reflow)
+	path := filepath.Join(dir, "reflow")
+	cmd := command("go", "build", "-o", path, *reflow)
 	log.Printf("command: %v", cmd)
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, "GOOS=linux")
 	cmd.Env = append(cmd.Env, "GOARCH=amd64")
-	log.Printf("building reflowlet")
+	log.Println("building reflow")
 	if err := cmd.Run(); err != nil {
-		log.Fatalf("build reflowlet: %v", err)
+		log.Fatalf("build reflow: %v", err)
 	}
+
 	const dockerfile = `FROM frolvlad/alpine-glibc
-COPY reflowlet /reflowlet
-ENTRYPOINT ["/reflowlet"]
+COPY reflow /reflow
+ENTRYPOINT ["/reflow"]
 `
 	dockerfilePath := filepath.Join(dir, "Dockerfile")
 	if err := ioutil.WriteFile(dockerfilePath, []byte(dockerfile), 0666); err != nil {
 		log.Fatal(err)
 	}
-	// For some reason, Docker fails to find the reflowlet binary if we
+	// For some reason, Docker fails to find the binary if we
 	// give it an absolute path. Instead, change into the temporary
 	// directory and build from there. (This happens on a Mac.)
 	if err := os.Chdir(dir); err != nil {
 		log.Fatal(err)
 	}
-	image := fmt.Sprintf("%s:%d", *repo, time.Now().Unix())
+	image := fmt.Sprintf("%s:bootstrap", *repo)
 	cmd = command("docker", "build", "-t", image, dir)
-	log.Printf("building reflowlet docker image")
+	log.Printf("building reflow docker image")
 	if err := cmd.Run(); err != nil {
-		log.Fatalf("build reflowlet image: %v", err)
+		log.Fatalf("build reflow image: %v", err)
 	}
 	cmd = command("docker", "push", image)
 	log.Printf("pushing image to %s", image)
 	if err := cmd.Run(); err != nil {
-		log.Fatalf("push reflowlet image: %v", err)
+		log.Fatalf("push reflow docker image: %v", err)
 	}
 	pkg, err := build.Default.Import(*reflow, "", build.FindOnly)
 	if err != nil {
