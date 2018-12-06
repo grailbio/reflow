@@ -37,6 +37,12 @@ const (
 	defaultS3MinLimit = 2000
 	defaultS3MaxLimit = 10000
 	defaultMaxRetries = 3
+
+	// minBPS defines the lowest acceptable transfer rate.
+	minBPS = 1 << 20
+	// minTimeout defines the smallest acceptable timeout.
+	// This helps to give wiggle room for small data transfers.
+	minTimeout = 30 * time.Second
 )
 
 // DefaultRegion is the region used for s3 requests if a bucket's
@@ -222,6 +228,17 @@ func maxS3Ops(size int64) int {
 	return int(c)
 }
 
+func withTimeout(ctx context.Context, size int64) (context.Context, context.CancelFunc) {
+	if size == 0 {
+		return ctx, func() {}
+	}
+	timeout := time.Duration(size/minBPS) * time.Second
+	if timeout < minTimeout {
+		timeout = minTimeout
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
 // Download downloads the object named by the provided key. Download
 // uses the AWS SDK's download manager, performing concurrent
 // downloads to the provided io.WriterAt.
@@ -236,14 +253,16 @@ func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w i
 				d.PartSize = s3minpartsize
 				d.Concurrency = s3concurrency
 			})
+			ctx, cancel := withTimeout(ctx, size)
 			n, err = d.DownloadWithContext(ctx, w, b.getObjectInput(key, etag))
+			cancel()
 			if kind(err) == errors.ResourcesExhausted {
 				log.Printf("s3blob.Download: %s/%s: %v (over capacity)\n", b.bucket, key, err)
 				err = admit.ErrOverCapacity
 			}
 			return err
 		})
-		if err == nil || kind(err) != errors.Temporary {
+		if err == nil || (kind(err) != errors.Temporary && err != context.DeadlineExceeded) {
 			break
 		}
 		log.Printf("s3blob.Download: %s/%s (attempt %d): %v\n", b.bucket, key, retries, err)
@@ -281,18 +300,20 @@ func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader
 				u.PartSize = s3minpartsize
 				u.Concurrency = s3concurrency
 			})
+			ctx, cancel := withTimeout(ctx, size)
 			_, err := up.UploadWithContext(ctx, &s3manager.UploadInput{
 				Bucket: aws.String(b.bucket),
 				Key:    aws.String(key),
 				Body:   body,
 			})
+			cancel()
 			if kind(err) == errors.ResourcesExhausted {
 				log.Printf("s3blob.Put: %s/%s: %v (over capacity)\n", b.bucket, key, err)
 				return admit.ErrOverCapacity
 			}
 			return err
 		})
-		if err == nil || kind(err) != errors.Temporary {
+		if err == nil || (kind(err) != errors.Temporary && err != context.DeadlineExceeded) {
 			break
 		}
 		log.Printf("s3blob.Put: %s/%s (attempt %d): %v\n", b.bucket, key, retries, err)

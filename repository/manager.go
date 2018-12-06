@@ -19,14 +19,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const (
-	// minBPS defines the lowest acceptable transfer rate.
-	minBPS = 1 << 20
-	// minTimeout defines the smallest acceptable timeout.
-	// This helps to give wiggle room for small data transfers.
-	minTimeout = 30 * time.Second
-)
-
 // Limits stores a default limits and maintains a set of overrides by
 // key.
 type Limits struct {
@@ -288,22 +280,11 @@ func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, file
 		g.Go(func() error {
 			stat := stat{file.Size, 1}
 			m.updateStats(src, dst, transferring, stat)
-			// Note: this is too coarse grained. It means that
-			// for large objects, we end up waiting a long time
-			// to detect stalled transfers. Instead, we should enforce
-			// transfer progress, and also introduce failure detectors
-			// between peer nodes.
-			timeout := time.Duration(file.Size/minBPS) * time.Second
-			if timeout < minTimeout {
-				timeout = minTimeout
-			}
-			ctx, cancel := context.WithTimeout(ctx, timeout)
 			err := Transfer(ctx, dst, src, file.ID)
 			if err != nil {
 				err = errors.E("transfer", file.ID, err)
 			}
 			m.updateStats(src, dst, done, stat)
-			cancel()
 			ly.Release(1)
 			lx.Release(1)
 			m.done(dst, src, file, err)
