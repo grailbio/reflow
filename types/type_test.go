@@ -4,7 +4,12 @@
 
 package types
 
-import "testing"
+import (
+	"sort"
+	"testing"
+
+	"github.com/grailbio/reflow/internal/scanner"
+)
 
 var (
 	p0 = FreshPredicate()
@@ -118,10 +123,10 @@ func TestSub(t *testing.T) {
 
 func TestEnv(t *testing.T) {
 	e := NewEnv()
-	e.Bind("a", Int)
-	e.Bind("b", String)
+	e.Bind("a", Int, scanner.Position{}, Never)
+	e.Bind("b", String, scanner.Position{}, Never)
 	e, save := e.Push(), e
-	e.Bind("a", String)
+	e.Bind("a", String, scanner.Position{}, Never)
 	if got, want := e.Type("a"), String; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
@@ -135,6 +140,17 @@ func TestEnv(t *testing.T) {
 	if got, want := e.Type("b"), String; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
+}
+
+func TestEnvUse(t *testing.T) {
+	e := NewEnv()
+	e.Bind("a", Int, scanner.Position{}, Never)
+	e.Bind("b", String, scanner.Position{}, Unexported)
+	e.Bind("C", String, scanner.Position{}, Unexported)
+
+	requireContains(t, e, "b")
+	e.Use("b")
+	requireContains(t, e)
 }
 
 func TestConstUnify(t *testing.T) {
@@ -222,6 +238,26 @@ func TestSatisfy(t *testing.T) {
 	for i := range cty.Fields {
 		if !cty.Fields[i].T.IsConst(nil) {
 			t.Errorf("%v field %d: expected const", cty, i)
+		}
+	}
+}
+
+func requireContains(t *testing.T, env *Env, want ...string) {
+	t.Helper()
+	unused := env.Unused()
+	got := make([]string, len(unused))
+	for i := range got {
+		got[i] = unused[i].Name
+	}
+	if len(got) != len(want) {
+		t.Errorf("got %v, want %v", got, want)
+		return
+	}
+	sort.Strings(got)
+	sort.Strings(want)
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("entry %d does not match, got %s, want %s", i, got[i], want[i])
 		}
 	}
 }

@@ -1265,7 +1265,7 @@ yydefault:
 			yyVAL.decl = &Decl{
 				Position: yyDollar[1].expr.Position,
 				Comment:  yyDollar[1].expr.Comment,
-				Pat:      &Pat{Kind: PatIdent, Ident: yyDollar[1].expr.Ident},
+				Pat:      &Pat{Position: yyDollar[1].expr.Position, Kind: PatIdent, Ident: yyDollar[1].expr.Ident},
 				Kind:     DeclAssign,
 				Expr:     &Expr{Kind: ExprIdent, Ident: yyDollar[1].expr.Ident},
 			}
@@ -1301,13 +1301,13 @@ yydefault:
 		yyDollar = yyS[yypt-3 : yypt+1]
 		//line reflow.y:363
 		{
-			yyVAL.decl = &Decl{Position: yyDollar[1].expr.Position, Comment: yyDollar[1].expr.Comment, Pat: &Pat{Kind: PatIdent, Ident: yyDollar[1].expr.Ident}, Kind: DeclAssign, Expr: yyDollar[3].expr}
+			yyVAL.decl = &Decl{Position: yyDollar[1].expr.Position, Comment: yyDollar[1].expr.Comment, Pat: &Pat{Position: yyDollar[1].expr.Position, Kind: PatIdent, Ident: yyDollar[1].expr.Ident}, Kind: DeclAssign, Expr: yyDollar[3].expr}
 		}
 	case 58:
 		yyDollar = yyS[yypt-7 : yypt+1]
 		//line reflow.y:365
 		{
-			yyVAL.decl = &Decl{Position: yyDollar[1].pos.Position, Comment: yyDollar[1].pos.comment, Pat: &Pat{Kind: PatIdent, Ident: yyDollar[2].expr.Ident}, Kind: DeclAssign, Expr: &Expr{
+			yyVAL.decl = &Decl{Position: yyDollar[1].pos.Position, Comment: yyDollar[1].pos.comment, Pat: &Pat{Position: yyDollar[1].pos.Position, Kind: PatIdent, Ident: yyDollar[2].expr.Ident}, Kind: DeclAssign, Expr: &Expr{
 				Kind: ExprFunc,
 				Args: yyDollar[4].typfields,
 				Left: yyDollar[7].expr}}
@@ -1316,7 +1316,7 @@ yydefault:
 		yyDollar = yyS[yypt-8 : yypt+1]
 		//line reflow.y:370
 		{
-			yyVAL.decl = &Decl{Position: yyDollar[1].pos.Position, Comment: yyDollar[1].pos.comment, Pat: &Pat{Kind: PatIdent, Ident: yyDollar[2].expr.Ident}, Kind: DeclAssign, Expr: &Expr{
+			yyVAL.decl = &Decl{Position: yyDollar[1].pos.Position, Comment: yyDollar[1].pos.comment, Pat: &Pat{Position: yyDollar[1].pos.Position, Kind: PatIdent, Ident: yyDollar[2].expr.Ident}, Kind: DeclAssign, Expr: &Expr{
 				Position: yyDollar[1].pos.Position,
 				Kind:     ExprAscribe,
 				Type:     types.Func(yyDollar[6].typ, yyDollar[4].typfields...),
@@ -1372,7 +1372,7 @@ yydefault:
 			if len(yyDollar[1].posidents.idents) != 1 {
 				yyVAL.decllist = []*Decl{{Kind: DeclError}}
 			} else {
-				yyVAL.decllist = []*Decl{{Position: yyDollar[1].posidents.pos, Comment: yyDollar[1].posidents.comments[0], Pat: &Pat{Kind: PatIdent, Ident: yyDollar[1].posidents.idents[0]}, Kind: DeclAssign, Expr: yyDollar[3].expr}}
+				yyVAL.decllist = []*Decl{{Position: yyDollar[1].posidents.pos, Comment: yyDollar[1].posidents.comments[0], Pat: &Pat{Position: yyDollar[1].posidents.pos, Kind: PatIdent, Ident: yyDollar[1].posidents.idents[0]}, Kind: DeclAssign, Expr: yyDollar[3].expr}}
 			}
 		}
 	case 65:
@@ -1385,7 +1385,7 @@ yydefault:
 				yyVAL.decllist = []*Decl{{
 					Position: yyDollar[1].posidents.pos,
 					Comment:  yyDollar[1].posidents.comments[0],
-					Pat:      &Pat{Kind: PatIdent, Ident: yyDollar[1].posidents.idents[0]},
+					Pat:      &Pat{Position: yyDollar[1].posidents.pos, Kind: PatIdent, Ident: yyDollar[1].posidents.idents[0]},
 					Kind:     DeclAssign,
 					Expr:     &Expr{Kind: ExprAscribe, Position: yyDollar[1].posidents.pos, Type: yyDollar[2].typ, Left: yyDollar[4].expr},
 				}}

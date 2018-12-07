@@ -335,7 +335,7 @@ commadef: def
 		$$ = &Decl{
 			Position: $1.Position, 
 			Comment: $1.Comment, 
-			Pat: &Pat{Kind: PatIdent, Ident: $1.Ident}, 
+			Pat: &Pat{Position: $1.Position, Kind: PatIdent, Ident: $1.Ident}, 
 			Kind: DeclAssign, 
 			Expr: &Expr{Kind: ExprIdent, Ident: $1.Ident},
 		}
@@ -360,14 +360,14 @@ valdef:
 		$$.Comment = $1.comment
 	}
 |	tokIdent tokAssign expr
-	{$$ = &Decl{Position: $1.Position, Comment: $1.Comment, Pat: &Pat{Kind: PatIdent, Ident: $1.Ident}, Kind: DeclAssign, Expr: $3}}
+	{$$ = &Decl{Position: $1.Position, Comment: $1.Comment, Pat: &Pat{Position: $1.Position, Kind: PatIdent, Ident: $1.Ident}, Kind: DeclAssign, Expr: $3}}
 |	tokFunc tokIdent '(' funcargs ')' '=' expr
-	{$$ = &Decl{Position: $1.Position, Comment: $1.comment, Pat: &Pat{Kind: PatIdent, Ident: $2.Ident}, Kind: DeclAssign, Expr: &Expr{
+	{$$ = &Decl{Position: $1.Position, Comment: $1.comment, Pat: &Pat{Position: $1.Position, Kind: PatIdent, Ident: $2.Ident}, Kind: DeclAssign, Expr: &Expr{
 		Kind: ExprFunc,
 		Args: $4,
 		Left: $7}}}
 |	tokFunc tokIdent '(' funcargs ')' type '=' expr
-	{$$ = &Decl{Position: $1.Position, Comment: $1.comment, Pat: &Pat{Kind: PatIdent, Ident: $2.Ident}, Kind: DeclAssign, Expr: &Expr{
+	{$$ = &Decl{Position: $1.Position, Comment: $1.comment, Pat: &Pat{Position: $1.Position, Kind: PatIdent, Ident: $2.Ident}, Kind: DeclAssign, Expr: &Expr{
 		Position: $1.Position,
 		Kind: ExprAscribe,
 		Type: types.Func($6, $4...),
@@ -414,7 +414,7 @@ paramdef:
 		if len($1.idents) != 1 {
 			$$ = []*Decl{{Kind: DeclError}}
 		} else {
-			$$ = []*Decl{{Position: $1.pos, Comment: $1.comments[0], Pat: &Pat{Kind: PatIdent, Ident: $1.idents[0]}, Kind: DeclAssign, Expr: $3}}
+			$$ = []*Decl{{Position: $1.pos, Comment: $1.comments[0], Pat: &Pat{Position: $1.pos, Kind: PatIdent, Ident: $1.idents[0]}, Kind: DeclAssign, Expr: $3}}
 		}
 	}
 |	idents type '=' expr 
@@ -425,7 +425,7 @@ paramdef:
 			$$ = []*Decl{{
 				Position: $1.pos, 
 				Comment: $1.comments[0],
-				Pat: &Pat{Kind: PatIdent, Ident: $1.idents[0]}, 
+				Pat: &Pat{Position: $1.pos, Kind: PatIdent, Ident: $1.idents[0]}, 
 				Kind: DeclAssign, 
 				Expr: &Expr{Kind: ExprAscribe, Position: $1.pos, Type: $2, Left: $4},
 			}}

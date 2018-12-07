@@ -300,21 +300,23 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 	switch e.Kind {
 	case ExprBlock:
 		env = env.Push()
+		defer reportUnused(sess, env)
 		for _, d := range e.Decls {
 			d.Init(sess, env)
 			if d.Type.Kind == types.ErrorKind {
 				e.Type = d.Type
-			} else if err := d.Pat.BindTypes(env, types.Swizzle(d.Type, types.NotConst)); err != nil {
+			} else if err := d.Pat.BindTypes(env, types.Swizzle(d.Type, types.NotConst), types.Always); err != nil {
 				d.Type = types.Error(err)
 			}
 		}
 	case ExprFunc:
 		env = env.Push()
+		defer reportUnused(sess, env)
 		for i := range e.Args {
 			e.Args[i].T = expand(e.Args[i].T, env)
 		}
 		for _, a := range e.Args {
-			env.Bind(a.Name, a.T)
+			env.Bind(a.Name, a.T, e.Position, types.Never)
 		}
 	}
 	for _, sub := range e.Subexpr() {
@@ -337,6 +339,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		if e.Type == nil {
 			e.Type = types.Errorf("identifier %q not defined", e.Ident)
 		}
+		env.Use(e.Ident)
 	case ExprBinop:
 		if e.Op == "~>" {
 			e.Type = types.Swizzle(e.Right.Type, types.NotConst, e.Left.Type)
@@ -631,6 +634,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		}
 	case ExprCompr:
 		env = env.Push()
+		defer reportUnused(sess, env)
 		clauseTypes := make([]*types.T, len(e.ComprClauses))
 		for i, clause := range e.ComprClauses {
 			clause.Expr.init(sess, env)
@@ -643,12 +647,12 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			case ComprEnum:
 				switch clause.Expr.Type.Kind {
 				case types.ListKind:
-					if err := clause.Pat.BindTypes(env, clause.Expr.Type.Elem); err != nil {
+					if err := clause.Pat.BindTypes(env, clause.Expr.Type.Elem, types.Always); err != nil {
 						e.Type = types.Error(err)
 						return
 					}
 				case types.MapKind:
-					if err := clause.Pat.BindTypes(env, types.Tuple(&types.Field{T: clause.Expr.Type.Index}, &types.Field{T: clause.Expr.Type.Elem})); err != nil {
+					if err := clause.Pat.BindTypes(env, types.Tuple(&types.Field{T: clause.Expr.Type.Index}, &types.Field{T: clause.Expr.Type.Elem}), types.Always); err != nil {
 						e.Type = types.Error(err)
 						return
 					}
@@ -697,7 +701,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			if d.Type.Kind == types.ErrorKind {
 				e.Type = types.Errorf("type error")
 				return
-			} else if err := d.Pat.BindTypes(penv, d.Type); err != nil {
+			} else if err := d.Pat.BindTypes(penv, d.Type, types.Never); err != nil {
 				e.Type = types.Error(err)
 				return
 			}
@@ -1270,4 +1274,25 @@ func (s sortedExpr) Less(i, j int) bool {
 }
 func (s sortedExpr) Swap(i, j int) {
 	s.exprs[i], s.exprs[j] = s.exprs[j], s.exprs[i]
+}
+
+func reportUnused(sess *Session, env *types.Env) {
+	syms := env.Unused()
+	// Sort them so that we get consistent (testable) warning ordering.
+	sort.Slice(syms, func(i, j int) bool {
+		x, y := syms[i], syms[j]
+		if x.Filename != y.Filename {
+			return x.Filename < y.Filename
+		}
+		if x.Offset != y.Offset {
+			return x.Offset < y.Offset
+		}
+		if x.Line != y.Line {
+			return x.Line < y.Line
+		}
+		return x.Column < y.Column
+	})
+	for _, sym := range syms {
+		sess.Warnf(sym.Position, "%s declared and not used", sym.Name)
+	}
 }

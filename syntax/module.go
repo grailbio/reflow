@@ -10,9 +10,8 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
+	"github.com/grailbio/reflow/internal/scanner"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
 )
@@ -106,6 +105,7 @@ func (m *ModuleImpl) Eager() bool { return false }
 func (m *ModuleImpl) Init(sess *Session, env *types.Env) error {
 	var el errlist
 	env = env.Push()
+	defer reportUnused(sess, env)
 	m.required = make(map[string]bool)
 	m.predicates = make(types.Predicates)
 	for _, p := range m.ParamDecls {
@@ -128,10 +128,10 @@ func (m *ModuleImpl) Init(sess *Session, env *types.Env) error {
 		case DeclError:
 			el = el.Errorf(p.Position, "declaration error")
 		case DeclDeclare:
-			env.Bind(p.Ident, p.Type)
+			env.Bind(p.Ident, p.Type, p.Position, types.Never)
 			m.required[p.Ident] = true
 		case DeclAssign:
-			if err := p.Pat.BindTypes(env, p.Type); err != nil && p.Type.Kind != types.ErrorKind {
+			if err := p.Pat.BindTypes(env, p.Type, types.Never); err != nil && p.Type.Kind != types.ErrorKind {
 				p.Type = types.Error(err)
 			}
 		}
@@ -151,7 +151,7 @@ func (m *ModuleImpl) Init(sess *Session, env *types.Env) error {
 		case DeclType:
 			env.BindAlias(d.Ident, d.Type)
 		case DeclAssign, DeclDeclare:
-			if err := d.Pat.BindTypes(env, d.Type); err != nil {
+			if err := d.Pat.BindTypes(env, d.Type, types.Unexported); err != nil {
 				d.Type = types.Error(err)
 				el = el.Error(d.Position, err)
 			}
@@ -167,19 +167,17 @@ func (m *ModuleImpl) Init(sess *Session, env *types.Env) error {
 	for _, d := range m.Decls {
 		switch d.Kind {
 		case DeclType:
-			first, _ := utf8.DecodeRuneInString(d.Ident)
-			if first == utf8.RuneError || !unicode.IsUpper(first) {
+			if !types.IsExported(d.Ident) {
 				continue
 			}
 			m.Docs[d.Ident] = d.Comment
 			aliases = append(aliases, &types.Field{Name: d.Ident, T: d.Type})
 		case DeclAssign, DeclDeclare:
 			env := types.NewEnv()
-			d.Pat.BindTypes(env, d.Type)
+			d.Pat.BindTypes(env, d.Type, types.Unexported)
 			for id, t := range env.Symbols() {
 				m.Docs[id] = d.Comment
-				first, _ := utf8.DecodeRuneInString(id)
-				if first == utf8.RuneError || !unicode.IsUpper(first) {
+				if !types.IsExported(id) {
 					continue
 				}
 				fields = append(fields, &types.Field{Name: id, T: t})
@@ -292,7 +290,7 @@ func (m *ModuleImpl) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error
 		case DeclAssign:
 			// In this case, we have a default value in the flag's environment.
 			tenv := types.NewEnv()
-			p.Pat.BindTypes(tenv, p.Type)
+			p.Pat.BindTypes(tenv, p.Type, types.Never)
 			v, err := p.Expr.eval(sess, env, p.ID(""))
 			if err != nil {
 				return nil, err
@@ -411,7 +409,7 @@ func (m *ModuleImpl) flagEnv(needMandatory bool, flags *flag.FlagSet, venv *valu
 		default:
 			return
 		}
-		tenv.Bind(f.Name, t)
+		tenv.Bind(f.Name, t, scanner.Position{}, types.Never)
 	})
 	switch len(errs) {
 	case 0:

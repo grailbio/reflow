@@ -188,3 +188,23 @@ testdata/imagewarn.rf:12:13: warning: image is not a const value
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+func TestUnusedWarn(t *testing.T) {
+	sess := NewSession(nil)
+	var b bytes.Buffer
+	sess.Stdwarn = &b
+	_, err := sess.Open("testdata/unusedwarn.rf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := sess.NWarn(), 4; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := b.String(), `testdata/unusedwarn.rf:13:6: warning: blah declared and not used
+testdata/unusedwarn.rf:17:19: warning: x declared and not used
+testdata/unusedwarn.rf:6:2: warning: z declared and not used
+testdata/unusedwarn.rf:9:5: warning: x declared and not used
+`; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

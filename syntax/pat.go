@@ -182,12 +182,12 @@ func (p *Pat) Idents(ids []string) []string {
 
 // BindTypes binds the pattern's identifier's types in the passed environment,
 // given the type of binding value t.
-func (p *Pat) BindTypes(env *types.Env, t *types.T) error {
+func (p *Pat) BindTypes(env *types.Env, t *types.T, use types.Use) error {
 	switch p.Kind {
 	default:
 		panic("bad pat")
 	case PatIdent:
-		env.Bind(p.Ident, t)
+		env.Bind(p.Ident, t, p.Position, use)
 		return nil
 	case PatTuple:
 		if t.Kind != types.TupleKind {
@@ -197,7 +197,7 @@ func (p *Pat) BindTypes(env *types.Env, t *types.T) error {
 			return errors.Errorf("expected tuple of size %d, got %d (%s)", want, got, t)
 		}
 		for i, q := range p.List {
-			if err := q.BindTypes(env, t.Fields[i].T); err != nil {
+			if err := q.BindTypes(env, t.Fields[i].T, use); err != nil {
 				return err
 			}
 		}
@@ -207,7 +207,7 @@ func (p *Pat) BindTypes(env *types.Env, t *types.T) error {
 			return errors.Errorf("expected list, got %s", t)
 		}
 		for _, q := range p.List {
-			if err := q.BindTypes(env, t.Elem); err != nil {
+			if err := q.BindTypes(env, t.Elem, use); err != nil {
 				return err
 			}
 		}
@@ -222,7 +222,7 @@ func (p *Pat) BindTypes(env *types.Env, t *types.T) error {
 			if u == nil {
 				return errors.Errorf("struct %s does not have field %s", t, id)
 			}
-			if err := q.BindTypes(env, u); err != nil {
+			if err := q.BindTypes(env, u, use); err != nil {
 				return err
 			}
 		}

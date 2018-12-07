@@ -19,6 +19,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
+	"github.com/grailbio/reflow/internal/scanner"
 	"github.com/grailbio/reflow/internal/walker"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
@@ -100,7 +101,7 @@ func Stdlib() (*types.Env, *values.Env) {
 		venv = values.NewEnv()
 	)
 	define := func(sym, doc string, t *types.T, v values.T) {
-		tenv.Bind(sym, t)
+		tenv.Bind(sym, t, scanner.Position{}, types.Never)
 		venv.Bind(sym, v)
 	}
 

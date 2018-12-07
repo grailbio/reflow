@@ -1,0 +1,18 @@
+param (
+	x int
+	y = "ok"
+)
+
+z := 123
+Z := "ok"
+
+func x(x, y, z string) = 123
+func X(x, y, z string) = x
+
+func Y(x, y, z string) = {
+	blah := x
+	z
+}
+
+val Compr = [1 | x <- [1,2,3]]
+
