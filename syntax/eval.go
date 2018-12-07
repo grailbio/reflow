@@ -122,10 +122,14 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			if !ok {
 				return right, nil
 			}
+			flowDigest := sequenceDigest
+			if rightFlow, ok := right.(*flow.Flow); ok {
+				flowDigest.Mix(rightFlow.Digest())
+			}
 			return &flow.Flow{
 				Deps:       []*flow.Flow{leftFlow},
 				Op:         flow.K,
-				FlowDigest: sequenceDigest,
+				FlowDigest: flowDigest,
 				K: func(vs []values.T) *flow.Flow {
 					if f, ok := right.(*flow.Flow); ok {
 						return f
