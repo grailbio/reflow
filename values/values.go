@@ -359,6 +359,9 @@ func Sprint(v T, t *types.T) string {
 		return "false"
 	case types.FileKind:
 		file := v.(reflow.File)
+		if file.IsRef() {
+			return fmt.Sprintf("file(source=%s, etag=%s)", file.Source, file.ETag)
+		}
 		return fmt.Sprintf("file(sha256=%s, size=%d)", file.ID, file.Size)
 	case types.DirKind:
 		dir := v.(Dir)
@@ -488,7 +491,7 @@ func WriteDigest(w io.Writer, v T, t *types.T) {
 		sort.Strings(keys)
 		for _, k := range keys {
 			io.WriteString(w, k)
-			digest.WriteDigest(w, dir[k].ID)
+			digest.WriteDigest(w, dir[k].Digest())
 		}
 	// Filesets are digesters, so they don't need to be handled here.
 	case types.UnitKind:
