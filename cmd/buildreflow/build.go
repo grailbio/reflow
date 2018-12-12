@@ -11,6 +11,8 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -31,19 +33,30 @@ Specifically, it builds a Mac (darwin) binary and embeds a linux version.
 	os.Exit(2)
 }
 
+// ospath is a simple struct that holds the GOOS and path to binary.
+type ospath struct{ goos, path string }
+
 func main() {
 	flag.Usage = usage
 	flag.Parse()
-	lxPath, dwPath := *output, *output+"darwin"
+	dir, err := os.Getwd()
+	if err != nil {
+		log.Fatalf("getwd: %v", err)
+	}
+	tmpPath, binPath := filepath.Join(dir, "reflow.tmp"), filepath.Join(dir, *output)
+	configs := []ospath{{runtime.GOOS, tmpPath}}
+	var lxTmpPath string
+	if runtime.GOOS != "linux" {
+		lxTmpPath = filepath.Join(dir, "reflowlinux.tmp")
+		configs = append(configs, ospath{"linux", lxTmpPath})
+	}
 	var g errgroup.Group
-	for _, config := range []struct{ goos, path string }{{"linux", lxPath}, {"darwin", dwPath}} {
+	for _, config := range configs {
 		goos, path := config.goos, config.path
 		g.Go(func() error {
 			cmd := command("go", "build", "-o", path, *reflow)
 			cmd.Env = os.Environ()
 			cmd.Env = append(cmd.Env, "GOOS="+goos)
-			cmd.Env = append(cmd.Env, "GOARCH=amd64")
-			log.Printf("building reflow %s", goos)
 			if err := cmd.Run(); err != nil {
 				return fmt.Errorf("build reflow %s: %v", goos, err)
 			}
@@ -53,28 +66,32 @@ func main() {
 	if err := g.Wait(); err != nil {
 		log.Fatal(err)
 	}
-	log.Print("embedding linux reflow into darwin reflow")
-	dst, err := os.OpenFile(dwPath, os.O_APPEND|os.O_WRONLY, 0755)
-	if err != nil {
-		log.Fatalf("reflow embedding: %v", err)
-	}
-	defer func() {
+	if lxTmpPath != "" {
+		defer os.Remove(lxTmpPath)
+		dst, err := os.OpenFile(tmpPath, os.O_APPEND|os.O_WRONLY, 0755)
+		if err != nil {
+			log.Fatal(err)
+		}
+		src, err := os.Open(lxTmpPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer src.Close()
+		if _, err = io.Copy(dst, src); err != nil {
+			log.Fatal(err)
+		}
 		if err := dst.Close(); err != nil {
-			log.Printf("close %s: %v", dwPath, err)
+			log.Fatal(err)
 		}
-	}()
-	src, err := os.Open(lxPath)
+	}
+	if err := os.Rename(tmpPath, binPath); err != nil {
+		log.Fatal(err)
+	}
+	path, err := filepath.Abs(binPath)
 	if err != nil {
-		log.Fatalf("reflow embedding: %v", err)
+		path = binPath
 	}
-	defer func() {
-		if err := src.Close(); err != nil {
-			log.Printf("close %s: %v", lxPath, err)
-		}
-	}()
-	if _, err := io.Copy(dst, src); err != nil {
-		log.Fatalf("reflow embedding: %v", err)
-	}
+	log.Print(path)
 }
 
 func command(name string, arg ...string) *exec.Cmd {
