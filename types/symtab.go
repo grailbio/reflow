@@ -117,6 +117,9 @@ func (e *Env) Push() *Env {
 	}
 }
 
+// Unused returns the set of symbols that are currently
+// considered unused according to the use rules provided
+// at the time of binding.
 func (e *Env) Unused() []*Symbol {
 	var syms []*Symbol
 	for id, sym := range e.Values {
