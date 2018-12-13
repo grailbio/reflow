@@ -130,7 +130,8 @@ type Cluster struct {
 	instanceState   *instanceState
 	instanceConfigs map[string]instanceConfig
 	pools           map[string]pool.Pool
-	reconciled      chan struct{}
+	updatec         chan struct{}
+	reconciledc     chan struct{}
 
 	wait chan *waiter
 }
@@ -183,10 +184,11 @@ func (c *Cluster) Init() error {
 		return errors.New("no configured instance types")
 	}
 	c.instanceState = newInstanceState(instances, 5*time.Minute, c.Region)
-	c.reconciled = make(chan struct{}, 1)
+	c.reconciledc = make(chan struct{}, 1)
+	c.updatec = make(chan struct{}, 1)
 
-	c.update()
-	go c.maintain()
+	c.updatePool()
+	go c.maintainPool()
 	go c.loop()
 	return nil
 }
@@ -411,7 +413,7 @@ func (c *Cluster) loop() {
 		c.Status.Printf("%d instances: %s (<=$%.1f/hr), total%s, waiting%s, pending%s",
 			n, strings.Join(counts, ","), totalPrice, total, waiting, pending)
 		select {
-		case <-c.reconciled:
+		case <-c.reconciledc:
 		case <-pollch:
 		case inst := <-done:
 			pending.Sub(pending, inst.Config.Resources)
@@ -460,8 +462,8 @@ func (c *Cluster) loop() {
 	}
 }
 
-// maintain reconciles external state changes with local state.
-func (c *Cluster) maintain() {
+// maintainPool reconciles external state changes with local state.
+func (c *Cluster) maintainPool() {
 	ec2Tick := time.NewTicker(ec2PollInterval)
 	updateTick := time.NewTicker(statePollInterval)
 	if err := c.reconcile(); err != nil {
@@ -473,8 +475,10 @@ func (c *Cluster) maintain() {
 			if err := c.reconcile(); err != nil {
 				c.Log.Printf("reconcile error: %v", err)
 			}
+		case <-c.updatec:
+			c.updatePool()
 		case <-updateTick.C:
-			c.update()
+			c.updatePool()
 		}
 	}
 }
@@ -490,7 +494,10 @@ func (c *Cluster) updateState(update func(map[string]*reflowletInstance)) {
 		c.Log.Printf("marshal state error: %v", err)
 	}
 	c.File.Unlock()
-	c.update()
+	select {
+	case c.updatec <- struct{}{}:
+	default:
+	}
 }
 
 func (c *Cluster) add(newInstances ...*reflowletInstance) {
@@ -509,7 +516,7 @@ func (c *Cluster) remove(instanceIds ...string) {
 	})
 }
 
-func (c *Cluster) update() {
+func (c *Cluster) updatePool() {
 	instances, err := c.unmarshalState()
 	if err != nil {
 		c.Log.Printf("error unmarshal state: %v", err)
@@ -692,7 +699,7 @@ func (c *Cluster) reconcile() error {
 	}
 	c.remove(dead...)
 	select {
-	case c.reconciled <- struct{}{}:
+	case c.reconciledc <- struct{}{}:
 	default:
 	}
 	return nil

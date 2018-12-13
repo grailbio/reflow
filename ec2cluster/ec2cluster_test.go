@@ -41,9 +41,11 @@ func reconcile(instances interface{}, instanceIds []string, t *testing.T) {
 		t.Fatal(err)
 	}
 	ec2 := new(mockEC2Client)
+	updatec := make(chan struct{}, 1)
 	cluster := &Cluster{
-		EC2:  ec2,
-		File: file,
+		EC2:     ec2,
+		File:    file,
+		updatec: updatec,
 	}
 	if err := cluster.reconcile(); err != nil {
 		t.Fatal(err)
