@@ -233,7 +233,6 @@ func (b Base) User() (string, error) {
 
 // Logger returns a logger that outputs to standard error.
 func (b Base) Logger() (*log.Logger, error) {
-	panic("HITTING STANDARD LOGGER")
 	return log.New(golog.New(os.Stderr, "", golog.LstdFlags), log.InfoLevel), nil
 }
 
