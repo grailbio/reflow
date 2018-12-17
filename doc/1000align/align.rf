@@ -14,26 +14,26 @@ param (
 
 	// threads is the number of threads used in a single BWA instantiation.
 	threads = 16
-	
+
 	// splitFASTQ governs whether the aligner splits (and then merges) FASTQ
 	// files before aligning. Splitting FASTQ permits greater parallelism
 	// (i.e., across multiple machines) when aligning.
 	splitFASTQ = false
-	
+
 	splitSize = 5400000
-	
+
 	// image is the BWA Docker image
-	image = "biocontainers/bwa"
-	
-	// fastqMeta extracts flowcell and lane information from a FASTQ file 
+	image = "biocontainers/bwa:v0.7.15_cv3"
+
+	// fastqMeta extracts flowcell and lane information from a FASTQ file
 	// name.
 	fastqMeta = func(name string) => {
 		val regexp = make("$/regexp")
-		val [flowcell, lane] = regexp.Groups(name, 
+		val [flowcell, lane] = regexp.Groups(name,
 			"([0-9_A-Za-z]*)-.*_(L[0-9]*)_R[12]_[0-9]*.fastq.gz")
 		(flowcell, lane)
 	}
-	
+
 	// groupPattern is the regular expression used to group read pairs.
 	groupPattern = "(.*)_R[12]_001.fastq.gz$"
 )
@@ -42,8 +42,8 @@ val dirs = make("$/dirs")
 val bam = make("./bam.rf", threads)
 val fastq = make("./fastq.rf")
 
-func readgroup(flowcell, lane string) = 
-	`@RG\tID:1\tCN:`+sequencingCenter+`\tPL:`+ 
+func readgroup(flowcell, lane string) =
+	`@RG\tID:1\tCN:`+sequencingCenter+`\tPL:`+
 		platform+`\tPM:`+model+`\tPU:`+flowcell+`-`+lane + `\tSM:`+sample
 
 func align(r1, r2 file, flowcell, lane string) (bam file) = {
@@ -53,7 +53,7 @@ func align(r1, r2 file, flowcell, lane string) (bam file) = {
 		bwa mem -R "{{readgroup(flowcell, lane)}}" -t {{threads}} \
 			{{alignmentGenome}}/g1k_v37.fa {{r1}} {{r2}} > {{sam}}
 	"}
-	val aligned = exec(image := "biocontainers/samtools", cpu := 1, mem := 500*MiB) (bam file) {"
+	val aligned = exec(image := "biocontainers/samtools:v1.7.0_cv2", cpu := 1, mem := 500*MiB) (bam file) {"
 		< {{sam}} samtools view -Sb - > {{bam}}
 	"}
 	bam.Sort(aligned)
@@ -64,7 +64,7 @@ func align(r1, r2 file, flowcell, lane string) (bam file) = {
 // parameters sequencingCenter, platform, model, and sample are also
 // embedded. Align returns the bam file along with the stderr output from
 // BWA. It uses the alignment genome as passed by module parameter.
-func Align(r1, r2 file, flowcell, lane string) (bam file) = 
+func Align(r1, r2 file, flowcell, lane string) (bam file) =
 	if splitFASTQ {
 		splits := zip(fastq.Split(r1, splitSize), fastq.Split(r2, splitSize))
 		bam.Merge([align(s1, s2, flowcell, lane) | (s1, s2) <- splits])

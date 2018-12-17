@@ -63,9 +63,9 @@ by default (this can be overridden with the `-config` option). Reflow's
 setup commands modify this file directly. After each step, the current 
 configuration can be examined by running `reflow config`.
 
-Note Reflow must have access to AWS credentials in the environment
-(`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) while running these
-commands.
+Note Reflow must have access to AWS credentials and configuration in the
+environment (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`) while
+running these commands.
 
 	% reflow setup-ec2
 	% reflow config
@@ -140,11 +140,11 @@ that S3 bucket names are global, so pick a name that's likely to be
 unique.
 
 	% reflow setup-s3-repository reflow-quickstart-cache
-	2017/10/18 15:09:10 creating s3 bucket reflow-quickstart-cache
-	2017/10/18 15:09:12 created s3 bucket reflow-quickstart-cache
+	reflow: creating s3 bucket reflow-quickstart-cache
+	reflow: created s3 bucket reflow-quickstart-cache
 	% reflow setup-dynamodb-assoc reflow-quickstart
-	2017/10/18 15:09:40 creating DynamoDB table reflow-quickstart
-	2017/10/18 15:09:40 created DynamoDB table reflow-quickstart
+	reflow: creating DynamoDB table reflow-quickstart
+	reflow: created DynamoDB table reflow-quickstart
 	% reflow config
 	assoc: dynamodb,reflow-quickstart
 	repository: s3,reflow-quickstart-cache
@@ -165,16 +165,17 @@ Create a file called "hello.rf" with the following contents:
 and run it:
 
 	% reflow run hello.rf
-	reflow: run ID: e657f859
+	reflow: run ID: 6da656d1
+		ec2cluster: 0 instances:  (<=$0.0/hr), total{}, waiting{mem:1.0GiB cpu:1 disk:1.0GiB
 	reflow: total n=1 time=0s
-		ident      n   ncache transfer runtime(m) cpu mem(GiB) disk(GiB) tmp(GiB)
-		hello.Main 1   1      0B                                         
+			ident      n   ncache transfer runtime(m) cpu mem(GiB) disk(GiB) tmp(GiB)
+			hello.Main 1   1      0B
 
-	file(sha256=sha256:a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447, size=12)
+	a948904f
 
-Here, Reflow started a new t2.small instance (Reflow matches the workload with 
-available instance types), ran "echo hello world" inside of an Ubuntu container, 
-placed the output in a file, and returned its SHA256 digest. (Reflow represents 
+Here, Reflow started a new `t2.small` instance (Reflow matches the workload with
+available instance types), ran `echo hello world` inside of an Ubuntu container,
+placed the output in a file, and returned its SHA256 digest. (Reflow represents
 file contents using their SHA256 digest.)
 
 We're now ready to explore Reflow more fully.
@@ -223,7 +224,7 @@ inline for clarity.
 	// runtime by a path on disk with a file with the contents of the
 	// file g1kv37 (i.e.,
 	// s3://1000genomes/technical/reference/human_g1k_v37.fasta.gz)
-	val reference = exec(image := "biocontainers/bwa", mem := GiB, cpu := 1) (out dir) {"
+	val reference = exec(image := "biocontainers/bwa:v0.7.15_cv3", mem := GiB, cpu := 1) (out dir) {"
 		# Ignore failures here. The file from 1000genomes has a trailer
 		# that isn't recognized by gunzip. (This is not recommended practice!)
 		gunzip -c {{g1kv37}} > {{out}}/g1k_v37.fa || true
@@ -245,14 +246,14 @@ inline for clarity.
 	// Note that "r1" and "r2" inside of the exec refer to the function arguments,
 	// thus align can be invoked for any set of r1, r2.
 	func align(r1, r2 file) = 
-		exec(image := "biocontainers/bwa", mem := 20*GiB, cpu := 16) (out file) {"
+		exec(image := "biocontainers/bwa:v0.7.15_cv3", mem := 20*GiB, cpu := 16) (out file) {"
 			bwa mem -M -t 16 {{reference}}/g1k_v37.fa {{r1}} {{r2}} > {{out}}
 		"}
 
 	// We're ready to test our workflow now. We pick an arbitrary read
 	// pair from the 1000genomes data set, and invoke align. There are a
 	// few things of note here. First is the identifier "Main". This
-	// names the expression that's evaluated by "reflow run" -- the
+	// names the expression that's evaluated by `reflow run` -- the
 	// entry point of the computation. Second, we've defined Main to be
 	// a block. A block is an expression that contains one or more
 	// definitions followed by an expression. The value of a block is the
@@ -284,7 +285,7 @@ others are not.
 	    We're ready to test our workflow now. We pick an arbitrary read pair from the
 	    1000genomes data set, and invoke align. There are a few things of note here.
 	    First is the identifier "Main". This names the expression that's evaluated by
-	    "reflow run" -- the entry point of the computation. Second, we've defined Main
+	    `reflow run` -- the entry point of the computation. Second, we've defined Main
 	    to be a block. A block is an expression that contains one or more definitions
 	    followed by an expression. The value of a block is the final expression. Finally,
 	    Main contains a @requires annotation. This instructs Reflow how many resources
@@ -297,29 +298,28 @@ others are not.
 Then let's run it:
 
 	% reflow run align.rf
-	reflow: run ID: ab84dec1
-	ec2cluster: 1 instances: c5.4xlarge:1 (<=$0.7/hr), total{mem:29.8GiB cpu:16 disk:250.0GiB intel_avx:16 intel_avx2:16 intel_avx512:16}, waiting{}, pending{}
-	transfers: done: 3 4.3GiB, transferring: 0 0B, waiting: 0 0B
-	ab84dec1: elapsed: 3m20s, running:1, completed: 3/5
+	reflow: run ID: 82e63a7a
+	ec2cluster: 1 instances: c5.4xlarge:1 (<=$0.7/hr), total{mem:29.8GiB cpu:16 disk:250.0GiB intel_avx512:16}, waiting{}, pending{}
+	82e63a7a: elapsed: 2m30s, executing:1, completed: 3/5
+	  align.reference:  exec ..101f9a082e1679c16d23787c532a0107537c9c # Ignore failures here. The f..bwa index -a bwtsw g1k_v37.fa  2m4s
 
 Reflow launched a new instance: the previously launched instance (a
-t2.small) was not big enough to fit the requirements of align.rf.
-Note also that Reflow assigns a run name for each "reflow run"
-invocation. This can be used to look up run details with the "reflow
-info" command. In this case:
+`t2.small`) was not big enough to fit the requirements of align.rf.
+Note also that Reflow assigns a run name for each `reflow run`
+invocation. This can be used to look up run details with the `reflow
+info` command. In this case:
 
-	% reflow info ab84dec1                  
-	ab84dec1bfff4691bbbf9ac49ddb4d12fed4a5a6f535dd8ab36c1fab46d35e1b (run)
-	    time:      Wed May  9 18:19:12 2018
-	    program:   /Users/olgabot/code/reflow-test/align.rf
+	% reflow info 82e63a7a
+	82e63a7aee201d137f8ade3d584c234b856dc6bdeba00d5d6efc9627bd988a68 (run)
+	    time:      Wed Dec 12 10:45:04 2018
+	    program:   /Users/you/align.rf
 	    phase:     Eval
-	    alloc:     ec2-34-211-28-81.us-west-2.compute.amazonaws.com:9000/4ce44f4833b35ebc
+	    alloc:     ec2-34-213-42-76.us-west-2.compute.amazonaws.com:9000/5a0adaf6c879efb1
 	    resources: {mem:28.9GiB cpu:16 disk:245.1GiB intel_avx:16 intel_avx2:16 intel_avx512:16}
-	    log:       /Users/olgabot/.reflow/runs/ab84dec1bfff4691bbbf9ac49ddb4d12fed4a5a6f535dd8ab36c1fab46d35e1b.execlog
-
+	    log:       /Users/you/.reflow/runs/82e63a7aee201d137f8ade3d584c234b856dc6bdeba00d5d6efc9627bd988a68.execlog
 
 Here we see that the run is currently being performed on the alloc named
-`ec2-34-211-28-81.us-west-2.compute.amazonaws.com:9000/4ce44f4833b35ebc`.
+`ec2-34-213-42-76.us-west-2.compute.amazonaws.com:9000/5a0adaf6c879efb1`.
 An alloc is a resource reservation on a single machine. A run can
 make use of multiple allocs to distribute work across multiple
 machines. The alloc is a URI, and the first component is the real 
@@ -327,58 +327,58 @@ hostname. You can ssh into the host in order to inspect what's going on.
 Reflow launched the instance with your public SSH key (as long as it was
 set up by `reflow setup-ec2`, and `$HOME/.ssh/id_rsa.pub` existed at that time).
 
-	% ssh core@ec2-34-211-28-81.us-west-2.compute.amazonaws.com 
+	% ssh core@ec2-34-213-42-76.us-west-2.compute.amazonaws.com
 	...
 
-As the run progresses, Reflow prints execution status on the console. Lines beginning
-with "->" indicate that a task was started (e.g., download a file, start an exec), while
-lines beginning with "<-" indicate that a task finished.
+As the run progresses, Reflow prints execution status of each task on the
+console.
 
 	...
-	2017/10/18 16:03:07 -> example.Main.r2 a8788913 run  intern ..hase3/data/HG00103/sequence_read/SRR062640_2.filt.fastq.gz
-	2017/10/18 16:03:07 -> example.Main.r1 882d8d39 run  intern ..hase3/data/HG00103/sequence_read/SRR062640_1.filt.fastq.gz
-	2017/10/18 16:03:14 -> example.reference a4a82ba4 run    exec biocontainers/bwa # Ignore failures here. The f..bwa index -a bwtsw g1k_v37.fa
+	align.Main.r2:    intern s3://1000genomes/phase3/data/HG00103/sequence_read/SRR062640_2.filt.fastq.gz                         23s
+	align.Main.r1:    intern done 1.8GiB                                                                                          23s
+	align.g1kv37:     intern done 851.0MiB                                                                                        23s
+	align.reference:  exec ..101f9a082e1679c16d23787c532a0107537c9c # Ignore failures here. The f..bwa index -a bwtsw g1k_v37.fa  6s
 
 Here, Reflow started downloading r1 and r2 in parallel with creating the reference.
 Creating the reference is an expensive operation. We can examine it while it's running
-with "reflow ps":
+with `reflow ps`:
 
 	% reflow ps 
-	1c8d032f align.reference         6:20PM 0:00 running 4.4GiB 1.0 7.3GiB bwa
+	3674721e align.reference 10:46AM 0:00 running 4.4GiB 1.0 6.5GiB bwa
 
 This tells us that the only task that's currently running is bwa to compute the reference.
-It's currently using 4.4GiB of memory, 1 cores, and 7.3GiB GiB of disk space. By passing the -l
+It's currently using 4.4GiB of memory, 1 cores, and 6.5GiB GiB of disk space. By passing the -l
 option, reflow ps also prints the task's exec URI.
 
 	% reflow ps -l
-	1c8d032f align.reference         6:20PM 0:00 running 4.4GiB 1.0 6.5GiB bwa ec2-34-211-28-81.us-west-2.compute.amazonaws.com:9000/4ce44f4833b35ebc/1c8d032f8183a4995a5146fb2559b424dab525a949c0daa9c5891d087b65fb22
+	3674721e align.reference 10:46AM 0:00 running 4.4GiB 1.0 6.5GiB bwa ec2-34-213-42-76.us-west-2.compute.amazonaws.com:9000/5a0adaf6c879efb1/3674721e2d9e80b325934b08973fb3b1d3028b2df34514c9238be466112eb86e
 
 An exec URI is a handle to the actual task being executed. It
-globally identifies all tasks, and can be examined with "reflow info":
+globally identifies all tasks, and can be examined with `reflow info`:
 
-	% reflow info ec2-54-71-191-10.us-west-2.compute.amazonaws.com:9000/89be753c95b4d5d3/1c8d032f8183a4995a5146fb2559b424dab525a949c0daa9c5891d087b65fb22
-	ec2-54-71-191-10.us-west-2.compute.amazonaws.com:9000/89be753c95b4d5d3/1c8d032f8183a4995a5146fb2559b424dab525a949c0daa9c5891d087b65fb22 (exec)
+	% reflow info ec2-34-213-42-76.us-west-2.compute.amazonaws.com:9000/5a0adaf6c879efb1/3674721e2d9e80b325934b08973fb3b1d3028b2df34514c9238be466112eb86e
+	ec2-34-213-42-76.us-west-2.compute.amazonaws.com:9000/5a0adaf6c879efb1/3674721e2d9e80b325934b08973fb3b1d3028b2df34514c9238be466112eb86e (exec)
 	    state: running
 	    type:  exec
-	    ident: 1000align.g1kv37Indexed
-	    image: biocontainers/bwa
+	    ident: align.reference
+	    image: index.docker.io/biocontainers/bwa@sha256:0529e39005e35618c4e52f8f56101f9a082e1679c16d23787c532a0107537c9c
 	    cmd:   "\n\t# Ignore failures here. The file from 1000genomes has a trailer\n\t# that isn't recognized by gunzip. (This is not recommended practice!)\n\tgunzip -c {{arg[0]}} > {{arg[1]}}/g1k_v37.fa || true\n\tcd {{arg[2]}}\n\tbwa index -a bwtsw g1k_v37.fa\n"
 	      arg[0]:
-		.: sha256:8b6c538abf0dd92d3f3020f36cc1dd67ce004ffa421c2781205f1eb690bdb442 (851.0MiB)
+	        .: sha256:8b6c538abf0dd92d3f3020f36cc1dd67ce004ffa421c2781205f1eb690bdb442 (851.0MiB)
 	      arg[1]: output 0
 	      arg[2]: output 0
 	    top:
-		 bwa index -a bwtsw g1k_v37.fa
+	         bwa index -a bwtsw g1k_v37.fa
 
 Here, Reflow tells us that the currently running process is "bwa
 index...", its template command, and the SHA256 digest of its inputs.
 Programs often print helpful output to standard error while working;
-this output can be examined with "reflow logs":
+this output can be examined with `reflow logs`:
 
-	% reflow logs ec2-54-71-191-10.us-west-2.compute.amazonaws.com:9000/89be753c95b4d5d3/1c8d032f8183a4995a5146fb2559b424dab525a949c0daa9c5891d087b65fb22
-
+	% reflow logs ec2-34-221-0-157.us-west-2.compute.amazonaws.com:9000/0061a20f88f57386/3674721e2d9e80b325934b08973fb3b1d3028b2df34514c9238be466112eb86e
+	
 	gzip: /arg/0/0: decompression OK, trailing garbage ignored
-	[bwa_index] Pack FASTA... 19.30 sec
+	[bwa_index] Pack FASTA... 18.87 sec
 	[bwa_index] Construct BWT for the packed sequence...
 	[BWTIncCreate] textLength=6203609478, availableWord=448508744
 	[BWTIncConstructFromPacked] 10 iterations done. 99999990 characters processed.
@@ -426,14 +426,6 @@ this output can be examined with "reflow logs":
 	[BWTIncConstructFromPacked] 430 iterations done. 4299999990 characters processed.
 	[BWTIncConstructFromPacked] 440 iterations done. 4399999990 characters processed.
 	[BWTIncConstructFromPacked] 450 iterations done. 4499999990 characters processed.
-	[BWTIncConstructFromPacked] 460 iterations done. 4599999990 characters processed.
-	[BWTIncConstructFromPacked] 470 iterations done. 4699999990 characters processed.
-	[BWTIncConstructFromPacked] 480 iterations done. 4799999990 characters processed.
-	[BWTIncConstructFromPacked] 490 iterations done. 4899999990 characters processed.
-	[BWTIncConstructFromPacked] 500 iterations done. 4999999990 characters processed.
-	[BWTIncConstructFromPacked] 510 iterations done. 5099999990 characters processed.
-	[BWTIncConstructFromPacked] 520 iterations done. 5199999990 characters processed.
-
 
 At this point, it looks like everything is running as expected.
 There's not much more to do than wait. Note that, while creating an
@@ -453,20 +445,20 @@ computation.
 
 After a little while, the reference will have finished generating,
 and Reflow begins alignment. Here, Reflow reports that the reference
-took 56 minutes to compute, and produced 8 GiB of output.
+took 52 minutes to compute, and produced 8 GiB of output.
 
-	2017/10/19 10:04:39 <- align.reference a4a82ba4 ok     exec 56m49s 8.0GiB
-	2017/10/19 10:04:39 -> align.align  80b24fa0 run    exec biocontainers/bwa bwa mem -M -t 16 {{reference}..37.fa {{r1}} {{r2}} > {{out}}
+      align.reference:  exec done 8.0GiB                                                                                            52m37s
+      align.align:      exec ..101f9a082e1679c16d23787c532a0107537c9c bwa mem -M -t 16 {{reference}..37.fa {{r1}} {{r2}} > {{out}}  4s
 
 If we query ("info") the reference exec again, Reflow reports precisely what
 was produced:
 
-	% reflow info ec2-34-215-254-146.us-west-2.compute.amazonaws.com:9000/e34ae0cf7c0482f6/a4a82ba4b5c6d82985d31e79be5a8fe568d75a86db284d78f9972df525cf70d3
-	ec2-34-215-254-146.us-west-2.compute.amazonaws.com:9000/e34ae0cf7c0482f6/a4a82ba4b5c6d82985d31e79be5a8fe568d75a86db284d78f9972df525cf70d3
+	% reflow info ec2-34-221-0-157.us-west-2.compute.amazonaws.com:9000/0061a20f88f57386/3674721e2d9e80b325934b08973fb3b1d3028b2df34514c9238be466112eb86e
+	ec2-34-221-0-157.us-west-2.compute.amazonaws.com:9000/0061a20f88f57386/3674721e2d9e80b325934b08973fb3b1d3028b2df34514c9238be466112eb86e (exec)
 	    state: complete
 	    type:  exec
 	    ident: align.reference
-	    image: biocontainers/bwa
+	    image: index.docker.io/biocontainers/bwa@sha256:0529e39005e35618c4e52f8f56101f9a082e1679c16d23787c532a0107537c9c
 	    cmd:   "\n\t# Ignore failures here. The file from 1000genomes has a trailer\n\t# that isn't recognized by gunzip. (This is not recommended practice!)\n\tgunzip -c {{arg[0]}} > {{arg[1]}}/g1k_v37.fa || true\n\tcd {{arg[2]}}\n\tbwa index -a bwtsw g1k_v37.fa\n"
 	      arg[0]:
 	        .: sha256:8b6c538abf0dd92d3f3020f36cc1dd67ce004ffa421c2781205f1eb690bdb442 (851.0MiB)
@@ -489,13 +481,13 @@ alignment. We see now that the reference is passed in (argument 0),
 along side the read pairs (arguments 1 and 2). 
 
 	% reflow ps -l
-	marius@localhost/e22cbf4c align.align 10:04AM 0:00 running 7.8GiB 127.9 5.8GiB bwa ec2-34-215-254-146.us-west-2.compute.amazonaws.com:9000/e34ae0cf7c0482f6/80b24fa01b988ca666d4c1eae0fa21d1dbd68e9cd18a82fc4cd6da20fec5abbd
-	% reflow info ec2-34-215-254-146.us-west-2.compute.amazonaws.com:9000/e34ae0cf7c0482f6/80b24fa01b988ca666d4c1eae0fa21d1dbd68e9cd18a82fc4cd6da20fec5abbd
-	ec2-34-215-254-146.us-west-2.compute.amazonaws.com:9000/e34ae0cf7c0482f6/80b24fa01b988ca666d4c1eae0fa21d1dbd68e9cd18a82fc4cd6da20fec5abbd
+	6a6c36f5 align.align 5:12PM 0:00 running 5.9GiB 12.3 0B  bwa ec2-34-221-0-157.us-west-2.compute.amazonaws.com:9000/0061a20f88f57386/6a6c36f5da6ee387510b0b61d788d7e4c94244d61e6bc621b43f59a73443a755
+	% reflow info ec2-34-221-0-157.us-west-2.compute.amazonaws.com:9000/0061a20f88f57386/6a6c36f5da6ee387510b0b61d788d7e4c94244d61e6bc621b43f59a73443a755
+	ec2-34-221-0-157.us-west-2.compute.amazonaws.com:9000/0061a20f88f57386/6a6c36f5da6ee387510b0b61d788d7e4c94244d61e6bc621b43f59a73443a755 (exec)
 	    state: running
 	    type:  exec
 	    ident: align.align
-	    image: biocontainers/bwa
+	    image: index.docker.io/biocontainers/bwa@sha256:0529e39005e35618c4e52f8f56101f9a082e1679c16d23787c532a0107537c9c
 	    cmd:   "\n\t\tbwa mem -M -t 16 {{arg[0]}}/g1k_v37.fa {{arg[1]}} {{arg[2]}} > {{arg[3]}}\n\t"
 	      arg[0]:
 	        g1k_v37.fa:     sha256:2f9cd9e853a9284c53884e6a551b1c7284795dd053f255d630aeeb114d1fa81f (2.9GiB)
@@ -512,7 +504,6 @@ along side the read pairs (arguments 1 and 2).
 	    top:
 	         /bin/bash -e -l -o pipefail -c ..bwa mem -M -t 16 /arg/0/0/g1k_v37.fa /arg/1/0 /arg/2/0 > /return/0 .
 	         bwa mem -M -t 16 /arg/0/0/g1k_v37.fa /arg/1/0 /arg/2/0
-	% 
 
 Note that the read pairs are files. Files in Reflow do not have
 names; they are just blobs of data. When Reflow runs a process that
@@ -526,14 +517,15 @@ Finally, alignment is complete. Aligning a single read pair took
 around 19m, and produced 13.2 GiB of output. Upon completion, Reflow
 prints runtime statistics and the result.
 
-	2017/10/19 10:25:13 <- align.align  80b24fa0 ok     exec 19m27s 13.2GiB
-	2017/10/19 10:25:13 total n=2 time=1h18m24s
-		ident           n   ncache runtime(m) cpu               mem(GiB)    disk(GiB)      tmp(GiB)
-		align.align     1   0      19/19/19   123.9/123.9/123.9 7.8/7.8/7.8 12.9/12.9/12.9 0.0/0.0/0.0
-		align.reference 1   0      57/57/57   7.8/7.8/7.8       4.4/4.4/4.4 8.0/8.0/8.0    0.0/0.0/0.0
-		
-	file(sha256=sha256:becb04856590893048e698b1c4bc26192105a44866a06ad8af4f7bda0104c43b, size=14196491221)
-	% 
+	reflow: total n=5 time=1h9m57s
+	        ident           n   ncache transfer runtime(m) cpu            mem(GiB)    disk(GiB)      tmp(GiB)
+	        align.align     1   0      0B       17/17/17   15.6/15.6/15.6 7.8/7.8/7.8 12.9/12.9/12.9 0.0/0.0/0.0
+	        align.Main.r2   1   0      0B
+	        align.Main.r1   1   0      0B
+	        align.reference 1   0      0B       51/51/51   1.0/1.0/1.0    4.4/4.4/4.4 6.5/6.5/6.5    0.0/0.0/0.0
+	        align.g1kv37    1   0      0B
+	
+	becb0485
 
 Reflow represents file values by the SHA256 digest of the file's
 content. In this case, that's not very useful: you want the file,
@@ -551,8 +543,8 @@ inline for clarity.
 		r2 := file("s3://1000genomes/phase3/data/HG00103/sequence_read/SRR062640_2.filt.fastq.gz")
 		// Instantiate the system modules "files" (system modules begin
 		// with $), assigning its instance to the "files" identifier. To
-		// view the documentation for this module, run "reflow doc
-		// $/files".
+		// view the documentation for this module, run `reflow doc
+		// $/files`.
 		files := make("$/files")
 		// As before.
 		aligned := align(r1, r2)
@@ -564,17 +556,14 @@ inline for clarity.
 And run it again:
 
 	% reflow run align.rf
-	2017/10/19 10:46:01 run name: marius@localhost/e18f1312
-	2017/10/19 10:46:02 -> align.align  80b24fa0 xfer   exec biocontainers/bwa bwa mem -M -t 16 {{reference}..37.fa {{r1}} {{r2}} > {{out}}
-	2017/10/19 10:47:27 <- align.align  80b24fa0 ok     exec 0s 13.2GiB
-	2017/10/19 10:47:28 -> align.Main   9e252400 run  extern s3://marius-test-bucket/aligned.sam 13.2GiB
-	2017/10/19 10:49:42 <- align.Main   9e252400 ok   extern 2m6s 0B
-	2017/10/19 10:49:42 total n=2 time=3m40s
-		ident       n   ncache runtime(m) cpu mem(GiB) disk(GiB) tmp(GiB)
-		align.Main  1   0                                        
-		align.align 1   1                                        
-		
-	val<>
+	reflow: run ID: 9f0f3596
+	reflow: total n=2 time=1m9s
+	        ident         n   ncache transfer runtime(m) cpu mem(GiB) disk(GiB) tmp(GiB)
+	        align_2.align 1   1      0B
+	        align_2.Main  1   0      13.2GiB
+	
+	val<.=becb0485 13.2GiB>
+
 
 Here we see that Reflow did not need to recompute the aligned file;
 it is instead retrieved from cache. The reference index generation is
@@ -584,7 +573,7 @@ running the computation. Reflow claims to have transferred a 13.2 GiB
 file to `s3://marius-test-bucket/aligned.sam`. Indeed it did:
 
 	% aws s3 ls s3://marius-test-bucket/aligned.sam
-	2017-10-19 10:47:37 14196491221 aligned.sam
+	2018-12-13 16:29:49 14196491221 aligned.sam.
 
 ## 1000align
 
@@ -606,7 +595,7 @@ and integers):
 For example, to align the full sample from above, we can invoke
 1000align.rf with the following arguments:
 
-	% reflow run 1000align.rf  -sample HG00103 -out s3://marius-test-bucket/HG00103.bam
+	% reflow run 1000align.rf -sample HG00103 -out s3://marius-test-bucket/HG00103.bam
 
 In this case, if your account limits allow it, Reflow will launch
 additional EC2 instances in order to further parallelize the work to
@@ -615,16 +604,16 @@ In this run, we can see that Reflow is aligning 5 pairs in parallel
 across 2 instances (four can fit on the initial m4.16xlarge instance).
 
 	% reflow ps -l
-	marius@localhost/66986b84 align.align.sam 1:43PM 0:00 running 7.8GiB  4.7  6.5GiB   bwa ec2-52-40-140-59.us-west-2.compute.amazonaws.com:9000/21d327bb4da2b7cf/0551e1353c385dc420c00d93ff5b645c5b6dd022986d42fabb4003d9c632f383
-	marius@localhost/66986b84 align.align.sam 1:43PM 0:00 running 10.5GiB 58.1 4.2GiB   bwa ec2-52-40-140-59.us-west-2.compute.amazonaws.com:9000/21d327bb4da2b7cf/a39f5f6d8a8ed8b3200cc1ca6b6497dd6bc05ad501bd3f54587139e255972f21
-	marius@localhost/66986b84 align.align.sam 1:44PM 0:00 running 8.6GiB  50.8 925.0MiB bwa ec2-52-40-140-59.us-west-2.compute.amazonaws.com:9000/5cbba84c0ca1cb4e/5a956304a2cd3ec37db6240c82a97b4660803f2ea30f2b69139a384cd0664f68
-	marius@localhost/66986b84 align.align.sam 1:44PM 0:00 running 9.1GiB  3.3  0B       bwa ec2-52-40-140-59.us-west-2.compute.amazonaws.com:9000/5cbba84c0ca1cb4e/5ebd233dc5495c5c090c5177c7bfdecc1882972cf3504b532d22be1200e7e5f1
-	marius@localhost/66986b84 align.align.sam 1:48PM 0:00 running 6.8GiB  31.5 0B       bwa ec2-34-212-44-28.us-west-2.compute.amazonaws.com:9000/f128adf14a7a3d5a/6c1266c7c3e8fc9f2a56e370b552a163e14bf6f4ae73b7b5b067d408eb38dbcf
+	e74d4311 align.align.sam 11:45AM 0:00 running 10.9GiB 31.8 6.9GiB   bwa ec2-34-210-201-193.us-west-2.compute.amazonaws.com:9000/6a7ffa00d6b0d9e1/e74d4311708f1c9c8d3894a06b59029219e8a545c69aa79c3ecfedc1eeb898f6
+	59c561be align.align.sam 11:45AM 0:00 running 10.9GiB 32.7 6.4GiB   bwa ec2-34-210-201-193.us-west-2.compute.amazonaws.com:9000/6a7ffa00d6b0d9e1/59c561be5f627143108ce592d640126b88c23ba3d00974ad0a3c801a32b50fbe
+	ba688daf align.align.sam 11:47AM 0:00 running 8.7GiB  22.6 2.9GiB   bwa ec2-18-236-233-4.us-west-2.compute.amazonaws.com:9000/ae348d6c8a33f1c9/ba688daf5d50db514ee67972ec5f0a684f8a76faedeb9a25ce3d412e3c94c75c
+	0caece7f align.align.sam 11:47AM 0:00 running 8.7GiB  25.9 3.4GiB   bwa ec2-18-236-233-4.us-west-2.compute.amazonaws.com:9000/ae348d6c8a33f1c9/0caece7f38dc3d451d2a7411b1fcb375afa6c86a7b0b27ba7dd1f9d43d94f2f9
+	0b59e00c align.align.sam 11:47AM 0:00 running 10.4GiB 22.9 926.6MiB bwa ec2-18-236-233-4.us-west-2.compute.amazonaws.com:9000/ae348d6c8a33f1c9/0b59e00c848fa91e3b0871c30da3ed7e70fbc363bdc48fb09c3dfd61684c5fd9
 
 When it completes, an approximately 17GiB BAM file is deposited to s3:
 
 	% aws s3 ls s3://marius-test-bucket/HG00103.bam
-	2017-10-24 20:25:48 18752460252 HG00103.bam
+	2018-12-14 15:27:33 18761607096 HG00103.bam.
 
 ## A note on Reflow's EC2 cluster manager
 

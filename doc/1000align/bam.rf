@@ -6,11 +6,11 @@ param (
 
 val dirs = make("$/dirs")
 
-val samtools = "biocontainers/samtools"
+val samtools = "biocontainers/samtools:v1.7.0_cv2"
 val sambamba = "??"
 
 // Index indexes a BAM file using Samtools.
-func Index(bam file) file = 
+func Index(bam file) file =
 	exec(image := samtools, cpu := threads) (indexed file) {"
 		samtools index -@ {{threads*2}} {{bam}} {{indexed}}
 	"}
@@ -23,16 +23,16 @@ func Sort(bam file) file =
 	"}
 
 // ShardBAM splits a BAM file according to genome regions BED file.
-func Shard(bam, regions file) dir = 
+func Shard(bam, regions file) dir =
 	exec(image := samtools, cpu := threads) (shards dir) {"
 		parallel -a {{regions}} \
 			--colsep '\t' -j {{threads}} --delay 1 \
-			'samtools view -bh {{bam}} {1}:{2}-{3} 
+			'samtools view -bh {{bam}} {1}:{2}-{3}
 				> {{shards}}/{1}_{2}_{3}.bam)'
 	"}
 
 // Merge merges a list of BAM files into a single BAM file.
-func Merge(bams [file]) file = 
+func Merge(bams [file]) file =
 	if len(bams) == 1 {
 		val [bam] = bams
 		bam
@@ -51,13 +51,13 @@ func MarkDuplicates(bam file) (bam, bai file) = {
 			--overflow-list-size 10000000 \
 			{{bam}} {{out}}/dupmarked.bam
 		"}
-	
+
 	val (dupmarked, _) = dirs.Pick(out, "dupmarked.bam")
 	val (index, _) = dirs.Pick(out, "dupmarked.bam.bai")
 	(dupmarked, index)
 }
 
-func FilterDedupAndMapQ(bam file, mapq int) (bam file) = 
+func FilterDedupAndMapQ(bam file, mapq int) (bam file) =
 	exec(image := sambamba, cpu := threads) (filtered file) {"
 		sambamba_v0.6.5 view -F "mapping_quality >= {{mapq}} and not duplicate" \
 		-t {{threads*2}} \

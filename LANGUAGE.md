@@ -46,7 +46,7 @@ When we invoke `reflow run`, Reflow evaluates the expression bound to
 
 Reflow is type safe: before evaluating the expression, the module was
 checked by the type checker, and all expressions without an explicit type
-declaration was assigned a type. We can examine these with `reflow doc`:
+declaration were assigned a type. We can examine these with `reflow doc`:
 in this case, Main was inferred to be of type `string`, as expected.
 
 	% reflow doc hello.rf
@@ -83,7 +83,7 @@ The following is an overview of Reflow's syntactic features:
   <dt>directories (type <code>dir</code>)</dt>
   <dd>Directories are dictionaries mapping paths (string) to files; can be imported from external URLs: <code>dir("s3://grail-marius/testdir/")</code>; or from a local file: <code>dir("/path/to/dir/")</code>.</dd>
   <dt>tuples (type <code>(t1, t2, t3, ..)</code>)</dt>
-  <dd>Tuples are an ordered, fixed-size list of heterogeneously typed elements; examples: <code>(1, "foo", "bar")</code> (type <code><(int, string, string)</code>), </code>("foo", (1,2,3), 3)</code> (type <code>(string, (int, int, int), int)</code>).</dd>
+  <dd>Tuples are an ordered, fixed-size list of heterogeneously typed elements; examples: <code>(1, "foo", "bar")</code> (type <code>(int, string, string)</code>), </code>("foo", (1,2,3), 3)</code> (type <code>(string, (int, int, int), int)</code>).</dd>
   <dt>lists (type <code>[t]</code>)</dt>
   <dd>Lists are variable length collections of homogenously typed elements; examples: <code>[1, 2, 3, 4]</code> (type <code>[int]</code>), <code>["a", "b", "c"]</code> (type <code>[string]</code>).</dd>
   <dt>maps (type <code>[k:v]</code>)</dt>
@@ -146,7 +146,7 @@ val image = "..."
 // Bins returns a BED resources for a given bin size and a given
 // genome with the given bin size.
 func Bins(alignmentGenome, genomeSizes file, binSize int) (bed, nuc file) =
-	exec(image, mem := GiB, cpu := 1) (bed, nuc file)	{"
+	exec(image, mem := GiB, cpu := 1) (bed, nuc file) {"
 		bedtools makewindows -g {{genomeSizes}} -w {{binSize}} > {{bed}}
 		bedtools nuc -fi {{alignmentGenome}} -bed {{bed}} > {{nuc}}
 	"}
