@@ -543,7 +543,7 @@ func (c *Cluster) updatePool() {
 				c.Log.Debugf("%s: image %s version %s incompatible with local %s", *inst.InstanceId, c.ReflowletImage, inst.Version, reflowVer)
 				continue
 			}
-			if err := c.maybeUpdateImage(context.Background(), inst); err != nil {
+			if err := c.maybeUpdateImage(context.Background(), inst); err != nil && err != execimage.ErrNoEmbeddedImage {
 				c.Log.Debugf("%s: update %v", *inst.InstanceId, err)
 				continue
 			}

@@ -102,6 +102,9 @@ func InstallImage(exec io.ReadCloser, prefix string) error {
 	return syscall.Exec(path, os.Args, os.Environ())
 }
 
+// ErrNoEmbeddedImage is thrown if the current binary has no embedded linux image.
+var ErrNoEmbeddedImage = errors.New("no embedded linux image")
+
 // EmbeddedLinuxImage returns a reader pointing to an embedded linux image
 // with the following assumptions:
 // - if the current GOOS is linux, returns the current binary.
@@ -130,7 +133,7 @@ func EmbeddedLinuxImage() (io.ReadCloser, error) {
 		return nil, err
 	}
 	if fi.Size() == machoSize {
-		return nil, errors.New("no embedded linux image")
+		return nil, ErrNoEmbeddedImage
 	}
 	r, err := os.Open(path)
 	if err != nil {
