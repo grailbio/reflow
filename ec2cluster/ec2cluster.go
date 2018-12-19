@@ -130,7 +130,7 @@ type Cluster struct {
 	instanceState   *instanceState
 	instanceConfigs map[string]instanceConfig
 	pools           map[string]pool.Pool
-	updatec         chan struct{}
+	updatec         chan chan struct{}
 	reconciledc     chan struct{}
 
 	wait chan *waiter
@@ -185,7 +185,7 @@ func (c *Cluster) Init() error {
 	}
 	c.instanceState = newInstanceState(instances, 5*time.Minute, c.Region)
 	c.reconciledc = make(chan struct{}, 1)
-	c.updatec = make(chan struct{}, 1)
+	c.updatec = make(chan chan struct{}, 1)
 
 	c.updatePool()
 	go c.maintainPool()
@@ -475,15 +475,18 @@ func (c *Cluster) maintainPool() {
 			if err := c.reconcile(); err != nil {
 				c.Log.Printf("reconcile error: %v", err)
 			}
-		case <-c.updatec:
+		case updatedc := <-c.updatec:
 			c.updatePool()
+			if updatedc != nil {
+				close(updatedc)
+			}
 		case <-updateTick.C:
 			c.updatePool()
 		}
 	}
 }
 
-func (c *Cluster) updateState(update func(map[string]*reflowletInstance)) {
+func (c *Cluster) updateState(update func(map[string]*reflowletInstance), updatedc chan struct{}) {
 	c.File.Lock()
 	instances, _ := c.unmarshalState()
 	if instances == nil {
@@ -495,17 +498,19 @@ func (c *Cluster) updateState(update func(map[string]*reflowletInstance)) {
 	}
 	c.File.Unlock()
 	select {
-	case c.updatec <- struct{}{}:
+	case c.updatec <- updatedc:
 	default:
 	}
 }
 
 func (c *Cluster) add(newInstances ...*reflowletInstance) {
+	updatedc := make(chan struct{})
 	c.updateState(func(instances map[string]*reflowletInstance) {
 		for _, inst := range newInstances {
 			instances[*inst.InstanceId] = inst
 		}
-	})
+	}, updatedc)
+	<-updatedc
 }
 
 func (c *Cluster) remove(instanceIds ...string) {
@@ -513,7 +518,7 @@ func (c *Cluster) remove(instanceIds ...string) {
 		for _, id := range instanceIds {
 			delete(instances, id)
 		}
-	})
+	}, nil)
 }
 
 func (c *Cluster) updatePool() {
