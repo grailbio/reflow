@@ -59,6 +59,7 @@ func (e *Eval) Main() *flow.Flow {
 	if v == nil {
 		return nil
 	}
+	v = syntax.Force(v, e.MainType())
 	switch v := v.(type) {
 	case *flow.Flow:
 		return v
