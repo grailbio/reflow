@@ -22,21 +22,17 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
-	"github.com/grailbio/base/digest"
-	"github.com/grailbio/base/retry"
-	"github.com/grailbio/base/state"
 	"github.com/grailbio/base/status"
-	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/ecrauth"
-	"github.com/grailbio/reflow/internal/execimage"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/pool/client"
@@ -44,22 +40,13 @@ import (
 
 const (
 	ec2PollInterval = time.Minute
-	// ec2MaxFilter is the maximum number of filter expressions
-	// that are permitted in EC2 API calls.
-	ec2MaxFilter      = 200
-	statePollInterval = 10 * time.Second
 )
 
-var (
-	localDigest digest.Digest
-	digestOnce  once.Task
-)
-
-// A Cluster implements a runner.Cluster backed by EC2. The cluster
-// is stateful (stored by a local state.File), and expands with
-// demand. Instances are configured so that they shut down when they
+// A Cluster implements a runner.Cluster backed by EC2.  The cluster expands
+// with demand.  Instances are configured so that they shut down when they
 // are idle on a billing boundary.
 //
+// No local state is stored; state is inferred from labels managed by EC2.
 // Cluster supports safely sharing state across many processes. In
 // this case, the processes coordinate to maintain a shared cluster,
 // where instances can be used by any of the constituent processes.
@@ -67,23 +54,20 @@ var (
 // share the same cluster efficiently.
 type Cluster struct {
 	pool.Mux
-
 	// HTTPClient is used to communicate to the reflowlet servers
 	// running on the individual instances. In Cluster, this is done for
 	// liveness/health checking.
 	HTTPClient *http.Client
 	// Logger for cluster events.
 	Log *log.Logger
-	// File stores the cluster's state.
-	File *state.File
 	// EC2 is the EC2 API instance through which EC2 calls are made.
 	EC2 ec2iface.EC2API
 	// Authenticator authenticates the ECR repository that stores the
 	// Reflowlet container.
 	Authenticator ecrauth.Interface
-	// Tag is the tag that's attached instance types created by this cluster.
-	Tag string
-	// Labels is the set of labels that should be associated with newly created instances.
+	// InstanceTags is the set of EC2 tags attached to instances created by this Cluster.
+	InstanceTags map[string]string
+	// Labels is the set of labels that should be added as EC2 tags (for informational purpose only).
 	Labels pool.Labels
 	// Spot is set to true when a spot instance is desired.
 	Spot bool
@@ -99,6 +83,8 @@ type Cluster struct {
 	// ReflowletImage is the Docker URI of the image used for instance reflowlets.
 	// The image must be retrievable by the cluster's authenticator.
 	ReflowletImage string
+	// ReflowVersion is the version of reflow binary compatible with this cluster.
+	ReflowVersion string
 	// MaxInstances is the maximum number of concurrent instances permitted.
 	MaxInstances int
 	// DiskType is the EBS disk type to use.
@@ -129,9 +115,9 @@ type Cluster struct {
 
 	instanceState   *instanceState
 	instanceConfigs map[string]instanceConfig
-	pools           map[string]pool.Pool
-	updatec         chan chan struct{}
-	reconciledc     chan struct{}
+
+	// state maintains the state of the cluster by keeping it in-sync with EC2.
+	state *state
 
 	wait chan *waiter
 }
@@ -167,8 +153,9 @@ func (c *Cluster) Init() error {
 	if c.SecurityGroup == "" {
 		return errors.New("missing EC2 security group")
 	}
-	c.pools = map[string]pool.Pool{}
 	c.wait = make(chan *waiter)
+
+	c.InstanceTags["managedby"] = "reflow"
 
 	// Construct the set of legal instances and set available disk space.
 	var instances []instanceConfig
@@ -184,11 +171,12 @@ func (c *Cluster) Init() error {
 		return errors.New("no configured instance types")
 	}
 	c.instanceState = newInstanceState(instances, 5*time.Minute, c.Region)
-	c.reconciledc = make(chan struct{}, 1)
-	c.updatec = make(chan chan struct{}, 1)
-
-	c.updatePool()
-	go c.maintainPool()
+	// TODO(swami):  Pass through a context from somewhere upstream as appropriate.
+	ctx := context.Background()
+	c.state = &state{c: c}
+	c.state.Init()
+	go c.state.Maintain(ctx)
+	c.state.Sync()
 	go c.loop()
 	return nil
 }
@@ -216,7 +204,7 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	ticker := time.NewTicker(20 * time.Second)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	needch := c.allocate(ctx, req)
 	for {
@@ -242,6 +230,19 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 			}
 		}
 	}
+}
+
+// QueryTags returns the list of tags to use to query for instances belonging to this cluster.
+// This includes all InstanceTags that are set on any instance brought up by this cluster,
+// and a "reflowlet:version" tag (set on the instance by the reflowlet once it comes up)
+// to match the ReflowVersion of this cluster.
+func (c *Cluster) QueryTags() map[string]string {
+	qtags := make(map[string]string)
+	for k, v := range c.InstanceTags {
+		qtags[k] = v
+	}
+	qtags["reflowlet:version"] = c.ReflowVersion
+	return qtags
 }
 
 func (c *Cluster) allocate(ctx context.Context, req reflow.Requirements) <-chan struct{} {
@@ -271,7 +272,7 @@ func (c *Cluster) loop() {
 			Log:             c.Log,
 			Authenticator:   c.Authenticator,
 			EC2:             c.EC2,
-			Tag:             c.Tag,
+			InstanceTags:    c.InstanceTags,
 			Labels:          c.Labels,
 			Spot:            c.Spot,
 			InstanceProfile: c.InstanceProfile,
@@ -295,8 +296,6 @@ func (c *Cluster) loop() {
 	}
 
 	for {
-		instances, _ := c.unmarshalState()
-		n := len(instances)
 		var needPoll bool
 		// Here we try to pack resource requests. First, we order each
 		// request by the "magnitude" of the request (as defined by
@@ -319,8 +318,10 @@ func (c *Cluster) loop() {
 			waiting.Add(waiting, w.Max())
 		}
 		var totalPrice float64
-		for _, instance := range instances {
-			config := c.instanceConfigs[*instance.InstanceType]
+		n := 0
+		for i, m := range c.state.InstanceTypeCounts() {
+			n += m
+			config := c.instanceConfigs[i]
 			total.Add(total, config.Resources)
 			totalPrice += config.Price[c.Region]
 		}
@@ -401,19 +402,14 @@ func (c *Cluster) loop() {
 		if needPoll {
 			pollch = time.After(time.Minute)
 		}
-		instanceTypes := make(map[string]int)
-		for _, instance := range instances {
-			instanceTypes[*instance.InstanceType]++
-		}
 		var counts []string
-		for typ, n := range instanceTypes {
+		for typ, n := range c.state.InstanceTypeCounts() {
 			counts = append(counts, fmt.Sprintf("%s:%d", typ, n))
 		}
 		sort.Strings(counts)
 		c.Status.Printf("%d instances: %s (<=$%.1f/hr), total%s, waiting%s, pending%s",
 			n, strings.Join(counts, ","), totalPrice, total, waiting, pending)
 		select {
-		case <-c.reconciledc:
 		case <-pollch:
 		case inst := <-done:
 			pending.Sub(pending, inst.Config.Resources)
@@ -427,7 +423,8 @@ func (c *Cluster) loop() {
 			default:
 				continue
 			}
-			c.add(inst.Instance())
+			// Initiate a sync and wait for it to be done.
+			c.state.Sync()
 			var (
 				ws        []*waiter
 				available = inst.Config.Resources
@@ -462,276 +459,148 @@ func (c *Cluster) loop() {
 	}
 }
 
-// maintainPool reconciles external state changes with local state.
-func (c *Cluster) maintainPool() {
-	ec2Tick := time.NewTicker(ec2PollInterval)
-	updateTick := time.NewTicker(statePollInterval)
-	if err := c.reconcile(); err != nil {
-		c.Log.Printf("reconcile error: %v", err)
-	}
-	for {
-		select {
-		case <-ec2Tick.C:
-			if err := c.reconcile(); err != nil {
-				c.Log.Printf("reconcile error: %v", err)
-			}
-		case updatedc := <-c.updatec:
-			c.updatePool()
-			if updatedc != nil {
-				close(updatedc)
-			}
-		case <-updateTick.C:
-			c.updatePool()
-		}
-	}
+type reflowletPool struct {
+	inst *reflowletInstance
+	pool pool.Pool
 }
 
-func (c *Cluster) updateState(update func(map[string]*reflowletInstance), updatedc chan struct{}) {
-	c.File.Lock()
-	instances, _ := c.unmarshalState()
-	if instances == nil {
-		instances = make(map[string]*reflowletInstance)
-	}
-	update(instances)
-	if err := c.File.Marshal(instances); err != nil {
-		c.Log.Printf("marshal state error: %v", err)
-	}
-	c.File.Unlock()
-	select {
-	case c.updatec <- updatedc:
-	default:
-	}
+// state helps maintain the state of the underlying cluster.
+type state struct {
+	c         *Cluster
+	reconcile func(ctx context.Context) error
+
+	mu   sync.Mutex
+	pool map[string]reflowletPool
+
+	smu  sync.Mutex
+	sync chan struct{}
+
+	pollInterval time.Duration
 }
 
-func (c *Cluster) add(newInstances ...*reflowletInstance) {
-	updatedc := make(chan struct{})
-	c.updateState(func(instances map[string]*reflowletInstance) {
-		for _, inst := range newInstances {
-			instances[*inst.InstanceId] = inst
-		}
-	}, updatedc)
-	<-updatedc
-}
-
-func (c *Cluster) remove(instanceIds ...string) {
-	c.updateState(func(instances map[string]*reflowletInstance) {
-		for _, id := range instanceIds {
-			delete(instances, id)
-		}
-	}, nil)
-}
-
-func (c *Cluster) updatePool() {
-	instances, err := c.unmarshalState()
-	if err != nil {
-		c.Log.Printf("error unmarshal state: %v", err)
-		return
+// Init initializes the state.
+func (s *state) Init() {
+	if s.pollInterval == 0 {
+		s.pollInterval = ec2PollInterval
 	}
-	for id, inst := range instances {
-		if c.pools[id] == nil {
-			baseurl := fmt.Sprintf("https://%s:9000/v1/", *inst.PublicDnsName)
-			clnt, err := client.New(baseurl, c.HTTPClient, nil /*log.New(os.Stderr, "client: ", 0)*/)
+	if s.reconcile == nil {
+		s.reconcile = func(ctx context.Context) error {
+			instances, err := s.getEC2State(ctx)
 			if err != nil {
-				c.Log.Printf("client %s: %v", baseurl, err)
-				continue
-			}
-			// TODO(swami): Remove all reflowlet version tracking and compatibility-check code.
-			// check version compatibility.
-			if reflowVer, err := getString(c.Config, "reflowversion"); err != nil {
-				c.Log.Debugf("%s: unknown version: %v", *inst.InstanceId, err)
-			} else if reflowVer != inst.Version {
-				c.Log.Debugf("%s: image %s version %s incompatible with local %s", *inst.InstanceId, c.ReflowletImage, inst.Version, reflowVer)
-				continue
-			}
-			if err := c.maybeUpdateImage(context.Background(), inst); err != nil && err != execimage.ErrNoEmbeddedImage {
-				c.Log.Debugf("%s: update %v", *inst.InstanceId, err)
-				continue
-			}
-			// Versions are compatible!
-			c.pools[*inst.InstanceId] = clnt
-		}
-	}
-	for id := range c.pools {
-		if instances[id] == nil {
-			delete(c.pools, id)
-		}
-	}
-	c.SetPools(vals(c.pools))
-}
-
-func imageDigest() (digest.Digest, error) {
-	err := digestOnce.Do(func() error {
-		var err error
-		r, err := execimage.EmbeddedLinuxImage()
-		if err != nil {
-			return err
-		}
-		localDigest, err = execimage.Digest(r)
-		defer r.Close()
-		return err
-	})
-	return localDigest, err
-}
-
-func (c *Cluster) maybeUpdateImage(ctx context.Context, inst *reflowletInstance) error {
-	localDigest, err := imageDigest()
-	if err != nil {
-		return err
-	}
-	clnt, err := client.New(fmt.Sprintf("https://%s:9000/v1/", *inst.PublicDnsName), c.HTTPClient, nil)
-	if err != nil {
-		return err
-	}
-	policy := retry.MaxTries(retry.Backoff(50*time.Millisecond, 1*time.Second, 1.5), 3)
-	for retries := 0; ; retries++ {
-		ctx2, cancel := context.WithTimeout(ctx, 10*time.Second)
-		remoteDigest, err := clnt.ExecImage(ctx2)
-		cancel()
-		if err != nil {
-			if !errors.Is(errors.Net, err) {
 				return err
 			}
-			continue
-		}
-		if remoteDigest == localDigest {
-			c.Log.Debugf("%s: image %s matches local", *inst.InstanceId, remoteDigest.Short())
+			s.mu.Lock()
+			defer s.mu.Unlock()
+
+			// Remove from pool instances that are not available on EC2.
+			for id := range s.pool {
+				if instances[id] == nil {
+					delete(s.pool, id)
+				}
+			}
+			// Add instances on EC2 that are not in the pool.
+			for id, inst := range instances {
+				if _, ok := s.pool[id]; !ok {
+					baseurl := fmt.Sprintf("https://%s:9000/v1/", *inst.PublicDnsName)
+					clnt, err := client.New(baseurl, s.c.HTTPClient, nil)
+					if err != nil {
+						s.c.Log.Errorf("client %s: %v", baseurl, err)
+						continue
+					}
+					// Add instance to the pool.
+					s.pool[*inst.InstanceId] = reflowletPool{inst, clnt}
+				}
+			}
+			s.c.SetPools(vals(s.pool))
 			return nil
 		}
-		c.Log.Debugf("%s: image %s needs update %s", *inst.InstanceId, remoteDigest.Short(), localDigest.Short())
-		ctx2, cancel = context.WithTimeout(ctx, 300*time.Second)
-		err = c.maybeUploadImage(ctx2, localDigest)
-		cancel()
-		if err != nil {
-			return err
-		}
-		ctx2, cancel = context.WithTimeout(ctx, 10*time.Second)
-		err = clnt.InstallImage(ctx2, localDigest)
-		cancel()
-		if err != nil {
-			return err
-		}
-		if err = retry.Wait(ctx, policy, retries); err != nil {
-			return err
-		}
 	}
-	return errors.New("update image failed")
+	s.pool = make(map[string]reflowletPool)
+	s.sync = make(chan struct{})
 }
 
-func (c *Cluster) maybeUploadImage(ctx context.Context, localDigest digest.Digest) error {
-	repo, err := c.Config.Repository()
-	if err != nil {
-		return err
+// InstanceTypeCounts returns number of instances of each instance type present in the cluster pool.
+func (s *state) InstanceTypeCounts() map[string]int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	instanceTypes := make(map[string]int)
+	for _, instance := range s.pool {
+		instanceTypes[*instance.inst.InstanceType]++
 	}
-	_, err = repo.Stat(ctx, localDigest)
-	if err != nil && !errors.Is(errors.NotExist, err) {
-		return err
-	}
-	if err == nil {
-		return err
-	}
-	// Image doesn't exist in repo, so upload it.
-	r, err := execimage.EmbeddedLinuxImage()
-	if err != nil {
-		return err
-	}
-	defer r.Close()
-	c.Log.Debugf("uploading reflow image (%s) to repo", localDigest.Short())
-	repoDigest, err := repo.Put(ctx, r)
-	if err != nil {
-		return err
-	}
-	if repoDigest != localDigest {
-		return errors.New("digests mismatch")
-	}
-	return nil
+	return instanceTypes
 }
 
-func (c *Cluster) reconcile() error {
-	instances, err := c.unmarshalState()
-	if err != nil {
-		return err
-	}
-	var instanceIds []*string
-	for id := range instances {
-		instanceIds = append(instanceIds, aws.String(id))
-	}
-	// The EC2 API has a limit to the number of filters that are permissible in a single
-	// call, so we have to page through our instance IDs here.
-	live := map[string]bool{}
-	for len(instanceIds) > 0 {
-		var queryInstanceIds []*string
-		if len(instanceIds) > ec2MaxFilter {
-			queryInstanceIds = instanceIds[:ec2MaxFilter]
-			instanceIds = instanceIds[ec2MaxFilter:]
-		} else {
-			queryInstanceIds = instanceIds
-			instanceIds = nil
+// Sync reconciles immediately and waits till its complete.
+func (s *state) Sync() {
+	s.smu.Lock()
+	defer s.smu.Unlock()
+	s.sync <- struct{}{}
+	<-s.sync
+}
+
+// Maintain periodically reconciles local state with EC2.
+func (s *state) Maintain(ctx context.Context) {
+	tick := time.NewTicker(s.pollInterval)
+	defer tick.Stop()
+	for {
+		select {
+		case <-tick.C:
+			if err := s.reconcile(ctx); err != nil {
+				s.c.Log.Errorf("maintain: %v", err)
+			}
+		case <-s.sync:
+			if err := s.reconcile(ctx); err != nil {
+				s.c.Log.Errorf("maintain: %v", err)
+			}
+			// Notify that sync is done.
+			s.sync <- struct{}{}
+		case <-ctx.Done():
+			return
 		}
-		var q []string
-		for _, id := range queryInstanceIds {
-			q = append(q, *id)
-		}
-		resp, err := c.EC2.DescribeInstances(&ec2.DescribeInstancesInput{
-			Filters: []*ec2.Filter{{
-				Name:   aws.String("instance-id"),
-				Values: queryInstanceIds,
-			}},
+	}
+}
+
+func (s *state) getEC2State(ctx context.Context) (map[string]*reflowletInstance, error) {
+	var filters []*ec2.Filter
+	for k, v := range s.c.QueryTags() {
+		filters = append(filters, &ec2.Filter{
+			Name: aws.String("tag:" + k), Values: []*string{aws.String(v)},
 		})
+	}
+	req := &ec2.DescribeInstancesInput{Filters: filters, MaxResults: aws.Int64(1000)}
+	instances := make(map[string]*reflowletInstance)
+	for req != nil {
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		resp, err := s.c.EC2.DescribeInstancesWithContext(ctx, req)
+		cancel()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, resv := range resp.Reservations {
 			for _, inst := range resv.Instances {
-				// For some reason, we keep getting unrelated instances in these
-				// requests.
-				if instances[*inst.InstanceId] == nil {
-					continue
-				}
 				switch *inst.State.Name {
 				case "shutting-down", "terminated", "stopping", "stopped":
-					c.Log.Debugf("marking instance %s down: %s", *inst.InstanceId, *inst.State.Name)
+					s.c.Log.Debugf("instance %s: %s", *inst.InstanceId, *inst.State.Name)
 				default:
-					live[*inst.InstanceId] = true
+					instances[*inst.InstanceId] = newReflowletInstance(inst)
 				}
 			}
 		}
-	}
-	var dead []string
-	for id := range instances {
-		if !live[id] {
-			dead = append(dead, id)
+		if resp.NextToken != nil {
+			req.NextToken = resp.NextToken
+		} else {
+			req = nil
 		}
-	}
-	c.remove(dead...)
-	select {
-	case c.reconciledc <- struct{}{}:
-	default:
-	}
-	return nil
-}
-
-func (c *Cluster) unmarshalState() (map[string]*reflowletInstance, error) {
-	var instances map[string]*reflowletInstance
-	if err := c.File.Unmarshal(&instances); err != nil && err != state.ErrNoState {
-		return nil, err
 	}
 	return instances, nil
 }
 
-func vals(m map[string]pool.Pool) []pool.Pool {
+func vals(m map[string]reflowletPool) []pool.Pool {
 	pools := make([]pool.Pool, len(m))
 	i := 0
 	for _, p := range m {
-		pools[i] = p
+		pools[i] = p.pool
 		i++
 	}
 	return pools
-}
-
-func getString(c config.Config, key string) (string, error) {
-	val, ok := c.Value(key).(string)
-	if !ok {
-		return "", fmt.Errorf("key \"%s\" is not a string", key)
-	}
-	return val, nil
 }

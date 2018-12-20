@@ -34,3 +34,19 @@ func (c *KeyConfig) Value(key string) interface{} {
 	}
 	return val
 }
+
+// StaticKeyConfig provides values for keys, but does not marshal them.
+// Note that they Val provided for the Key overrides that (if any) provided by Config.
+type StaticKeyConfig struct {
+	Config
+	Key string
+	Val interface{}
+}
+
+// Value returns this StaticKeyConfig's value if the key matches Key.
+func (c *StaticKeyConfig) Value(key string) interface{} {
+	if key == c.Key {
+		return c.Val
+	}
+	return c.Config.Value(key)
+}

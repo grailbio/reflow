@@ -44,8 +44,10 @@ func main() {
 	var cfg config.Config = make(config.Base)
 	cfg = defaultConfig{cfg}
 	cfg = &config.KeyConfig{cfg, "aws", "awsenv"}
+	// TODO(swami):  Don't marshal reflowlet and version in the config
+	// because they shouldn't be changeable by the user once bootstrapping is rolled out.
 	cfg = &config.KeyConfig{cfg, "reflowlet", reflowlet}
-	cfg = &config.KeyConfig{cfg, "reflowversion", version}
+	cfg = &config.StaticKeyConfig{cfg, "reflowversion", version}
 	cmd := &tool.Cmd{
 		// Turn caching off by default. This way we can run a vanilla Reflow
 		// binary in local mode without any additional configuration.

@@ -7,25 +7,24 @@ package ec2cluster
 import (
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"regexp"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ecr"
 	"github.com/aws/aws-sdk-go/service/ecr/ecriface"
-	"github.com/grailbio/base/state"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/ec2authenticator"
+	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/runner"
 	"golang.org/x/net/http2"
-	yaml "gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v2"
 )
 
 const (
 	defaultMaxInstances = 100
+	defaultClusterName  = "default"
 	ec2cluster          = "ec2cluster"
 )
 
@@ -47,7 +46,7 @@ func init() {
 type Config struct {
 	config.Config `yaml:"-"`
 
-	// Name is the name of the cluster config, which defaults to "ec2cluster".
+	// Name is the name of the cluster config, which defaults to defaultClusterName.
 	// Multiple clusters can be launched/maintained simultaneously by using different names.
 	Name string `yaml:"name,omitempty"`
 
@@ -135,7 +134,7 @@ func (c *Config) name() string {
 	if c.Name != "" {
 		return c.Name
 	}
-	return ec2cluster
+	return defaultClusterName
 }
 
 // Cluster returns an EC2-based cluster using the provided parameters.
@@ -156,11 +155,6 @@ func (c *Config) Cluster() (runner.Cluster, error) {
 		return nil, err
 	}
 	svc := ec2.New(sess, &aws.Config{MaxRetries: aws.Int(13)})
-	path := filepath.Join(os.ExpandEnv("$HOME/.reflow") /*c.Version,*/, c.name())
-	state, err := state.Open(path)
-	if err != nil {
-		return nil, err
-	}
 	id, err := c.User()
 	if err != nil {
 		log.Errorf("retrieving username: %s", err)
@@ -170,25 +164,36 @@ func (c *Config) Cluster() (runner.Cluster, error) {
 	if reflowlet, err = getString(c, "reflowlet"); err != nil {
 		return nil, err
 	}
+	var reflowVersion string
+	if reflowVersion, err = getString(c.Config, "reflowversion"); err != nil {
+		return nil, err
+	}
+	if reflowVersion == "" {
+		return nil, errors.New("no version specified in cluster configuration")
+	}
 	if err := validateReflowletImage(ecr.New(sess), reflowlet, log); err != nil {
 		return nil, err
 	}
+	labels := c.Labels().Copy()
+	qtags := make(map[string]string)
+	qtags["Name"] = fmt.Sprintf("%s (reflow)", id)
+	qtags["cluster"] = c.name()
 	cluster := &Cluster{
 		// This is a little sketchy with layering, etc. e.g., keys for
 		// providers on top of us may not be available, etc.
 		Config:          c,
 		EC2:             svc,
-		File:            state,
 		Authenticator:   ec2authenticator.New(sess),
 		HTTPClient:      httpClient,
 		Log:             log.Tee(nil, "ec2cluster: "),
-		Tag:             fmt.Sprintf("%s (reflow)", id),
-		Labels:          c.Labels(),
+		InstanceTags:    qtags,
+		Labels:          labels,
 		Spot:            c.Spot,
 		InstanceProfile: c.InstanceProfile,
 		SecurityGroup:   c.SecurityGroup,
 		Region:          c.Region,
 		ReflowletImage:  reflowlet,
+		ReflowVersion:   reflowVersion,
 		MaxInstances:    c.MaxInstances,
 		DiskType:        c.DiskType,
 		DiskSpace:       c.DiskSpace,
@@ -229,4 +234,12 @@ func validateReflowletImage(ecrApi ecriface.ECRAPI, reflowlet string, log *log.L
 		return fmt.Errorf("required reflowlet image not found on AWS: %v", err)
 	}
 	return nil
+}
+
+func getString(c config.Config, key string) (string, error) {
+	val, ok := c.Value(key).(string)
+	if !ok {
+		return "", fmt.Errorf("key \"%s\" is not a string", key)
+	}
+	return val, nil
 }

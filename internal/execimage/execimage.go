@@ -115,7 +115,7 @@ var ErrNoEmbeddedImage = errors.New("no embedded linux image")
 // - if the current GOOS is darwin, and current binary size is larger
 // than what Mach-O reports, returns a reader to the current binary
 // offset by the size of the darwin binary.
-// - reports error if
+// - returns ErrNoEmbeddedImage if
 //   - if the current GOOS is not darwin
 //   - if the current GOOS is darwin, but there's no embedding.
 func EmbeddedLinuxImage() (io.ReadCloser, error) {

@@ -5,18 +5,29 @@
 package ec2cluster
 
 import (
+	"fmt"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 )
 
 type mockEC2Client struct {
 	ec2iface.EC2API
-	DescribeInstancesInputs []*ec2.DescribeInstancesInput
+	output *ec2.DescribeInstancesOutput
 }
 
-// DescribeInstances sends the call on DescribeInstancesInputs
-// and returns an empty result.
+// DescribeInstances returns e.output as DescribeInstancesOutput.
 func (e *mockEC2Client) DescribeInstances(input *ec2.DescribeInstancesInput) (*ec2.DescribeInstancesOutput, error) {
-	e.DescribeInstancesInputs = append(e.DescribeInstancesInputs, input)
-	return new(ec2.DescribeInstancesOutput), nil
+	o := e.output
+	if o != nil {
+		return o, nil
+	}
+	return nil, fmt.Errorf("must set return value before call to mockEC2Client.DescribeInstances")
+}
+
+// DescribeInstances returns e.output as DescribeInstancesOutput.
+func (e *mockEC2Client) DescribeInstancesWithContext(ctx aws.Context, input *ec2.DescribeInstancesInput, _ ...request.Option) (*ec2.DescribeInstancesOutput, error) {
+	return e.DescribeInstances(input)
 }
