@@ -257,3 +257,46 @@ func TestParseTemplate(t *testing.T) {
 		}
 	}
 }
+
+func stringLit(s string) string {
+	return `"` + s + `"`
+}
+
+func rawStringLit(s string) string {
+	return "`" + s + "`"
+}
+
+func TestParseString(t *testing.T) {
+	for i, c := range []struct {
+		input string
+		want  string
+	}{
+		{stringLit(``), ""},
+		{stringLit(`hello`), "hello"},
+		{stringLit(`hello world`), "hello world"},
+		{stringLit(`hello\tworld`), "hello\tworld"},
+		// Note literal tab in next line.
+		{stringLit(`hello	world`), "hello\tworld"},
+		{rawStringLit(``), ""},
+		{rawStringLit(`hello`), "hello"},
+		{rawStringLit(`hello world`), "hello world"},
+		{rawStringLit(`hello\tworld`), "hello\\tworld"},
+		// Note literal tab in next line.
+		{rawStringLit(`hello	world`), "hello\tworld"},
+	} {
+		p := Parser{Mode: ParseExpr, Body: bytes.NewReader([]byte(c.input))}
+		if err := p.Parse(); err != nil {
+			t.Errorf("error parsing string %d: %v", i, c.input)
+		}
+		e := p.Expr
+		if got, want := e.Kind, ExprLit; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		if got, want := e.Type, types.String; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		if got, want := e.Val, c.want; got != want {
+			t.Errorf("got \"%v\", want \"%s\"", got, want)
+		}
+	}
+}

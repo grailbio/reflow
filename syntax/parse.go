@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -317,11 +318,16 @@ Scan:
 		return tokExpr
 
 	case scanner.String, scanner.RawString:
+		unquotedText, err := strconv.Unquote(text)
+		if err != nil {
+			x.Error("failed to unquote string \"" + text + "\": " + err.Error())
+			return tokError
+		}
 		yy.expr = &Expr{
 			Position: pos,
 			Kind:     ExprLit,
 			Type:     types.String,
-			Val:      values.T(text[1 : len(text)-1]),
+			Val:      values.T(unquotedText),
 		}
 		return tokExpr
 	case scanner.Template:
