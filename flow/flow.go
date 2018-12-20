@@ -8,6 +8,7 @@ package flow
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	_ "crypto/sha256"
 	"encoding/binary"
@@ -94,6 +95,8 @@ const (
 	Requirements
 	// Data evaluates to a literal (inline) piece of data.
 	Data
+	// Kctx is a flow continuation with access to the evaluator context.
+	Kctx
 
 	maxOp
 )
@@ -113,6 +116,7 @@ var opStrings = [maxOp]string{
 	Coerce:       "coerce",
 	Requirements: "requirements",
 	Data:         "data",
+	Kctx:         "kctx",
 }
 
 func (o Op) String() string {
@@ -219,6 +223,14 @@ type ExecArg struct {
 	Index int
 }
 
+// KContext is the context provided to a continuation (Kctx).
+type KContext interface {
+	// Context is supplied context.
+	context.Context
+	// Repository returns the repository.
+	Repository() reflow.Repository
+}
+
 // Flow defines an AST for data flows. It is a logical union of ops
 // as defined by type Op. Child nodes witness computational
 // dependencies and must therefore be evaluated before its parents.
@@ -236,15 +248,17 @@ type Flow struct {
 	// Config stores this Flow's config.
 	Config Config
 
-	Image   string                           // OpExec
-	Cmd     string                           // OpExec
-	URL     *url.URL                         // OpIntern, Extern
-	Re      *regexp.Regexp                   // Groupby, Collect
-	Repl    string                           // Collect
-	MapFunc func(*Flow) *Flow                // Map, MapMerge
-	MapFlow *Flow                            // Map
-	K       func(vs []values.T) *Flow        // K
-	Coerce  func(values.T) (values.T, error) // Coerce
+	Image   string                                 // OpExec
+	Cmd     string                                 // OpExec
+	URL     *url.URL                               // OpIntern, Extern
+	Re      *regexp.Regexp                         // Groupby, Collect
+	Repl    string                                 // Collect
+	MapFunc func(*Flow) *Flow                      // Map, MapMerge
+	MapFlow *Flow                                  // Map
+	K       func(vs []values.T) *Flow              // K
+	Kctx    func(ctx KContext, v []values.T) *Flow // Kctx
+	Coerce  func(values.T) (values.T, error)       // Coerce
+
 	// ArgMap maps exec arguments to dependencies. (OpExec).
 	Argmap []ExecArg
 	// OutputIsDir tells whether the output i is a directory.
@@ -438,6 +452,7 @@ func (f *Flow) Fork(flow *Flow) {
 	f.Resources = flow.Resources
 	f.Value = flow.Value
 	f.K = flow.K
+	f.Kctx = flow.Kctx
 	f.Argmap = flow.Argmap
 	f.Coerce = flow.Coerce
 	f.OutputIsDir = flow.OutputIsDir
@@ -513,6 +528,8 @@ func (f *Flow) DebugString() string {
 		fmt.Fprintf(b, "pullup<%s>(", dstr)
 	case K:
 		fmt.Fprintf(b, "k<%s>(", dstr)
+	case Kctx:
+		fmt.Fprintf(b, "k1<%s>(", dstr)
 	case Coerce:
 		fmt.Fprintf(b, "coerce<%s>(", dstr)
 	case Requirements:
@@ -888,7 +905,7 @@ func (f *Flow) WriteDigest(w io.Writer) {
 			}
 			digest.WriteDigest(w, f.FlowDigest)
 		}
-	case K, Coerce:
+	case K, Kctx, Coerce:
 		if f.FlowDigest.IsZero() {
 			panic("invalid flow digest")
 		}

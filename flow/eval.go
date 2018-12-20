@@ -1189,6 +1189,15 @@ func (e *Eval) todo(f *Flow, visited flowOnce, v *FlowVisitor) {
 	}
 }
 
+type kCtx struct {
+	context.Context
+	repo reflow.Repository
+}
+
+func (k kCtx) Repository() reflow.Repository {
+	return k.repo
+}
+
 // Eval performs a one-step simplification of f. It must be called
 // only after all of f's dependencies are ready.
 //
@@ -1220,7 +1229,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 						e.Log.Errorf("eval %s runtime error: %v", f.ExecString(false), err)
 					}
 				*/
-			} else if f.State == Done && f.Op != K && f.Op != Coerce {
+			} else if f.State == Done && f.Op != K && f.Op != Kctx && f.Op != Coerce {
 				f.Runtime = time.Since(begin)
 			}
 		}()
@@ -1312,6 +1321,14 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 			vs[i] = dep.Value
 		}
 		ff := f.K(vs)
+		e.Mutate(f, Fork(ff), Init)
+		e.Mutate(f.Parent, Done)
+	case Kctx:
+		vs := make([]values.T, len(f.Deps))
+		for i, dep := range f.Deps {
+			vs[i] = dep.Value
+		}
+		ff := f.Kctx(kCtx{ctx, e.repo}, vs)
 		e.Mutate(f, Fork(ff), Init)
 		e.Mutate(f.Parent, Done)
 	case Coerce:

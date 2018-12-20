@@ -235,6 +235,15 @@ func (r *Repair) eval(f *Flow) {
 		ff := f.K(vs)
 		f.Fork(ff)
 		f.Parent.State = Done
+	case Kctx:
+		vs := make([]values.T, len(f.Deps))
+		for i, dep := range f.Deps {
+			vs[i] = dep.Value
+		}
+
+		ff := f.Kctx(kCtx{context.Background(), r.Repository}, vs)
+		f.Fork(ff)
+		f.Parent.State = Done
 	case Coerce:
 		if v, err := f.Coerce(f.Deps[0].Value); err != nil {
 			f.Err = errors.Recover(err)
