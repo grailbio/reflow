@@ -252,7 +252,14 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			},
 			keys...)
 	case ExprExec:
-		tvals := make([]interface{}, len(e.Decls))
+		// Before we can emit an exec node, we have to fully evaluate exec
+		// parameters as well as delayed template arguments that are not
+		// file or directory typed. File and template dependencies are pushed
+		// down to the exec node directly.
+		var (
+			tvals    = make([]interface{}, len(e.Decls))
+			argIndex = make(map[int]int)
+		)
 		for i, d := range e.Decls {
 			v, err := d.Expr.eval(sess, env, d.ID(ident))
 			if err != nil {
@@ -263,6 +270,27 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}
 			tvals[i] = tval{d.Type, v}
 		}
+		// XXX - abstract into a utility (IsOutput(...))
+		outputs := make(map[string]*types.T)
+		for _, f := range e.Type.Tupled().Fields {
+			outputs[f.Name] = f.T
+		}
+		for i, arg := range e.Template.Args {
+			if arg.Type.Kind == types.FileKind || arg.Type.Kind == types.DirKind {
+				continue
+			}
+			if arg.Kind == ExprIdent && outputs[arg.Ident] != nil {
+				continue
+			}
+			argIndex[len(tvals)] = i
+			v, err := arg.eval(sess, env, ident)
+			if err != nil {
+				return nil, err
+			}
+			// We need the full argument to render.
+			v = Force(v, arg.Type)
+			tvals = append(tvals, tval{arg.Type, v})
+		}
 		return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 			penv := values.NewEnv()
 			for i, d := range e.Decls {
@@ -271,7 +299,11 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 					return nil, errors.E(fmt.Sprintf("%s:", d.Pat.Position), errMatch)
 				}
 			}
-			return e.exec(sess, env, ident, makeResources(penv))
+			args := make(map[int]values.T)
+			for i := len(e.Decls); i < len(vs); i++ {
+				args[argIndex[i]] = vs[i]
+			}
+			return e.exec(sess, env, ident, args, makeResources(penv))
 		}, tvals...)
 	case ExprCond:
 		return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
@@ -547,11 +579,11 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 
 // Exec returns a Flow value for an exec expression. The resolved
 // image and resources are passed by the caller.
-func (e *Expr) exec(sess *Session, env *values.Env, ident string, resources reflow.Resources) (values.T, error) {
+func (e *Expr) exec(sess *Session, env *values.Env, ident string, args map[int]values.T, resources reflow.Resources) (values.T, error) {
 	// Execs are special. The interpolation environment also has the
 	// output ids.
 	narg := len(e.Template.Args)
-	outputs := map[string]*types.T{}
+	outputs := make(map[string]*types.T)
 	for _, f := range e.Type.Tupled().Fields {
 		outputs[f.Name] = f.T
 	}
@@ -560,13 +592,18 @@ func (e *Expr) exec(sess *Session, env *values.Env, ident string, resources refl
 		if ae.Kind == ExprIdent && outputs[ae.Ident] != nil {
 			continue
 		}
+		var ok bool
+		varg[i], ok = args[i]
+		if ok {
+			continue
+		}
 		var err error
 		varg[i], err = ae.eval(sess, env, ident)
 		if err != nil {
 			return nil, err
 		}
-		// Execs need to use the actual values, so we must force
-		// their evaluation.
+		// This isn't technically required here, but we retain it to keep
+		// digests stable.
 		varg[i] = Force(varg[i], ae.Type)
 	}
 

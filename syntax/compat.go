@@ -41,7 +41,7 @@ func coerceToFileset(t *types.T, v values.T) reflow.Fileset {
 		}
 		return fs
 	default:
-		panic("invalid input type")
+		panic("invalid input type " + t.String())
 	}
 }
 

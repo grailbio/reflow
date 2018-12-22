@@ -93,7 +93,7 @@ func TestPat(t *testing.T) {
 func TestExec(t *testing.T) {
 	v, typ, sess, err := eval(`
 		exec(image := "ubuntu", mem := 32*GiB, cpu := 32) (out file) {"
-			cat {{file("s3://blah")}} > {{out}}
+			cat {{123}} {{file("s3://blah")}} > {{out}}
 		"}
 	`)
 	if err != nil {
@@ -122,7 +122,7 @@ func TestExec(t *testing.T) {
 	if got, want := f.Resources, (reflow.Resources{"cpu": 32, "disk": 0, "mem": 32 << 30}); !got.Equal(want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
-	if got, want := f.Cmd, "\n\t\t\tcat %s > %s\n\t\t"; got != want {
+	if got, want := f.Cmd, "\n\t\t\tcat 123 %s > %s\n\t\t"; got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 	if got, want := f.Argmap, []flow.ExecArg{{Index: 0}, {Out: true, Index: 0}}; !reflect.DeepEqual(got, want) {
@@ -164,6 +164,50 @@ func TestExec(t *testing.T) {
 	}
 	if got, want := sess.Images(), []string{"ubuntu"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// We have to test this manually because the eval tests aren't run with
+// an executor.
+//
+// TODO(marius): fix this
+func TestExecDelay(t *testing.T) {
+	v, typ, _, err := eval(`
+		exec(image := "ubuntu", mem := 32*GiB, cpu := 32) (out file) {"
+			echo {{delay(123)}}
+		"}
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := typ, types.File; !got.Equal(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	f := v.(*flow.Flow)
+	// We get a K here due to the delay. But it has zero deps
+	// so we can satisfy it.
+	if got, want := f.Op, flow.K; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := len(f.Deps), 1; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	// We ignore the force machinery, and just supply the value directly.
+	f = f.K([]values.T{values.NewInt(123)})
+	if got, want := f.Op, flow.Coerce; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := len(f.Deps), 1; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	f = f.Deps[0]
+	if got, want := f.Op, flow.Exec; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	// Now make sure that the template expanded the lazily computed
+	// value correctly.
+	if got, want := f.Cmd, "\n\t\t\techo 123\n\t\t"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
 
