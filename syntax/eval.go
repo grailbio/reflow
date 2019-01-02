@@ -270,7 +270,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}
 			tvals[i] = tval{d.Type, v}
 		}
-		// XXX - abstract into a utility (IsOutput(...))
+		// TODO(marius): abstract into a utility (IsOutput(...))
 		outputs := make(map[string]*types.T)
 		for _, f := range e.Type.Tupled().Fields {
 			outputs[f.Name] = f.T
