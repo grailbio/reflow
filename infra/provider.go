@@ -59,6 +59,16 @@ var (
 //	// at 0.) If Version is missing, then the version is taken to be
 //	// 0.
 //	Version() int
+//
+//	// Config returns the provider's configuration. The configuration
+//	// is marshaled from and unmarshaled into the returned value.
+//	// Configurations are restored before calls to Init or Setup.
+//	Config() interface{}
+//
+//	// InstanceConfig returns the provider's instance configuration.
+//	// This is used to marshal and unmarshal the specific instance (as
+//	// initialized by Init) so that it may be restored later.
+//	InstanceConfig() interface{}
 func Register(name string, iface interface{}) {
 	if reservedKeys[name] {
 		panic("infra.Register: key " + name + " is reserved")
@@ -109,6 +119,14 @@ func (p *provider) Typecheck() error {
 			return fmt.Errorf("method Version: got %s, expected func() int", typ)
 		}
 	}
+	for _, name := range []string{"Config", "InstanceConfig"} {
+		if m, ok := p.typ.MethodByName(name); ok {
+			typ := m.Type
+			if typ.NumOut() != 1 || typ.NumIn() != 1 {
+				return fmt.Errorf("method %s: got %s, expected func() configType", name, typ)
+			}
+		}
+	}
 	return nil
 }
 
@@ -120,10 +138,11 @@ func (p *provider) Type() reflect.Type {
 // An instance holds an instance of a provider, as managed by a
 // Config.
 type instance struct {
-	typ      reflect.Type
+	typ reflect.Type
+	val reflect.Value
+
 	config   Config
 	name     string
-	val      reflect.Value
 	initOnce once.Task
 	flags    flag.FlagSet
 	flagOnce sync.Once
@@ -211,6 +230,24 @@ func (inst *instance) Config() interface{} {
 	return config.Call(nil)[0].Interface()
 }
 
+// HasInstanceConfig returns whether this instance provides an
+// instance configuration.
+func (inst *instance) HasInstanceConfig() bool {
+	_, ok := inst.typ.MethodByName("InstanceConfig")
+	return ok
+}
+
+// InstanceConfig returns the instance's instance configuration.
+// When marshaling an instance configuration, InstanceConfig
+// must be called after initialization.
+func (inst *instance) InstanceConfig() interface{} {
+	if !inst.HasInstanceConfig() {
+		return nil
+	}
+	m := inst.val.MethodByName("InstanceConfig")
+	return m.Call(nil)[0].Interface()
+}
+
 // Flags returns the instance's FlagSet.
 func (inst *instance) Flags() *flag.FlagSet {
 	inst.flagOnce.Do(func() {
@@ -264,4 +301,10 @@ func (inst *instance) RequiresSetup() []reflect.Type {
 		types[i] = m.Type.In(i + 1)
 	}
 	return types
+}
+
+// CanMarshal returns whether the instance can be marshaled.
+func (inst *instance) CanMarshal() bool {
+	_, ok := inst.typ.MethodByName("MarshaledInstance")
+	return ok
 }

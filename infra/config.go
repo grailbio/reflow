@@ -25,6 +25,7 @@
 package infra
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"reflect"
@@ -32,6 +33,10 @@ import (
 
 	yaml "gopkg.in/yaml.v2"
 )
+
+// ErrWrongType is returned by the various Keys lookup methods
+// when the value for the requested key has incorrect type.
+var ErrWrongType = errors.New("key has wrong type")
 
 // A Schema defines a mapping between configuration keys and the
 // types of values provided by those configuration keys. For example,
@@ -55,7 +60,7 @@ import (
 // type.
 type Schema map[string]interface{}
 
-// Make builds a new configuration based on the Schema s, with the
+// Make builds a new configuration based on the Schema s with the
 // provided configuration keys. Make ensures that the configuration
 // is well-formed: that there are no dependency cycles and that all
 // dependencies are satisfied. Make panics if the schema is not a
@@ -152,10 +157,26 @@ func (c Config) Must(ptr interface{}) {
 
 // Marshal marshals the configuration's using YAML and returns the
 // marshaled content. The configuration can thus be persisted and
-// restored with Schema.Unmarshal.
-func (c Config) Marshal() ([]byte, error) {
+// restored with Schema.Unmarshal. If instances is true, then the
+// instance configuration is marshaled as well, so that they may be
+// restored.
+func (c Config) Marshal(instances bool) ([]byte, error) {
 	keys := c.Keys.Clone()
 	keys["versions"] = c.versions
+	if instances {
+		// Make sure that reachable providers with instance configs are
+		// initialized.
+		for _, inst := range c.order {
+			if !inst.HasInstanceConfig() {
+				continue
+			}
+			if err := inst.Init(); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		delete(keys, "instances")
+	}
 	return yaml.Marshal(keys)
 }
 
@@ -177,17 +198,23 @@ func (c Config) Setup() error {
 	return nil
 }
 
-func (c Config) provider(key string) (p *provider, name string) {
-	args, ok := c.Keys.String(key)
+func (c Config) provider(key string) (p *provider, name string, err error) {
+	args, ok, err := c.Keys.String(key)
+	if err != nil {
+		return nil, "", err
+	}
 	if !ok {
-		return nil, ""
+		return nil, "", nil
 	}
 	argv := strings.SplitN(args, ",", 2)
-	return lookup(argv[0]), argv[0]
+	return lookup(argv[0]), argv[0], nil
 }
 
 func (c Config) args(key string) []string {
-	args, ok := c.Keys.String(key)
+	args, ok, err := c.Keys.String(key)
+	if err != nil {
+		panic(err)
+	}
 	if !ok || args == "" {
 		return nil
 	}
@@ -196,8 +223,21 @@ func (c Config) args(key string) []string {
 
 func (c *Config) build() error {
 	graph := make(topoSorter)
+	// TODO(marius): we could separate out a schema check as a
+	// separate phase, so that we are guaranteed that this never
+	// fails.
+	instanceConfigs, _, err := c.Keys.Keys("instances")
+	if err != nil {
+		return err
+	}
+	if instanceConfigs == nil {
+		instanceConfigs = make(Keys)
+	}
 	for typ, key := range c.types {
-		p, impl := c.provider(key)
+		p, impl, err := c.provider(key)
+		if err != nil {
+			return err
+		}
 		if p == nil {
 			if impl != "" {
 				return fmt.Errorf("%s: no provider named %s", key, impl)
@@ -234,10 +274,21 @@ func (c *Config) build() error {
 			}
 		}
 		if config := inst.Config(); config != nil {
-			c.Keys[impl] = inst.Config()
+			c.Keys[impl] = config
+		}
+		// TODO(marius): support multiple instances per provider by naming
+		// these differently.
+		if src, dst := instanceConfigs.Value(impl), inst.InstanceConfig(); src != nil && dst != nil {
+			if err := remarshal(src, dst); err != nil {
+				return err
+			}
+		}
+		if instanceConfig := inst.InstanceConfig(); instanceConfig != nil {
+			instanceConfigs[impl] = instanceConfig
 		}
 		c.instances[typ] = inst
 	}
+	c.Keys["instances"] = instanceConfigs
 
 	for _, src := range c.instances {
 		for _, typ := range src.RequiresInit() {
@@ -279,24 +330,51 @@ func (k Keys) Value(key string) interface{} {
 	return k[key]
 }
 
-// String returns the string value of key k.
-func (k Keys) String(key string) (string, bool) {
+// Keys returns the Keys value of the provided key.
+func (k Keys) Keys(key string) (Keys, bool, error) {
 	v, ok := k[key]
 	if !ok {
-		return "", false
+		return nil, false, nil
 	}
-	s, ok := v.(string)
-	return s, ok
+	raw, ok := v.(map[interface{}]interface{})
+	if !ok {
+		return nil, false, ErrWrongType
+	}
+	keys := make(Keys)
+	for k, v := range raw {
+		kstr, ok := k.(string)
+		if !ok {
+			return nil, false, ErrWrongType
+		}
+		keys[kstr] = v
+	}
+	return keys, true, nil
 }
 
-// String returns the integer value of key k.
-func (k Keys) Int(key string) (int, bool) {
+// String returns the string value of the provided key.
+func (k Keys) String(key string) (string, bool, error) {
 	v, ok := k[key]
 	if !ok {
-		return 0, false
+		return "", false, nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", false, ErrWrongType
+	}
+	return s, true, nil
+}
+
+// Int returns the integer value of the provided key.
+func (k Keys) Int(key string) (int, bool, error) {
+	v, ok := k[key]
+	if !ok {
+		return 0, false, nil
 	}
 	s, ok := v.(int)
-	return s, ok
+	if !ok {
+		return 0, false, ErrWrongType
+	}
+	return s, true, nil
 }
 
 // Clone returns a deeply-copied version of keys.

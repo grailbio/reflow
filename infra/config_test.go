@@ -28,20 +28,38 @@ func (c *testCreds) Flags(flags *flag.FlagSet) {
 	flags.StringVar((*string)(c), "user", "", "the user name")
 }
 
+type clusterInstance struct {
+	User string `yaml:"instance_user"`
+}
+
 type testCluster struct {
 	User         string `yaml:"-"`
 	InstanceType string `yaml:"instance_type"`
 	NumInstances int    `yaml:"num_instances"`
 	SetupUser    string `yaml:"setup_user"`
+
+	FromInstance bool `yaml:"-"`
+
+	instance clusterInstance
 }
 
 func (c *testCluster) Init(creds *testCreds) error {
-	c.User = string(*creds)
+	c.FromInstance = c.instance.User != ""
+	if c.FromInstance {
+		c.User = c.instance.User
+	} else {
+		c.User = string(*creds)
+	}
+	c.instance.User = c.User
 	return nil
 }
 
 func (c *testCluster) Config() interface{} {
 	return c
+}
+
+func (c *testCluster) InstanceConfig() interface{} {
+	return &c.instance
 }
 
 func (c *testCluster) Setup(creds *testCreds) error {
@@ -95,7 +113,7 @@ testcluster:
 	}
 	var cluster *testCluster
 	config.Must(&cluster)
-	if got, want := *cluster, (testCluster{"unmarshaled", "xyz", 123, ""}); got != want {
+	if got, want := *cluster, (testCluster{"unmarshaled", "xyz", 123, "", false, clusterInstance{"unmarshaled"}}); got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
@@ -140,7 +158,7 @@ func TestSetup(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Make sure
-	p, err := config.Marshal()
+	p, err := config.Marshal(false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,6 +172,49 @@ testcreds: xyz
 versions:
   testcluster: 1
 `; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestInstanceConfig(t *testing.T) {
+	config, err := schema.Make(infra.Keys{
+		"creds":   "testcreds,user=testuser",
+		"cluster": "testcluster",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// We don't perform any instantiations before calling Marshal
+	// to make sure that this is done properly by the config.
+	p, err := config.Marshal(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(p), `cluster: testcluster
+creds: testcreds,user=testuser
+instances:
+  testcluster:
+    instance_user: testuser
+testcluster:
+  instance_type: ""
+  num_instances: 0
+  setup_user: ""
+testcreds: testuser
+versions: {}
+`; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+
+	config, err = schema.Unmarshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cluster *testCluster
+	config.Must(&cluster)
+	if got, want := cluster.User, "testuser"; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := cluster.FromInstance, true; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
