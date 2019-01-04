@@ -32,6 +32,9 @@ import (
 const (
 	dbmaxdeleteobjects  = 25
 	dbmaxdeleteattempts = 6
+
+	// getTimeout is the timeout used for a single DynamoDB get request.
+	getTimeout = 30 * time.Second
 )
 
 // Assoc implements a DynamoDB-backed Assoc for use in caches.
@@ -185,6 +188,8 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 		return k, v, err
 	}
 	defer a.Limiter.Release(1)
+	ctx, cancel := context.WithTimeout(ctx, getTimeout)
+	defer cancel()
 	var item *dynamodb.AttributeValue
 	if k.IsAbbrev() {
 		resp, err := a.DB.Query(&dynamodb.QueryInput{

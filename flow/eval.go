@@ -47,7 +47,7 @@ const (
 	printAllTasks = false
 )
 
-const defaultCacheLookupTimeout = time.Minute
+const defaultCacheLookupTimeout = 20 * time.Minute
 
 // stateStatusOrder defines the order in which differenet flow
 // statuses are rendered.
@@ -2224,13 +2224,11 @@ func unmarshal(ctx context.Context, repo reflow.Repository, k digest.Digest, v i
 // call fails.
 func missing(ctx context.Context, r reflow.Repository, files ...reflow.File) ([]reflow.File, error) {
 	exists := make([]bool, len(files))
-	g, gctx := errgroup.WithContext(ctx)
+	g, ctx := errgroup.WithContext(ctx)
 	for i, file := range files {
 		i, file := i, file
 		g.Go(func() error {
-			ctx, cancel := context.WithTimeout(gctx, 10*time.Second)
 			_, err := r.Stat(ctx, file.ID)
-			cancel()
 			if err == nil {
 				exists[i] = true
 			} else if errors.Is(errors.NotExist, err) {
@@ -2240,9 +2238,6 @@ func missing(ctx context.Context, r reflow.Repository, files ...reflow.File) ([]
 		})
 	}
 	if err := g.Wait(); err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	all := files

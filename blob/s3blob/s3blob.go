@@ -43,6 +43,9 @@ const (
 	// minTimeout defines the smallest acceptable timeout.
 	// This helps to give wiggle room for small data transfers.
 	minTimeout = 30 * time.Second
+
+	// metaTimeout is used for metadata operations.
+	metaTimeout = 30 * time.Second
 )
 
 // DefaultRegion is the region used for s3 requests if a bucket's
@@ -160,6 +163,8 @@ func NewBucket(name string, client s3iface.S3API) *Bucket {
 func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 	var resp *s3.HeadObjectOutput
 	err := admit.Do(ctx, b.admitter, 1, func() error {
+		ctx, cancel := context.WithTimeout(ctx, metaTimeout)
+		defer cancel()
 		var err error
 		resp, err = b.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
 			Bucket: aws.String(b.bucket),
