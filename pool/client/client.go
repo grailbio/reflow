@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/grailbio/base/digest"
@@ -132,7 +131,7 @@ func (c *Client) ExecImage(ctx context.Context) (digest.Digest, error) {
 // InstallImage instructs the reflowlet instance to install and run a new image.
 // The image is referenced by the digest (in a format returned by digest.String())
 // and is expected to exist in the repository (or the call will fail).
-func (c *Client) InstallImage(ctx context.Context, digest string) error {
+func (c *Client) InstallImage(ctx context.Context, d digest.Digest) error {
 	// install the image on the reflowlet and check if it worked
 	// by comparing the execimage digest again after waiting for some time
 	// (for the reflowlet to have restarted).
@@ -146,14 +145,14 @@ func (c *Client) InstallImage(ctx context.Context, digest string) error {
 	// We expect an error since the reflowlet would've started the new image
 	// before it has a chance to reply.
 	// We check at least that the error comes from the right place in the stack
-	code, err := call.Do(ctx, strings.NewReader(digest))
+	code, err := call.DoJSON(ctx, d)
 	if err != nil && !errors.Is(errors.Net, err) {
-		return fmt.Errorf("installimage %v", err)
+		return fmt.Errorf("client.InstallImage: %v", err)
 	}
 	// If the call was successful and the image got 'exec'ed, we should get zero.
 	// Anything else should be treated as an error.
 	if code != 0 {
-		return fmt.Errorf("installimage, unhandled status code: %d", code)
+		return call.Error()
 	}
 	return nil
 }

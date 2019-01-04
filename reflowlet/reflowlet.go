@@ -250,25 +250,19 @@ func newExecImageNode(p *local.Pool, repo reflow.Repository) rest.DoFunc {
 		case "POST":
 			stopped := p.StopIfIdleFor(0)
 			if !stopped {
-				call.Error(errors.New("execimage POST: not idle"))
+				call.Error(errors.New("reflowlet not idle"))
 				return
 			}
-			d, err := ioutil.ReadAll(call.Body())
+			var d digest.Digest
+			if err := call.Unmarshal(&d); err != nil {
+				return
+			}
+			image, err := repo.Get(ctx, d)
 			if err != nil {
 				call.Error(fmt.Errorf("execimage POST: %v", err))
 				return
 			}
-			dig, err := digest.Parse(string(d))
-			if err != nil {
-				call.Error(fmt.Errorf("execimage POST: %v", err))
-				return
-			}
-			image, err := repo.Get(ctx, dig)
-			if err != nil {
-				call.Error(fmt.Errorf("execimage POST: %v", err))
-				return
-			}
-			if err := execimage.InstallImage(image, "reflowlet"); err != nil {
+			if err := execimage.InstallImage(image, "reflowlet"+d.HexN(7)); err != nil {
 				call.Error(fmt.Errorf("execimage POST: %v", err))
 				return
 			}

@@ -605,7 +605,7 @@ func (c *Cluster) maybeUpdateImage(ctx context.Context, inst *reflowletInstance)
 			return err
 		}
 		ctx2, cancel = context.WithTimeout(ctx, 10*time.Second)
-		err = clnt.InstallImage(ctx2, localDigest.String())
+		err = clnt.InstallImage(ctx2, localDigest)
 		cancel()
 		if err != nil {
 			return err

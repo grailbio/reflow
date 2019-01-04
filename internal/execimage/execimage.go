@@ -98,8 +98,12 @@ func InstallImage(exec io.ReadCloser, prefix string) error {
 	if err := os.Chmod(path, 0755); err != nil {
 		return err
 	}
-	log.Printf("exec %s %s", path, strings.Join(os.Args, " "))
-	return syscall.Exec(path, os.Args, os.Environ())
+	args := append([]string{}, os.Args...)
+	args[0] = path
+	log.Printf("exec %s", strings.Join(args, " "))
+	err = syscall.Exec(path, args, os.Environ())
+	log.Printf("exec %s: %v", strings.Join(args, " "), err)
+	return err
 }
 
 // ErrNoEmbeddedImage is thrown if the current binary has no embedded linux image.
