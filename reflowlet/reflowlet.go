@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/ec2"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/errors"
@@ -83,6 +85,42 @@ func (s *Server) AddFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&s.HTTPDebug, "httpdebug", false, "turn on HTTP debug logging")
 }
 
+// setTags sets the reflowlet version/digest tags on the EC2 instance (if running on one).
+// This is based on AWS instance metadata retrievable as per:
+// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html#instancedata-data-retrieval
+func (s *Server) setTags() error {
+	if !s.EC2Cluster {
+		return nil
+	}
+	resp, err := http.Get("http://169.254.169.254/latest/meta-data/instance-id")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	b, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	iid := string(b)
+	digest, err := execimage.ImageDigest()
+	if err != nil {
+		return err
+	}
+	sess, err := s.Config.AWS()
+	if err != nil {
+		return err
+	}
+	svc := ec2.New(sess, &aws.Config{MaxRetries: aws.Int(3)})
+	input := &ec2.CreateTagsInput{
+		Resources: []*string{aws.String(iid)},
+		Tags: []*ec2.Tag{
+			{Key: aws.String("reflowlet:version"), Value: aws.String(s.version)},
+			{Key: aws.String("reflowlet:digest"), Value: aws.String(digest.String())}},
+	}
+	_, err = svc.CreateTags(input)
+	return err
+}
+
 // ListenAndServe serves the Reflowlet server on the configured address.
 func (s *Server) ListenAndServe() error {
 	if s.configFlag != "" {
@@ -125,6 +163,10 @@ func (s *Server) ListenAndServe() error {
 	tool, err := s.Config.AWSTool()
 	if err != nil {
 		return err
+	}
+
+	if err := s.setTags(); err != nil {
+		return fmt.Errorf("set tags: %v", err)
 	}
 
 	// Default HTTPS and s3 clients for repository dialers.
