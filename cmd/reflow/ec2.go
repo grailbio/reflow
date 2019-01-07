@@ -16,8 +16,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/ec2cluster"
+	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/tool"
-	"github.com/pkg/errors"
 )
 
 // securityGroup is the name of reflow's security group.

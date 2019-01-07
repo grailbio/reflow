@@ -19,7 +19,6 @@ require (
 	github.com/grailbio/testutil v0.0.0
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
 	github.com/opencontainers/image-spec v1.0.1 // indirect
-	github.com/pkg/errors v0.0.0-20161029093637-248dadf4e906
 	github.com/sirupsen/logrus v1.3.0 // indirect
 	github.com/spaolacci/murmur3 v0.0.0-20180118202830-f09979ecbc72 // indirect
 	github.com/willf/bloom v2.0.3+incompatible
