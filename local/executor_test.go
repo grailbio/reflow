@@ -9,12 +9,12 @@ package local
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/grailbio/reflow"
-	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/walker"
 	"github.com/grailbio/testutil"
 )
@@ -145,8 +145,11 @@ func TestExecRestore(t *testing.T) {
 	}
 	x.cancel()
 	err = exec.Wait(ctx)
-	if got, want := errors.Recover(err).Err, context.Canceled; got != want {
-		t.Fatalf("got %v, want %v", got, want)
+	if err == nil {
+		t.Fatal("did not get error")
+	}
+	if !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("error %v is not a context cancellation error", err)
 	}
 
 	// This resets the executor's state, as if it had started anew.

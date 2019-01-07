@@ -16,6 +16,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
@@ -410,9 +411,13 @@ func (e *Executor) Kill(ctx context.Context) error {
 			continue
 		}
 		e.Client.ContainerKill(ctx, c.ID, "KILL")
-		_, err := e.Client.ContainerWait(ctx, c.ID)
-		if client.IsErrNotFound(err) {
-			continue
+		respc, errc := e.Client.ContainerWait(ctx, c.ID, container.WaitConditionNotRunning)
+		select {
+		case err := <-errc:
+			if client.IsErrNotFound(err) {
+				continue
+			}
+		case <-respc:
 		}
 		e.Client.ContainerRemove(ctx, c.ID, types.ContainerRemoveOptions{Force: true})
 	}

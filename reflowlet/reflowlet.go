@@ -18,6 +18,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/docker/docker/api"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/errors"
@@ -142,7 +143,7 @@ func (s *Server) ListenAndServe() error {
 		addr = "unix:///var/run/docker.sock"
 	}
 	client, err := dockerclient.NewClient(
-		addr, dockerclient.DefaultVersion,
+		addr, api.DefaultVersion,
 		nil, map[string]string{"user-agent": "reflow"})
 	if err != nil {
 		return err

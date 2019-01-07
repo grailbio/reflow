@@ -137,7 +137,7 @@ func (e *dockerExec) containerName() string {
 func (e *dockerExec) create(ctx context.Context) (execState, error) {
 	if _, err := e.client.ContainerInspect(ctx, e.containerName()); err == nil {
 		return execCreated, nil
-	} else if !client.IsErrContainerNotFound(err) {
+	} else if !client.IsErrNotFound(err) {
 		return execInit, errors.E("ContainerInspect", e.containerName(), kind(err), err)
 	}
 	// TODO: it might be worthwhile doing image pulling as a separate state.
@@ -312,11 +312,16 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 		profc <- stats
 	}()
 
-	code, err := e.client.ContainerWait(ctx, e.containerName())
-	if err != nil {
+	// The documentation for ContainerWait seems to imply that both channels will
+	// be sent. In practice it's one or the other, and it's also not buffered. Cool API.
+	respc, errc := e.client.ContainerWait(ctx, e.containerName(), container.WaitConditionNotRunning)
+	var code int64
+	select {
+	case err := <-errc:
 		return execInit, errors.E("ContainerWait", e.containerName(), kind(err), err)
+	case resp := <-respc:
+		code = resp.StatusCode
 	}
-
 	// Best-effort writing of log files.
 	rc, err := e.client.ContainerLogs(
 		ctx, e.containerName(),
@@ -605,7 +610,7 @@ func (e *dockerExec) Shell(ctx context.Context) (io.ReadWriteCloser, error) {
 		if err != nil {
 			return nil, err
 		}
-		conn, err := e.client.ContainerExecAttach(ctx, response.ID, c)
+		conn, err := e.client.ContainerExecAttach(ctx, response.ID, types.ExecStartCheck{})
 		if err != nil {
 			return nil, err
 		}
