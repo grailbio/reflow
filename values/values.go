@@ -16,7 +16,6 @@ package values
 import (
 	"crypto" // The SHA-256 implementation is required for this package's
 	// Digester.
-
 	_ "crypto/sha256"
 	"encoding/binary"
 	"fmt"
@@ -469,7 +468,21 @@ func WriteDigest(w io.Writer, v T, t *types.T) {
 	case types.ErrorKind, types.BottomKind, types.RefKind:
 		panic("illegal type")
 	case types.IntKind:
-		w.Write(v.(*big.Int).Bytes())
+		vi := v.(*big.Int)
+		// Bytes returns the normalized big-endian (i.e., free of a zero
+		// prefix) representation of the absolute value of the integer.
+		p := vi.Bytes()
+		if len(p) == 0 {
+			// This is the representation of "0"
+			return
+		}
+		if p[0] == 0 {
+			panic("big.Int byte representation is not normalized")
+		}
+		if vi.Sign() < 0 {
+			w.Write([]byte{0})
+		}
+		w.Write(p)
 	case types.FloatKind:
 		w.Write([]byte(v.(*big.Float).Text('e', 10)))
 	case types.StringKind:
