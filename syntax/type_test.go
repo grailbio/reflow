@@ -171,6 +171,7 @@ func TestConstModule(t *testing.T) {
 }
 
 func TestImageWarn(t *testing.T) {
+	t.Skip("temporarily disabled until warning is useful")
 	sess := NewSession(nil)
 	var b bytes.Buffer
 	sess.Stdwarn = &b

@@ -521,7 +521,8 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			params[ident] = true
 			switch ident {
 			case "image":
-				if !d.Type.IsConst(nil) {
+				// Check is disabled temporarily until it is more useful.
+				if false && !d.Type.IsConst(nil) {
 					sess.Warn(e.Position, "image is not a const value")
 				}
 				if d.Type.Kind != types.StringKind {
