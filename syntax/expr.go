@@ -178,10 +178,10 @@ type Expr struct {
 	// Ident stores the identifier for ExprIdent
 	Ident string
 
-	// Val stores constant values in ExprConst.
+	// Val stores constant values in ExprLit.
 	Val values.T
 
-	// Type holds the Type in ExprAscribe, ExprExec, and ExprConst.
+	// Type holds the Type in ExprAscribe, ExprExec, and ExprLit.
 	Type *types.T
 
 	// Template is the exec template in ExprExec.
