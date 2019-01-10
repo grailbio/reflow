@@ -242,8 +242,8 @@ func (p *Pat) BindValues(env *values.Env, v values.T) bool {
 		return true
 	case PatTuple:
 		tup := v.(values.Tuple)
-		for i := range p.List {
-			if !p.BindValues(env, tup[i]) {
+		for i, q := range p.List {
+			if !q.BindValues(env, tup[i]) {
 				return false
 			}
 		}
@@ -253,8 +253,8 @@ func (p *Pat) BindValues(env *values.Env, v values.T) bool {
 		if len(list) != len(p.List) {
 			return false
 		}
-		for i := range p.List {
-			if !p.BindValues(env, list[i]) {
+		for i, q := range p.List {
+			if !q.BindValues(env, list[i]) {
 				return false
 			}
 		}
