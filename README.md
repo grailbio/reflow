@@ -53,6 +53,10 @@ You can get binaries (macOS/amd64, Linux/amd64) for the latest
 release at the [GitHub release
 page](https://github.com/grailbio/reflow/releases).
 
+If you are developing Reflow,
+or would like to build it yourself,
+please follow the instructions in the section
+"[Developing and building Reflow](#developing-and-building-reflow)."
 
 ## Quickstart - AWS
 
@@ -635,35 +639,32 @@ Reflow's configuration. Its parameters are documented by
 - [Language summary](LANGUAGE.md)
 - [Go package docs](https://godoc.org/github.com/grailbio/reflow)
 
-## Developing Reflow
+## Developing and building Reflow
 
-Reflow is implemented in Go, and its packages are go-gettable. You
-can retrieve Reflow and its dependencies with
+Reflow is implemented in Go, and its packages are go-gettable. 
+Reflow is also a [Go module](https://github.com/golang/go/wiki/Modules)
+and uses modules to fix its dependency graph.
 
-	% go get [-u] github.com/grailbio/reflow
+After checking out the repository, 
+the usual `go` commands should work, e.g.:
 
-and build the "reflow" binary in one of the following ways,
-depending on the platforms involved for your use case.
-Note that Reflow can run in server-mode (formerly known as reflowlets)
-which are compiled for Linux/amd64, and are invoked by
-the cluster manager during instance bootstrapping.
-If the client "reflow" binary and the ones running on a cluster are
-different, then the client binary "ships" the new image to the server.
-The following platform use-cases are supported.
+	% go test ./...
 
-### Client/Server running on Linux/amd64
+The package `github.com/grailbio/reflow/cmd/reflow`
+(or subdirectory `cmd/reflow` in the repository)
+defines the main command for Reflow.
+Because Reflow relies on being able to
+distribute its current build,
+the binary must be built using the `buildreflow` tool
+instead of the ordinary Go tooling.
+Command `buildreflow` acts like `go build`,
+but also cross compiles the binary 
+for the remote target (Linux/amd64 currently supported),
+and embeds the cross-compiled binary.
 
-	% go install github.com/grailbio/reflow/cmd/reflow
-
-### Client on Mac, server on Linux/amd64 (eg: EC2)
-
+	% cd $CHECKOUT/cmd/reflow
 	% go install github.com/grailbio/reflow/cmd/buildreflow
-
 	% buildreflow
-
-This command will output two binaries in the local directory: reflow and reflowdarwin.
-The former is for Linux/amd64 and latter is for Mac.
-
 
 ## Support and community
 

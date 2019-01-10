@@ -2,7 +2,7 @@
 
 package main
 
-const (
+var (
 	version   = "0.7"
 	reflowlet = "grailbio/reflowlet:bootstrap"
 )
