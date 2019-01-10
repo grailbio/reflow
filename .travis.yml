@@ -1,7 +1,12 @@
 language: go
-
 go:
-  - 1.11
-
+  - 1.11.x
+  - master
+os:
+  - linux
+  - osx
+dist: trusty
+sudo: false
+install: true
 script:
-  - go test -v -tags unit ./...
+  - env GO111MODULE=on go test -v -tags unit ./...
