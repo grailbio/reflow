@@ -917,7 +917,7 @@ func (e *Expr) evalEq(sess *Session, env *values.Env, ident string, left, right 
 	case types.TupleKind:
 		l := left.(values.Tuple)
 		r := right.(values.Tuple)
-		if len(l) == 0 {
+		if len(t.Fields) == 0 {
 			return true, nil
 		}
 		return e.evalEqTuple(sess, env, ident, l, r, t)
@@ -956,17 +956,19 @@ func (e *Expr) evalEq(sess *Session, env *values.Env, ident string, left, right 
 			return e.evalValueVector(sess, env, ident, vals[0:n], right, tv, 0)
 		})
 	case types.StructKind:
-		l := left.(values.Struct)
-		r := right.(values.Struct)
-		n := len(l)
-		lt := make(values.Tuple, n)
-		rt := make(values.Tuple, n)
+		var (
+			leftStruct  = left.(values.Struct)
+			rightStruct = right.(values.Struct)
+			n           = len(t.Fields)
+			leftTup     = make(values.Tuple, n)
+			rightTup    = make(values.Tuple, n)
+			tupType     = types.Tuple(t.Fields...)
+		)
 		for i, f := range t.Fields {
-			lt[i] = l[f.Name]
-			rt[i] = r[f.Name]
+			leftTup[i] = leftStruct[f.Name]
+			rightTup[i] = rightStruct[f.Name]
 		}
-		tt := types.Tuple(t.Fields...)
-		return e.evalEqTuple(sess, env, ident, lt, rt, tt)
+		return e.evalEqTuple(sess, env, ident, leftTup, rightTup, tupType)
 	case types.DirKind:
 		l := left.(values.Dir)
 		r := right.(values.Dir)

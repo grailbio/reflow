@@ -24,6 +24,10 @@ val TestStructCompare1 = {a: 1, b: "str" , c: false} == {b: "str", a: 1, c: fals
 val TestStructCompareNe1 = {a: 2, b: "str" , c: false} != {b: "str", a: 1, c: false}
 val TestStructCompare2 = {a: 1, b: ["a": "b", "c": "d"], c: (1, "c")} == {b: ["a": "b", "c": "d"], a: 1, c: (1, "c")}
 val TestStructCompareNe2 = {a: 1, b: ["e": "b", "c": "d"], c: (1, "c")} != {b: ["a": "b", "c": "d"], a: 1, c: (1, "c")}
+val TestStructCompareCast = {
+	val left {a int} = {a: 1, b: 2}
+	left == {a: 1}
+}
 
 val TestTupleCompare = (1, 2, "3") == (1, 2, "3")
 val TestTupleCompareNe = (1, 2, "3") != (1, 2, "4")
