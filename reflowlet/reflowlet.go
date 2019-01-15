@@ -18,7 +18,6 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/docker/docker/api"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/errors"
@@ -35,7 +34,7 @@ import (
 	repositoryhttp "github.com/grailbio/reflow/repository/http"
 	"github.com/grailbio/reflow/rest"
 	"golang.org/x/net/http2"
-	"gopkg.in/yaml.v2"
+	yaml "gopkg.in/yaml.v2"
 )
 
 // maxConcurrentStreams is the number of concurrent http/2 streams we
@@ -143,7 +142,7 @@ func (s *Server) ListenAndServe() error {
 		addr = "unix:///var/run/docker.sock"
 	}
 	client, err := dockerclient.NewClient(
-		addr, api.DefaultVersion,
+		addr, "1.22",
 		nil, map[string]string{"user-agent": "reflow"})
 	if err != nil {
 		return err
