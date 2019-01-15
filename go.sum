@@ -1,7 +1,7 @@
 cloud.google.com/go v0.33.1 h1:fmJQWZ1w9PGkHR1YL/P7HloDvqlmKQ4Vpb7PC2e+aCk=
 cloud.google.com/go v0.33.1/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
-github.com/Azure/go-ansiterm v0.0.0-20160622173216-fa152c58bc15 h1:VtP6TygBMvrR+SMMPHj3z3jvnj4vcafMRLIw4at7xww=
-github.com/Azure/go-ansiterm v0.0.0-20160622173216-fa152c58bc15/go.mod h1:LmzpDX56iTiv29bbRTIsUNlaFfuhWRQBWjQdVyAevI8=
+github.com/Azure/go-ansiterm v0.0.0-20170929234023-d6e3b3328b78 h1:w+iIsaOQNcT7OZ575w+acHgRric5iCyQh+xv+KJ4HB8=
+github.com/Azure/go-ansiterm v0.0.0-20170929234023-d6e3b3328b78/go.mod h1:LmzpDX56iTiv29bbRTIsUNlaFfuhWRQBWjQdVyAevI8=
 github.com/DATA-DOG/go-sqlmock v1.3.0 h1:ljjRxlddjfChBJdFKJs5LuCwCWPLaC1UZLwAo3PBBMk=
 github.com/DATA-DOG/go-sqlmock v1.3.0/go.mod h1:f/Ixk793poVmq4qj/V1dPUg2JEAKC73Q5eFN3EC/SaM=
 github.com/DataDog/zstd v1.3.4/go.mod h1:1jcaCB/ufaK+sKp1NBhlGmpz41jOoPQ35bpF36t7BBo=
@@ -9,8 +9,6 @@ github.com/Microsoft/go-winio v0.4.5 h1:U2XsGR5dBg1yzwSEJoP2dE2/aAXpmad+CNG2hE9P
 github.com/Microsoft/go-winio v0.4.5/go.mod h1:VhR8bwka0BXejwEJY73c50VrPtXAaKcyvVC4A4RozmA=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 h1:TngWCqHvy9oXAN6lEVMRuU21PR1EtLVZJmdB18Gu3Rw=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5/go.mod h1:lmUJ/7eu/Q8D7ML55dXQrVaamCz2vxCfdQBasLZfHKk=
-github.com/Sirupsen/logrus v0.0.0-20160813154005-08a8a7c27e3d h1:dIVGotbXkNrseC8zGhCMi6hFg2hE2bQnfCZirZXDwCQ=
-github.com/Sirupsen/logrus v0.0.0-20160813154005-08a8a7c27e3d/go.mod h1:rmk17hk6i8ZSAJkSDa7nOxamrG+SP4P0mm+DAvExv4U=
 github.com/StackExchange/wmi v0.0.0-20160811214555-e54cbda6595d/go.mod h1:3eOhrUMpNV+6aFIbp5/iudMxNCF27Vw2OZgy4xEx0Fg=
 github.com/aws/aws-sdk-go v1.16.15 h1:kQyxfRyjAwIYjf0225sn/pn+WAlncKyI8dmT3+ItMFE=
 github.com/aws/aws-sdk-go v1.16.15/go.mod h1:KmX6BPdI08NWTb3/sm4ZGu5ShLoqVDhKgpiN924inxo=
