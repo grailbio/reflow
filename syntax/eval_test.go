@@ -227,6 +227,7 @@ func TestEval(t *testing.T) {
 		"testdata/regexp.rf",
 		"testdata/compare.rf",
 		"testdata/if.rf",
+		"testdata/dirs.rf",
 	}
 	RunReflowTests(t, tests)
 }

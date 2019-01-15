@@ -12,6 +12,19 @@ import (
 	"github.com/grailbio/reflow/types"
 )
 
+func makeDir(pathsAndFiles ...interface{}) Dir {
+	var dir Dir
+	if len(pathsAndFiles)%2 != 0 {
+		panic(pathsAndFiles)
+	}
+	for i := 0; i < len(pathsAndFiles); i += 2 {
+		path := pathsAndFiles[i].(string)
+		file := pathsAndFiles[i+1].(reflow.File)
+		dir.Set(path, file)
+	}
+	return dir
+}
+
 func TestLess(t *testing.T) {
 	var (
 		f0     = reflow.File{Source: "a"}
@@ -30,9 +43,9 @@ func TestLess(t *testing.T) {
 		{f0, f1},
 		{f1, f2},
 		{f2, f3},
-		{Dir{"x": f0}, Dir{"x": f1}},
-		{Dir{"x": f0, "y": f2}, Dir{"x": f1, "y": f3}},
-		{Dir{"x": f3}, Dir{"x": f3, "y": f0}},
+		{makeDir("x", f0), makeDir("x", f1)},
+		{makeDir("x", f0, "y", f2), makeDir("x", f1, "y", f3)},
+		{makeDir("x", f3), makeDir("x", f3, "y", f0)},
 		{List{}, List{f0, f1}},
 		{List{f0, f1, f3}, List{f0, f2, f3}},
 		{MakeMap(types.String, "1", f0), MakeMap(types.String, "1", f1)},

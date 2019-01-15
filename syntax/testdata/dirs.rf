@@ -1,0 +1,10 @@
+val dirs = make("$/dirs")
+
+val d = dir("testdata/testdir")
+
+val TestDirPick = {
+	val (_, path) = dirs.Pick(d, "a*")
+	path == "a"
+}
+
+

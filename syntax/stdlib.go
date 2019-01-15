@@ -217,9 +217,9 @@ func Stdlib() (*types.Env, *values.Env) {
 						Position:   loc.Position,
 						Ident:      loc.Ident,
 						K: func(vs []values.T) *flow.Flow {
-							dir := make(values.Dir)
+							var dir values.Dir
 							for i := range vs {
-								dir[paths[i]] = vs[i].(reflow.Fileset).Map["."]
+								dir.Set(paths[i], vs[i].(reflow.Fileset).Map["."])
 							}
 							return &flow.Flow{
 								Op:         flow.Val,
@@ -315,9 +315,9 @@ var coerceFilesetToDirDigest = reflow.Digester.FromString("grail.com/reflow/synt
 
 func coerceFilesetToDir(v values.T) (values.T, error) {
 	fs := v.(reflow.Fileset)
-	dir := make(values.Dir)
+	var dir values.Dir
 	for key, file := range fs.Map {
-		dir[key] = file
+		dir.Set(key, file)
 	}
 	return dir, nil
 }
@@ -340,17 +340,14 @@ var dirsDecls = []*Decl{
 				return nil, err
 			}
 			groups := map[string]values.Dir{}
-			for path, file := range dir {
-				idx := re.FindStringSubmatch(path)
+			for scan := dir.Scan(); scan.Scan(); {
+				idx := re.FindStringSubmatch(scan.Path())
 				if len(idx) != 2 {
 					continue
 				}
-				v, ok := groups[idx[1]]
-				if !ok {
-					groups[idx[1]] = make(values.Dir)
-					v = groups[idx[1]]
-				}
-				v[path] = file
+				v := groups[idx[1]]
+				v.Set(scan.Path(), scan.File())
+				groups[idx[1]] = v
 			}
 			m := new(values.Map)
 			for key, group := range groups {
@@ -368,9 +365,9 @@ var dirsDecls = []*Decl{
 			&types.Field{Name: "map", T: types.Map(types.String, types.File)}),
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
 			m := args[0].(*values.Map)
-			dir := make(values.Dir)
+			var dir values.Dir
 			m.Each(func(path, file values.T) {
-				dir[path.(string)] = file.(reflow.File)
+				dir.Set(path.(string), file.(reflow.File))
 			})
 			return dir, nil
 		},
@@ -385,13 +382,14 @@ var dirsDecls = []*Decl{
 			&types.Field{Name: "pattern", T: types.String}),
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
 			dir, pat := args[0].(values.Dir), args[1].(string)
-			for key, file := range dir {
-				ok, err := path.Match(pat, key)
+			for scan := dir.Scan(); scan.Scan(); {
+
+				ok, err := path.Match(pat, scan.Path())
 				if err != nil {
 					return nil, err
 				}
 				if ok {
-					return values.Tuple{file, key}, nil
+					return values.Tuple{scan.File(), scan.Path()}, nil
 				}
 			}
 			return nil, errors.Errorf("dirs.Pick: no files matched %s", pat)
@@ -405,14 +403,9 @@ var dirsDecls = []*Decl{
 			&types.Field{Name: "dir", T: types.Dir}),
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
 			dir := args[0].(values.Dir)
-			var keys []string
-			for key := range dir {
-				keys = append(keys, key)
-			}
-			sort.Strings(keys)
-			files := make(values.List, len(keys))
-			for i, key := range keys {
-				files[i] = dir[key]
+			files := make(values.List, 0, dir.Len())
+			for scan := dir.Scan(); scan.Scan(); {
+				files = append(files, scan.File())
 			}
 			return files, nil
 		},

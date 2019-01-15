@@ -10,6 +10,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/flow"
+	"github.com/grailbio/reflow/test/testutil"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
 )
@@ -50,11 +51,16 @@ Prog:
 			switch v := v.(values.Module)[test].(type) {
 			case *flow.Flow:
 				// We have to evaluate the flow. We do so through a no-op executor.
+				// We do provide an in-memory repository so that local interns work.
 				eval := flow.NewEval(v, flow.EvalConfig{
-					Executor: nopexecutor{},
+					Executor: nopexecutor{repo: testutil.NewInmemoryRepository()},
 				})
 				if err := eval.Do(context.Background()); err != nil {
 					t.Errorf("%s.%s: %v", prog, test, err)
+					continue tests
+				}
+				if err := eval.Err(); err != nil {
+					t.Errorf("%s.%s: evaluation error: %v", prog, test, err)
 					continue tests
 				}
 				if !eval.Value().(bool) {
@@ -70,7 +76,9 @@ Prog:
 	}
 }
 
-type nopexecutor struct{}
+type nopexecutor struct {
+	repo reflow.Repository
+}
 
 func (nopexecutor) Put(ctx context.Context, id digest.Digest, exec reflow.ExecConfig) (reflow.Exec, error) {
 	return nil, errors.New("put not implemented")
@@ -96,8 +104,8 @@ func (nopexecutor) Resources() reflow.Resources {
 	}
 }
 
-func (nopexecutor) Repository() reflow.Repository {
-	return nil
+func (e nopexecutor) Repository() reflow.Repository {
+	return e.repo
 }
 
 func (nopexecutor) Load(context.Context, reflow.Fileset) (reflow.Fileset, error) {

@@ -398,7 +398,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 					return values.NewInt(file.Size), nil
 				case types.DirKind:
 					dir := vs[0].(values.Dir)
-					return values.NewInt(int64(len(dir))), nil
+					return values.NewInt(int64(dir.Len())), nil
 				case types.ListKind:
 					list := vs[0].(values.List)
 					return values.NewInt(int64(len(list))), nil
@@ -487,8 +487,8 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				case types.DirKind:
 					m := new(values.Map)
 					d := vs[0].(values.Dir)
-					for k, v := range d {
-						m.Insert(values.Digest(k, types.String), k, v)
+					for scan := d.Scan(); scan.Scan(); {
+						m.Insert(values.Digest(scan.Path(), types.String), scan.Path(), scan.File())
 					}
 					return m, nil
 				default:
@@ -500,12 +500,16 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				var list values.List
 				switch e.Left.Type.Kind {
 				case types.MapKind:
-					vs[0].(*values.Map).Each(func(k, v values.T) {
+					m := vs[0].(*values.Map)
+					list = make(values.List, 0, m.Len())
+					m.Each(func(k, v values.T) {
 						list = append(list, values.Tuple{k, v})
 					})
 				case types.DirKind:
-					for k, v := range vs[0].(values.Dir) {
-						list = append(list, values.Tuple{k, v})
+					d := vs[0].(values.Dir)
+					list = make(values.List, 0, d.Len())
+					for scan := d.Scan(); scan.Scan(); {
+						list = append(list, values.Tuple{scan.Path(), scan.File()})
 					}
 				default:
 					panic("bug")
@@ -732,9 +736,9 @@ func (e *Expr) exec(sess *Session, env *values.Env, ident string, args map[int]v
 						}
 						v = file
 					case types.DirKind:
-						dir := make(values.Dir)
+						var dir values.Dir
 						for k, file := range fs.Map {
-							dir[k] = file
+							dir.Set(k, file)
 						}
 						v = dir
 					default:
@@ -746,7 +750,7 @@ func (e *Expr) exec(sess *Session, env *values.Env, ident string, args map[int]v
 					case types.FileKind:
 						tup[i] = reflow.File{}
 					case types.DirKind:
-						tup[i] = make(values.Dir)
+						tup[i] = values.Dir{}
 					default:
 						panic("bad result type")
 					}
@@ -1016,14 +1020,14 @@ func (e *Expr) evalBinop(vs []values.T) (values.T, error) {
 			})
 			return m, nil
 		case types.DirKind:
-			m := make(values.Dir)
-			for k, v := range left.(values.Dir) {
-				m[k] = v
+			var dir values.Dir
+			for scan := left.(values.Dir).Scan(); scan.Scan(); {
+				dir.Set(scan.Path(), scan.File())
 			}
-			for k, v := range right.(values.Dir) {
-				m[k] = v
+			for scan := right.(values.Dir).Scan(); scan.Scan(); {
+				dir.Set(scan.Path(), scan.File())
 			}
-			return m, nil
+			return dir, nil
 		default:
 			panic("bug")
 		}

@@ -21,8 +21,8 @@ func fileToFileset(file reflow.File) reflow.Fileset {
 
 func dirToFileset(dir values.Dir) reflow.Fileset {
 	fs := reflow.Fileset{Map: map[string]reflow.File{}}
-	for k, file := range dir {
-		fs.Map[k] = reflow.File(file)
+	for scan := dir.Scan(); scan.Scan(); {
+		fs.Map[scan.Path()] = scan.File()
 	}
 	return fs
 }

@@ -149,16 +149,86 @@ type Struct map[string]T
 // Module is the type of module values.
 type Module map[string]T
 
-// Dir is the type of directory values.
-type Dir map[string]reflow.File
+// Dir is the type of directory values. Directory values are opaque
+// and may only be accessed through its methods. This is to ensure
+// proper usage, and that the directory is always accessed in the
+// same order to provide determinism. The zero dir is a valid,
+// empty directory.
+type Dir struct {
+	contents map[string]reflow.File
+}
+
+// Len returns the number of entries in the directory.
+func (d Dir) Len() int { return len(d.contents) }
+
+// Set sets the directory's entry for the provided path. Set
+// overwrites any previous file set at path.
+func (d *Dir) Set(path string, file reflow.File) {
+	if d.contents == nil {
+		d.contents = make(map[string]reflow.File)
+	}
+	d.contents[path] = file
+}
+
+// Lookup returns the entry associated with the provided path and a boolean
+// indicating whether the entry was found.
+func (d Dir) Lookup(path string) (file reflow.File, ok bool) {
+	file, ok = d.contents[path]
+	return file, ok
+}
+
+// A DirScanner is a stateful scan of a directory. DirScanners should
+// be instantiated by Dir.Scan.
+type DirScanner struct {
+	path     string
+	todo     []string
+	contents map[string]reflow.File
+}
+
+// Scan advances the scanner to the next entry (the first entry for a
+// fresh scanner). It returns false when the scan stops with no more
+// entries.
+func (s *DirScanner) Scan() bool {
+	if len(s.todo) == 0 {
+		return false
+	}
+	s.path = s.todo[0]
+	s.todo = s.todo[1:]
+	return true
+}
+
+// Path returns the path of the currently scanned entry.
+func (s *DirScanner) Path() string {
+	return s.path
+}
+
+// File returns the file of the currently scanned entry.
+func (s *DirScanner) File() reflow.File {
+	return s.contents[s.path]
+}
+
+// Scan returns a new scanner that traverses the directory in
+// path-sorted order.
+//
+//	for scan := dir.Scan(); scan.Scan(); {
+//		fmt.Println(scan.Path(), scan.File())
+//	}
+func (d Dir) Scan() DirScanner {
+	keys := make([]string, 0, len(d.contents))
+	for k := range d.contents {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return DirScanner{todo: keys, contents: d.contents}
+}
 
 // Equal compares the file names and digests in the directory.
 func (d Dir) Equal(e Dir) bool {
-	if len(d) != len(e) {
+	if d.Len() != e.Len() {
 		return false
 	}
-	for lk, lv := range d {
-		if rv, ok := e[lk]; !ok || !rv.Equal(lv) {
+	for lk, lv := range d.contents {
+		if rv, ok := e.contents[lk]; !ok || !rv.Equal(lv) {
 			return false
 		}
 	}
@@ -201,17 +271,17 @@ func Less(v, w T) bool {
 		}
 	case Dir:
 		w := w.(Dir)
-		if len(v) != len(w) {
-			return len(v) < len(w)
+		if v.Len() != w.Len() {
+			return v.Len() < w.Len()
 		}
 		var (
-			vkeys = make([]string, 0, len(v))
-			wkeys = make([]string, 0, len(w))
+			vkeys = make([]string, 0, v.Len())
+			wkeys = make([]string, 0, w.Len())
 		)
-		for k := range v {
+		for k := range v.contents {
 			vkeys = append(vkeys, k)
 		}
-		for k := range w {
+		for k := range w.contents {
 			wkeys = append(wkeys, k)
 		}
 		sort.Strings(vkeys)
@@ -219,7 +289,7 @@ func Less(v, w T) bool {
 		for i := range vkeys {
 			if vkeys[i] != wkeys[i] {
 				return vkeys[i] < wkeys[i]
-			} else if Less(v[vkeys[i]], w[wkeys[i]]) {
+			} else if Less(v.contents[vkeys[i]], w.contents[wkeys[i]]) {
 				return true
 			}
 		}
@@ -364,14 +434,9 @@ func Sprint(v T, t *types.T) string {
 		return fmt.Sprintf("file(sha256=%s, size=%d)", file.ID, file.Size)
 	case types.DirKind:
 		dir := v.(Dir)
-		var keys []string
-		for k := range dir {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		entries := make([]string, len(keys))
-		for i, k := range keys {
-			entries[i] = fmt.Sprintf("%q: %s", k, Sprint(dir[k], types.File))
+		entries := make([]string, 0, dir.Len())
+		for scan := dir.Scan(); scan.Scan(); {
+			entries = append(entries, fmt.Sprintf("%q: %s", scan.Path(), Sprint(scan.File(), types.File)))
 		}
 		return fmt.Sprintf("dir(%s)", strings.Join(entries, ", "))
 	case types.FilesetKind:
@@ -497,14 +562,9 @@ func WriteDigest(w io.Writer, v T, t *types.T) {
 		digest.WriteDigest(w, v.(reflow.File).Digest())
 	case types.DirKind:
 		dir := v.(Dir)
-		var keys []string
-		for k := range dir {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			io.WriteString(w, k)
-			digest.WriteDigest(w, dir[k].Digest())
+		for scan := dir.Scan(); scan.Scan(); {
+			io.WriteString(w, scan.Path())
+			digest.WriteDigest(w, scan.File().Digest())
 		}
 	// Filesets are digesters, so they don't need to be handled here.
 	case types.UnitKind:
