@@ -15,7 +15,7 @@ require (
 	github.com/google/go-containerregistry v0.0.0-20180823182406-e3df2a4fd30e
 	github.com/gorilla/context v1.1.1 // indirect
 	github.com/gorilla/mux v1.6.2 // indirect
-	github.com/grailbio/base v0.0.0
+	github.com/grailbio/base v0.0.0-20190122231653-4b9820296093
 	github.com/grailbio/testutil v0.0.0-20190109212408-dbe52faee1b0
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
 	github.com/opencontainers/image-spec v1.0.1 // indirect
