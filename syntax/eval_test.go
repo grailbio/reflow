@@ -60,6 +60,15 @@ func TestEvalSimple(t *testing.T) {
 		{`(func(x, y string) => x+y)("hello", "world")`, types.String, "helloworld"},
 		{`{m := ["foo": 123, "bar": 333]; m["foo"]}`, types.Int, values.NewInt(123)},
 		{
+			`{val [a, b, ...[c, ...de]] = ["a", "b", "c", "d", "e"]; (a, b, c, de)}`,
+			types.Tuple(
+				&types.Field{T: types.String},
+				&types.Field{T: types.String},
+				&types.Field{T: types.String},
+				&types.Field{T: types.List(types.String)}),
+			values.Tuple{"a", "b", "c", values.List{"d", "e"}},
+		},
+		{
 			`{val (x, y, [_, b], _) = (1, "ok", [true, false], "blah"); (x, y, b)}`,
 			types.Tuple(
 				&types.Field{T: types.Int},
@@ -85,7 +94,7 @@ func TestEvalSimple(t *testing.T) {
 
 func TestPat(t *testing.T) {
 	_, _, _, err := eval(`{val [x, y] = [1]; 123}`)
-	if got, want := err, errors.New("<input>:1:7: cannot match index 1 with a list of size 1"); got.Error() != want.Error() {
+	if got, want := err, errors.New("<input>:1:7: cannot match list pattern of size 2 with a list of size 1"); got.Error() != want.Error() {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
@@ -238,7 +247,7 @@ func TestEvalErr(t *testing.T) {
 		file string
 		err  string
 	}{
-		{"testdata/err1.rf", "testdata/err1.rf:2:7: cannot match index 2 with a list of size 2"},
+		{"testdata/err1.rf", "testdata/err1.rf:2:7: cannot match list pattern of size 3 with a list of size 2"},
 		{"testdata/err2.rf", "panic: panic!"},
 	} {
 		m, err := sess.Open(c.file)

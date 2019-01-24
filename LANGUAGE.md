@@ -166,6 +166,25 @@ val tup = (1, {r: ("a", 1)}, [1, 2, 3])
 val (_, {r: (a, one)}, [first, _, third]) = tup
 </pre>
 results in <code>a := "a"; one := 1; first := 1; third := 3</code>.
+When matching lists, your pattern must be the same length as the list.  For
+example,
+<pre>
+val [a, b] = ["a", "b"] // ok
+val [a, b] = ["a", "b", "c"] // will fail with an error
+val [a, b] = ["a"] // will fail with an error
+</pre>
+Use <code>...x</code> to match the remainder of the list.  For example,
+<pre>
+val lst = ["a", "b", "c", "d", "e"]
+val [a, b, ...cde] = lst
+</pre>
+results in <code>a := "a"; b := "b"; cde := ["c", "d", "e"].
+If you want to ignore the tail of the list, use <code>...</code> (no
+identifier),
+<pre>
+val lst = ["a", "b", "c", "d", "e"]
+val [a, b, ...] = lst
+</pre>
 </dd>
 
 <dt>comprehensions</dt>

@@ -5,6 +5,7 @@
 package syntax
 
 import (
+	"fmt"
 	"io"
 	"strings"
 
@@ -51,7 +52,13 @@ type Pat struct {
 	Kind PatKind
 
 	Ident string
-	List  []*Pat
+
+	List []*Pat
+
+	// Tail is the pattern to which to bind the tail of the list (PatList).  If
+	// nil, the pattern will only match lists of exactly the same length as the
+	// pattern.
+	Tail *Pat
 
 	Fields []PatField
 }
@@ -71,6 +78,13 @@ func (p *Pat) Equal(q *Pat) bool {
 		if !p.List[i].Equal(q.List[i]) {
 			return false
 		}
+	}
+	if (p.Tail == nil) != (q.Tail == nil) {
+		// Only exactly one of them has a tail pattern.
+		return false
+	}
+	if p.Tail != nil && q.Tail != nil && !p.Tail.Equal(q.Tail) {
+		return false
 	}
 	var (
 		pfields = p.FieldMap()
@@ -116,6 +130,9 @@ func (p *Pat) Debug() string {
 		for i, q := range p.List {
 			pats[i] = q.Debug()
 		}
+		if p.Tail != nil {
+			pats = append(pats, fmt.Sprintf("...%s", p.Tail.Debug()))
+		}
 		return "list(" + strings.Join(pats, ", ") + ")"
 	case PatStruct:
 		var pats []string
@@ -146,6 +163,9 @@ func (p *Pat) String() string {
 		for i, q := range p.List {
 			pats[i] = q.String()
 		}
+		if p.Tail != nil {
+			pats = append(pats, fmt.Sprintf("...%s", p.Tail.String()))
+		}
 		return "[" + strings.Join(pats, ", ") + "]"
 	case PatStruct:
 		var pats []string
@@ -168,6 +188,9 @@ func (p *Pat) Idents(ids []string) []string {
 	case PatTuple, PatList:
 		for _, p := range p.List {
 			ids = p.Idents(ids)
+		}
+		if p.Tail != nil {
+			p.Tail.Idents(ids)
 		}
 		return ids
 	case PatStruct:
@@ -211,6 +234,11 @@ func (p *Pat) BindTypes(env *types.Env, t *types.T, use types.Use) error {
 				return err
 			}
 		}
+		if p.Tail != nil {
+			if err := p.Tail.BindTypes(env, t, use); err != nil {
+				return err
+			}
+		}
 		return nil
 	case PatStruct:
 		if t.Kind != types.StructKind {
@@ -250,13 +278,19 @@ func (p *Pat) BindValues(env *values.Env, v values.T) bool {
 		return true
 	case PatList:
 		list := v.(values.List)
-		if len(list) != len(p.List) {
+		if len(list) < len(p.List) {
+			return false
+		}
+		if p.Tail == nil && len(p.List) < len(list) {
 			return false
 		}
 		for i, q := range p.List {
 			if !q.BindValues(env, list[i]) {
 				return false
 			}
+		}
+		if p.Tail != nil {
+			p.Tail.BindValues(env, list[len(p.List):])
 		}
 		return true
 	case PatStruct:
@@ -312,6 +346,11 @@ func (p *Pat) Remove(idents interface {
 		q := new(Pat)
 		*q = *p
 		q.List = list
+		if q.Tail != nil {
+			tailPat, ids := q.Tail.Remove(idents)
+			q.Tail = tailPat
+			removed = append(removed, ids...)
+		}
 		return q, removed
 	case PatStruct:
 		var (
@@ -355,11 +394,15 @@ func (p *Pat) matchers(m map[string]*Matcher, parent *Matcher) {
 		m[p.Ident] = &Matcher{Kind: MatchValue, Parent: parent}
 	case PatTuple:
 		for i, q := range p.List {
-			q.matchers(m, &Matcher{Kind: MatchTuple, Index: i, Parent: parent})
+			q.matchers(m, &Matcher{Kind: MatchTuple, Index: i, Length: len(p.List), Parent: parent})
 		}
 	case PatList:
+		allowTail := p.Tail != nil
 		for i, q := range p.List {
-			q.matchers(m, &Matcher{Kind: MatchList, Index: i, Parent: parent})
+			q.matchers(m, &Matcher{Kind: MatchList, Index: i, Length: len(p.List), AllowTail: allowTail, Parent: parent})
+		}
+		if p.Tail != nil {
+			p.Tail.matchers(m, &Matcher{Kind: MatchListTail, Length: len(p.List), AllowTail: allowTail, Parent: parent})
 		}
 	case PatStruct:
 		for _, f := range p.Fields {
@@ -381,7 +424,9 @@ const (
 	MatchTuple
 	// MatchList indexes a list.
 	MatchList
-	// MatchStruct indexes a struct
+	// MatchListTail indexes the tail of a list.
+	MatchListTail
+	// MatchStruct indexes a struct.
 	MatchStruct
 )
 
@@ -393,6 +438,13 @@ type Matcher struct {
 	Kind MatchKind
 	// Index is the index of the match (MatchTuple, MatchList).
 	Index int
+	// Length is the required length of the containing tuple or list
+	// (MatchTuple, MatchList).  For MatchTuple, this is already validated by
+	// the type-checker and only included here for convenience.
+	Length int
+	// AllowTail specifies whether the matcher allows the containing list to
+	// have a tail (i.e. be longer than the pattern) (MatchList).
+	AllowTail bool
 	// Parent is this matcher's parent.
 	Parent *Matcher
 	// Field holds a struct field (MatchStruct).
@@ -433,10 +485,25 @@ func (p Path) Match(v values.T, t *types.T) (values.T, *types.T, bool, Path, err
 		return v.(values.Tuple)[m.Index], t.Fields[m.Index].T, true, p, nil
 	case MatchList:
 		l := v.(values.List)
-		if m.Index >= len(l) {
-			return nil, t.Elem, false, p, errors.Errorf("cannot match index %d with a list of size %d", m.Index, len(l))
+		if len(l) < m.Length {
+			return nil, t.Elem, false, p, errors.Errorf("cannot match list pattern of size %d with a list of size %d", m.Length, len(l))
+		}
+		if !m.AllowTail && m.Length < len(l) {
+			return nil, t.Elem, false, p, errors.Errorf("cannot match list pattern of size %d with a list of size %d", m.Length, len(l))
+		}
+		if len(l) <= m.Index {
+			panic("matcher index exceeds list length; should be caught by length check")
 		}
 		return l[m.Index], t.Elem, true, p, nil
+	case MatchListTail:
+		l := v.(values.List)
+		if len(l) < m.Length {
+			return nil, t.Elem, false, p, errors.Errorf("cannot match pattern of size %d with a list of size %d", m.Length, len(l))
+		}
+		if !m.AllowTail {
+			panic("must allow tails to match tail")
+		}
+		return l[m.Length:], t, true, p, nil
 	case MatchStruct:
 		return v.(values.Struct)[m.Field], t.Field(m.Field), true, p, nil
 	}
@@ -452,8 +519,19 @@ func (p Path) Digest() digest.Digest {
 		default:
 			panic("bad matcher")
 		case MatchValue:
-		case MatchTuple, MatchList:
+		case MatchTuple:
 			writeN(w, m.Index)
+			writeN(w, m.Length)
+		case MatchList:
+			writeN(w, m.Index)
+			writeN(w, m.Length)
+			if m.AllowTail {
+				w.Write([]byte{1})
+			} else {
+				w.Write([]byte{0})
+			}
+		case MatchListTail:
+			writeN(w, m.Length)
 		case MatchStruct:
 			io.WriteString(w, m.Field)
 		}

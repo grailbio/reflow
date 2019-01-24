@@ -54,6 +54,11 @@ type typearg struct {
 		field string
 		pat *Pat
 	}
+
+	listpats struct{
+		list []*Pat
+		tail *Pat
+	}
 	
 	typearg typearg
 	typeargs []typearg
@@ -102,7 +107,8 @@ type typearg struct {
 %type	<pat>		pat 
 %type	<structpat>	structpat
 %type 	<structpats>	structpatargs
-%type	<patlist>		tuplepatargs listpatargs 
+%type	<patlist>		tuplepatargs
+%type	<listpats>	listpatargs
 
 // Precedence as in Go.
 
@@ -270,7 +276,7 @@ pat:
 |	'(' tuplepatargs ')'
 	{$$ = &Pat{Position: $1.Position, Kind: PatTuple, List: $2}}
 |	'[' listpatargs ']'
-	{$$ = &Pat{Position: $1.Position, Kind: PatList, List: $2}}
+	{$$ = &Pat{Position: $1.Position, Kind: PatList, List: $2.list, Tail: $2.tail}}
 |	'{' structpatargs '}'
 	{
 		$$ = &Pat{Position: $1.Position, Kind: PatStruct, Fields: make([]PatField, len($2))}
@@ -280,7 +286,29 @@ pat:
 	}
 
 listpatargs:
-	tuplepatargs		// at the moment, they are the same
+	pat
+	{$$ = struct{
+		list []*Pat
+		tail *Pat
+	}{
+		list: []*Pat{$1},
+	}
+	}
+|	listpatargs ',' pat
+	{
+		$1.list = append($1.list, $3)
+		$$ = $1
+	}
+|	listpatargs ',' tokEllipsis
+	{
+		$1.tail = &Pat{Position: $3.Position, Kind: PatIgnore}
+		$$ = $1
+	}
+|	listpatargs ',' tokEllipsis pat
+	{
+		$1.tail = $4
+		$$ = $1
+	}
 
 tuplepatargs:
 	pat

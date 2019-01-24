@@ -25,6 +25,19 @@ func TestRemove(t *testing.T) {
 				Ident: "ok",
 			},
 			{
+				Kind: PatList,
+				List: []*Pat{
+					{
+						Kind:  PatIdent,
+						Ident: "baz",
+					},
+				},
+				Tail: &Pat{
+					Kind:  PatIdent,
+					Ident: "qux",
+				},
+			},
+			{
 				Kind: PatStruct,
 				Fields: []PatField{
 					{
@@ -48,15 +61,17 @@ func TestRemove(t *testing.T) {
 	pat, removed := pat.Remove(idents{
 		"ok":    true,
 		"bar":   true,
+		"baz":   true,
+		"qux":   true,
 		"other": true,
 	})
-	if got, want := removed, []string{"ok", "bar"}; !reflect.DeepEqual(got, want) {
+	if got, want := removed, []string{"ok", "baz", "qux", "bar"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	if got, want := pat.Idents(nil), []string{"foo"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	if got, want := fmt.Sprint(pat), "(_, {hello:foo, world:_})"; got != want {
+	if got, want := fmt.Sprint(pat), "(_, [_, ..._], {hello:foo, world:_})"; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
@@ -73,6 +88,10 @@ func TestBindValues(t *testing.T) {
 						Ident: "a",
 					},
 				},
+				Tail: &Pat{
+					Kind:  PatIdent,
+					Ident: "bc",
+				},
 			},
 			{
 				Kind: PatStruct,
@@ -81,7 +100,7 @@ func TestBindValues(t *testing.T) {
 						Name: "f",
 						Pat: &Pat{
 							Kind:  PatIdent,
-							Ident: "b",
+							Ident: "d",
 						},
 					},
 				},
@@ -89,8 +108,8 @@ func TestBindValues(t *testing.T) {
 		},
 	}
 	v := values.Tuple{
-		values.List{"va"},
-		values.Struct{"f": "vb"},
+		values.List{"va", "vb", "vc"},
+		values.Struct{"f": "vd"},
 	}
 	env := values.NewEnv()
 	if ok := pat.BindValues(env, v); !ok {
@@ -101,9 +120,10 @@ func TestBindValues(t *testing.T) {
 		v  values.T
 	}{
 		{"a", "va"},
-		{"b", "vb"},
+		{"bc", values.List{"vb", "vc"}},
+		{"d", "vd"},
 	} {
-		if got, want := env.Value(c.id), c.v; got != want {
+		if got, want := env.Value(c.id), c.v; !values.Equal(got, want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
 	}
