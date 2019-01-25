@@ -40,8 +40,8 @@ github.com/golang/protobuf v1.2.0 h1:P3YflyNX/ehuJFLhxviNdFxQPkGK5cDcApsge1SqnvM
 github.com/golang/protobuf v1.2.0/go.mod h1:6lQm79b+lXiMfvg/cZm0SGofjICqVBUtrP5yJMmIC1U=
 github.com/google/go-cmp v0.2.0 h1:+dTQ8DZQJz0Mb/HjFlkptS1FeQ4cWSnN941F8aEG4SQ=
 github.com/google/go-cmp v0.2.0/go.mod h1:oXzfMopK8JAjlY9xF4vHSVASa0yLyX7SntLO5aqRK0M=
-github.com/google/go-containerregistry v0.0.0-20180823182406-e3df2a4fd30e h1:PbbCFKHg7hF36CnbaSNrFw1sy2aF12BKDvyfpvUq1KM=
-github.com/google/go-containerregistry v0.0.0-20180823182406-e3df2a4fd30e/go.mod h1:yZAFP63pRshzrEYLXLGPmUt0Ay+2zdjmMN1loCnRLUk=
+github.com/google/go-containerregistry v0.0.0-20190116191554-efb7e1b888e1 h1:lfCw3Im8vK9WqHFd90pyO/HBdkGrrsMFry1tZ8QPc+Q=
+github.com/google/go-containerregistry v0.0.0-20190116191554-efb7e1b888e1/go.mod h1:yZAFP63pRshzrEYLXLGPmUt0Ay+2zdjmMN1loCnRLUk=
 github.com/google/gofuzz v0.0.0-20170612174753-24818f796faf h1:+RRA9JqSOZFfKrOeqr2z77+8R2RKyh8PG66dcu1V0ck=
 github.com/google/gofuzz v0.0.0-20170612174753-24818f796faf/go.mod h1:HP5RmnzzSNb993RKQDq4+1A4ia9nllfqcQFTQJedwGI=
 github.com/google/gops v0.0.0-20171222022621-e09130d89827/go.mod h1:pMQgrscwEK/aUSW1IFSaBPbJX82FPHWaSoJw1axQfD0=

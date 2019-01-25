@@ -12,7 +12,7 @@ require (
 	github.com/docker/go-units v0.3.3
 	github.com/gogo/protobuf v1.2.0 // indirect
 	github.com/google/go-cmp v0.2.0 // indirect
-	github.com/google/go-containerregistry v0.0.0-20180823182406-e3df2a4fd30e
+	github.com/google/go-containerregistry v0.0.0-20190116191554-efb7e1b888e1
 	github.com/gorilla/context v1.1.1 // indirect
 	github.com/gorilla/mux v1.6.2 // indirect
 	github.com/grailbio/base v0.0.0-20190122231653-4b9820296093
