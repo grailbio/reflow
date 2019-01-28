@@ -16,7 +16,7 @@ require (
 	github.com/gorilla/context v1.1.1 // indirect
 	github.com/gorilla/mux v1.6.2 // indirect
 	github.com/grailbio/base v0.0.0-20190122231653-4b9820296093
-	github.com/grailbio/testutil v0.0.0-20190109212408-dbe52faee1b0
+	github.com/grailbio/testutil v0.0.0-20190127023142-d3ae812e9a0e
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
 	github.com/opencontainers/image-spec v1.0.1 // indirect
 	github.com/sirupsen/logrus v1.3.0 // indirect
