@@ -112,7 +112,7 @@ func main() {
 func packageVersion(packagePath string) string {
 	pkgs, err := packages.Load(nil, packagePath)
 	if err != nil {
-		log.Fatalf("failed to load package %s: %v", packagePath)
+		log.Fatalf("failed to load package %s: %v", packagePath, err)
 	}
 	if len(pkgs) == 0 {
 		log.Fatalf("package %s not found", packagePath)
@@ -162,7 +162,7 @@ func git(dir string, args ...string) string {
 	cmd.Stderr = os.Stderr
 	cmd.Dir = dir
 	if err := cmd.Run(); err != nil {
-		log.Fatalf("git %s: %v", strings.Join(args, " "))
+		log.Fatalf("git %s: %v", strings.Join(args, " "), err)
 	}
 	return strings.TrimSpace(out.String())
 }
