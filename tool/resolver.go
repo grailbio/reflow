@@ -87,7 +87,7 @@ func (r *imageResolver) authenticate(ctx context.Context) error {
 func imageDigestReference(image string, auth authn.Authenticator) (string, error) {
 	ref, err := imgname.ParseReference(image, imgname.WeakValidation)
 	if err != nil {
-		return "", fmt.Errorf("parsing tag %q: %v", ref, err)
+		return "", fmt.Errorf("parsing tag %q: %v", image, err)
 	}
 
 	img, err := remote.Image(ref, remote.WithAuth(auth))
