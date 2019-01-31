@@ -2,17 +2,23 @@ package tool
 
 import (
 	"context"
-	"fmt"
 	"sync"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/google/go-containerregistry/pkg/authn"
 	imgname "github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
+	"github.com/grailbio/base/retry"
 	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/base/traverse"
+	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/ecrauth"
-) // ImageResolver maintains maps of image descriptions to their canonical values
+	"github.com/grailbio/reflow/log"
+)
+
+// ImageResolver maintains maps of image descriptions to their canonical values
 // (fully qualified registry host, and digest based references)
 type imageResolver struct {
 	// Authenticator will have a nil AWS session if the config does not have
@@ -60,13 +66,13 @@ func (r *imageResolver) resolveImage(ctx context.Context, image string) (string,
 		}
 		auth = &authn.Basic{Username: r.ecrCreds.Username, Password: r.ecrCreds.Password}
 		if err != nil {
-			return "", fmt.Errorf("making creds for %q: %v", image, err)
+			return "", errors.E(err, "tool.resolveImage", "auth", image)
 		}
 	} else {
 		auth = authn.Anonymous
 	}
 
-	ref, err := imageDigestReference(image, auth)
+	ref, err := imageDigestReference(ctx, image, auth)
 	if err != nil {
 		return "", err
 	}
@@ -84,20 +90,45 @@ func (r *imageResolver) authenticate(ctx context.Context) error {
 	})
 }
 
-func imageDigestReference(image string, auth authn.Authenticator) (string, error) {
+func imageDigestReference(ctx context.Context, image string, auth authn.Authenticator) (string, error) {
 	ref, err := imgname.ParseReference(image, imgname.WeakValidation)
 	if err != nil {
-		return "", fmt.Errorf("parsing tag %q: %v", image, err)
+		return "", errors.E(err, "tool.imageDigestReference", "parse", image)
 	}
 
+	// TODO(sbagaria): Should we retry here as well? This initializes the HTTP transport.
 	img, err := remote.Image(ref, remote.WithAuth(auth))
 	if err != nil {
-		return "", fmt.Errorf("obtaining image for %q: %v", ref, err)
+		return "", errors.E(err, "tool.imageDigestReference", "remote", ref.Name())
 	}
 
-	hash, err := img.Digest()
-	if err != nil {
-		return "", fmt.Errorf("obtaining manifest digest for %q: %v", ref, err)
+	retryPolicy := retry.MaxTries(retry.Backoff(time.Second, 10*time.Second, 1.5), 5)
+	for retries := 0; ; retries++ {
+		hash, err := img.Digest()
+		if err == nil {
+			return ref.Context().Name() + "@" + hash.String(), nil
+		}
+		// Do not retry on certain errors.
+		if e, ok := err.(*transport.Error); ok {
+			for _, d := range e.Errors {
+				switch d.Code {
+				case transport.ManifestUnknownErrorCode,
+					transport.NameInvalidErrorCode,
+					transport.NameUnknownErrorCode,
+					transport.UnauthorizedErrorCode,
+					transport.DeniedErrorCode,
+					transport.UnsupportedErrorCode:
+					return "", errors.E(err, "tool.imageDigestReference", ref.Name())
+				}
+			}
+		}
+		log.Printf("retrying getting image manifest for %q: %v", ref.Name(), err)
+		if err := retry.Wait(ctx, retryPolicy, retries); err != nil {
+			// Mark error as kind Unavailable to indicate that this could be a
+			// transient error.  If we do not explicitly mark as Unavailable, then
+			// errors of type TooManyTries from grailbio/base do not get assigned to
+			// the right reflow/errors kind.
+			return "", errors.E(errors.Unavailable, err, "tool.imageDigestReference", ref.Name())
+		}
 	}
-	return ref.Context().Name() + "@" + hash.String(), nil
 }

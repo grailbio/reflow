@@ -65,8 +65,6 @@ func imageExists(ctx context.Context, client *client.Client, id string) (bool, e
 	return false, nil
 }
 
-var policy = retry.Backoff(time.Second, 10*time.Second, 1.5)
-
 // pullImage pulls an image (by reference) to a Docker client using an authenticator.
 func pullImage(ctx context.Context, client *client.Client, authenticator ecrauth.Interface, ref string) error {
 	var options types.ImagePullOptions

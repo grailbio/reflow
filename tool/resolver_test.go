@@ -40,7 +40,8 @@ func TestResolveImages(t *testing.T) {
 	for _, testCase := range testCases {
 		canonical, err := r.resolveImages(context.Background(), []string{testCase.image})
 		if err != nil {
-			t.Errorf("error while getting canonical name for %s", testCase.image)
+			t.Errorf("error while getting canonical name for %s: %v", testCase.image, err)
+			continue
 		}
 		if got, want := canonical[testCase.image], testCase.canonical; got != want {
 			t.Errorf("expected %s, got %s", want, got)
