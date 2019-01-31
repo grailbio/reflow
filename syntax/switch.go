@@ -569,9 +569,6 @@ func (p *Pat) normalizeList() normalizedListPat {
 			case PatIdent, PatIgnore:
 				return normalizedListPat{list, true}
 			case PatList:
-				if len(tail.List) == 0 {
-					return normalizedListPat{list, false}
-				}
 				currPat = tail
 				i = 0
 			default:

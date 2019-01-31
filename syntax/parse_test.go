@@ -301,6 +301,98 @@ func TestParseString(t *testing.T) {
 	}
 }
 
+func TestParsePat(t *testing.T) {
+	for _, c := range []struct {
+		input string
+		pat   *Pat // nil means that we expect a parse failure.
+	}{
+		{"", nil},
+		{"_", &Pat{Kind: PatIgnore}},
+		{"[]", nil},
+		{"[...]", nil},
+		{"[..., a]", nil},
+		{"[a, ..., b]", nil},
+		{
+			"[a]",
+			&Pat{
+				Kind: PatList,
+				List: []*Pat{{Kind: PatIdent, Ident: "a"}},
+			},
+		},
+		{
+			"[a, b]",
+			&Pat{
+				Kind: PatList,
+				List: []*Pat{
+					{Kind: PatIdent, Ident: "a"},
+					{Kind: PatIdent, Ident: "b"},
+				},
+			},
+		},
+		{
+			"[a, b, ...]",
+			&Pat{
+				Kind: PatList,
+				List: []*Pat{
+					{Kind: PatIdent, Ident: "a"},
+					{Kind: PatIdent, Ident: "b"},
+				},
+				Tail: &Pat{Kind: PatIgnore},
+			},
+		},
+		{
+			"[a, b, ...rest]",
+			&Pat{
+				Kind: PatList,
+				List: []*Pat{
+					{Kind: PatIdent, Ident: "a"},
+					{Kind: PatIdent, Ident: "b"},
+				},
+				Tail: &Pat{Kind: PatIdent, Ident: "rest"},
+			},
+		},
+		{
+			"[a, b, ...[c]]",
+			&Pat{
+				Kind: PatList,
+				List: []*Pat{
+					{Kind: PatIdent, Ident: "a"},
+					{Kind: PatIdent, Ident: "b"},
+				},
+				Tail: &Pat{
+					Kind: PatList,
+					List: []*Pat{{Kind: PatIdent, Ident: "c"}},
+				},
+			},
+		},
+		{
+			"(a, b)",
+			&Pat{
+				Kind: PatTuple,
+				List: []*Pat{
+					{Kind: PatIdent, Ident: "a"},
+					{Kind: PatIdent, Ident: "b"},
+				},
+			},
+		},
+	} {
+		p := Parser{Mode: ParsePat, Body: bytes.NewReader([]byte(c.input))}
+		err := p.Parse()
+		switch {
+		case err == nil && c.pat == nil:
+			t.Errorf("input %s: got %v, want failure to parse", c.input, p.Pat)
+		case err == nil && c.pat != nil:
+			if got, want := p.Pat, c.pat; !p.Pat.Equal(c.pat) {
+				t.Errorf("input %s: got %v, want %v", c.input, got, want)
+			}
+		case err != nil && c.pat == nil:
+			// Expected an error and got an error, so we're good.
+		case err != nil && c.pat != nil:
+			t.Errorf("input %s: got error %v, want %v", c.input, err, c.pat)
+		}
+	}
+}
+
 func TestParseSwitch(t *testing.T) {
 	p := Parser{Mode: ParseExpr, Body: bytes.NewReader([]byte(`
 		switch ["a", "b"] {
