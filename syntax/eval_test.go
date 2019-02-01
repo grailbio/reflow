@@ -251,6 +251,7 @@ func TestEvalErr(t *testing.T) {
 	}{
 		{"testdata/err1.rf", "testdata/err1.rf:2:7: cannot match list pattern of size 3 with a list of size 2"},
 		{"testdata/err2.rf", "panic: panic!"},
+		{"testdata/err3.rf", "testdata/err3.rf:2:7: cannot match list pattern of size 1 with a list of size 2"},
 	} {
 		m, err := sess.Open(c.file)
 		if err != nil {

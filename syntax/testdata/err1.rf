@@ -1,4 +1,4 @@
 val Test = {
-	val [x, y, z] = [1,2]
+	val [x, y, z] = [1, 2]
 	(x, y, z)
 }

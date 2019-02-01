@@ -57,8 +57,8 @@ type evalSwitch struct {
 
 // idPath pairs the identifier that should be bound to the value found at the
 // path with the path itself.  This just makes it a bit more convenient to pass
-// Paths around with enough context to bind then in a *values.Env once they
-// match.
+// Paths around with enough context to bind them in a *values.Env once they
+// match.  If id == "", no value will be bound.
 type idPath struct {
 	id   string
 	path Path
@@ -102,9 +102,9 @@ func (s *evalSwitch) evalCase(c *CaseClause, k switchCont) (values.T, error) {
 	pattern := c.Pat
 	ms := pattern.Matchers()
 	ps := make([]*idPath, 0, len(ms))
-	for id, m := range ms {
+	for _, m := range ms {
 		p := &idPath{
-			id:   id,
+			id:   m.Ident,
 			path: m.Path(),
 		}
 		ps = append(ps, p)
@@ -133,9 +133,11 @@ func (s *evalSwitch) evalPaths(ps []*idPath, env *values.Env, k switchCont) (val
 func (s *evalSwitch) evalPath(
 	p *idPath, v values.T, t *types.T, env *values.Env, k switchCont) (values.T, error) {
 	if p.path.Done() {
-		// The path matched, so we bind the value into into the environment
-		// that we are building up.
-		env.Bind(p.id, v)
+		// The path matched, so we bind the value into the environment that we
+		// are building up.
+		if p.id != "" {
+			env.Bind(p.id, v)
+		}
 		return k(true, env)
 	}
 	if f, ok := v.(*flow.Flow); ok {

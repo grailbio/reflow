@@ -1,0 +1,4 @@
+val Test = {
+	val [_] = [1, 2]
+	true
+}

@@ -188,12 +188,14 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				return nil, err
 			}
 			env = env.Push()
-			for id, m := range d.Pat.Matchers() {
+			for _, m := range d.Pat.Matchers() {
 				w, err := coerceMatch(v, d.Type, d.Pat.Position, m.Path())
 				if err != nil {
 					return nil, err
 				}
-				env.Bind(id, w)
+				if m.Ident != "" {
+					env.Bind(m.Ident, w)
+				}
 			}
 		}
 		return e.Left.eval(sess, env, ident)
@@ -374,16 +376,19 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			if err != nil {
 				return nil, err
 			}
-			for id, m := range d.Pat.Matchers() {
+			for _, m := range d.Pat.Matchers() {
 				w, err := coerceMatch(v, d.Type, d.Pat.Position, m.Path())
 				if err != nil {
 					return nil, err
 				}
+				if m.Ident == "" {
+					continue
+				}
 				if e.Module.Eager() {
-					w = Force(w, params[id].Type)
+					w = Force(w, params[m.Ident].Type)
 				}
 				args = append(args, tval{d.Type, w})
-				argIds = append(argIds, id)
+				argIds = append(argIds, m.Ident)
 			}
 		}
 		if e.Module.Eager() {
@@ -1177,12 +1182,14 @@ func (e *Expr) evalCompr(sess *Session, env *values.Env, ident string, begin int
 				list = make(values.List, len(left))
 				for i, v := range left {
 					env2 := env.Push()
-					for id, m := range clause.Pat.Matchers() {
+					for _, m := range clause.Pat.Matchers() {
 						w, err := coerceMatch(v, clause.Expr.Type.Elem, clause.Pat.Position, m.Path())
 						if err != nil {
 							return nil, err
 						}
-						env2.Bind(id, w)
+						if m.Ident != "" {
+							env2.Bind(m.Ident, w)
+						}
 					}
 					var err error
 					if last {
@@ -1199,7 +1206,7 @@ func (e *Expr) evalCompr(sess *Session, env *values.Env, ident string, begin int
 				var err error
 				left.Each(func(k, v values.T) {
 					env2 := env.Push()
-					for id, matcher := range clause.Pat.Matchers() {
+					for _, matcher := range clause.Pat.Matchers() {
 						tup := values.Tuple{k, v}
 						var w values.T
 						w, err = coerceMatch(
@@ -1214,7 +1221,9 @@ func (e *Expr) evalCompr(sess *Session, env *values.Env, ident string, begin int
 						if err != nil {
 							return
 						}
-						env2.Bind(id, w)
+						if matcher.Ident != "" {
+							env2.Bind(matcher.Ident, w)
+						}
 					}
 					var ev values.T
 					if last {

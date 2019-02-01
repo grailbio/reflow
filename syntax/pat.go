@@ -306,11 +306,11 @@ func (p *Pat) BindValues(env *values.Env, v values.T) bool {
 	}
 }
 
-// Matchers returns a map of matchers representing this pattern.
-func (p *Pat) Matchers() map[string]*Matcher {
-	m := map[string]*Matcher{}
-	p.matchers(m, nil)
-	return m
+// Matchers returns a slice of matchers representing this pattern.
+func (p *Pat) Matchers() []*Matcher {
+	ms := []*Matcher{}
+	p.matchers(&ms, nil)
+	return ms
 }
 
 // Remove removes any identifiers in the set provided by idents and
@@ -386,29 +386,30 @@ func (p *Pat) FieldMap() map[string]*Pat {
 	return m
 }
 
-func (p *Pat) matchers(m map[string]*Matcher, parent *Matcher) {
+func (p *Pat) matchers(ms *[]*Matcher, parent *Matcher) {
 	switch p.Kind {
 	default:
 		panic("bad pat")
 	case PatIdent:
-		m[p.Ident] = &Matcher{Kind: MatchValue, Parent: parent}
+		*ms = append(*ms, &Matcher{Kind: MatchValue, Parent: parent, Ident: p.Ident})
 	case PatTuple:
 		for i, q := range p.List {
-			q.matchers(m, &Matcher{Kind: MatchTuple, Index: i, Length: len(p.List), Parent: parent})
+			q.matchers(ms, &Matcher{Kind: MatchTuple, Index: i, Length: len(p.List), Parent: parent})
 		}
 	case PatList:
 		allowTail := p.Tail != nil
 		for i, q := range p.List {
-			q.matchers(m, &Matcher{Kind: MatchList, Index: i, Length: len(p.List), AllowTail: allowTail, Parent: parent})
+			q.matchers(ms, &Matcher{Kind: MatchList, Index: i, Length: len(p.List), AllowTail: allowTail, Parent: parent})
 		}
 		if p.Tail != nil {
-			p.Tail.matchers(m, &Matcher{Kind: MatchListTail, Length: len(p.List), AllowTail: allowTail, Parent: parent})
+			p.Tail.matchers(ms, &Matcher{Kind: MatchListTail, Length: len(p.List), AllowTail: allowTail, Parent: parent})
 		}
 	case PatStruct:
 		for _, f := range p.Fields {
-			f.matchers(m, &Matcher{Kind: MatchStruct, Field: f.Name, Parent: parent})
+			f.matchers(ms, &Matcher{Kind: MatchStruct, Field: f.Name, Parent: parent})
 		}
 	case PatIgnore:
+		*ms = append(*ms, &Matcher{Kind: MatchValue, Parent: parent})
 	}
 }
 
@@ -436,6 +437,9 @@ const (
 type Matcher struct {
 	// Kind is the kind of matcher.
 	Kind MatchKind
+	// Ident is the identifier to which the value of this matcher's match should
+	// be bound (MatchValue).  If Ident == "", no identifier should be bound.
+	Ident string
 	// Index is the index of the match (MatchTuple, MatchList).
 	Index int
 	// Length is the required length of the containing tuple or list

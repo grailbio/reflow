@@ -30,6 +30,9 @@ func NewEnv() *Env {
 
 // Bind binds the identifier id to value v.
 func (e *Env) Bind(id string, v T) {
+	if id == "" {
+		panic("empty identifier")
+	}
 	e.Symtab[id] = v
 }
 

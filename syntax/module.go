@@ -295,11 +295,15 @@ func (m *ModuleImpl) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error
 			if err != nil {
 				return nil, err
 			}
-			for id, match := range p.Pat.Matchers() {
-				w, err := coerceMatch(v, p.Type, p.Pat.Position, match.Path())
+			for _, matcher := range p.Pat.Matchers() {
+				w, err := coerceMatch(v, p.Type, p.Pat.Position, matcher.Path())
 				if err != nil {
 					return nil, err
 				}
+				if matcher.Ident == "" {
+					continue
+				}
+				id := matcher.Ident
 				if m.fenv.Contains(id) {
 					w = m.fenv.Value(id)
 				}
@@ -438,7 +442,11 @@ func (m *ModuleImpl) Make(sess *Session, params *values.Env) (values.T, error) {
 		case DeclAssign:
 			var v values.T
 			env = env.Push()
-			for id, m := range p.Pat.Matchers() {
+			for _, m := range p.Pat.Matchers() {
+				if m.Ident == "" {
+					continue
+				}
+				id := m.Ident
 				// Passed parameters override definitions.
 				if !params.Contains(id) {
 					if v == nil {
@@ -466,12 +474,14 @@ func (m *ModuleImpl) Make(sess *Session, params *values.Env) (values.T, error) {
 			return nil, err
 		}
 		env = env.Push()
-		for id, m := range d.Pat.Matchers() {
+		for _, m := range d.Pat.Matchers() {
 			w, err := coerceMatch(v, d.Type, d.Pat.Position, m.Path())
 			if err != nil {
 				return nil, err
 			}
-			env.Bind(id, w)
+			if m.Ident != "" {
+				env.Bind(m.Ident, w)
+			}
 		}
 	}
 	v := make(values.Module)
