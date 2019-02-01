@@ -4,16 +4,24 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"reflect"
 	"regexp"
 	"testing"
+
+	"github.com/grailbio/reflow/test/testutil"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
+	"github.com/grailbio/infra"
+	_ "github.com/grailbio/infra/aws"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
+	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/pool"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -322,5 +330,34 @@ func TestInvalidDigest(t *testing.T) {
 		if got, want := errCount, 250; got != want {
 			t.Errorf(fmt.Sprintf("expected %v invalid digest keys, got %v", want, got))
 		}
+	}
+}
+
+func TestDydbassocInfra(t *testing.T) {
+	const table = "reflow-unittest"
+	testutil.SkipIfNoCreds(t)
+	var schema = infra.Schema{
+		"labels":  make(pool.Labels),
+		"session": new(session.Session),
+		"assoc":   new(assoc.Assoc),
+		"logger":  new(log.Logger),
+	}
+	config, err := schema.Make(infra.Keys{
+		"labels":  "github.com/grailbio/reflow/pool.Labels",
+		"session": "github.com/grailbio/infra/aws.Session",
+		"assoc":   fmt.Sprintf("github.com/grailbio/reflow/assoc/dydbassoc.Assoc,table=%v", table),
+		"logger":  "github.com/grailbio/reflow/log.Logger",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a assoc.Assoc
+	config.Must(&a)
+	dydbassoc, ok := a.(*Assoc)
+	if !ok {
+		t.Fatalf("%v is not an dydbassoc", reflect.TypeOf(a))
+	}
+	if got, want := dydbassoc.TableName, table; got != want {
+		t.Errorf("got %v, want %v", dydbassoc.TableName, table)
 	}
 }

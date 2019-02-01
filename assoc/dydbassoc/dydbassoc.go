@@ -8,6 +8,7 @@ package dydbassoc
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"strconv"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
@@ -24,6 +26,7 @@ import (
 	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/base/retry"
 	"github.com/grailbio/base/traverse"
+	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
@@ -34,12 +37,17 @@ import (
 	"golang.org/x/time/rate"
 )
 
-const (
-	dbmaxdeleteobjects  = 25
-	dbmaxdeleteattempts = 6
+func init() {
+	infra.Register(new(Assoc))
+}
 
+const (
 	// getTimeout is the timeout used for a single DynamoDB get request.
 	getTimeout = 30 * time.Second
+
+	// Default provisioned capacities for DynamoDB.
+	writecap = 10
+	readcap  = 20
 )
 
 // Assoc implements a DynamoDB-backed Assoc for use in caches.
@@ -49,14 +57,138 @@ const (
 // TODO(marius): support batch querying in this interface; it will be
 // more efficient than relying on call concurrency.
 type Assoc struct {
-	DB        dynamodbiface.DynamoDBAPI
-	Limiter   *limiter.Limiter
-	TableName string
+	DB        dynamodbiface.DynamoDBAPI `yaml:"-"`
+	Limiter   *limiter.Limiter          `yaml:"-"`
+	TableName string                    `yaml:"-"`
 	// Labels to assign to cache entries.
-	Labels pool.Labels
+	Labels pool.Labels `yaml:"-"`
 
-	labelsOnce sync.Once
-	labels     []*string
+	labelsOnce sync.Once `yaml:"-"`
+	labels     []*string `yaml:"-"`
+}
+
+// Init implements infra.Provider.
+func (a *Assoc) Init(sess *session.Session, labels pool.Labels) error {
+	lim := limiter.New()
+	lim.Release(32)
+	a.DB = dynamodb.New(sess)
+	a.Limiter = lim
+	a.Labels = labels.Copy()
+	return nil
+}
+
+// Setup implements infra.Provider
+func (a *Assoc) Setup(sess *session.Session, logger *log.Logger) error {
+	log.Printf("creating DynamoDB table %s", a.TableName)
+	db := dynamodb.New(sess)
+	_, err := db.CreateTable(&dynamodb.CreateTableInput{
+		AttributeDefinitions: []*dynamodb.AttributeDefinition{
+			{
+				AttributeName: aws.String("ID"),
+				AttributeType: aws.String("S"),
+			},
+		},
+		KeySchema: []*dynamodb.KeySchemaElement{
+			{
+				AttributeName: aws.String("ID"),
+				KeyType:       aws.String("HASH"),
+			},
+		},
+		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(readcap),
+			WriteCapacityUnits: aws.Int64(writecap),
+		},
+		TableName: aws.String(a.TableName),
+	})
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); !ok || aerr.Code() != dynamodb.ErrCodeResourceInUseException {
+			log.Fatal(err)
+		}
+		log.Printf("dynamodb table %s already exists", a.TableName)
+	} else {
+		log.Printf("created DynamoDB table %s", a.TableName)
+	}
+	const indexName = "ID4-ID-index"
+	var describe *dynamodb.DescribeTableOutput
+	start := time.Now()
+	for {
+		describe, err = db.DescribeTable(&dynamodb.DescribeTableInput{
+			TableName: aws.String(a.TableName),
+		})
+		if err != nil {
+			return err
+		}
+		status := *describe.Table.TableStatus
+		if status == "ACTIVE" {
+			break
+		}
+
+		if time.Since(start) > time.Minute {
+			return errors.New("waited for table to become active for too long; try again later")
+		}
+		log.Printf("waiting for table to become active; current status: %v", status)
+		time.Sleep(4 * time.Second)
+	}
+	var exists bool
+	for _, index := range describe.Table.GlobalSecondaryIndexes {
+		if *index.IndexName == indexName {
+			exists = true
+			break
+		}
+	}
+	if exists {
+		log.Printf("dynamodb index %s already exists", indexName)
+	} else {
+		// Create a secondary index to look up keys by their ID4-prefix.
+		_, err = db.UpdateTable(&dynamodb.UpdateTableInput{
+			TableName: aws.String(a.TableName),
+			AttributeDefinitions: []*dynamodb.AttributeDefinition{
+				{
+					AttributeName: aws.String("ID"),
+					AttributeType: aws.String("S"),
+				},
+				// DynamoDB has to know about the attribute type to index it
+				{
+					AttributeName: aws.String("ID4"),
+					AttributeType: aws.String("S"),
+				},
+			},
+			GlobalSecondaryIndexUpdates: []*dynamodb.GlobalSecondaryIndexUpdate{
+				{
+					Create: &dynamodb.CreateGlobalSecondaryIndexAction{
+						IndexName: aws.String(indexName),
+						KeySchema: []*dynamodb.KeySchemaElement{
+							{
+								KeyType:       aws.String("HASH"),
+								AttributeName: aws.String("ID4"),
+							},
+							{
+								KeyType:       aws.String("RANGE"),
+								AttributeName: aws.String("ID"),
+							},
+						},
+						Projection: &dynamodb.Projection{
+							ProjectionType: aws.String("ALL"),
+						},
+						ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+							ReadCapacityUnits:  aws.Int64(int64(readcap)),
+							WriteCapacityUnits: aws.Int64(int64(writecap)),
+						},
+					},
+				},
+			},
+		})
+		if err != nil {
+			return errors.E("error creating secondary index: %v", err)
+		}
+		log.Printf("created secondary index %s", indexName)
+	}
+	return nil
+}
+
+// Flags implements infra.Provider.
+func (a *Assoc) Flags(flags *flag.FlagSet) {
+	flags.StringVar(&a.TableName, "table", "", "name of the dynamodb table")
 }
 
 // Store associates the digest v with the key digest k of the provided kind. If v is zero,
@@ -175,11 +307,10 @@ var (
 	backOffPolicy = retry.MaxTries(retry.Backoff(2*time.Millisecond, time.Minute, 1), 10)
 )
 
-// Lookup returns the digest associated with key digest k. Lookup
+// Get returns the digest associated with key digest k. Lookup
 // returns an error flagged errors.NotExist when no such mapping
 // exists. Lookup also modifies the item's last-accessed time, which
 // can be used for LRU object garbage collection.
-//
 // Get expands abbreviated keys by making use of a DynamoDB index.
 func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (digest.Digest, digest.Digest, error) {
 	var v digest.Digest
