@@ -50,6 +50,8 @@ const (
 	ExprExec
 	// ExprCond is a conditional expression.
 	ExprCond
+	// ExprSwitch is a switch expression.
+	ExprSwitch
 	// ExprDeref is a struct derefence expression.
 	ExprDeref
 	// ExprIndex is an indexing (map or list) expression.
@@ -171,6 +173,9 @@ type Expr struct {
 	// Decls holds declarations for ExprBlock and ExprExec.
 	Decls []*Decl
 
+	// CaseClauses holds the case clauses for ExprSwitch.
+	CaseClauses []*CaseClause
+
 	// Fields holds field definitions (identifiers and expressions)
 	// in ExprStruct, ExprTuple
 	Fields []*FieldExpr
@@ -194,7 +199,7 @@ type Expr struct {
 	ComprExpr    *Expr
 	ComprClauses []*ComprClause
 
-	// Env stores a value environmetn for ExprThunk.
+	// Env stores a value environment for ExprThunk.
 	Env *values.Env
 
 	// Pat stores the bind pattern in a comprehension.
@@ -262,6 +267,9 @@ func (e *Expr) err() error {
 	for _, sub := range e.Subexpr() {
 		el = el.Append(sub.err())
 	}
+	for _, clause := range e.CaseClauses {
+		el = el.Append(clause.Expr.err())
+	}
 	for _, clause := range e.ComprClauses {
 		if clause.Expr != nil {
 			el = el.Append(clause.Expr.err())
@@ -272,7 +280,12 @@ func (e *Expr) err() error {
 	}
 	// Suppress consequent errors.
 	if len(el) == 0 && e.Type != nil && e.Type.Error != nil {
-		el = el.Error(e.Position, e.Type.Error)
+		switch e.Type.Error.(type) {
+		case posError, posErrors:
+			el = el.Append(e.Type.Error)
+		default:
+			el = el.Error(e.Position, e.Type.Error)
+		}
 	}
 	return el.Make()
 }
@@ -609,6 +622,27 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		e.Type = types.Unify(types.CanConst, e.Left.Type, e.Right.Type)
 		// Don't allow conditional constant evaluation (yet).
 		e.Type = types.Swizzle(e.Type, types.NotConst, e.Cond.Type)
+	case ExprSwitch:
+		caseTypes := make([]*types.T, len(e.CaseClauses))
+		for i, c := range e.CaseClauses {
+			env2 := env.Push()
+			defer reportUnused(sess, env2)
+			err := c.Pat.BindTypes(env2, e.Left.Type, types.Always)
+			if err != nil {
+				e.Type = types.Errorf("pattern %v is incompatible with type %v", c.Pat, e.Left.Type)
+				return
+			}
+			c.Expr.init(sess, env2)
+			caseTypes[i] = c.Expr.Type
+		}
+		if err := checkCases(e.Left.Type, e.Position, e.CaseClauses); err != nil {
+			e.Type = types.Error(err)
+			return
+		}
+		e.Type = types.Unify(types.CanConst, caseTypes...)
+		// Don't allow conditional constant evaluation (yet).
+		e.Type = types.Swizzle(e.Type, types.NotConst, e.Left.Type)
+		// TODO: Error on unreachable cases (i.e. shadowed patterns).
 	case ExprDeref:
 		if e.Left.Type.Kind != types.StructKind && e.Left.Type.Kind != types.ModuleKind {
 			e.Type = types.Errorf("expected struct or module, got %v", e.Left.Type)
@@ -1002,6 +1036,19 @@ func (e *Expr) Equal(f *Expr) bool {
 		return e.Template == f.Template
 	case ExprCond:
 		return e.Cond.Equal(f.Cond) && e.Left.Equal(f.Left) && e.Right.Equal(f.Right)
+	case ExprSwitch:
+		if !e.Left.Equal(f.Left) {
+			return false
+		}
+		if len(e.CaseClauses) != len(f.CaseClauses) {
+			return false
+		}
+		for i := range e.CaseClauses {
+			if !e.CaseClauses[i].Equal(f.CaseClauses[i]) {
+				return false
+			}
+		}
+		return true
 	}
 }
 
@@ -1086,6 +1133,13 @@ func (e *Expr) String() string {
 			strings.Join(decls, ", "), e.Type, e.Template)
 	case ExprCond:
 		fmt.Fprintf(b, "cond(%v, %v, %v)", e.Cond, e.Left, e.Right)
+	case ExprSwitch:
+		clauses := make([]string, len(e.CaseClauses))
+		for i := range e.CaseClauses {
+			clauses[i] = e.CaseClauses[i].String()
+		}
+		fmt.Fprintf(b, "switch(%v, cases(%v))", e.Left,
+			strings.Join(clauses, ", "))
 	case ExprDeref:
 		fmt.Fprintf(b, "deref(%v, %v)", e.Left, e.Ident)
 	case ExprCompr:
@@ -1209,6 +1263,14 @@ func (e *Expr) Abbrev() string {
 		return "<exec>"
 	case ExprCond:
 		return fmt.Sprintf("if %s { %s } else { %s }", e.Cond.Abbrev(), e.Left.Abbrev(), e.Right.Abbrev())
+	case ExprSwitch:
+		cases := make([]string, len(e.CaseClauses))
+		for i, c := range e.CaseClauses {
+			cases[i] = fmt.Sprintf("case %s: %s", c.Pat.String(),
+				c.Expr.Abbrev())
+		}
+		return fmt.Sprintf("switch %s { %s }", e.Left.Abbrev(),
+			strings.Join(cases, " "))
 	case ExprDeref:
 		return e.Left.Abbrev() + "." + e.Ident
 	case ExprIndex:

@@ -45,7 +45,7 @@ func digestN(i int) digest.Digest {
 // we go through some lengths to normalize, for example by using De
 // Bruijn indices (levels) to remove dependence on concrete names. In
 // the future, we could consider canonicalizing the expression tree
-// as well (e.g., by exploiting commutatvity, etc.)
+// as well (e.g., by exploiting commutativity, etc.)
 func (e *Expr) Digest(env *values.Env) digest.Digest {
 	w := reflow.Digester.NewWriter()
 	e.digest(w, env)
@@ -161,6 +161,16 @@ func (e *Expr) digest(w io.Writer, env *values.Env) {
 		e.Cond.digest(w, env)
 		e.Left.digest(w, env)
 		e.Right.digest(w, env)
+	case ExprSwitch:
+		leftDigest := e.Left.Digest(env)
+		digest.WriteDigest(w, leftDigest)
+		for _, c := range e.CaseClauses {
+			env2 := env.Push()
+			for _, id := range c.Pat.Idents(nil) {
+				env2.Bind(id, leftDigest)
+			}
+			c.Expr.digest(w, env2)
+		}
 	case ExprDeref:
 		e.Left.digest(w, env)
 		io.WriteString(w, e.Ident)
@@ -240,6 +250,7 @@ func (e *Expr) digest1(w io.Writer) {
 		io.WriteString(w, e.Image)
 		io.WriteString(w, e.Template.String())
 	case ExprCond:
+	case ExprSwitch:
 	case ExprDeref:
 		io.WriteString(w, e.Ident)
 	case ExprIndex, ExprCompr:

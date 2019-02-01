@@ -1,0 +1,15 @@
+val TestMatch = switch ["a"] {
+	case [a, b]: false
+	case [a]: true
+	case _: false
+}
+
+val TestBind = switch [("a", "b"), ("c", "d"), ("e", "f")] {
+	case [(a, _), (_, d), (e, f)]: a + d + e + f == "adef"
+	case _: false
+}
+
+val TestDeferred = switch delay([delay(["a"]), [delay("b")]]) {
+	case [[a], [b]]: a == "a" && b == "b"
+	case _: false
+}

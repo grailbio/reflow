@@ -312,6 +312,21 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}
 			return e.Right.eval(sess, env, ident)
 		}, e.Cond)
+	case ExprSwitch:
+		v, err := e.Left.eval(sess, env, ident)
+		if err != nil {
+			return nil, err
+		}
+		es := evalSwitch{
+			sess:    sess,
+			env:     env,
+			id:      ident,
+			v:       v,
+			t:       e.Left.Type,
+			resultT: e.Type,
+			pos:     e.Position,
+		}
+		return es.evalCases(e.CaseClauses)
 	case ExprDeref:
 		return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 			switch e.Left.Type.Kind {
@@ -1360,7 +1375,7 @@ func (k evalK) Continue(e *Expr, sess *Session, env *values.Env, ident string, k
 	// Otherwise, the node cannot be immediately evaluated; we defer its
 	// evaluation until all of its dependencies are resolved.
 	//
-	// We first compute the (single-node) digest to identify  the
+	// We first compute the (single-node) digest to identify the
 	// operation.
 	//
 	// Note that, except for operations that delay evaluating part of

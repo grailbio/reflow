@@ -37,6 +37,8 @@ const (
 	ParseExpr
 	// ParseType parses a type.
 	ParseType
+	// ParsePat parses a pattern.
+	ParsePat
 )
 
 // Parser is a Reflow lexer. It composes an (internal) scanner to
@@ -50,18 +52,20 @@ type Parser struct {
 	Body io.Reader
 
 	// Mode governs how the parser is started. See documentation above.
-	// The fields Module, Decls, Expr, and Type are set depending on the
+	// The fields Module, Decls, Expr, Type, and Pat are set depending on the
 	// parser mode.
 	Mode ParserMode
 
-	// Module contains the parsed module (LexerModule).
+	// Module contains the parsed module (ParseModule).
 	Module *ModuleImpl
-	// Decls contains the parsed declarations (LexerDecls).
+	// Decls contains the parsed declarations (ParseDecls).
 	Decls []*Decl
-	// Expr contains the parsed expression (LexerExpr).
+	// Expr contains the parsed expression (ParseExpr).
 	Expr *Expr
-	// Type contains the pased type (LexerType).
+	// Type contains the parsed type (ParseType).
 	Type *types.T
+	// Pat contains the parsed pattern (ParsePat).
+	Pat *Pat
 
 	el errlist
 
@@ -106,6 +110,8 @@ func (x *Parser) init() error {
 		x.first = tokStartExpr
 	case ParseType:
 		x.first = tokStartType
+	case ParsePat:
+		x.first = tokStartPat
 	}
 	x.scanner.Error = func(_ *scanner.Scanner, msg string) { x.Error(msg) }
 	x.scanner.Filename = x.File
@@ -170,6 +176,9 @@ var identTokens = map[string]int{
 	"if":   tokIf,
 	"else": tokElse,
 
+	"switch": tokSwitch,
+	"case":   tokCase,
+
 	"make": tokMake,
 
 	"len":   tokLen,
@@ -193,8 +202,6 @@ var identTokens = map[string]int{
 
 	// Reserved identifiers:
 	"force":   tokReserved,
-	"switch":  tokReserved,
-	"case":    tokReserved,
 	"import":  tokReserved,
 	"include": tokReserved,
 }

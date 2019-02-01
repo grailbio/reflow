@@ -76,6 +76,7 @@ func TestEvalSimple(t *testing.T) {
 				&types.Field{T: types.Bool}),
 			values.Tuple{values.NewInt(1), "ok", false},
 		},
+		{`switch 123 { case i: i + 333 }`, types.Int, values.NewInt(456)},
 	} {
 		v, typ, _, err := eval(c.e)
 		if err != nil {
@@ -237,6 +238,7 @@ func TestEval(t *testing.T) {
 		"testdata/compare.rf",
 		"testdata/if.rf",
 		"testdata/dirs.rf",
+		"testdata/switch.rf",
 	}
 	RunReflowTests(t, tests)
 }
@@ -279,6 +281,8 @@ func TestTypeErr(t *testing.T) {
 		{"testdata/typerr5.rf", `typerr5.rf:1:16: failed to open module ./typerr5.reflow: param "invalid-parameter-name" is not a valid Reflow identifier`},
 		{"testdata/typerr6.rf", `typerr6.rf:2:15: parameter cpu is not immediate`},
 		{"testdata/typerr7.rf", `typerr7.rf:3:16: exec parameter image is not immediate`},
+		{"testdata/typerr8.rf", `testdata/typerr8.rf:1:18: pattern \(a, b\) is incompatible with type string`},
+		{"testdata/typerr9.rf", "testdata/typerr9.rf:1:18: case patterns are not exhaustive"},
 	} {
 		_, terr := sess.Open(c.file)
 		if terr == nil {

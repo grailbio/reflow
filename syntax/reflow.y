@@ -42,6 +42,8 @@ type typearg struct {
 	decllist []*Decl
 	pat *Pat
 	patlist []*Pat
+	caseclause *CaseClause
+	caseclauses []*CaseClause
 	tok int
 	template *Template
 	
@@ -75,8 +77,9 @@ type typearg struct {
 %token	<template>	tokTemplate
 %token	<pos>	tokFile tokDir tokStruct tokModule tokExec tokAs  tokAt
 %token	<pos>	tokVal tokFunc tokAssign tokArrow tokLeftArrow tokIf tokElse 
+%token	<pos>	tokSwitch tokCase
 %token	<pos>	tokMake tokLen  tokPanic tokDelay tokTrace tokMap tokList tokZip tokUnzip tokFlatten
-%token	<pos>	tokStartModule tokStartDecls tokStartExpr tokStartType
+%token	<pos>	tokStartModule tokStartDecls tokStartExpr tokStartType tokStartPat
 %token	<pos>	tokKeyspace tokParam  tokEllipsis  tokReserved  tokRequires tokRange
 %token	<pos>	tokType
 %token	<pos>	'{' '(' '['
@@ -88,6 +91,9 @@ type typearg struct {
 %type	<decllist>		defs defs1 commadefs  paramdef paramdefs 
 %type	<decl>		val valdef typedef def  commadef
 %type	<expr>		expr  term  keyspace exprblock ifelseblock elseifexpr
+%type	<expr>		switchexpr caseexpr caseexprblock
+%type	<caseclauses>	caseclauses
+%type	<caseclause>	caseclause
 %type	<exprlist>	 listargs  listappendargs
 %type	<exprmap>	mapargs
 %type	<comprclauses>	comprclauses
@@ -146,6 +152,11 @@ start:
 |	tokStartType type tokEOF
 	{
 		yylex.(*Parser).Type = $2
+		return 0
+	}
+|	tokStartPat pat tokEOF
+	{
+		yylex.(*Parser).Pat = $2
 		return 0
 	}
 
@@ -505,6 +516,7 @@ expr: term
 	{$$ = &Expr{Position: $1.Position, Kind: ExprBinop, Op: "~>", Left: $1, Right: $3}}
 |	tokIf expr ifelseblock elseifexpr
 	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprCond, Cond: $2, Left: $3, Right: $4}}
+|	switchexpr
 |	expr '[' expr ']'
 	{$$ = &Expr{Position: $1.Position, Kind: ExprIndex, Left: $1, Right: $3}}
 |	expr '(' applyargs commaOk ')'  
@@ -610,7 +622,26 @@ exprblock:
 ifelseblock:
 	'{' defs expr maybeColon '}'
 	{$$ = &Expr{Position: $1.Position, Comment: $1.comment,  Kind: ExprBlock, Decls: $2, Left: $3}}
-	
+
+switchexpr:
+	tokSwitch expr '{' caseclauses '}'
+	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprSwitch, Left: $2, CaseClauses: $4}}
+
+caseclauses:
+	{$$ = nil}
+|	caseclauses caseclause
+	{$$ = append($1, $2)}
+
+caseclause:
+	tokCase pat ':' caseexpr maybeColon
+	{$$ = &CaseClause{Position: $1.Position, Comment: $1.comment, Pat: $2, Expr: $4}}
+
+caseexpr: expr | caseexprblock
+
+caseexprblock:
+	defs1 expr
+	{$$ = &Expr{Kind: ExprBlock, Decls: $1, Left: $2}}
+
 comprclauses:
 	comprclause
 	{$$ = []*ComprClause{$1}}

@@ -300,3 +300,25 @@ func TestParseString(t *testing.T) {
 		}
 	}
 }
+
+func TestParseSwitch(t *testing.T) {
+	p := Parser{Mode: ParseExpr, Body: bytes.NewReader([]byte(`
+		switch ["a", "b"] {
+			case [a, b]:
+				val aa = a;
+				val bb = b;
+				(aa, bb)
+			case [a]:
+				val aa = a;
+				(aa, aa)
+		}
+	`))}
+
+	if err := p.Parse(); err != nil {
+		t.Error(err)
+	}
+	expect := `switch(list(<string>const("a"), <string>const("b")), cases(case([a, b], block(assign(aa, ident("a")), assign(bb, ident("b")) in tuple(ident("aa"), ident("bb")))), case([a], block(assign(aa, ident("a")) in tuple(ident("aa"), ident("aa"))))))`
+	if got, want := p.Expr.String(), expect; got != want {
+		t.Errorf("got %s, want %s", got, want)
+	}
+}

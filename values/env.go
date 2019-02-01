@@ -52,7 +52,7 @@ type digester interface {
 	Digest() digest.Digest
 }
 
-// Digest returns the digest for the value with idenfier id.
+// Digest returns the digest for the value with identifier id.
 // The supplied type is used to compute the digest. If the value
 // is a digest.Digest, it is returned directly; if implements the
 // interface
