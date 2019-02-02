@@ -100,7 +100,7 @@ func Force(v values.T, t *types.T) values.T {
 			r    = newResolver(copy, t)
 			kvs  []kvp
 		)
-		for k := range s {
+		for k := range fm {
 			vv := Force(s[k], fm[k])
 			copy[k] = vv
 			kv := kvp{k, &vv}
@@ -120,7 +120,7 @@ func Force(v values.T, t *types.T) values.T {
 			fm   = t.FieldMap()
 			kvs  []kvp
 		)
-		for k := range m {
+		for k := range fm {
 			vv := Force(m[k], fm[k])
 			copy[k] = vv
 			kv := kvp{k, &vv}

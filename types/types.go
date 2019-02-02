@@ -342,7 +342,8 @@ type T struct {
 	Index *T
 	// Elem is the type of the type's elem; used in lists, maps, and funcs.
 	Elem *T
-	// Fields stores struct and tuple fields, as well as func arguments.
+	// Fields stores module, struct, and tuple fields, as well as func
+	// arguments.
 	Fields []*Field
 	// Aliases stores a module's (exported) type aliases.
 	Aliases []*Field
