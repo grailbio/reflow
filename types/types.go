@@ -839,10 +839,11 @@ func Swizzle(t *T, maxlevel ConstLevel, ts ...*T) *T {
 	})
 }
 
-// Unify returns the greatest common subtype of all ts. That is,
-// where u := Unify(ts), then forall t in ts. u <: t. Unify returns
-// an error type if unification is impossible. The returned type's
-// const level is limited by the provided maxlevel.
+// Unify returns the minimal common supertype of ts.  That is, where
+// u := Unify(ts), then forall t in ts. t <: u, and there exists no v, v != u
+// and v <: u, such that forall t in ts. t <: v.  Unify returns an error type if
+// unification is impossible.  The returned type's const level is limited by the
+// provided maxlevel.
 func Unify(maxlevel ConstLevel, ts ...*T) *T {
 	if len(ts) == 0 {
 		return Bottom
