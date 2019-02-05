@@ -431,13 +431,6 @@ func (e *Executor) Kill(ctx context.Context) error {
 // particular, it rewrites interns and externs (which are not
 // intrinsic) to execs implementing those operations.
 func (e *Executor) rewriteConfig(cfg *reflow.ExecConfig) error {
-	if cfg.Image != "" {
-		cfg.NeedAWSCreds = strings.HasSuffix(cfg.Image, "$aws")
-		cfg.Image = strings.TrimSuffix(cfg.Image, "$aws")
-		if cfg.Image == "" {
-			cfg.Image = e.AWSImage
-		}
-	}
 	if cfg.Type != intern && cfg.Type != extern {
 		return nil
 	}

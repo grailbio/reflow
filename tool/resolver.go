@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -91,6 +92,8 @@ func (r *imageResolver) authenticate(ctx context.Context) error {
 }
 
 func imageDigestReference(ctx context.Context, image string, auth authn.Authenticator) (string, error) {
+	// $aws suffix on an image is a back door to get AWS credentials in the exec.
+	image = strings.TrimSuffix(image, "$aws")
 	ref, err := imgname.ParseReference(image, imgname.WeakValidation)
 	if err != nil {
 		return "", errors.E(err, "tool.imageDigestReference", "parse", image)

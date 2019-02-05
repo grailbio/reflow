@@ -18,8 +18,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"time" // This is imported for the sha256 implementation, which is always required
-	// for Reflow.
+	"time" // This is imported for the sha256 implementation, which is always required for Reflow.
 
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
@@ -729,13 +728,14 @@ func (f *Flow) ExecConfig() reflow.ExecConfig {
 		}
 
 		return reflow.ExecConfig{
-			Type:        "exec",
-			Ident:       f.Ident,
-			Image:       f.Image,
-			Cmd:         f.Cmd,
-			Args:        args,
-			Resources:   f.Resources,
-			OutputIsDir: f.OutputIsDir,
+			Type:         "exec",
+			Ident:        f.Ident,
+			Image:        f.Image,
+			NeedAWSCreds: strings.HasSuffix(f.OriginalImage, "$aws"),
+			Cmd:          f.Cmd,
+			Args:         args,
+			Resources:    f.Resources,
+			OutputIsDir:  f.OutputIsDir,
 		}
 	default:
 		panic("no exec config for op " + f.Op.String())
