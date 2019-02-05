@@ -1,0 +1,7 @@
+param (
+	a string = "default"
+	b string
+)
+
+val A = a
+val B = b

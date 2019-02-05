@@ -296,7 +296,7 @@ func (m *ModuleImpl) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error
 				return nil, err
 			}
 			for _, matcher := range p.Pat.Matchers() {
-				w, err := coerceMatch(v, p.Type, p.Pat.Position, matcher.Path())
+				v, err := coerceMatch(v, p.Type, p.Pat.Position, matcher.Path())
 				if err != nil {
 					return nil, err
 				}
@@ -305,10 +305,10 @@ func (m *ModuleImpl) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error
 				}
 				id := matcher.Ident
 				if m.fenv.Contains(id) {
-					w = m.fenv.Value(id)
+					v = m.fenv.Value(id)
 				}
 				// Bind id so we can have parameters depend on each other.
-				env.Bind(id, w)
+				env.Bind(id, v)
 				switch tenv.Type(id).Kind {
 				case types.StringKind:
 					flags.String(id, v.(string), p.Comment)

@@ -23,6 +23,7 @@ func TestModuleFlag(t *testing.T) {
 	if fs.Lookup("notFlag") != nil {
 		t.Error("unexpected notFlag")
 	}
+
 	for _, test := range []struct{ F, V string }{{"y", "/dev/null"}, {"z", "."}} {
 		f := fs.Lookup(test.F)
 		if got, want := f.Value.String(), test.V; got != want {
@@ -37,6 +38,7 @@ func TestModuleFlag(t *testing.T) {
 	if err := m.FlagEnv(fs, venv, tenv); err != nil {
 		t.Fatal(err)
 	}
+
 	// Verify by examining the produced flow graph that the flag
 	// was evaluated correctly.
 	intern := venv.Value("y").(*flow.Flow).Visitor()
@@ -48,5 +50,47 @@ func TestModuleFlag(t *testing.T) {
 	}
 	if got, want := intern.URL.String(), "localfile://notexist"; got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestModuleDefaultFlag(t *testing.T) {
+	sess := NewSession(nil)
+	m, err := sess.Open("testdata/flag1.rf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, venv := Stdlib()
+	_, err = m.Flags(sess, venv.Push())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = m.InjectArgs(sess, []string{"-a=newa", "-b=newb"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs, err := m.Flags(sess, venv.Push())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fs.Lookup("a").Value.String(), "newa"; got != want {
+		t.Errorf("expected 'newa', got %v", got)
+	}
+	if got, want := fs.Lookup("b").Value.String(), "newb"; got != want {
+		t.Errorf("expected newb, got %v", got)
+	}
+
+	err = m.InjectArgs(sess, []string{"-a=newa2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs, err = m.Flags(sess, venv.Push())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fs.Lookup("a").Value.String(), "newa2"; got != want {
+		t.Errorf("expected 'newa2', got %v", got)
+	}
+	if got, want := fs.Lookup("b").Value.String(), "newb"; got != want {
+		t.Errorf("expected newb, got %v", got)
 	}
 }
