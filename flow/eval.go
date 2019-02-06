@@ -31,6 +31,7 @@ import (
 	"github.com/grailbio/reflow/liveset/bloomlive"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/sched"
+	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/trace"
 	"github.com/grailbio/reflow/values"
 	"github.com/willf/bloom"
@@ -109,6 +110,11 @@ type EvalConfig struct {
 
 	// Assert is the policy to use for asserting cached Assertions.
 	Assert reflow.Assert
+	// TaskDB is the db to which run/tasks information and keepalives are maintained.
+	TaskDB taskdb.TaskDB
+
+	// RunID is a unique identifier for the run
+	RunID digest.Digest
 
 	// CacheMode determines whether the evaluator reads from
 	// or writees to the cache. If CacheMode is nonzero, Assoc,
@@ -441,6 +447,12 @@ func (e *Eval) Do(ctx context.Context) error {
 			if e.pending.Pending(f) {
 				continue
 			}
+			switch f.Op {
+			case Exec, Intern, Extern:
+				if f.TaskID.IsZero() {
+					f.TaskID = reflow.Digester.Rand(nil)
+				}
+			}
 			if f.Op == Exec {
 				if f.Resources["mem"] < minExecMemory {
 					f.Resources["mem"] = minExecMemory
@@ -563,6 +575,8 @@ func (e *Eval) Do(ctx context.Context) error {
 				}
 				task := sched.NewTask()
 				task.ID = f.ExecId
+				task.RunID = e.RunID
+				task.TaskID = f.TaskID
 				task.Config = f.ExecConfig()
 				task.Log = e.Log.Prefixf("task %s: ", f.Digest().Short())
 				tasks = append(tasks, task)
@@ -1189,7 +1203,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 		case Intern:
 			name = fmt.Sprintf("intern %s", f.URL)
 		case Exec:
-			name = fmt.Sprintf("exec %s", abbrevCmd(f))
+			name = fmt.Sprintf("exec %s", f.AbbrevCmd())
 		}
 		ctx, done := trace.Start(ctx, trace.Exec, f.Digest(), name)
 		trace.Note(ctx, "ident", f.Ident)
@@ -1366,23 +1380,16 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) 
 	for i := range keys {
 		key := keys[i]
 		g.Go(func() error {
-			err := e.Assoc.Store(ctx, assoc.Fileset, key, id)
-			if !pid.IsZero() {
-				if err := e.Assoc.Store(ctx, assoc.ExecInspect, key, pid); err != nil {
-					log.Errorf("assoc store execinspect: %v", err)
-				}
+			return e.Assoc.Store(ctx, assoc.Fileset, key, id)
+		})
+	}
+	if e.TaskDB != nil {
+		g.Go(func() error {
+			err := e.TaskDB.SetTaskAttrs(ctx, f.TaskID, stdout, stderr, pid)
+			if err != nil {
+				log.Errorf("taskdb settaskattrs: %v", err)
 			}
-			if !stdout.IsZero() {
-				if err := e.Assoc.Store(ctx, assoc.Logs, key, stdout); err != nil {
-					log.Errorf("assoc store stdout: %v", err)
-				}
-			}
-			if !stderr.IsZero() {
-				if err := e.Assoc.Store(ctx, assoc.Logs, key, stderr); err != nil {
-					log.Errorf("assoc store stderr: %v", err)
-				}
-			}
-			return err
+			return nil
 		})
 	}
 	return g.Wait()
@@ -1630,7 +1637,7 @@ func (e *Eval) transfer(ctx context.Context, f *Flow) error {
 	case Extern:
 		name = fmt.Sprintf("xfer extern %s %s", f.URL, data.Size(f.Deps[0].Value.(reflow.Fileset).Size()))
 	case Exec:
-		name = fmt.Sprintf("xfer exec %s", abbrevCmd(f))
+		name = fmt.Sprintf("xfer exec %s", f.AbbrevCmd())
 	}
 
 	ctx, done := trace.Start(ctx, trace.Transfer, f.Digest(), name)
@@ -1726,10 +1733,16 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 		r   reflow.Result
 		n   = 0
 		s   = statePut
+		id  = f.Digest()
 		cfg = f.ExecConfig()
 	)
+
 	// TODO(marius): we should distinguish between fatal and nonfatal errors.
 	// The fatal ones are useless to retry.
+	var (
+		tcancel context.CancelFunc
+		tctx    context.Context
+	)
 	for n < numExecTries && s < stateDone {
 		switch s {
 		case statePut:
@@ -1739,7 +1752,23 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 				e.LogFlow(ctx, f)
 			}
 		case stateWait:
+			if e.TaskDB != nil {
+				tctx, tcancel = context.WithCancel(ctx)
+				err = e.TaskDB.CreateTask(tctx, f.TaskID, e.RunID, id, x.URI())
+				if err != nil {
+					e.Log.Errorf("taskdb setrun: %v\n", err)
+				} else {
+					go taskdb.Keepalive(tctx, e.TaskDB, f.TaskID)
+				}
+			}
 			err = x.Wait(ctx)
+			if e.TaskDB != nil {
+				err := e.TaskDB.SetTaskResult(ctx, f.TaskID, x.ID())
+				if err != nil {
+					e.Log.Errorf("taskdb settaskresult: %v\n", err)
+				}
+				tcancel()
+			}
 		case stateInspect:
 			f.Inspect, err = x.Inspect(ctx)
 		case stateResult:
@@ -1942,7 +1971,7 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 		case Intern:
 			status = fmt.Sprintf("%s", f.URL)
 		case Exec:
-			status = fmt.Sprintf("%s", abbrevCmd(f))
+			status = f.AbbrevCmd()
 		}
 	case Transfer:
 		if f.TransferSize > 0 {
@@ -1977,7 +2006,7 @@ var statusPrinters = [maxOp]struct {
 	debug func(io.Writer, *Flow)
 }{
 	Exec: {
-		run: func(w io.Writer, f *Flow) { io.WriteString(w, abbrevCmd(f)) },
+		run: func(w io.Writer, f *Flow) { io.WriteString(w, f.AbbrevCmd()) },
 		debug: func(w io.Writer, f *Flow) {
 			argv := make([]interface{}, len(f.Argstrs))
 			for i := range f.Argstrs {
@@ -2450,19 +2479,4 @@ var humanState = map[State]string{
 	Execing:  "executing",
 	Transfer: "transferring",
 	Ready:    "waiting",
-}
-
-func abbrevCmd(f *Flow) string {
-	argv := make([]interface{}, len(f.Argstrs))
-	for i := range f.Argstrs {
-		argv[i] = f.Argstrs[i]
-	}
-	cmd := fmt.Sprintf(f.Cmd, argv...)
-	// Special case: if we start with a command with an absolute path,
-	// abbreviate to basename.
-	cmd = strings.TrimSpace(cmd)
-	cmd = trimpath(cmd)
-	cmd = trimspace(cmd)
-	cmd = abbrev(cmd, nabbrev)
-	return fmt.Sprintf("%s %s", leftabbrev(f.Image, nabbrevImage), cmd)
 }

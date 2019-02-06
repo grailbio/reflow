@@ -6,6 +6,7 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/grailbio/base/data"
@@ -13,6 +14,8 @@ import (
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/taskdb"
+	"github.com/grailbio/reflow/trace"
 )
 
 const (
@@ -142,6 +145,19 @@ func (w *worker) do(ctx context.Context, f *flow.Flow) (err error) {
 			w.Log.Debug(f.ExecString(false))
 		}
 	}()
+	var name string
+	switch f.Op {
+	case flow.Extern:
+		name = fmt.Sprintf("extern %s %s", f.URL, data.Size(f.Deps[0].Value.(reflow.Fileset).Size()))
+	case flow.Intern:
+		name = fmt.Sprintf("intern %s", f.URL)
+	case flow.Exec:
+		name = fmt.Sprintf("exec %s", f.AbbrevCmd())
+	}
+	ctx, done := trace.Start(ctx, trace.Exec, f.Digest(), name)
+	trace.Note(ctx, "ident", f.Ident)
+
+	defer done()
 
 	type state int
 	const (
@@ -155,10 +171,12 @@ func (w *worker) do(ctx context.Context, f *flow.Flow) (err error) {
 		stateDone
 	)
 	var (
-		x reflow.Exec
-		r reflow.Result
-		n = 0
-		s = stateUpload
+		x      reflow.Exec
+		r      reflow.Result
+		n      = 0
+		s      = stateUpload
+		tctx   context.Context
+		cancel context.CancelFunc
 	)
 	for n < numTries && s < stateDone {
 		switch s {
@@ -182,11 +200,27 @@ func (w *worker) do(ctx context.Context, f *flow.Flow) (err error) {
 				OutputIsDir: f.OutputIsDir,
 			})
 			if err == nil {
+				if w.Eval.TaskDB != nil {
+					tctx, cancel = context.WithCancel(ctx)
+					err = w.Eval.TaskDB.CreateTask(tctx, f.TaskID, w.Eval.RunID, f.Digest(), x.URI())
+					if err != nil {
+						log.Debugf("taskdb setrun: %v\n", err)
+					} else {
+						go taskdb.Keepalive(tctx, w.Eval.TaskDB, f.TaskID)
+					}
+				}
 				f.Exec = x
 				w.Eval.LogFlow(ctx, f)
 			}
 		case stateWait:
 			err = x.Wait(ctx)
+			if w.Eval.TaskDB != nil {
+				err = w.Eval.TaskDB.SetTaskResult(tctx, f.TaskID, x.ID())
+				if err != nil {
+					log.Debugf("taskdb settaskresult: %v\n", err)
+				}
+				cancel()
+			}
 		case stateInspect:
 			f.Inspect, err = x.Inspect(ctx)
 		case stateResult:

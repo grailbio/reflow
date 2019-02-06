@@ -80,6 +80,11 @@ type Task struct {
 	// Higher priority tasks will get scheduler before any lower priority tasks.
 	Priority int
 
+	// RunID that created this task.
+	RunID digest.Digest
+	// TaskID is the unique identifier for this task
+	TaskID digest.Digest
+
 	mu   sync.Mutex
 	cond *ctxsync.Cond
 

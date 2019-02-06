@@ -12,8 +12,9 @@ import (
 	"time"
 
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/pool"
-	"github.com/grailbio/reflow/test/flow"
+	op "github.com/grailbio/reflow/test/flow"
 	"github.com/grailbio/reflow/test/testutil"
 )
 
@@ -83,10 +84,12 @@ func TestRunner(t *testing.T) {
 		transferer testutil.WaitTransferer
 		cluster    testCluster
 		resources  = reflow.Resources{"mem": 5 << 30, "cpu": 10, "disk": 10 << 30}
-		r          = &Runner{
+
+		r = &Runner{
 			Cluster:    &cluster,
 			Transferer: &transferer,
-			Flow:       flow.Exec("image", "blah", resources),
+			Flow:       op.Exec("image", "blah", resources),
+			EvalConfig: flow.EvalConfig{TaskDB: testutil.NewNopTaskDB()},
 		}
 	)
 	testutil.AssignExecId(nil, r.Flow)

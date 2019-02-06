@@ -34,6 +34,7 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/repository/blobrepo"
+	"github.com/grailbio/reflow/taskdb"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -63,6 +64,8 @@ type Scheduler struct {
 	Cluster Cluster
 	// Log logs scheduler actions.
 	Log *log.Logger
+	// TaskDB is  the task reporting db.
+	TaskDB taskdb.TaskDB
 
 	// MaxPendingAllocs is the maximum number outstanding
 	// alloc requests.
@@ -334,12 +337,14 @@ func (e execState) String() string {
 
 func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 	var (
-		err   error
-		alloc = task.alloc
-		ctx   = alloc.Context
-		x     reflow.Exec
-		n     = 0
-		state execState
+		err     error
+		alloc   = task.alloc
+		ctx     = alloc.Context
+		x       reflow.Exec
+		n       = 0
+		state   execState
+		tcancel context.CancelFunc
+		tctx    context.Context
 	)
 	if task.Config.Type == "extern" {
 		// Attempt direct transfer.
@@ -389,9 +394,25 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		case statePut:
 			x, err = alloc.Put(ctx, task.ID, task.Config)
 		case stateWait:
+			if s.TaskDB != nil {
+				tctx, tcancel = context.WithCancel(ctx)
+				err := s.TaskDB.CreateTask(tctx, task.TaskID, task.RunID, task.ID, x.URI())
+				if err != nil {
+					s.Log.Errorf("taskdb createtask: %v", err)
+				} else {
+					go taskdb.Keepalive(tctx, s.TaskDB, task.TaskID)
+				}
+			}
 			task.Exec = x
 			task.set(TaskRunning)
 			err = x.Wait(ctx)
+			if s.TaskDB != nil {
+				err := s.TaskDB.SetTaskResult(tctx, task.TaskID, x.ID())
+				if err != nil {
+					s.Log.Errorf("taskdb settaskresult: %v", err)
+				}
+				tcancel()
+			}
 		case statePromote:
 			err = x.Promote(ctx)
 		case stateInspect:

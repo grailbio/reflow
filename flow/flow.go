@@ -313,6 +313,9 @@ type Flow struct {
 	// Inspect stores an exec's inspect output.
 	Inspect reflow.ExecInspect
 
+	// Task id of this flow.
+	TaskID digest.Digest
+
 	Tracked bool
 
 	Status *status.Task
@@ -1096,4 +1099,23 @@ func writeN(w io.Writer, n int) {
 	var b [8]byte
 	binary.LittleEndian.PutUint64(b[:], uint64(n))
 	w.Write(b[:])
+}
+
+// AbbrevCmd returns the abbreviated command line for an exec flow.
+func (f *Flow) AbbrevCmd() string {
+	if f.Op != Exec {
+		return ""
+	}
+	argv := make([]interface{}, len(f.Argstrs))
+	for i := range f.Argstrs {
+		argv[i] = f.Argstrs[i]
+	}
+	cmd := fmt.Sprintf(f.Cmd, argv...)
+	// Special case: if we start with a command with an absolute path,
+	// abbreviate to basename.
+	cmd = strings.TrimSpace(cmd)
+	cmd = trimpath(cmd)
+	cmd = trimspace(cmd)
+	cmd = abbrev(cmd, nabbrev)
+	return fmt.Sprintf("%s %s", leftabbrev(f.Image, nabbrevImage), cmd)
 }
