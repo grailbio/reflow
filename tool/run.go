@@ -39,6 +39,7 @@ import (
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/sched"
+	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/trace"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/wg"
@@ -214,6 +215,11 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	if err != nil {
 		c.Fatal(err)
 	}
+	var tdb taskdb.TaskDB
+	err = c.Config.Instance(&tdb)
+	if err != nil {
+		c.Fatal(err)
+	}
 	// Set up run transcript and log files.
 	base := c.Runbase(runID)
 	os.MkdirAll(filepath.Dir(base), 0777)
@@ -296,6 +302,27 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	if repo != nil {
 		transferer.PendingTransfers.Set(repo.URL().String(), int(^uint(0)>>1))
 	}
+	var labels pool.Labels
+	err = c.Config.Instance(&labels)
+	if err != nil {
+		c.Fatal(err)
+	}
+
+	tctx, tcancel := context.WithCancel(ctx)
+	if tdb != nil {
+		var user *infra.User
+		err := c.Config.Instance(&user)
+		if err != nil {
+			c.Log.Debug(err)
+		}
+		err = tdb.CreateRun(tctx, runID, string(*user))
+		if err != nil {
+			c.Log.Debugf("error writing run to taskdb: %v", err)
+		} else {
+			go taskdb.Keepalive(tctx, tdb, runID)
+		}
+	}
+
 	var scheduler *sched.Scheduler
 	var wg wg.WaitGroup
 	// TODO(marius): teardown is too complicated
@@ -308,6 +335,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 		scheduler.Cluster = cluster
 		scheduler.Log = c.Log
 		scheduler.MinAlloc.Max(scheduler.MinAlloc, e.Main().Requirements().Min)
+		scheduler.TaskDB = tdb
 		var schedctx context.Context
 		schedctx, donecancel = context.WithCancel(ctx)
 		wg.Add(1)
@@ -338,6 +366,8 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 			Status:             c.Status.Group(runID.Short()),
 			Scheduler:          scheduler,
 			ImageMap:           e.ImageMap,
+			TaskDB:             tdb,
+			RunID:              runID,
 		},
 		Type:    e.MainType(),
 		Labels:  make(pool.Labels),
@@ -385,6 +415,9 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	c.WaitForBackgroundTasks(&wg, 10*time.Minute)
 	bgcancel()
 	cancel()
+	if tcancel != nil {
+		tcancel()
+	}
 	if run.Err != nil {
 		if errors.Is(errors.Eval, run.Err) {
 			// Error that occured during evaluation. Probably not recoverable.
@@ -426,6 +459,11 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	if err != nil {
 		c.Fatal(err)
 	}
+	var tdb taskdb.TaskDB
+	err = c.Config.Instance(&tdb)
+	if err != nil {
+		c.Fatal(err)
+	}
 	transferer := &repository.Manager{
 		Status:           c.Status.Group("transfers"),
 		PendingTransfers: repository.NewLimits(c.TransferLimit()),
@@ -461,6 +499,27 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	if err != nil {
 		c.Fatal(err)
 	}
+	var labels pool.Labels
+	err = c.Config.Instance(&labels)
+	if err != nil {
+		c.Log.Debug(err)
+	}
+
+	tctx, tcancel := context.WithCancel(ctx)
+	if tdb != nil {
+		var user *infra.User
+		err := c.Config.Instance(&user)
+		if err != nil {
+			c.Log.Debug(err)
+		}
+		err = tdb.CreateRun(tctx, runID, string(*user))
+		if err != nil {
+			c.Log.Debugf("taskdb createrun: %v\n", err)
+		} else {
+			go taskdb.Keepalive(tctx, tdb, runID)
+		}
+	}
+
 	evalConfig := flow.EvalConfig{
 		Executor:           x,
 		Snapshotter:        c.blob(),
@@ -473,6 +532,8 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		CacheMode:          cache.CacheMode,
 		Status:             c.Status.Group(runID.Short()),
 		ImageMap:           imageMap,
+		TaskDB:             tdb,
+		RunID:              runID,
 	}
 	config.Configure(&evalConfig)
 	if config.trace {
@@ -496,6 +557,9 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	}
 	c.WaitForBackgroundTasks(&wg, 10*time.Minute)
 	bgcancel()
+	if tcancel != nil {
+		tcancel()
+	}
 	if err := eval.Err(); err != nil {
 		c.Errorln(err)
 		c.Exit(11)

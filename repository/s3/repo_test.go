@@ -29,14 +29,14 @@ func TestS3RepositoryInfra(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var repos reflow.Repository
-	config.Must(&repos)
+	var repo reflow.Repository
+	config.Must(&repo)
 	var s3repos *Repository
 	config.Must(&s3repos)
 	if got, want := s3repos.Bucket, bucket; got != want {
 		t.Errorf("got %v, want %v", s3repos.Bucket, bucket)
 	}
-	if got, want := repos.URL().String(), "s3://reflow-unittest//"; got != want {
-		t.Errorf("got %v, want %v", repos.URL(), "s3://reflow-unittest//")
+	if got, want := repo.URL().String(), "s3://reflow-unittest//"; got != want {
+		t.Errorf("got %v, want %v", repo.URL(), "s3://reflow-unittest//")
 	}
 }

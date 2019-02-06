@@ -266,8 +266,9 @@ func TestRunsIDQuery(t *testing.T) {
 		{*mockdb.qinput.IndexName, idIndex},
 		{*mockdb.qinput.ExpressionAttributeValues[":type"].S, "run"},
 		{*mockdb.qinput.ExpressionAttributeValues[":testId"].S, id.String()},
+		{*mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
 		{*mockdb.qinput.KeyConditionExpression, colID + " = :testId"},
-		{*mockdb.qinput.FilterExpression, colType + " = :type"},
+		{*mockdb.qinput.FilterExpression, "#Type = :type"},
 		{runs[0].User, colUser},
 		{runs[0].ID.String(), id.String()},
 		{runs[0].Labels["label"], "test"},
@@ -304,8 +305,9 @@ func TestRunsIDShortQuery(t *testing.T) {
 		{*mockdb.qinput.IndexName, id4Index},
 		{*mockdb.qinput.ExpressionAttributeValues[":type"].S, "run"},
 		{*mockdb.qinput.ExpressionAttributeValues[":id4"].S, sid.HexN(4)},
+		{*mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
 		{*mockdb.qinput.KeyConditionExpression, colID4 + " = :id4"},
-		{*mockdb.qinput.FilterExpression, colType + " = :type"},
+		{*mockdb.qinput.FilterExpression, "#Type = :type"},
 		{runs[0].User, colUser},
 		{runs[0].ID.String(), mockdb.testId.String()},
 		{runs[0].Labels["label"], "test"},
@@ -652,7 +654,7 @@ func TestTasksQueryTimeBucketUser(t *testing.T) {
 		mockdb = getmockquerytaskdb()
 		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
 		since  = time.Now().UTC()
-		query  = taskdb.Query{User: "pgopal", Since: since}
+		query  = taskdb.Query{User: "reflow", Since: since}
 	)
 	date := date(since).Format(dateLayout)
 	_, err := taskb.Runs(context.Background(), query)
@@ -692,7 +694,7 @@ func TestTasksQueryTimeBucketRun(t *testing.T) {
 	if queryTime.Truncate(time.Hour) == queryTime {
 		queryTime = queryTime.Add(time.Minute)
 	}
-	query := taskdb.Query{User: "pgopal", Since: queryTime}
+	query := taskdb.Query{User: "reflow", Since: queryTime}
 	_, err := taskb.Runs(context.Background(), query)
 	if err != nil {
 		t.Fatal(err)

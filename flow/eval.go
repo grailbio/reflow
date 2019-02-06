@@ -30,6 +30,7 @@ import (
 	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/liveset/bloomlive"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/trace"
@@ -110,6 +111,7 @@ type EvalConfig struct {
 
 	// Assert is the policy to use for asserting cached Assertions.
 	Assert reflow.Assert
+
 	// TaskDB is the db to which run/tasks information and keepalives are maintained.
 	TaskDB taskdb.TaskDB
 
@@ -152,6 +154,9 @@ type EvalConfig struct {
 	// Invalidate is a function that determines whether or not f's cached
 	// results should be invalidated.
 	Invalidate func(f *Flow) bool
+
+	// Labels is the labels for this run.
+	Labels pool.Labels
 }
 
 // String returns a human-readable form of the evaluation configuration.
@@ -1756,7 +1761,7 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 				tctx, tcancel = context.WithCancel(ctx)
 				err = e.TaskDB.CreateTask(tctx, f.TaskID, e.RunID, id, x.URI())
 				if err != nil {
-					e.Log.Errorf("taskdb setrun: %v\n", err)
+					e.Log.Errorf("taskdb createtask: %v\n", err)
 				} else {
 					go taskdb.Keepalive(tctx, e.TaskDB, f.TaskID)
 				}

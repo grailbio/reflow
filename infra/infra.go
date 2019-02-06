@@ -41,6 +41,7 @@ const (
 	Username   = "user"
 	TLS        = "tls"
 	Tracer     = "tracer"
+	TaskDB     = "taskdb"
 )
 
 // User is the infrastructure provider for username.

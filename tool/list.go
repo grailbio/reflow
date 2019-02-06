@@ -152,7 +152,7 @@ The columns displayed by list are:
 				inspect.Resources["cpu"], data.Size(inspect.Resources["disk"]),
 				expires, inspect.Meta.Owner, sprintURI(entries[i]))
 		default:
-			panic("unknown inspect type")
+			panic("unknown ExecInspect type")
 		}
 	}
 }

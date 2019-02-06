@@ -34,9 +34,9 @@ Note that exec URIs are of the form host:port/alloc/exec.`
 	}
 
 	cluster := c.Cluster(nil)
-	alloc, err := cluster.Alloc(ctx, n.AllocID)
+	alloc, err := cluster.Alloc(ctx, allocURI(n))
 	if err != nil {
-		c.Fatalf("alloc %s: %s", n.AllocID, err)
+		c.Fatalf("alloc %s: %s", allocURI(n), err)
 	}
 	e, err := alloc.Get(ctx, n.ID)
 	if err != nil {

@@ -4,11 +4,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
+	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
 	"github.com/grailbio/reflow/assoc/dydbassoc"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
@@ -61,6 +60,7 @@ var indexes = map[string]*indexdefs{
 
 // Setup implements infra.Provider
 func (t *TaskDB) Setup(sess *session.Session, assoc *dydbassoc.Assoc, log *log.Logger) error {
+	t.TableName = assoc.TableName
 	db := assoc.DB
 	describe, err := waitForActiveTable(db, t.TableName, log)
 	if err != nil {
@@ -90,7 +90,7 @@ func (t *TaskDB) Setup(sess *session.Session, assoc *dydbassoc.Assoc, log *log.L
 		if indexExists[index] {
 			continue
 		}
-		_, err = db.UpdateTable(&dynamodb.UpdateTableInput{
+		input := &dynamodb.UpdateTableInput{
 			TableName:            aws.String(t.TableName),
 			AttributeDefinitions: config.attrdefs,
 			GlobalSecondaryIndexUpdates: []*dynamodb.GlobalSecondaryIndexUpdate{
@@ -101,14 +101,17 @@ func (t *TaskDB) Setup(sess *session.Session, assoc *dydbassoc.Assoc, log *log.L
 						Projection: &dynamodb.Projection{
 							ProjectionType: aws.String("ALL"),
 						},
-						ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
-							ReadCapacityUnits:  aws.Int64(int64(readcap)),
-							WriteCapacityUnits: aws.Int64(int64(writecap)),
-						},
 					},
 				},
 			},
-		})
+		}
+		if *describe.Table.BillingModeSummary.BillingMode == "PROVISIONED" {
+			input.ProvisionedThroughput = &dynamodb.ProvisionedThroughput{
+				ReadCapacityUnits:  aws.Int64(int64(readcap)),
+				WriteCapacityUnits: aws.Int64(int64(writecap)),
+			}
+		}
+		_, err = db.UpdateTable(input)
 		if err != nil {
 			return errors.E("error creating secondary index: %v", err)
 		}

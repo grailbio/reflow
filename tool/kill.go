@@ -27,7 +27,7 @@ func (c *Cmd) kill(ctx context.Context, args ...string) {
 			c.Errorf("%s: only allocs can be killed\n", arg)
 			continue
 		}
-		alloc, err := cluster.Alloc(ctx, n.AllocID)
+		alloc, err := cluster.Alloc(ctx, allocURI(n))
 		if err != nil {
 			c.Errorf("%s: %s\n", arg, err)
 			continue

@@ -291,7 +291,7 @@ func (t *TaskDB) buildIdQuery(q taskdb.Query, typ objType) []*dynamodb.QueryInpu
 		keyExpression = fmt.Sprintf("%s = :testId", colID)
 		attributeValues[":testId"] = &dynamodb.AttributeValue{S: aws.String(q.ID.String())}
 	}
-	const filterExpression = colType + " = :type"
+	const filterExpression = "#Type = :type"
 	attributeValues[":type"] = &dynamodb.AttributeValue{S: aws.String(string(typ))}
 	input := &dynamodb.QueryInput{
 		TableName:                 aws.String(t.TableName),
@@ -299,6 +299,9 @@ func (t *TaskDB) buildIdQuery(q taskdb.Query, typ objType) []*dynamodb.QueryInpu
 		KeyConditionExpression:    aws.String(keyExpression),
 		ExpressionAttributeValues: attributeValues,
 		FilterExpression:          aws.String(filterExpression),
+		ExpressionAttributeNames: map[string]*string{
+			"#Type": aws.String(colType),
+		},
 	}
 	return []*dynamodb.QueryInput{input}
 }

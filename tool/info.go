@@ -23,9 +23,11 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/runner"
+	"github.com/grailbio/reflow/taskdb"
 )
 
 func (c *Cmd) info(ctx context.Context, args ...string) {
@@ -47,6 +49,11 @@ Abbreviated IDs are expanded where possible.`
 	if flags.NArg() == 0 {
 		flags.Usage()
 	}
+	var tdb taskdb.TaskDB
+	err := c.Config.Instance(&tdb)
+	if err != nil {
+		log.Debug("taskdb: ", err)
+	}
 	for _, arg := range flags.Args() {
 		n, err := parseName(arg)
 		if err != nil {
@@ -60,27 +67,36 @@ Abbreviated IDs are expanded where possible.`
 		case idName:
 			switch {
 			case c.printRunInfo(ctx, &tw, n.ID):
+			case c.printTaskDBInfo(ctx, &tw, n.ID):
 			case c.printCacheInfo(ctx, &tw, n.ID):
 			case c.printFileInfo(ctx, &tw, n.ID):
 			default:
 				c.Fatalf("unable to resolve id %s", arg)
 			}
 		case execName:
-			alloc, err := c.Cluster(nil).Alloc(ctx, n.AllocID)
-			if err != nil {
-				c.Fatal(err)
-			}
-			exec, err := alloc.Get(ctx, n.ID)
-			if err != nil {
-				c.Fatalf("failed to fetch exec for %q: %s", arg, err)
-			}
-			inspect, err := exec.Inspect(ctx)
-			if err != nil {
-				c.Fatalf("error inspecting exec %q: %s", arg, err)
+			var inspect reflow.ExecInspect
+			if tdb != nil {
+				inspect, err = c.liveExecInspect(ctx, n)
+				if err != nil {
+					c.Fatalf("error inspecting exec %q: %s", arg, err)
+				}
+			} else {
+				alloc, err := c.Cluster(nil).Alloc(ctx, n.AllocID)
+				if err != nil {
+					c.Fatal(err)
+				}
+				exec, err := alloc.Get(ctx, n.ID)
+				if err != nil {
+					c.Fatalf("failed to fetch exec for %q: %s", arg, err)
+				}
+				inspect, err = exec.Inspect(ctx)
+				if err != nil {
+					c.Fatalf("error inspecting exec %q: %s", arg, err)
+				}
 			}
 			var result reflow.Result
 			if inspect.State == "complete" {
-				result, err = exec.Result(ctx)
+				result, err = c.liveExecResult(ctx, n)
 				if err != nil {
 					c.Errorf("failed to fetch result for exec %s: %s\n", arg, err)
 				}
@@ -88,21 +104,39 @@ Abbreviated IDs are expanded where possible.`
 			fmt.Fprintln(&tw, arg, "(exec)")
 			c.printExec(ctx, &tw, inspect, result)
 		case allocName:
-			alloc, err := c.Cluster(nil).Alloc(ctx, n.AllocID)
-			if err != nil {
-				c.Fatal(err)
+			var (
+				execs   []reflow.Exec
+				inspect pool.AllocInspect
+			)
+			if tdb != nil {
+				inspect, err = c.allocInspect(ctx, n)
+				if err != nil {
+					c.Fatal(err)
+				}
+				execs, err = c.allocExecs(ctx, n)
+				if err != nil {
+					c.Fatal(err)
+				}
+			} else {
+				alloc, err := c.Cluster(nil).Alloc(ctx, n.AllocID)
+				if err != nil {
+					c.Fatal(err)
+				}
+				inspect, err = alloc.Inspect(ctx)
+				if err != nil {
+					c.Fatal(err)
+				}
+				execs, err = alloc.Execs(ctx)
+				if err != nil {
+					c.Fatal(err)
+				}
 			}
-			inspect, err := alloc.Inspect(ctx)
-			if err != nil {
-				c.Fatal(err)
-			}
-			execs, err := alloc.Execs(ctx)
+			execs, err := c.allocExecs(ctx, n)
 			if err != nil {
 				c.Fatal(err)
 			}
 			fmt.Fprintln(&tw, arg, "(alloc)")
 			c.printAlloc(ctx, &tw, inspect, execs)
-
 		}
 		tw.Flush()
 	}
@@ -193,6 +227,29 @@ func (c *Cmd) printRunInfo(ctx context.Context, w io.Writer, id digest.Digest) b
 		fmt.Fprintf(w, "\tlog:\t%s.execlog\n", base)
 	}
 	return true
+}
+
+func (c *Cmd) printTaskDBInfo(ctx context.Context, w io.Writer, id digest.Digest) bool {
+	q := taskdb.Query{ID: id}
+	ri, err := c.runInfo(ctx, q, false /* liveOnly */)
+	if err != nil {
+		log.Error(err)
+	}
+	if len(ri) > 0 {
+		c.writeRuns(ri, w, true)
+		return true
+	}
+	ti, err := c.taskInfo(ctx, q, false /* liveOnly */)
+	if err != nil {
+		log.Error(err)
+	}
+	if len(ti) > 0 {
+		for _, t := range ti {
+			c.writeTask(t, w, true)
+		}
+		return true
+	}
+	return false
 }
 
 func (c *Cmd) printCacheInfo(ctx context.Context, w io.Writer, id digest.Digest) bool {
@@ -388,9 +445,14 @@ const (
 )
 
 type name struct {
-	Kind    nameKind
-	AllocID string
-	ID      digest.Digest
+	Kind       nameKind
+	InstanceID string
+	AllocID    string
+	ID         digest.Digest
+}
+
+func allocURI(n name) string {
+	return strings.Join([]string{n.InstanceID, n.AllocID}, "/")
 }
 
 // parseName parses a Reflow object name. Examples include:
@@ -412,9 +474,9 @@ func parseName(raw string) (name, error) {
 		return n, err
 	}
 	var n name
-	n.AllocID = head
+	n.InstanceID = head
 	head, tail = peel(tail, "/")
-	n.AllocID += "/" + head
+	n.AllocID = head
 	if tail == "" {
 		n.Kind = allocName
 		return n, nil

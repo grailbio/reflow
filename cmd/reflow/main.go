@@ -23,6 +23,8 @@ import (
 	"github.com/grailbio/reflow/pool"
 	_ "github.com/grailbio/reflow/repository/s3"
 	"github.com/grailbio/reflow/runner"
+	"github.com/grailbio/reflow/taskdb"
+	_ "github.com/grailbio/reflow/taskdb/dynamodbtask"
 	"github.com/grailbio/reflow/tool"
 	"github.com/grailbio/reflow/trace"
 	_ "github.com/grailbio/reflow/trace"
@@ -91,6 +93,7 @@ func main() {
 		infra2.TLS:        new(tls.Authority),
 		infra2.Username:   new(infra2.User),
 		infra2.Tracer:     new(trace.Tracer),
+		infra2.TaskDB:     new(taskdb.TaskDB),
 	}
 	cmd.SchemaKeys = infra.Keys{
 		infra2.AWSCreds:  "awscreds",

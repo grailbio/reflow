@@ -1,4 +1,4 @@
-// Package tasdkb defines interfaces and data types for storing and querying reflow
+// Package taskdb defines interfaces and data types for storing and querying reflow
 // runs and tasks. It also provides a function to keep a lease on a run/task.
 package taskdb
 

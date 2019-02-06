@@ -204,7 +204,7 @@ func (w *worker) do(ctx context.Context, f *flow.Flow) (err error) {
 					tctx, cancel = context.WithCancel(ctx)
 					err = w.Eval.TaskDB.CreateTask(tctx, f.TaskID, w.Eval.RunID, f.Digest(), x.URI())
 					if err != nil {
-						log.Debugf("taskdb setrun: %v\n", err)
+						log.Debugf("taskdb createtask: %v\n", err)
 					} else {
 						go taskdb.Keepalive(tctx, w.Eval.TaskDB, f.TaskID)
 					}

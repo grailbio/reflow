@@ -103,9 +103,10 @@ var commands = map[string]Func{
 	"repair":       (*Cmd).repair,
 	"collect":      (*Cmd).collect,
 	"http":         (*Cmd).http,
+	"upgrade":      (*Cmd).upgrade,
 }
 
-var intro = `The reflow command helps users run Reflow programs, inspect their
+var intro = `The reflow command helps users run Reflow programs, ExecInspect their
 outputs, and query their statuses.
 
 The command comprises a set of subcommands; the list of supported
@@ -297,7 +298,7 @@ func (c *Cmd) Main() {
 		c.Exit(1)
 	}()
 	// Note that the flag package stops parsing flags after the first
-	// non-flag argument (i.e., the first argument that does not begin
+	// non-flag argument (ExecInspect.e., the first argument that does not begin
 	// with "-"); thus flag.Args()[1:] contains all the flags and
 	// arguments for the command in flags.Arg[0].
 	fn(c, ctx, flags.Args()[1:]...)

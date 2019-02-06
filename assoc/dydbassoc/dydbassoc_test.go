@@ -8,8 +8,6 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/grailbio/reflow/test/testutil"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/request"
@@ -20,8 +18,10 @@ import (
 	_ "github.com/grailbio/infra/aws"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
+	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
+	"github.com/grailbio/reflow/test/testutil"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -341,12 +341,14 @@ func TestDydbassocInfra(t *testing.T) {
 		"session": new(session.Session),
 		"assoc":   new(assoc.Assoc),
 		"logger":  new(log.Logger),
+		"user":    new(infra2.User),
 	}
 	config, err := schema.Make(infra.Keys{
 		"labels":  "kv",
 		"session": "awssession",
 		"assoc":   fmt.Sprintf("dynamodbassoc,table=%v", table),
 		"logger":  "logger",
+		"user":    "user",
 	})
 	if err != nil {
 		t.Fatal(err)
