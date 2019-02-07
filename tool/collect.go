@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,7 +34,7 @@ func unmarshal(ctx context.Context, repo reflow.Repository, k digest.Digest, v i
 
 func (c *Cmd) collect(ctx context.Context, args ...string) {
 	flags := flag.NewFlagSet("collect", flag.ExitOnError)
-	thresholdFlag := flags.String("threshold", "YYYY-MM-DD", "cache entries older than this threshold will be collected")
+	thresholdFlag := flags.String("threshold", "YYYY-MM-DD", "cache entries older than this threshold will be collected; supports both date format (YYYY-MM-DD) and number of days (15d)")
 	dryRunFlag := flags.Bool("dry-run", true, "when true, reports on what would have been collected without actually removing anything from the cache")
 	rateFlag := flags.Int64("rate", 300, "maximum writes/sec to dynamodb")
 	help := `Collect performs garbage collection of the reflow cache,
@@ -40,10 +42,24 @@ func (c *Cmd) collect(ctx context.Context, args ...string) {
 	provided threshold date.`
 
 	c.Parse(flags, args, help, "collect [-threshold date]")
-	threshold, err := time.Parse("2006-01-02", *thresholdFlag)
-	if err != nil {
-		c.Errorln(err)
-		flags.Usage()
+
+	var threshold time.Time
+	if strings.HasSuffix(*thresholdFlag, "d") {
+		date := time.Now().Local()
+		days, err := strconv.Atoi(strings.TrimRight(*thresholdFlag, "d"))
+		if err != nil {
+			c.Errorln(err)
+			flags.Usage()
+		}
+		threshold = date.AddDate(0, 0, -1*days)
+
+	} else {
+		var err error
+		threshold, err = time.Parse("2006-01-02", *thresholdFlag)
+		if err != nil {
+			c.Errorln(err)
+			flags.Usage()
+		}
 	}
 
 	a, err := c.Config.Assoc()
