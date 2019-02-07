@@ -730,8 +730,8 @@ func (f *Flow) ExecConfig() reflow.ExecConfig {
 		return reflow.ExecConfig{
 			Type:         "exec",
 			Ident:        f.Ident,
-			Image:        f.Image,
-			NeedAWSCreds: strings.HasSuffix(f.OriginalImage, "$aws"),
+			Image:        strings.TrimSuffix(f.Image, "$aws"),
+			NeedAWSCreds: strings.HasSuffix(f.OriginalImage, "$aws") || strings.HasSuffix(f.Image, "$aws"),
 			Cmd:          f.Cmd,
 			Args:         args,
 			Resources:    f.Resources,
