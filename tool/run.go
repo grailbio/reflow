@@ -321,7 +321,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 			Scheduler:   scheduler,
 			ImageMap:    e.ImageMap,
 		},
-		Type:    e.Type,
+		Type:    e.MainType(),
 		Labels:  make(pool.Labels),
 		Cluster: cluster,
 		Cmdline: cmdline,
