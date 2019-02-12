@@ -14,6 +14,7 @@ import (
 	"io/ioutil"
 	golog "log"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -371,7 +372,7 @@ func (e *blobExec) doExtern(ctx context.Context) error {
 	for k, v := range fileset.Map {
 		fn, f := k, v
 		g.Go(func() error {
-			key := prefix + fn
+			key := path.Join(prefix, fn)
 			ul := upload{
 				Repository: e.Repository,
 				Bucket:     bucket,

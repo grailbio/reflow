@@ -151,6 +151,40 @@ func TestS3ExecExternPrefix(t *testing.T) {
 	}
 }
 
+func TestS3ExecExternFileFileset(t *testing.T) {
+	const (
+		bucket = "testbucket"
+		prefix = "filename"
+	)
+	s3, client, repo, cleanup := newS3Test(t, bucket, prefix, extern)
+	defer cleanup()
+
+	contents := "abcdefg"
+	file := reflowtestutil.WriteFile(repo, contents)
+	fileset := reflow.Fileset{
+		Map: map[string]reflow.File{
+			".": file,
+		},
+	}
+	s3.Config.Args = []reflow.Arg{{Fileset: &fileset}}
+
+	ctx := context.Background()
+	res := executeAndGetResult(ctx, t, s3)
+
+	if got, want := res, (reflow.Result{Fileset: fileset}); !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+
+	// Verify that everything is in the blob.
+	content, ok := client.GetFile(prefix)
+	if !ok {
+		t.Errorf("blob is missing %v, filename %v", file, prefix)
+	}
+	if content.Content.Size() != int64(len(contents)) {
+		t.Errorf("blob content mismatch %v", file)
+	}
+}
+
 func TestS3ExecPath(t *testing.T) {
 	const (
 		bucket   = "testbucket"
