@@ -1,0 +1,45 @@
+strings := make("$/strings")
+val TestDelay = {
+	delay := func (d bool) => d
+	delay(true)
+}
+
+val TestFlatten = {
+	flatten := func (l [[string]]) => [ i | [i] <- l]
+	flatten([["a"], ["b"]]) == ["a", "b"]
+}
+
+val TestLen = {
+	len := func(i {size int}) => i.size
+	len({size: 10}) == 10
+}
+
+val TestList = {
+	list := func (j [string:int]) => [v | (k, v) <- j]
+	list(["a": 1]) == [1]
+}
+
+val TestMap = {
+	map := func (k [string], v [int]) => map([(k1 + strings.FromInt(v1), v1) | k1 <- k, v1 <- v])
+	val m1 = map(["a", "b"], [1, 2])
+	val m2 = ["a1": 1, "a2": 2, "b1": 1, "b2": 2]
+	m1 == m2
+}
+
+val TestPanic = {
+	panic := func (msg string) => "panic: " + msg
+	panic("test") == "panic: test"
+}
+
+val TestRange = {
+	range := func (i, j int) => if i == j { [] } else { flatten([[i], range(i+1, j)]) }
+	val r = range(1, 10)
+	r == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+}
+
+val TestTrace = {
+	trace := func (msg string) => "tracing: " + msg
+	msg := "message"
+	trace(msg) == "tracing: message"
+}
+

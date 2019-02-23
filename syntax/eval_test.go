@@ -239,6 +239,7 @@ func TestEval(t *testing.T) {
 		"testdata/if.rf",
 		"testdata/dirs.rf",
 		"testdata/switch.rf",
+		"testdata/builtin_override.rf",
 	}
 	RunReflowTests(t, tests)
 }

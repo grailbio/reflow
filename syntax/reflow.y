@@ -3,7 +3,7 @@ package syntax
 
 import (
 	"fmt"
-	
+
 	"github.com/grailbio/reflow/internal/scanner"
 	"github.com/grailbio/reflow/types"
 )
@@ -78,9 +78,9 @@ type typearg struct {
 %token	<pos>	tokFile tokDir tokStruct tokModule tokExec tokAs  tokAt
 %token	<pos>	tokVal tokFunc tokAssign tokArrow tokLeftArrow tokIf tokElse 
 %token	<pos>	tokSwitch tokCase
-%token	<pos>	tokMake tokLen  tokPanic tokDelay tokTrace tokMap tokList tokZip tokUnzip tokFlatten
+%token	<pos>	tokMake
 %token	<pos>	tokStartModule tokStartDecls tokStartExpr tokStartType tokStartPat
-%token	<pos>	tokKeyspace tokParam  tokEllipsis  tokReserved  tokRequires tokRange
+%token	<pos>	tokKeyspace tokParam  tokEllipsis  tokReserved  tokRequires
 %token	<pos>	tokType
 %token	<pos>	'{' '(' '['
 %token	<pos>	tokOrOr tokAndAnd tokLE tokGE  tokNE tokEqEq tokLSH tokRSH
@@ -591,30 +591,10 @@ term:
 |	'(' expr ')'
 	{$$ = $2}
 |	exprblock
-|	tokLen '(' expr ')'
-	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprBuiltin, Op: "len", Left: $3}}
 |       tokInt '(' expr ')'
-	{$$ = &Expr{Position: $1.Position, Comment: $1.Comment, Kind: ExprBuiltin, Op: "int", Left: $3}}
+	{$$ = &Expr{Position: $1.Position, Comment: $1.Comment, Kind: ExprBuiltin, Op: "int", Fields: []*FieldExpr{{Expr:$3}}}}
 |       tokFloat '(' expr ')'
-	{$$ = &Expr{Position: $1.Position, Comment: $1.Comment, Kind: ExprBuiltin, Op: "float", Left: $3}}
-|	tokZip '(' expr ',' expr ')'
-	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprBuiltin, Op: "zip", Left: $3, Right: $5}}
-|	tokUnzip '(' expr ')'
-	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprBuiltin, Op: "unzip", Left: $3}}
-|	tokFlatten '(' expr ')'
-	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprBuiltin, Op: "flatten", Left: $3}}
-|	tokMap '(' expr ')'
-	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprBuiltin, Op: "map", Left: $3}}
-|	tokRange '(' expr ',' expr ')'
-	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprBuiltin, Op: "range", Left: $3, Right: $5}}
-|	tokList '(' expr ')'
-	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprBuiltin, Op: "list", Left: $3}}
-|	tokDelay '(' expr ')'
-	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprBuiltin, Op: "delay", Left: $3}}
-|	tokPanic '(' expr ')'
-	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprBuiltin, Op: "panic", Left: $3}}
-|	tokTrace '(' expr ')'
-	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprBuiltin, Op: "trace", Left: $3}}
+	{$$ = &Expr{Position: $1.Position, Comment: $1.Comment, Kind: ExprBuiltin, Op: "float", Fields: []*FieldExpr{{Expr:$3}}}}
 
 exprblock:
 	'{' defs1 expr maybeColon'}'

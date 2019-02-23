@@ -412,7 +412,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			panic("invalid builtin " + e.Op)
 		case "len":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
-				switch e.Left.Type.Kind {
+				switch e.Fields[0].Expr.Type.Kind {
 				case types.FileKind:
 					file := vs[0].(reflow.File)
 					return values.NewInt(file.Size), nil
@@ -428,19 +428,19 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				default:
 					panic("bug")
 				}
-			}, e.Left)
+			}, e.Fields[0].Expr)
 		case "int":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 				f := vs[0].(*big.Float)
 				i, _ := f.Int64()
 				return values.NewInt(i), nil
-			}, e.Left)
+			}, e.Fields[0].Expr)
 		case "float":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 				i := vs[0].(*big.Int)
 				f := float64(i.Int64())
 				return values.NewFloat(f), nil
-			}, e.Left)
+			}, e.Fields[0].Expr)
 		case "zip":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 				var (
@@ -455,13 +455,13 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 					zip[i] = values.Tuple{left[i], right[i]}
 				}
 				return zip, nil
-			}, e.Left, e.Right)
+			}, e.Fields[0].Expr, e.Fields[1].Expr)
 		case "unzip":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 				list := vs[0].(values.List)
 				tuples := make([]interface{}, len(list))
 				for i, v := range list {
-					tuples[i] = tval{e.Left.Type.Elem, v}
+					tuples[i] = tval{e.Fields[0].Expr.Type.Elem, v}
 				}
 				return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 					var (
@@ -474,32 +474,32 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 					}
 					return values.Tuple{left, right}, nil
 				}, tuples...)
-			}, e.Left)
+			}, e.Fields[0].Expr)
 		case "flatten":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 				return e.flatten(sess, env, ident, vs[0].(values.List), types.List(e.Type.Elem), stdEvalK)
-			}, e.Left)
+			}, e.Fields[0].Expr)
 		case "map":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
-				switch e.Left.Type.Kind {
+				switch e.Fields[0].Expr.Type.Kind {
 				case types.ListKind:
 					// We have to unpack both the tuples and the key of the tuples
 					// here.
 					list := vs[0].(values.List)
 					tuples := make([]interface{}, len(list))
 					for i, v := range list {
-						tuples[i] = tval{e.Left.Type.Elem, v}
+						tuples[i] = tval{e.Fields[0].Expr.Type.Elem, v}
 					}
 					return e.k(sess, env, ident, func(tuples []values.T) (values.T, error) {
 						keys := make([]interface{}, len(tuples))
 						for i, v := range tuples {
-							k := tval{e.Left.Type.Elem.Fields[0].T, v.(values.Tuple)[0]}
+							k := tval{e.Fields[0].Expr.Type.Elem.Fields[0].T, v.(values.Tuple)[0]}
 							keys[i] = k
 						}
 						return e.k(sess, env, ident, func(keys []values.T) (values.T, error) {
 							m := new(values.Map)
 							for i, v := range tuples {
-								m.Insert(values.Digest(keys[i], e.Left.Type.Elem.Fields[0].T), keys[i], v.(values.Tuple)[1])
+								m.Insert(values.Digest(keys[i], e.Fields[0].Expr.Type.Elem.Fields[0].T), keys[i], v.(values.Tuple)[1])
 							}
 							return m, nil
 						}, keys...)
@@ -514,11 +514,11 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				default:
 					panic("bug")
 				}
-			}, e.Left)
+			}, e.Fields[0].Expr)
 		case "list":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 				var list values.List
-				switch e.Left.Type.Kind {
+				switch e.Fields[0].Expr.Type.Kind {
 				case types.MapKind:
 					m := vs[0].(*values.Map)
 					list = make(values.List, 0, m.Len())
@@ -535,11 +535,11 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 					panic("bug")
 				}
 				return list, nil
-			}, e.Left)
+			}, e.Fields[0].Expr)
 		case "panic":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 				return nil, fmt.Errorf("panic: %s", vs[0].(string))
-			}, e.Left)
+			}, e.Fields[0].Expr)
 		case "delay":
 			// Delay deliberately introduces delayed evaluation, which is
 			// useful for testing and debugging. It is handled specially in
@@ -547,13 +547,13 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			// is already resolved.
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 				return vs[0], nil
-			}, e.Left)
+			}, e.Fields[0].Expr)
 		case "trace":
-			left, err := e.Left.eval(sess, env, ident)
+			left, err := e.Fields[0].Expr.eval(sess, env, ident)
 			if err != nil {
 				return nil, err
 			}
-			left = Force(left, e.Left.Type)
+			left = Force(left, e.Fields[0].Expr.Type)
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 				if ident != "" {
 					ident = "(" + ident + ")"
@@ -562,9 +562,9 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				if stderr == nil {
 					stderr = os.Stderr
 				}
-				fmt.Fprintf(stderr, "%s%s: %s\n", e.Position, ident, values.Sprint(vs[0], e.Left.Type))
+				fmt.Fprintf(stderr, "%s%s: %s\n", e.Position, ident, values.Sprint(vs[0], e.Fields[0].Expr.Type))
 				return vs[0], nil
-			}, tval{e.Left.Type, left})
+			}, tval{e.Fields[0].Expr.Type, left})
 		case "range":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 				left, right := vs[0].(*big.Int), vs[1].(*big.Int)
@@ -576,7 +576,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 					list = append(list, new(big.Int).Set(i))
 				}
 				return list, nil
-			}, e.Left, e.Right)
+			}, e.Fields[0].Expr, e.Fields[1].Expr)
 		}
 	case ExprRequires:
 		req, err := e.evalRequirements(sess, env, ident)

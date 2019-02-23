@@ -181,24 +181,9 @@ var identTokens = map[string]int{
 
 	"make": tokMake,
 
-	"len":   tokLen,
-	"zip":   tokZip,
-	"unzip": tokUnzip,
-
-	"flatten": tokFlatten,
-
-	"map":  tokMap,
-	"list": tokList,
-
-	"panic": tokPanic,
-	"delay": tokDelay,
-	"trace": tokTrace,
-
 	"requires": tokRequires,
 
 	"type": tokType,
-
-	"range": tokRange,
 
 	// Reserved identifiers:
 	"force":   tokReserved,
