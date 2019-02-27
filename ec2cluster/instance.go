@@ -35,7 +35,7 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/pool/client"
-	"gopkg.in/yaml.v2"
+	yaml "gopkg.in/yaml.v2"
 )
 
 // memoryDiscount is the amount of memory that's reserved by the
@@ -422,8 +422,10 @@ func (i *instance) Go(ctx context.Context) {
 		switch {
 		case i.err == nil:
 		case errors.Is(errors.Fatal, i.err):
+			i.Log.Errorf("instance %v fatal: %v", id, i.err)
 			return
 		case errors.Is(errors.Unavailable, i.err):
+			i.Log.Errorf("instance %v unavailable: %v", id, i.err)
 			// Return these immediately because our caller may be able to handle
 			// them by selecting a different instance type.
 			return

@@ -47,6 +47,15 @@ func main() {
 	}
 	defer os.RemoveAll(dir)
 
+	pkg, err := build.Default.Import(*reflow, "", build.FindOnly)
+	if err != nil {
+		log.Fatalf("couldn't find reflow package: %v", err)
+	}
+	image := fmt.Sprintf("%s:bootstrap", *repo)
+	if err := ioutil.WriteFile(filepath.Join(pkg.Dir, "version.go"), versionFile(version, image), 0666); err != nil {
+		log.Fatal(err)
+	}
+
 	path := filepath.Join(dir, "reflow")
 	cmd := command("go", "build", "-o", path, *reflow)
 	log.Printf("command: %v", cmd)
@@ -72,7 +81,6 @@ ENTRYPOINT ["/reflow"]
 	if err := os.Chdir(dir); err != nil {
 		log.Fatal(err)
 	}
-	image := fmt.Sprintf("%s:bootstrap", *repo)
 	cmd = command("docker", "build", "-t", image, dir)
 	log.Printf("building reflow docker image")
 	if err := cmd.Run(); err != nil {
@@ -82,13 +90,6 @@ ENTRYPOINT ["/reflow"]
 	log.Printf("pushing image to %s", image)
 	if err := cmd.Run(); err != nil {
 		log.Fatalf("push reflow docker image: %v", err)
-	}
-	pkg, err := build.Default.Import(*reflow, "", build.FindOnly)
-	if err != nil {
-		log.Fatalf("couldn't find reflow package: %v", err)
-	}
-	if err := ioutil.WriteFile(filepath.Join(pkg.Dir, "version.go"), versionFile(version, image), 0666); err != nil {
-		log.Fatal(err)
 	}
 }
 
