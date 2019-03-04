@@ -1,0 +1,4 @@
+val Test = {
+	val x = fold(func(i, j {a int}) => {c: i.a + j.a}, [{a: 2, b: 3}], {a: 2})
+	x
+}

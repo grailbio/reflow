@@ -1,0 +1,16 @@
+val test = make("$/test")
+func add(i, j int) = i + j
+
+val TestFold = test.All([
+		fold(func(i, j int) => i + j, [1, 2, delay(3)], 0) == 6,
+		fold(func(i, j int) => i - j, [3, 2, delay(1)], 0) == -6,
+		fold(func(i, j string) => i + j, [delay("ab"), "raca", "dabra"], "") == "abracadabra",
+		fold(func (i, j float) => i + j, [1.0, 2.1, 3.2], 0.0) == 6.3,
+		fold(add, [1, 2, 3], 0) == 6,
+		fold(func(i, j {a int}) => {a: i.a + j.a}, [{a: 1}, {a: 4}, {a: 9}], {a:0}) == {a: 14},
+		fold(func (i, j int) => i + j, [], 0) == 0,
+		fold(func(i, j {a int}) => {a: i.a + j.a}, [{a: 1, b:1}, {a: 4, b:4}, {a: 9, b:9}], {a:0, c:0}) == {a: 14},
+		fold(func(i {a, b int}, j {a int}) => {a: i.a + j.a, b: i.b}, [{a: 1, b:1}, {a: 4, b:4}, {a: 9, b:9}], {a:0, b:0, c:2}) == {a: 14, b:0},
+		fold(func(i {a int}, j {a int}) => {a: i.a + j.a}, [{a: 1, b:1}, {a: 4, b:4}, {a: 9, b:9}], {a:0, b:0, c:2}) == {a: 14},
+		fold(func(i, j {a int}) => {a: i.a + j.a, b: 2}, [{a: 1, b:1}, {a: 4, b:4}, {a: 9, b:9}], {a:0, c:0}) == {a: 14, b:2},
+])

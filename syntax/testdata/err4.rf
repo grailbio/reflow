@@ -1,0 +1,4 @@
+val Test = {
+	val x = reduce(func(i, j int) => i + j, [])
+	x
+}

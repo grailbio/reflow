@@ -296,6 +296,35 @@ the map's keys and the second its values.
 Given a directory, `list` returns a list of tuples
 of paths and files.
 
+### Reduce/fold a list: `reduce`,`fold`
+
+Builtin `reduce` reduces a list given a function by repeatedly calling the
+function with one element of the list at a time, left to right.
+
+    `reduce(func(type, type) type, [type]) type`
+`reduce` panics if the list is empty.
+```
+a := reduce(func(i, j int) => i + j, [1, 2, 3, 4])
+b := reduce(func(i, j {a int}) => if i.a > j.a { {a: i.a} } else { {a: j.a} }, [{a: 2}, {a:7}, {a: 1}])
+```
+
+Builtin `fold` left folds the list with an initial value and a supplied
+function. It repeatedly calls the function with one element of the list
+at a time and uses the result as the accumulated value of the next function
+call.
+
+    `fold(func(typeA, typeB) typeA, list [typeB], init typeA) typeA`
+
+`typeA` and `typeB` can be the same. Fold returns the initial value if
+the list is empty.
+
+```
+a := fold(func(i, j int) => i + j, [1, 2, 3], 0)
+b := fold(func(i, j {b int}) => {b: i.b + j.b}, [{b:1}, {b:1}], {b:0})
+c := fold(func(i {b int}, j int) => {b: i.b + j}, [1, 2, 3], {b:0})
+d := fold(func(i, j int) => if i >= j { i } else { j }, [], 0)
+```
+
 ### Runtime errors: `panic`
 
 Builtin `panic` halts execution with a (string) message.

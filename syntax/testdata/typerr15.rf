@@ -1,0 +1,4 @@
+val Test = {
+	val x = fold(0, {a: 2}, 2)
+	x
+}

@@ -1,0 +1,4 @@
+val Test = {
+	val x = reduce(0, [{a: 2, b: 3}])
+	x
+}

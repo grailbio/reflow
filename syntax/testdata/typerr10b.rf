@@ -1,0 +1,4 @@
+val Test = {
+	val x = reduce(func(i {a int}, j {c int}) => {a: i.a + j.c}, [{a: 2, b: 3}])
+	x
+}

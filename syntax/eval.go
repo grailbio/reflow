@@ -515,6 +515,46 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 					panic("bug")
 				}
 			}, e.Fields[0].Expr)
+		case "reduce":
+			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+				fn := vs[0].(values.Func)
+				l := vs[1].(values.List)
+				var v values.T
+				if len(l) == 0 {
+					return nil, fmt.Errorf("%v: cannot reduce empty list", e.Position)
+				}
+				args := make([]values.T, 2)
+				args[0] = l[0]
+				for i := 1; i < len(l); i++ {
+					args[1] = l[i]
+					v, err = fn.Apply(values.Location{Position: e.Position.String()}, args)
+					if err != nil {
+						return nil, err
+					}
+					args[0] = v
+				}
+				return args[0], nil
+			}, e.Fields[0].Expr, e.Fields[1].Expr)
+		case "fold":
+			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+				fn := vs[0].(values.Func)
+				l := vs[1].(values.List)
+				var v values.T
+				if len(l) == 0 {
+					return vs[2], nil
+				}
+				args := make([]values.T, 2)
+				args[0] = vs[2]
+				for _, li := range l {
+					args[1] = li
+					v, err = fn.Apply(values.Location{Position: e.Position.String()}, args)
+					if err != nil {
+						return nil, err
+					}
+					args[0] = v
+				}
+				return args[0], nil
+			}, e.Fields[0].Expr, e.Fields[1].Expr, e.Fields[2].Expr)
 		case "list":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 				var list values.List

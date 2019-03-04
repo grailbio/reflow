@@ -691,7 +691,7 @@ func (t *T) Sub(u *T) bool {
 			return false
 		}
 		for i := range t.Fields {
-			if !t.Fields[i].T.Equal(u.Fields[i].T) {
+			if !u.Fields[i].T.Sub(t.Fields[i].T) {
 				return false
 			}
 		}

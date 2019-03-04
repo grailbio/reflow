@@ -215,6 +215,13 @@ func (e *Expr) digest(w io.Writer, env *values.Env) {
 			// we digest the second argument before the first.
 			e.Fields[1].Expr.digest(w, env)
 			e.Fields[0].Expr.digest(w, env)
+		case "reduce":
+			e.Fields[0].Expr.digest(w, env)
+			e.Fields[1].Expr.digest(w, env)
+		case "fold":
+			e.Fields[0].digest(w, env)
+			e.Fields[1].digest(w, env)
+			e.Fields[2].digest(w, env)
 		}
 	case ExprRequires:
 		e.Left.digest(w, e.Env)

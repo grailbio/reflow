@@ -19,12 +19,14 @@ import (
 func init() {
 	builtins = map[string]bool{
 		"delay":   true,
+		"fold":    true,
 		"flatten": true,
 		"len":     true,
 		"list":    true,
 		"map":     true,
 		"panic":   true,
 		"range":   true,
+		"reduce":  true,
 		"trace":   true,
 		"unzip":   true,
 		"zip":     true,
@@ -908,6 +910,68 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 				e.Type.Level = types.CanConst
 				e.Type = types.Swizzle(e.Type, types.Const, arg0.Type, arg1.Type)
 			}
+		case "reduce":
+			if len(e.Fields) != 2 {
+				e.Type = types.Errorf("reduce expects two arguments, got %v", len(e.Fields))
+				return
+			}
+			if e.Fields[0].Expr.Type.Kind != types.FuncKind {
+				e.Type = types.Errorf("reduce expects a function as its first argument, got %v", e.Fields[0].Expr.Type)
+				return
+			}
+			if e.Fields[1].Expr.Type.Kind != types.ListKind {
+				e.Type = types.Errorf("reduce expects a list as its second argument, got %v", e.Fields[1].Expr.Type)
+				return
+			}
+			elemType := e.Fields[1].Expr.Type.Elem
+			reduceType := e.Fields[0].Expr.Type.Elem
+			if !elemType.Sub(reduceType) {
+				fType := types.Func(elemType, &types.Field{T: elemType}, &types.Field{T: elemType})
+				e.Type = types.Errorf("reduce expects first argument of type %v, got %v", fType, e.Fields[0].Expr.Type)
+				return
+			}
+			// Allow function subtyping.
+			fType := types.Func(reduceType, &types.Field{T: reduceType}, &types.Field{T: reduceType})
+			if !e.Fields[0].Expr.Type.Sub(fType) {
+				e.Type = types.Errorf("reduce expects first argument of type %v, got %v", fType, e.Fields[0].Expr.Type)
+				return
+			}
+			e.Type = reduceType
+			e.Type = types.Swizzle(e.Type, types.Const, e.Fields[0].Expr.Type, e.Fields[1].Expr.Type)
+		case "fold":
+			if len(e.Fields) != 3 {
+				e.Type = types.Errorf("fold expects three arguments, got %v", len(e.Fields))
+				return
+			}
+			if e.Fields[0].Expr.Type.Kind != types.FuncKind || len(e.Fields[0].Expr.Type.Fields) != 2 {
+				e.Type = types.Errorf("fold expects a function with two arguments as its first argument, got %v", e.Fields[0].Expr.Type)
+				return
+			}
+			if e.Fields[1].Expr.Type.Kind != types.ListKind {
+				e.Type = types.Errorf("fold expects a list as its second argument, got %v", e.Fields[1].Expr.Type)
+				return
+			}
+			foldType := e.Fields[0].Expr.Type.Elem
+			foldAccArgType := e.Fields[0].Expr.Type.Fields[0].T
+			elemType := e.Fields[1].Expr.Type.Elem
+			accType := e.Fields[2].Expr.Type
+			// Express type bounds.
+			if !accType.Sub(foldAccArgType) {
+				fType := types.Func(accType, &types.Field{T: accType}, &types.Field{T: elemType})
+				e.Type = types.Errorf("fold expects first argument of type %v, got %v", fType, e.Fields[0].Expr.Type)
+				return
+			}
+			// Fix element type, and synthesize expected function type.
+			// Note: We allow the accumulator function to return a subtype of the accumulator function parameter.
+			// This is so that the accumulate function is compliant with reflow's function type even though it
+			// seems incorrect to let the return type be a subtype.
+			fType := types.Func(foldAccArgType, &types.Field{T: foldAccArgType}, &types.Field{T: elemType})
+			if !e.Fields[0].Expr.Type.Sub(fType) {
+				e.Type = types.Errorf("fold expects first argument of type %v, got %v", fType, e.Fields[0].Expr.Type)
+				return
+			}
+			e.Type = foldType
+			e.Type = types.Swizzle(e.Type, types.Const, e.Fields[0].Expr.Type, e.Fields[1].Expr.Type, e.Fields[2].Expr.Type)
 		}
 	case ExprRequires:
 		if err := e.initResources(sess, env); err != nil {

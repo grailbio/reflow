@@ -240,6 +240,8 @@ func TestEval(t *testing.T) {
 		"testdata/dirs.rf",
 		"testdata/switch.rf",
 		"testdata/builtin_override.rf",
+		"testdata/reduce.rf",
+		"testdata/fold.rf",
 	}
 	RunReflowTests(t, tests)
 }
@@ -253,6 +255,7 @@ func TestEvalErr(t *testing.T) {
 		{"testdata/err1.rf", "testdata/err1.rf:2:7: cannot match list pattern of size 3 with a list of size 2"},
 		{"testdata/err2.rf", "panic: panic!"},
 		{"testdata/err3.rf", "testdata/err3.rf:2:7: cannot match list pattern of size 1 with a list of size 2"},
+		{"testdata/err4.rf", "testdata/err4.rf:2:16: cannot reduce empty list"},
 	} {
 		m, err := sess.Open(c.file)
 		if err != nil {
@@ -285,6 +288,19 @@ func TestTypeErr(t *testing.T) {
 		{"testdata/typerr7.rf", `typerr7.rf:3:16: exec parameter image is not immediate`},
 		{"testdata/typerr8.rf", `testdata/typerr8.rf:1:18: pattern \(a, b\) is incompatible with type string`},
 		{"testdata/typerr9.rf", "testdata/typerr9.rf:1:18: case patterns are not exhaustive"},
+		{"testdata/typerr10a.rf", `testdata/typerr10a.rf:2:16: reduce expects first argument of type func\({a, b int}, {a, b int}\) {a, b int}, got func\(i, j {a int}\) {c int}`},
+		{"testdata/typerr10b.rf", `testdata/typerr10b.rf:2:16: reduce expects first argument of type func\({a int}, {a int}\) {a int}, got func\(i {a int}, j {c int}\) {a int}`},
+		{"testdata/typerr10c.rf", `testdata/typerr10c.rf:2:16: reduce expects first argument of type func\({a int}, {a int}\) {a int}, got func\(i {c int}, j {a int}\) {a int}`},
+		{"testdata/typerr11.rf", `testdata/typerr11.rf:2:16: reduce expects a function as its first argument, got int`},
+		{"testdata/typerr12.rf", `testdata/typerr12.rf:2:16: reduce expects first argument of type func\({a, b int}, {a, b int}\) {a, b int}, got func\(i {c int}\) {c int}`},
+		{"testdata/typerr13.rf", `testdata/typerr13.rf:2:16: reduce expects a list as its second argument, got {a int}`},
+		{"testdata/typerr14a.rf", `testdata/typerr14a.rf:2:14: fold expects first argument of type func\({a int}, {a, b int}\) {a int}, got func\(i, j {a int}\) {c int}`},
+		{"testdata/typerr14b.rf", `testdata/typerr14b.rf:2:14: fold expects first argument of type func\({a int}, {a, b int}\) {a int}, got func\(i {a int}, j {c int}\) {a int}`},
+		{"testdata/typerr14c.rf", `testdata/typerr14c.rf:2:14: fold expects first argument of type func\({a int}, {a, b int}\) {a int}, got func\(i {c int}, j {a int}\) {a int}`},
+		{"testdata/typerr15.rf", `testdata/typerr15.rf:2:14: fold expects a function with two arguments as its first argument, got int`},
+		{"testdata/typerr16.rf", `testdata/typerr16.rf:2:14: fold expects a function with two arguments as its first argument, got func\(i {c int}\) {c int}`},
+		{"testdata/typerr17.rf", `testdata/typerr17.rf:2:14: fold expects a list as its second argument, got {a int}`},
+		{"testdata/typerr18.rf", `testdata/typerr18.rf:2:14: fold expects first argument of type func\({a int}, {a int}\) {a int}, got func\(i, j {a, b int}\) {a, b int}`},
 	} {
 		_, terr := sess.Open(c.file)
 		if terr == nil {
