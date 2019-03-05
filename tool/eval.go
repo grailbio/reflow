@@ -113,6 +113,7 @@ func (c *Cmd) Eval(e *Eval) error {
 		e.Module = values.Module{
 			"Main": prog.Eval(),
 		}
+		e.Type = prog.ModuleType()
 		return nil
 	case ".rf", ".rfx":
 		sess := syntax.NewSession(nil)
