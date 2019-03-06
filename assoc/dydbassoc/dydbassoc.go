@@ -14,11 +14,16 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/request"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
+	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/limiter"
+	"github.com/grailbio/base/retry"
+	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
@@ -44,7 +49,7 @@ const (
 // TODO(marius): support batch querying in this interface; it will be
 // more efficient than relying on call concurrency.
 type Assoc struct {
-	DB        *dynamodb.DynamoDB
+	DB        dynamodbiface.DynamoDBAPI
 	Limiter   *limiter.Limiter
 	TableName string
 	// Labels to assign to cache entries.
@@ -159,6 +164,16 @@ func (a *Assoc) getUpdateComponents(kind assoc.Kind, k, v digest.Digest) (expr s
 	}
 	return
 }
+
+var (
+	colmap = map[assoc.Kind]string{
+		assoc.Fileset:     "Value",
+		assoc.Logs:        "Logs",
+		assoc.Bundle:      "Bundle",
+		assoc.ExecInspect: "ExecInspect",
+	}
+	backOffPolicy = retry.MaxTries(retry.Backoff(2*time.Millisecond, time.Minute, 1), 10)
+)
 
 // Lookup returns the digest associated with key digest k. Lookup
 // returns an error flagged errors.NotExist when no such mapping
@@ -275,6 +290,95 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 		}
 	}
 	return k, v, nil
+}
+
+// BatchGet implements the assoc interface. BatchGet will return a result for each key in the batch.
+// BatchGet could internally split the keys into several batches. Any global errors, like context
+// cancellation, S3 API errors or a key parse error would be returned from BatchGet. Any value parse
+// errors would be returned as part of the result for that key.
+func (a *Assoc) BatchGet(ctx context.Context, batch assoc.Batch) error {
+	unique := make(map[digest.Digest]map[assoc.Kind]bool)
+	for k := range batch {
+		if _, ok := unique[k.Digest]; !ok {
+			unique[k.Digest] = make(map[assoc.Kind]bool)
+		}
+		unique[k.Digest][k.Kind] = true
+	}
+	// Dynamodb BatchGetItemWithContext has API limitation of 100 keys per batch request.
+	const maxKeysPerBatch = 100
+	numBatches := (len(unique) + maxKeysPerBatch - 1) / maxKeysPerBatch
+	keys := make([]digest.Digest, 0, len(unique))
+	for k := range unique {
+		keys = append(keys, k)
+	}
+
+	batches := make([]map[assoc.Key]assoc.Result, numBatches)
+	err := traverse.Each(numBatches, func(batch int) error {
+		end := maxKeysPerBatch * (batch + 1)
+		if end > len(keys) {
+			end = len(keys)
+		}
+		keys := keys[maxKeysPerBatch*batch : end]
+		batches[batch] = make(map[assoc.Key]assoc.Result)
+		input := dynamodb.BatchGetItemInput{RequestItems: map[string]*dynamodb.KeysAndAttributes{
+			a.TableName: &dynamodb.KeysAndAttributes{},
+		}}
+		for _, k := range keys {
+			av := map[string]*dynamodb.AttributeValue{
+				"ID": {
+					S: aws.String(k.String()),
+				},
+			}
+			input.RequestItems[a.TableName].Keys = append(input.RequestItems[a.TableName].Keys, av)
+		}
+		for retries := 0; ; {
+			var (
+				output *dynamodb.BatchGetItemOutput
+				err    error
+			)
+			if output, err = a.DB.BatchGetItemWithContext(ctx, &input); err != nil {
+				if !request.IsErrorThrottle(err) {
+					return err
+				}
+				if err := retry.Wait(ctx, backOffPolicy, retries); err != nil {
+					return err
+				}
+				retries++
+				continue
+			}
+			for _, it := range output.Responses[a.TableName] {
+				key := it["ID"].S
+				k, err := reflow.Digester.Parse(*key)
+				if err != nil {
+					return err
+				}
+				kinds := unique[k]
+				for kind := range kinds {
+					value := it[colmap[kind]].S
+					v, err := reflow.Digester.Parse(*value)
+					if err != nil {
+						batches[batch][assoc.Key{Digest: k, Kind: kind}] = assoc.Result{Error: err}
+						continue
+					}
+					batches[batch][assoc.Key{Digest: k, Kind: kind}] = assoc.Result{Digest: v}
+				}
+			}
+			input.RequestItems[a.TableName].Keys = input.RequestItems[a.TableName].Keys[:0]
+			if _, ok := output.UnprocessedKeys[a.TableName]; ok {
+				input.RequestItems[a.TableName].Keys = output.UnprocessedKeys[a.TableName].Keys
+			}
+			if len(input.RequestItems[a.TableName].Keys) == 0 {
+				return nil
+			}
+		}
+		return nil
+	})
+	for _, b := range batches {
+		for k, v := range b {
+			batch[k] = v
+		}
+	}
+	return err
 }
 
 const updaterConcurrency = 10

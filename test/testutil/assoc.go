@@ -56,6 +56,16 @@ func (a *inmemoryAssoc) Get(ctx context.Context, kind assoc.Kind, k digest.Diges
 	return k, v, nil
 }
 
+func (a *inmemoryAssoc) BatchGet(ctx context.Context, batch assoc.Batch) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for k := range batch {
+		v := a.assocs[assocKey{k.Kind, k.Digest}]
+		batch[k] = assoc.Result{Digest: v}
+	}
+	return nil
+}
+
 // CollectWithThreshold removes from this assoc any objects whose keys are not in the
 // liveset and which have not been accessed more recently than the liveset's
 // threshold time.

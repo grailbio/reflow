@@ -8,11 +8,14 @@ package assoc
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow/liveset"
 )
+
+//go:generate stringer -type=Kind
 
 // Kind describes the kind of mapping.
 type Kind int
@@ -43,6 +46,47 @@ func (h MappingHandlerFunc) HandleMapping(k, v digest.Digest, kind Kind, lastAcc
 	h(k, v, kind, lastAccessTime)
 }
 
+// Key is the (key, kind) pair which uniquely identifies a value in the assoc.
+type Key struct {
+	// Kind is the mapping kind.
+	Kind
+	// Digest is the key digest.
+	digest.Digest
+}
+
+// String returns the key (digest, kind) as a string.
+func (k Key) String() string {
+	return fmt.Sprintf("%s:%s", k.Digest, k.Kind)
+}
+
+// Batch is map of keys, fetched together.
+type Batch map[Key]Result
+
+// Add adds a key to the set if it doesn't exist already.
+func (b Batch) Add(keys ...Key) {
+	for _, key := range keys {
+		if _, ok := b[key]; !ok {
+			b[key] = Result{}
+		}
+	}
+}
+
+// Found returns if the key is present in the result set.
+func (b Batch) Found(key Key) bool {
+	if v, ok := b[key]; ok {
+		return !v.IsZero() && v.Error == nil
+	}
+	return false
+}
+
+// Result is set of a key, kind and its value.
+type Result struct {
+	// Digest is the result of a lookup.
+	digest.Digest
+	// Err is the error during lookup, if any.
+	Error error
+}
+
 // An Assoc is an associative array mapping digests to other digests.
 // Mappings are also assigned a kind, and can thus be expanded to
 // store multiple types of mapping for each key.
@@ -56,6 +100,12 @@ type Assoc interface {
 	// mapping exists. Get expands the provided key when it is abbreviated,
 	// and returns the expanded key when appropriate.
 	Get(ctx context.Context, kind Kind, k digest.Digest) (kexp, v digest.Digest, err error)
+
+	// BatchGet fetches a batch of keys. The result or error is set for each key.
+	// Global errors (such as context errors or unrecoverable system errors)
+	// are returned. Errors that can be attributable to a single fetch is returned
+	// as that key's error.
+	BatchGet(ctx context.Context, batch Batch) error
 
 	// CollectWithThreshold removes from this assoc any objects whose keys are not in the
 	// liveset and which have not been accessed more recently than the threshold time.
