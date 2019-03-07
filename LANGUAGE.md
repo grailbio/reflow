@@ -178,7 +178,7 @@ Use <code>...x</code> to match the remainder of the list.  For example,
 val lst = ["a", "b", "c", "d", "e"]
 val [a, b, ...cde] = lst
 </pre>
-results in <code>a := "a"; b := "b"; cde := ["c", "d", "e"].
+results in <code>a := "a"; b := "b"; cde := ["c", "d", "e"]</code>.
 If you want to ignore the tail of the list, use <code>...</code> (no
 identifier),
 <pre>
