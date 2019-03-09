@@ -11,7 +11,6 @@ require (
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.3.3
 	github.com/gogo/protobuf v1.2.0 // indirect
-	github.com/google/go-cmp v0.2.0 // indirect
 	github.com/google/go-containerregistry v0.0.0-20190116191554-efb7e1b888e1
 	github.com/gorilla/context v1.1.1 // indirect
 	github.com/gorilla/mux v1.6.2 // indirect
@@ -24,10 +23,8 @@ require (
 	github.com/willf/bloom v2.0.3+incompatible
 	golang.org/x/net v0.0.0-20181201002055-351d144fa1fc
 	golang.org/x/sync v0.0.0-20181108010431-42b317875d0f
-	golang.org/x/time v0.0.0-20161028155119-f51c12702a4d
+	golang.org/x/time v0.0.0-20181108054448-85acf8d2951c
 	golang.org/x/tools v0.0.0-20190125232054-d66bd3c5d5a6
-	google.golang.org/genproto v0.0.0-20180831171423-11092d34479b // indirect
-	google.golang.org/grpc v1.14.0 // indirect
 	gopkg.in/yaml.v2 v2.2.2
 	gotest.tools v2.2.0+incompatible // indirect
 	v.io/x/lib v0.1.1
