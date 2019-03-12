@@ -244,6 +244,17 @@ func withTimeout(ctx context.Context, size int64) (context.Context, context.Canc
 	return context.WithTimeout(ctx, timeout)
 }
 
+func retryError(ctx context.Context, err error) (bool, error) {
+	if err == nil {
+		return false, nil
+	}
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+	kind := kind(err)
+	return kind == errors.Canceled || kind == errors.Temporary, err
+}
+
 // Download downloads the object named by the provided key. Download
 // uses the AWS SDK's download manager, performing concurrent
 // downloads to the provided io.WriterAt.
@@ -267,7 +278,8 @@ func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w i
 			}
 			return err
 		})
-		if err == nil || (kind(err) != errors.Temporary && err != context.DeadlineExceeded) {
+		var shouldRetry bool
+		if shouldRetry, err = retryError(ctx, err); !shouldRetry {
 			break
 		}
 		log.Printf("s3blob.Download: %s/%s (attempt %d): %v\n", b.bucket, key, retries, err)
@@ -318,7 +330,8 @@ func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader
 			}
 			return err
 		})
-		if err == nil || (kind(err) != errors.Temporary && err != context.DeadlineExceeded) {
+		var shouldRetry bool
+		if shouldRetry, err = retryError(ctx, err); !shouldRetry {
 			break
 		}
 		log.Printf("s3blob.Put: %s/%s (attempt %d): %v\n", b.bucket, key, retries, err)
@@ -429,6 +442,9 @@ func kind(err error) errors.Kind {
 	}
 	if request.IsErrorRetryable(err) {
 		return errors.Temporary
+	}
+	if aerr.Code() == request.CanceledErrorCode {
+		return errors.Canceled
 	}
 	// The underlying error was an S3 error. Try to classify it.
 	// Best guess based on Amazon's descriptions:
