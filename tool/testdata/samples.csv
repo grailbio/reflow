@@ -1,0 +1,3 @@
+id,s,i,f,d,b,fl
+1,a,1,s3://grail-marius/1.file,s3://grail-marius/1.dir/,true,1.1
+2,b,2,s3://grail-marius/2.file,s3://grail-marius/2.dir/,false,2.2

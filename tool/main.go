@@ -95,6 +95,7 @@ var commands = map[string]Func{
 	"logs":         (*Cmd).logs,
 	"batchrun":     (*Cmd).batchrun,
 	"runbatch":     (*Cmd).runbatch,
+	"genbatch":     (*Cmd).genbatch,
 	"batchinfo":    (*Cmd).batchinfo,
 	"listbatch":    (*Cmd).listbatch,
 	"ec2instances": (*Cmd).ec2instances,
@@ -147,7 +148,7 @@ Reflow's configuration is documented by the config command:
 
 Reflow's toplevel configuration keys may be overridden by flags. These
 are: -logger, -aws, -awscreds, -awstool, -user, -https, -cache, and
--cluster. They take the same values as the configuration file: see 
+-cluster. They take the same values as the configuration file: see
 reflow config -help for details.`
 
 var help = `Reflow is a tool for managing execution of Reflow programs.

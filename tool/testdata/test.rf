@@ -1,0 +1,14 @@
+param (
+	s string
+	i int
+	f file
+	d dir
+	b bool
+	fl float
+
+	opt string = "ok"
+	optfile = file("s3://grail-marius")
+)
+
+@requires(cpu := 1)
+val Main = {s, i, f, d, b, fl}
