@@ -229,17 +229,6 @@ type Expr struct {
 	Module Module
 }
 
-// ExprValue stores the evaluated values associated with the dependencies
-// of an Expr node. It is used while evaluating an expression tree.
-type ExprValue struct {
-	Left, Right values.T
-	Cond        values.T
-	List        []values.T
-	Map         []struct{ K, V *values.T }
-	Fields      []values.T
-	Extras      []values.T
-}
-
 // Subexpr returns a slice of this expression's dependencies.
 func (e *Expr) Subexpr() []*Expr {
 	var x []*Expr

@@ -20,7 +20,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"math/big"
 	"reflect"
 	"sort"
@@ -627,10 +626,6 @@ func WriteDigest(w io.Writer, v T, t *types.T) {
 			WriteDigest(w, s[k], fm[k])
 		}
 	case types.FuncKind:
-		if v == nil {
-			log.Println("type is", t)
-			panic("wtf")
-		}
 		digest.WriteDigest(w, v.(Func).Digest())
 	}
 }
