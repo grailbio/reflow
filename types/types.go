@@ -883,10 +883,13 @@ func Unify(maxlevel ConstLevel, ts ...*T) *T {
 			// Manually check subtypes here and Swizzle instead since
 			// map keys are contravariant.
 			var kt *T
-			if u.Index.Sub(t.Index) {
+			switch {
+			case u.Index.Sub(t.Index):
 				kt = Swizzle(u.Index, maxlevel, t.Index)
-			} else {
+			case t.Index.Sub(u.Index):
 				kt = Swizzle(t.Index, maxlevel, u.Index)
+			default:
+				return Errorf("%v and %v are incompatible map key types", t.Index, u.Index)
 			}
 			t = Map(kt, Unify(maxlevel, t.Elem, u.Elem))
 		case TupleKind:

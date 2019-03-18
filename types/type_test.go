@@ -88,6 +88,9 @@ func TestUnify(t *testing.T) {
 	if got, want := Unify(Const, Map(Int, ty1), Map(Int, ty2)).String(), `[int:{a int, c (int, string)}]`; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
+	if got, want := Unify(Const, Map(Int, Int), Map(String, Int)).Kind, ErrorKind; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
 }
 
 func TestSub(t *testing.T) {
