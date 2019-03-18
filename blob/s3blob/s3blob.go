@@ -162,20 +162,31 @@ func NewBucket(name string, client s3iface.S3API) *Bucket {
 // File returns metadata for the provided key.
 func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 	var resp *s3.HeadObjectOutput
-	err := admit.Do(ctx, b.admitter, 1, func() error {
-		ctx, cancel := context.WithTimeout(ctx, metaTimeout)
-		defer cancel()
-		var err error
-		resp, err = b.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
-			Bucket: aws.String(b.bucket),
-			Key:    aws.String(key),
+	var err error
+	for retries := 0; ; retries++ {
+		err = admit.Retry(ctx, b.admitter, 1, func() error {
+			ctx, cancel := context.WithTimeout(ctx, metaTimeout)
+			defer cancel()
+			var err error
+			resp, err = b.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+				Bucket: aws.String(b.bucket),
+				Key:    aws.String(key),
+			})
+			if kind(err) == errors.ResourcesExhausted {
+				log.Printf("s3blob.File: %s/%s: %v (over capacity)\n", b.bucket, key, err)
+				return admit.ErrOverCapacity
+			}
+			return err
 		})
-		if kind(err) == errors.ResourcesExhausted {
-			log.Printf("s3blob.File: %s/%s: %v (over capacity)\n", b.bucket, key, err)
-			return admit.ErrOverCapacity
+		var shouldRetry bool
+		if shouldRetry, err = retryError(ctx, err); !shouldRetry {
+			break
 		}
-		return err
-	})
+		log.Printf("s3blob.File: %s/%s (attempt %d): %v\n", b.bucket, key, retries, err)
+		if err = retry.Wait(ctx, b.retrier, retries); err != nil {
+			break
+		}
+	}
 	if err != nil {
 		// The S3 API presents inconsistent error codes between GetObject
 		// and HeadObject. It seems that GetObject returns "NoSuchKey" for
@@ -462,6 +473,8 @@ func kind(err error) errors.Kind {
 		return errors.Precondition
 	case "SlowDown":
 		return errors.ResourcesExhausted
+	case "BadRequest":
+		return errors.Temporary
 	}
 	return errors.Other
 }

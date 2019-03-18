@@ -204,10 +204,8 @@ func (m *Manager) NeedTransfer(ctx context.Context, dst reflow.Repository, files
 		// TODO(marius): implement a batch stat call.
 		// It will be more efficient in most cases.
 		g.Go(func() error {
-			ctx, cancel := context.WithTimeout(gctx, 10*time.Second)
 			_, err := dst.Stat(ctx, file.ID)
 			lstat.Release(1)
-			cancel()
 			exists[i] = err == nil
 			if err != nil && !errors.Is(errors.NotExist, err) {
 				m.Log.Printf("stat %v %v: %v", dst, file.ID, err)

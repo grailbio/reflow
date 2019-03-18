@@ -368,12 +368,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 					fs.List = append(fs.List, *arg.Fileset)
 				}
 			}
-			var files []reflow.File
-			files, err = s.Transferer.NeedTransfer(ctx, alloc.Repository(), fs.Files()...)
-			if err != nil || len(files) == 0 {
-				break
-			}
-			err = s.Transferer.Transfer(ctx, alloc.Repository(), s.Repository, files...)
+			err = s.Transferer.Transfer(ctx, alloc.Repository(), s.Repository, fs.Files()...)
 		case statePut:
 			x, err = alloc.Put(ctx, task.ID, task.Config)
 		case stateWait:
@@ -388,10 +383,6 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			task.Result, err = x.Result(ctx)
 		case stateTransferOut:
 			files := task.Result.Fileset.Files()
-			files, err = s.Transferer.NeedTransfer(ctx, s.Repository, files...)
-			if err != nil {
-				break
-			}
 			err = s.Transferer.Transfer(ctx, s.Repository, alloc.Repository(), files...)
 		}
 		if err == nil {
