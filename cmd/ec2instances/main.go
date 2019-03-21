@@ -114,6 +114,14 @@ func main() {
 			log.Printf("excluding bare-metal instance type %s", e.Type)
 			continue
 		}
+		if strings.Contains(e.Network, "Low") {
+			log.Printf("excluding instance type %s because its network performance can be Low", e.Type)
+			continue
+		}
+		if strings.HasPrefix(e.Type, "a1.") {
+			log.Printf("excluding instance type %s because it uses ARM (would need a different AMI)", e.Type)
+			continue
+		}
 		ok = false
 		// TODO(marius): should we prefer a particular virtualization type?
 		var virt string
