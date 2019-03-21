@@ -17,6 +17,7 @@ import (
 
 // RunReflowTests executes .rf tests from disk
 func RunReflowTests(t *testing.T, testFiles []string) {
+	t.Helper()
 	sess := NewSession(nil)
 Prog:
 	for _, prog := range testFiles {
