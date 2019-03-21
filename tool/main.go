@@ -16,6 +16,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"runtime"
 	"runtime/pprof"
 	"sort"
 	"syscall"
@@ -416,6 +417,15 @@ func increaseFDRlimit() error {
 		return nil
 	}
 	l.Cur = l.Max
+
+	// The following is a workaround for this issue:
+	// https://github.com/golang/go/issues/30401
+	if runtime.GOOS == "darwin" && l.Cur > 24576 {
+		// The max file limit is 24576, even though the max returned by
+		// Getrlimit is 1<<63-1.
+		l.Cur = 24576
+	}
+
 	return syscall.Setrlimit(syscall.RLIMIT_NOFILE, &l)
 }
 
