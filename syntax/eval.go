@@ -144,7 +144,8 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 		case "==", "!=":
 			eq := e.Op == "=="
 			switch e.Left.Type.Kind {
-			case types.ListKind, types.MapKind, types.TupleKind, types.StructKind, types.DirKind:
+			case types.ListKind, types.MapKind, types.TupleKind, types.StructKind, types.DirKind,
+				types.SumKind:
 				return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 					v, err := e.evalEq(sess, env, ident, vs[0], vs[1], e.Left.Type)
 					if err != nil {
@@ -253,6 +254,15 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				return m, nil
 			},
 			keys...)
+	case ExprVariant:
+		if e.Left == nil {
+			return &values.Variant{Tag: e.Ident}, nil
+		}
+		v, err := e.Left.eval(sess, env, ident)
+		if err != nil {
+			return nil, err
+		}
+		return &values.Variant{Tag: e.Ident, Elem: v}, nil
 	case ExprExec:
 		// Before we can emit an exec node, we have to fully evaluate exec
 		// parameters as well as delayed template arguments that are not
@@ -1033,6 +1043,19 @@ func (e *Expr) evalEq(sess *Session, env *values.Env, ident string, left, right 
 			rightTup[i] = rightStruct[f.Name]
 		}
 		return e.evalEqTuple(sess, env, ident, leftTup, rightTup, tupType)
+	case types.SumKind:
+		leftVariant := left.(*values.Variant)
+		rightVariant := right.(*values.Variant)
+		if leftVariant.Tag != rightVariant.Tag {
+			return false, nil
+		}
+		elemTyp := t.VariantMap()[leftVariant.Tag]
+		if elemTyp == nil {
+			return true, nil
+		}
+		return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+			return e.evalEq(sess, env, ident, vs[0], vs[1], elemTyp)
+		}, tval{elemTyp, leftVariant.Elem}, tval{elemTyp, rightVariant.Elem})
 	case types.DirKind:
 		l := left.(values.Dir)
 		r := right.(values.Dir)

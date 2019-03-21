@@ -62,12 +62,139 @@ var (
 		},
 		nil,
 	)
+	sty1 = Sum(
+		&Variant{Tag: "A", Elem: ty1},
+		&Variant{Tag: "B", Elem: Int},
+		&Variant{Tag: "C", Elem: String},
+	)
+	sty2 = Sum(
+		&Variant{Tag: "A", Elem: ty2},
+		&Variant{Tag: "B", Elem: Int},
+		&Variant{Tag: "C", Elem: String},
+		&Variant{Tag: "D", Elem: Float},
+	)
+	sty3 = Sum(
+		&Variant{Tag: "A", Elem: Int},
+		&Variant{Tag: "B"},
+	)
+	sty4 = Sum(
+		&Variant{Tag: "A", Elem: Int},
+		&Variant{Tag: "B", Elem: Int},
+	)
+	sty5 = Sum(
+		&Variant{Tag: "A", Elem: Int},
+		&Variant{Tag: "B", Elem: String},
+	)
+	sty6 = Sum(
+		&Variant{Tag: "A", Elem: ty12},
+		&Variant{Tag: "B", Elem: Int},
+	)
+	sty7 = Sum(
+		&Variant{Tag: "B"},
+	)
 
 	mapTy  = Map(Int, String)
 	listTy = List(String)
 
 	types = []*T{ty1, ty2, ty12, mty1, mty2, mty12}
 )
+
+func TestMakeSum(t *testing.T) {
+	zeroVariants := Sum()
+	if got, want := zeroVariants.Kind, ErrorKind; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	duplicateTags := Sum(&Variant{Tag: "One"}, &Variant{Tag: "One", Elem: String})
+	if got, want := duplicateTags.Kind, ErrorKind; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	emptyTags := Sum(&Variant{Tag: "One"}, &Variant{Tag: ""})
+	if got, want := emptyTags.Kind, ErrorKind; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	lowercaseTags := Sum(&Variant{Tag: "One"}, &Variant{Tag: "two"})
+	if got, want := lowercaseTags.Kind, ErrorKind; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestEquality(t *testing.T) {
+	for _, c := range []struct {
+		lhs  *T
+		rhs  *T
+		want bool
+	}{
+		{
+			Sum(
+				&Variant{Tag: "A", Elem: Int},
+				&Variant{Tag: "B", Elem: Int},
+			),
+			Sum(
+				&Variant{Tag: "A", Elem: Int},
+				&Variant{Tag: "B", Elem: Int},
+			),
+			true,
+		},
+		{
+			Sum(
+				&Variant{Tag: "A", Elem: Int},
+				&Variant{Tag: "B"},
+			),
+			Sum(
+				&Variant{Tag: "A", Elem: Int},
+				&Variant{Tag: "B"},
+			),
+			true,
+		},
+		{
+			Sum(
+				&Variant{Tag: "A", Elem: Int},
+				&Variant{Tag: "B"},
+			),
+			Sum(
+				&Variant{Tag: "A", Elem: Int},
+			),
+			false,
+		},
+		{
+			Sum(
+				&Variant{Tag: "A", Elem: Int},
+				&Variant{Tag: "B"},
+			),
+			Sum(
+				&Variant{Tag: "A", Elem: Int},
+				&Variant{Tag: "C"},
+			),
+			false,
+		},
+		{
+			Sum(
+				&Variant{Tag: "A", Elem: Int},
+				&Variant{Tag: "B", Elem: Int},
+			),
+			Sum(
+				&Variant{Tag: "A", Elem: Int},
+				&Variant{Tag: "B", Elem: String},
+			),
+			false,
+		},
+	} {
+		if got, want := c.lhs.Equal(c.rhs), c.want; got != want {
+			t.Errorf("got %v, want %v: %v == %v", got, want, c.lhs, c.rhs)
+		}
+		// Check symmetry.
+		if got, want := c.rhs.Equal(c.lhs), c.want; got != want {
+			t.Errorf("got %v, want %v: %v == %v", got, want, c.rhs, c.lhs)
+		}
+		// Check reflexivity.
+		if got, want := c.lhs.Equal(c.lhs), true; got != want {
+			t.Errorf("got %v, want %v: %v == %v", got, want, c.lhs, c.lhs)
+		}
+		if got, want := c.rhs.Equal(c.rhs), true; got != want {
+			t.Errorf("got %v, want %v: %v == %v", got, want, c.rhs, c.rhs)
+		}
+	}
+}
 
 func TestUnify(t *testing.T) {
 	u := Unify(Const, ty1, ty2)
@@ -91,26 +218,48 @@ func TestUnify(t *testing.T) {
 	if got, want := Unify(Const, Map(Int, Int), Map(String, Int)).Kind, ErrorKind; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
+
+	if got, want := Unify(Const, sty1, sty2).String(), `#A({a int, c (int, string)}) | #B(int) | #C(string) | #D(float)`; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := Unify(Const, sty3, sty4).Kind, ErrorKind; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := Unify(Const, sty4, sty5).Kind, ErrorKind; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
 }
 
 func TestSub(t *testing.T) {
-	if ty1.Sub(ty2) {
-		t.Errorf("%s is not a subtype of %s", ty1, ty2)
-	}
-	if !ty12.Sub(ty1) {
-		t.Errorf("%s is a subtype of %s", ty12, ty1)
-	}
-	if !ty12.Sub(ty2) {
-		t.Errorf("%s is a subtype of %s", ty12, ty2)
-	}
-	if mty1.Sub(mty2) {
-		t.Errorf("%s is not a subtype of %s", ty1, ty2)
-	}
-	if !mty12.Sub(mty1) {
-		t.Errorf("%s is not a subtype of %s", ty12, ty1)
-	}
-	if !mty12.Sub(mty2) {
-		t.Errorf("%s is a subtype of %s", ty12, ty2)
+	for _, c := range []struct {
+		lhs   *T
+		rhs   *T
+		isSub bool
+	}{
+		{ty1, ty2, false},
+		{ty12, ty1, true},
+		{ty12, ty2, true},
+		{mty1, mty2, false},
+		{mty12, mty1, true},
+		{mty12, mty2, true},
+		{sty1, sty2, false},
+		{sty2, sty3, false},
+		{sty3, sty4, false},
+		{sty4, sty3, false},
+		{sty4, sty5, false},
+		{sty6, sty1, true},
+		{sty6, sty1, true},
+		{sty7, sty3, true},
+	} {
+		if c.isSub {
+			if !c.lhs.Sub(c.rhs) {
+				t.Errorf("%s is a subtype of %s", c.lhs, c.rhs)
+			}
+		} else {
+			if c.lhs.Sub(c.rhs) {
+				t.Errorf("%s is not a subtype of %s", c.lhs, c.rhs)
+			}
+		}
 	}
 	for _, typ := range types {
 		if !Bottom.Sub(typ) {

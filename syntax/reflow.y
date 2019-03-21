@@ -64,6 +64,9 @@ type typearg struct {
 	
 	typearg typearg
 	typeargs []typearg
+
+	variant *types.Variant
+	variants []*types.Variant
 	
 	module *ModuleImpl
 	
@@ -85,7 +88,7 @@ type typearg struct {
 %token	<pos>	'{' '(' '['
 %token	<pos>	tokOrOr tokAndAnd tokLE tokGE  tokNE tokEqEq tokLSH tokRSH
 %token	<pos>	tokSquiggleArrow
-%token	<pos>	'<' '>' '+' '-' '|' '^'  '*' '/' '%' '&' '_' '!'
+%token	<pos>	'<' '>' '+' '-' '|' '^'  '*' '/' '%' '&' '_' '!' '#'
 %token	tokEOF tokError 
 
 %type	<decllist>		defs defs1 commadefs  paramdef paramdefs 
@@ -104,6 +107,8 @@ type typearg struct {
 %type	<typeargs>	typearglist
 %type	<typfields>	typeargs
 %type	<typfields>	typefields  typefield   funcargs
+%type	<variant> variant
+%type	<variants> variants
 %type	<idents>		typefieldidents
 %type	<posidents>	idents
 %type	<exprfield>	structfieldarg
@@ -127,7 +132,7 @@ type typearg struct {
 %left '+' '-' '|' '^'
 %left '*' '/' '%' '&' tokLSH tokRSH
 %left unary
-%right '.' '[' ']' '(' ')'
+%right '.' '[' ']' '(' ')' '{' '}'
 %nonassoc apply
 %left deref
 
@@ -199,6 +204,20 @@ type:
 	}
 |	tokFunc '(' typeargs ')' type
 	{$$ = types.Func($5, $3...)}
+|	variants
+	{$$ = types.Sum($1...)}
+
+variants:
+	variant
+	{$$ = []*types.Variant{$1}}
+|	variants '|' variant
+	{$$ = append($1, $3)}
+
+variant:
+	'#' tokIdent '(' type ')'
+	{$$ = &types.Variant{Tag: $2.Ident, Elem: $4}}
+|	'#' tokIdent %prec first
+	{$$ = &types.Variant{Tag: $2.Ident}}
 
 typefieldidents:
 	tokIdent
@@ -295,6 +314,10 @@ pat:
 			$$.Fields[i] = PatField{p.field, p.pat}
 		}
 	}
+|	'#' tokIdent %prec first
+	{$$ = &Pat{Position: $1.Position, Kind: PatVariant, Tag: $2.Ident}}
+|	'#' tokIdent '(' pat ')'
+	{$$ = &Pat{Position: $1.Position, Kind: PatVariant, Tag: $2.Ident, Elem: $4}}
 
 listpatargs:
 	patlist
@@ -588,6 +611,10 @@ term:
 			ComprClauses: $4,
 		}
 	}
+|	'#' tokIdent %prec first
+	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprVariant, Ident: $2.Ident}}
+|	'#' tokIdent '(' expr ')'
+	{$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprVariant, Ident: $2.Ident, Left: $4}}
 |	'(' expr ')'
 	{$$ = $2}
 |	exprblock

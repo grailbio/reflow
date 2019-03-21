@@ -363,6 +363,35 @@ func (u caseUniv) Complement(p *Pat) []*Pat {
 			}
 		}
 		return comp
+	case PatVariant:
+		comp := []*Pat{}
+		variants := u.T.VariantMap()
+		if p.Elem != nil {
+			subU := caseUniv{variants[p.Tag]}
+			elemComp := subU.Complement(p.Elem)
+			for _, q := range elemComp {
+				comp = append(comp, &Pat{
+					Kind: PatVariant,
+					Tag:  p.Tag,
+					Elem: q,
+				})
+			}
+		}
+		for tag, elem := range variants {
+			if tag == p.Tag {
+				continue
+			}
+			var elemPat *Pat
+			if elem != nil {
+				elemPat = &Pat{Kind: PatIgnore}
+			}
+			comp = append(comp, &Pat{
+				Kind: PatVariant,
+				Tag:  tag,
+				Elem: elemPat,
+			})
+		}
+		return comp
 	default:
 		panic(fmt.Sprintf("unhandled pattern kind: %v", p.Kind))
 	}
@@ -472,6 +501,24 @@ func (u caseUniv) IntersectOne(lhs, rhs *Pat) *Pat {
 			Kind:   PatStruct,
 			Fields: fields,
 		}
+	case PatVariant:
+		if lhs.Tag != rhs.Tag {
+			return nil
+		}
+		if lhs.Elem == nil {
+			// rhs.Elem must also be nil, by virtue of pattern type-binding.
+			return &Pat{Kind: PatVariant, Tag: lhs.Tag}
+		}
+		subU := caseUniv{u.T.VariantMap()[lhs.Tag]}
+		intersection := subU.IntersectOne(lhs.Elem, rhs.Elem)
+		if intersection == nil {
+			return nil
+		}
+		return &Pat{
+			Kind: PatVariant,
+			Tag:  lhs.Tag,
+			Elem: intersection,
+		}
 	default:
 		return nil
 	}
@@ -519,6 +566,15 @@ func (p *Pat) checkMatch(v values.T) bool {
 			}
 		}
 		return true
+	case PatVariant:
+		variant := v.(*values.Variant)
+		if variant.Tag != p.Tag {
+			return false
+		}
+		if p.Elem == nil {
+			return true
+		}
+		return p.Elem.checkMatch(variant.Elem)
 	default:
 		panic(fmt.Sprintf("unhandled pattern kind: %v", p.Kind))
 	}

@@ -58,6 +58,15 @@ func TestRemove(t *testing.T) {
 					},
 				},
 			},
+			{
+				Kind: PatVariant,
+				Tag:  "A",
+			},
+			{
+				Kind: PatVariant,
+				Tag:  "B",
+				Elem: &Pat{Kind: PatIdent, Ident: "quux"},
+			},
 		},
 	}
 	pat, removed := pat.Remove(idents{
@@ -65,15 +74,16 @@ func TestRemove(t *testing.T) {
 		"bar":   true,
 		"baz":   true,
 		"qux":   true,
+		"quux":  true,
 		"other": true,
 	})
-	if got, want := removed, []string{"ok", "baz", "qux", "bar"}; !reflect.DeepEqual(got, want) {
+	if got, want := removed, []string{"ok", "baz", "qux", "bar", "quux"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	if got, want := pat.Idents(nil), []string{"foo"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	if got, want := fmt.Sprint(pat), "(_, [_, ..._], {hello:foo, world:_})"; got != want {
+	if got, want := fmt.Sprint(pat), "(_, [_, ..._], {hello:foo, world:_}, #A, #B(_))"; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
@@ -107,11 +117,22 @@ func TestBindValues(t *testing.T) {
 					},
 				},
 			},
+			{
+				Kind: PatVariant,
+				Tag:  "A",
+			},
+			{
+				Kind: PatVariant,
+				Tag:  "B",
+				Elem: &Pat{Kind: PatIdent, Ident: "e"},
+			},
 		},
 	}
 	v := values.Tuple{
 		values.List{"va", "vb", "vc"},
 		values.Struct{"f": "vd"},
+		&values.Variant{Tag: "A"},
+		&values.Variant{Tag: "B", Elem: "ve"},
 	}
 	env := values.NewEnv()
 	if ok := pat.BindValues(env, v); !ok {
@@ -124,6 +145,7 @@ func TestBindValues(t *testing.T) {
 		{"a", "va"},
 		{"bc", values.List{"vb", "vc"}},
 		{"d", "vd"},
+		{"e", "ve"},
 	} {
 		if got, want := env.Value(c.id), c.v; !values.Equal(got, want) {
 			t.Errorf("got %v, want %v", got, want)
@@ -157,11 +179,20 @@ func TestMatchers(t *testing.T) {
 					},
 				},
 			},
+			{
+				Kind: PatVariant,
+				Tag:  "A",
+			},
+			{
+				Kind: PatVariant,
+				Tag:  "B",
+				Elem: &Pat{Kind: PatIdent, Ident: "e"},
+			},
 		},
 	}
 	ms := pat.Matchers()
 	// Expect a matcher for each PatIdent or PatIgnore.
-	if got, want := len(ms), 3; got != want {
+	if got, want := len(ms), 5; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	var ids []string
@@ -171,7 +202,7 @@ func TestMatchers(t *testing.T) {
 		}
 	}
 	sort.Strings(ids)
-	if got, want := ids, []string{"a", "bc"}; !reflect.DeepEqual(got, want) {
+	if got, want := ids, []string{"a", "bc", "e"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	typ := types.Tuple(
@@ -179,10 +210,24 @@ func TestMatchers(t *testing.T) {
 		&types.Field{
 			T: types.Struct(&types.Field{Name: "f", T: types.String}),
 		},
+		&types.Field{
+			T: types.Sum(
+				&types.Variant{Tag: "A"},
+				&types.Variant{Tag: "B", Elem: types.String},
+			),
+		},
+		&types.Field{
+			T: types.Sum(
+				&types.Variant{Tag: "A"},
+				&types.Variant{Tag: "B", Elem: types.String},
+			),
+		},
 	)
 	v := values.Tuple{
 		values.List{"va", "vb", "vc"},
 		values.Struct{"f": "vd"},
+		&values.Variant{Tag: "A"},
+		&values.Variant{Tag: "B", Elem: "ve"},
 	}
 	for _, m := range ms {
 		var (
@@ -198,7 +243,7 @@ func TestMatchers(t *testing.T) {
 				if ok {
 					t.Errorf("got error, but ok == true")
 				}
-				t.Fatalf("unexpected match failure")
+				t.Fatalf("unexpected match failure %s", err)
 			}
 		}
 		id := m.Ident
@@ -211,7 +256,11 @@ func TestMatchers(t *testing.T) {
 			if got, want := v, []string{"b", "c"}; !reflect.DeepEqual(got, want) {
 				t.Errorf("got %v, want %v", got, want)
 			}
-		case id == "": // Only one ignore pattern, so it is not ambiguous.
+		case id == "e":
+			if got, want := v, "ve"; got != want {
+				t.Errorf("got %v, want %v", got, want)
+			}
+		case m.Kind == MatchValue && id == "": // Only one ignore pattern, so it is not ambiguous.
 			if got, want := v, "vd"; got != want {
 				t.Errorf("got %v, want %v", got, want)
 			}

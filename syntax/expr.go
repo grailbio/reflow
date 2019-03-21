@@ -66,6 +66,8 @@ const (
 	ExprList
 	// ExprMap is a map literal.
 	ExprMap
+	// ExprVariant is a variant construction expression.
+	ExprVariant
 	// ExprExec is an exec expression.
 	ExprExec
 	// ExprCond is a conditional expression.
@@ -200,7 +202,7 @@ type Expr struct {
 	// in ExprStruct, ExprTuple
 	Fields []*FieldExpr
 
-	// Ident stores the identifier for ExprIdent
+	// Ident stores the identifier for ExprIdent or tag for ExprVariant
 	Ident string
 
 	// Val stores constant values in ExprLit.
@@ -310,6 +312,16 @@ func comparable(t *types.T) bool {
 	case types.TupleKind, types.StructKind:
 		for _, f := range t.Fields {
 			if !comparable(f.T) {
+				return false
+			}
+		}
+		return true
+	case types.SumKind:
+		for _, variant := range t.Variants {
+			if variant.Elem == nil {
+				continue
+			}
+			if !comparable(variant.Elem) {
 				return false
 			}
 		}
@@ -547,6 +559,13 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			kt = types.Unify(types.Const, kts...)
 		}
 		e.Type = types.Map(kt, types.Unify(types.Const, vts...)).Const()
+	case ExprVariant:
+		if e.Left == nil {
+			// This is a variant with no element.
+			e.Type = types.Sum(&types.Variant{Tag: e.Ident})
+			return
+		}
+		e.Type = types.Sum(&types.Variant{Tag: e.Ident, Elem: e.Left.Type})
 	case ExprExec:
 		params := map[string]bool{}
 		for _, d := range e.Decls {
@@ -1126,6 +1145,18 @@ func (e *Expr) Equal(f *Expr) bool {
 			}
 		}
 		return true
+	case ExprVariant:
+		switch {
+		case e.Ident != f.Ident:
+			return false
+		case e.Left == nil && f.Left == nil:
+			return true
+		case e.Left == nil || f.Left == nil:
+			// One is nil, but the other is not, so they're not equal.
+			return false
+		default:
+			return e.Left.Equal(f.Left)
+		}
 	case ExprExec:
 		if len(e.Decls) != len(f.Decls) {
 			return false
@@ -1229,6 +1260,12 @@ func (e *Expr) String() string {
 			list[i] = key + ":" + m[key]
 		}
 		fmt.Fprintf(b, "map(%v)", strings.Join(list, ", "))
+	case ExprVariant:
+		if e.Left == nil {
+			fmt.Fprintf(b, "variant(#%s)", e.Ident)
+			break
+		}
+		fmt.Fprintf(b, "variant(#%s, %v)", e.Ident, e.Left)
 	case ExprExec:
 		decls := make([]string, len(e.Decls))
 		for i := range e.Decls {
@@ -1369,6 +1406,11 @@ func (e *Expr) Abbrev() string {
 			elems = append(elems, fmt.Sprintf("%s: %s", ke.Abbrev(), ve.Abbrev()))
 		}
 		return "[" + strings.Join(elems, ", ") + "]"
+	case ExprVariant:
+		if e.Left == nil {
+			return fmt.Sprintf("#%s", e.Ident)
+		}
+		return fmt.Sprintf("#%s(%v)", e.Ident, e.Left)
 	case ExprExec:
 		return "<exec>"
 	case ExprCond:

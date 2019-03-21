@@ -32,6 +32,8 @@ const (
 	PatList
 	// PatStruct is a struct pattern.
 	PatStruct
+	// PatVariant is a variant pattern.
+	PatVariant
 	// PatIgnore is an ignore pattern.
 	PatIgnore
 )
@@ -60,6 +62,12 @@ type Pat struct {
 	// pattern.
 	Tail *Pat
 
+	// Tag is the tag of the variant to match.
+	Tag string
+	// Elem is the pattern used to match the element of the variant, if it
+	// it has one.
+	Elem *Pat
+
 	Fields []PatField
 }
 
@@ -84,6 +92,16 @@ func (p *Pat) Equal(q *Pat) bool {
 		return false
 	}
 	if p.Tail != nil && q.Tail != nil && !p.Tail.Equal(q.Tail) {
+		return false
+	}
+	if p.Tag != q.Tag {
+		return false
+	}
+	if (p.Elem == nil) != (q.Elem == nil) {
+		// Only exactly one of them has an element pattern.
+		return false
+	}
+	if p.Elem != nil && !p.Elem.Equal(q.Elem) {
 		return false
 	}
 	var (
@@ -140,6 +158,11 @@ func (p *Pat) Debug() string {
 			pats = append(pats, f.Name+":"+f.Pat.Debug())
 		}
 		return "struct(" + strings.Join(pats, ", ") + ")"
+	case PatVariant:
+		if p.Elem == nil {
+			return "variant(#" + p.Tag + ")"
+		}
+		return "variant(#" + p.Tag + ", " + p.Elem.Debug() + ")"
 	case PatIgnore:
 		return "ignore"
 	}
@@ -173,6 +196,11 @@ func (p *Pat) String() string {
 			pats = append(pats, f.Name+":"+f.Pat.String())
 		}
 		return "{" + strings.Join(pats, ", ") + "}"
+	case PatVariant:
+		if p.Elem == nil {
+			return "#" + p.Tag
+		}
+		return "#" + p.Tag + "(" + p.Elem.String() + ")"
 	case PatIgnore:
 		return "_"
 	}
@@ -196,6 +224,11 @@ func (p *Pat) Idents(ids []string) []string {
 	case PatStruct:
 		for _, f := range p.Fields {
 			ids = f.Idents(ids)
+		}
+		return ids
+	case PatVariant:
+		if p.Elem != nil {
+			ids = p.Elem.Idents(ids)
 		}
 		return ids
 	case PatIgnore:
@@ -255,6 +288,27 @@ func (p *Pat) BindTypes(env *types.Env, t *types.T, use types.Use) error {
 			}
 		}
 		return nil
+	case PatVariant:
+		if t.Kind != types.SumKind {
+			return errors.Errorf("expected sum type, got %s", t)
+		}
+		vt, ok := t.VariantMap()[p.Tag]
+		if !ok {
+			return errors.Errorf("#%s is not a variant of %s", p.Tag, t)
+		}
+		switch {
+		case vt == nil && p.Elem == nil:
+			return nil
+		case vt == nil:
+			return errors.Errorf("#%s does not have an element", p.Tag)
+		case p.Elem == nil:
+			return errors.Errorf("#%s element is not matched; try `#%s _`", p.Tag, p.Tag)
+		default:
+			if err := p.Elem.BindTypes(env, vt, use); err != nil {
+				return err
+			}
+			return nil
+		}
 	case PatIgnore:
 		return nil
 	}
@@ -301,6 +355,12 @@ func (p *Pat) BindValues(env *values.Env, v values.T) bool {
 			}
 		}
 		return true
+	case PatVariant:
+		variant := v.(*values.Variant)
+		if variant.Elem == nil {
+			return true
+		}
+		return p.Elem.BindValues(env, variant.Elem)
 	case PatIgnore:
 		return true
 	}
@@ -372,6 +432,15 @@ func (p *Pat) Remove(idents interface {
 		*q = *p
 		q.Fields = fields
 		return q, removed
+	case PatVariant:
+		if p.Elem == nil {
+			return p, nil
+		}
+		elem, removed := p.Elem.Remove(idents)
+		q := new(Pat)
+		*q = *p
+		q.Elem = elem
+		return q, removed
 	case PatIgnore:
 		return p, nil
 	}
@@ -408,6 +477,12 @@ func (p *Pat) matchers(ms *[]*Matcher, parent *Matcher) {
 		for _, f := range p.Fields {
 			f.matchers(ms, &Matcher{Kind: MatchStruct, Field: f.Name, Parent: parent})
 		}
+	case PatVariant:
+		if p.Elem == nil {
+			*ms = append(*ms, &Matcher{Kind: MatchVariant, Tag: p.Tag, Parent: parent})
+			return
+		}
+		p.Elem.matchers(ms, &Matcher{Kind: MatchVariant, Tag: p.Tag, Parent: parent})
 	case PatIgnore:
 		*ms = append(*ms, &Matcher{Kind: MatchValue, Parent: parent})
 	}
@@ -429,6 +504,9 @@ const (
 	MatchListTail
 	// MatchStruct indexes a struct.
 	MatchStruct
+	// MatchVariant matches a variant or, if the variant has an element, indexes
+	// the element.
+	MatchVariant
 )
 
 // A Matcher binds individual pattern components (identifiers)
@@ -453,6 +531,8 @@ type Matcher struct {
 	Parent *Matcher
 	// Field holds a struct field (MatchStruct).
 	Field string
+	// Tag is the variant tag required for a match.
+	Tag string
 }
 
 // Path constructs a path from this matcher. The path may be used
@@ -510,6 +590,15 @@ func (p Path) Match(v values.T, t *types.T) (values.T, *types.T, bool, Path, err
 		return l[m.Length:], t, true, p, nil
 	case MatchStruct:
 		return v.(values.Struct)[m.Field], t.Field(m.Field), true, p, nil
+	case MatchVariant:
+		variant := v.(*values.Variant)
+		if variant.Tag != m.Tag {
+			return nil, t, false, p, errors.Errorf("cannot match tag #%s with a variant with tag #%s", m.Tag, variant.Tag)
+		}
+		if variant.Elem == nil {
+			return v, t, true, p, nil
+		}
+		return variant.Elem, t.VariantMap()[variant.Tag], true, p, nil
 	}
 }
 

@@ -210,6 +210,54 @@ func TestComplement(t *testing.T) {
 				},
 			},
 		},
+		{
+			types.Sum(
+				&types.Variant{Tag: "A"},
+				&types.Variant{Tag: "B", Elem: types.String},
+				&types.Variant{Tag: "C", Elem: types.Struct(
+					&types.Field{
+						Name: "foo",
+						T:    types.List(types.Int),
+					},
+				)},
+			),
+			"#B(s)",
+			[]values.T{
+				&values.Variant{Tag: "B", Elem: "hello"},
+			},
+			[]values.T{
+				&values.Variant{Tag: "A"},
+				&values.Variant{Tag: "C", Elem: values.Struct{"foo": values.List{}}},
+			},
+		},
+		{
+			types.Sum(
+				&types.Variant{Tag: "A"},
+				&types.Variant{Tag: "B", Elem: types.String},
+				&types.Variant{Tag: "C", Elem: types.Struct(
+					&types.Field{
+						Name: "foo",
+						T:    types.List(types.Int),
+					},
+				)},
+			),
+			"#C({foo: [_]})",
+			[]values.T{
+				&values.Variant{
+					Tag:  "C",
+					Elem: values.Struct{"foo": values.List{0}},
+				},
+			},
+			[]values.T{
+				&values.Variant{Tag: "A"},
+				&values.Variant{Tag: "B", Elem: "hello"},
+				&values.Variant{Tag: "C", Elem: values.Struct{"foo": values.List{}}},
+				&values.Variant{
+					Tag:  "C",
+					Elem: values.Struct{"foo": values.List{0, 1, 2}},
+				},
+			},
+		},
 	} {
 		u := caseUniv{c.t}
 		p := parsePat(t, c.s)
@@ -464,6 +512,64 @@ func TestIntersect(t *testing.T) {
 					"foo": values.List{"a", "b", "c"},
 					"bar": values.List{"a"},
 					"baz": values.List{"a"},
+				},
+			},
+		},
+		{
+			types.Sum(
+				&types.Variant{Tag: "A"},
+				&types.Variant{Tag: "B", Elem: types.String},
+				&types.Variant{Tag: "C", Elem: types.Struct(
+					&types.Field{
+						Name: "foo",
+						T:    types.List(types.Int),
+					},
+				)},
+			),
+			"#A",
+			"#B(_)",
+			[]values.T{},
+			[]values.T{
+				&values.Variant{Tag: "A"},
+				&values.Variant{Tag: "B", Elem: ""},
+				&values.Variant{Tag: "B", Elem: "hello"},
+			},
+		},
+		{
+			types.Sum(
+				&types.Variant{Tag: "A"},
+				&types.Variant{Tag: "B", Elem: types.String},
+				&types.Variant{Tag: "C", Elem: types.Struct(
+					&types.Field{
+						Name: "foo",
+						T:    types.List(types.Int),
+					},
+				)},
+			),
+			"#C({foo: [_, ...]})",
+			"#C({foo: [_, _, ...]})",
+			[]values.T{
+				&values.Variant{
+					Tag: "C",
+					Elem: values.Struct{
+						"foo": values.List{1, 2},
+					},
+				},
+				&values.Variant{
+					Tag: "C",
+					Elem: values.Struct{
+						"foo": values.List{1, 2, 3},
+					},
+				},
+			},
+			[]values.T{
+				&values.Variant{Tag: "A"},
+				&values.Variant{Tag: "B", Elem: ""},
+				&values.Variant{
+					Tag: "C",
+					Elem: values.Struct{
+						"foo": values.List{1},
+					},
 				},
 			},
 		},

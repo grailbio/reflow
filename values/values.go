@@ -234,6 +234,15 @@ func (d Dir) Equal(e Dir) bool {
 	return true
 }
 
+// Variant holds a tagged value. It is the value type that occupies sum types.
+type Variant struct {
+	// Tag is the tag of this variant value.
+	Tag string
+	// Elem is the element of this variant. If this is a variant with no
+	// element, this will be nil.
+	Elem T
+}
+
 // Unit is the unit value.
 var Unit = struct{}{}
 
@@ -488,6 +497,13 @@ func Sprint(v T, t *types.T) string {
 			elems[i] = fmt.Sprintf("val %s = %s", f.Name, Sprint(s[f.Name], f.T))
 		}
 		return fmt.Sprintf("module{%s}", strings.Join(elems, "; "))
+	case types.SumKind:
+		variant := v.(*Variant)
+		variantTyp := t.VariantMap()[variant.Tag]
+		if variantTyp == nil {
+			return fmt.Sprintf("#%s", variant.Tag)
+		}
+		return fmt.Sprintf("#%s(%s)", variant.Tag, Sprint(variant.Elem, variantTyp))
 	case types.FuncKind:
 		return fmt.Sprintf("func(?)")
 	default:
@@ -625,6 +641,10 @@ func WriteDigest(w io.Writer, v T, t *types.T) {
 		for _, k := range keys {
 			WriteDigest(w, s[k], fm[k])
 		}
+	case types.SumKind:
+		variant := v.(*Variant)
+		io.WriteString(w, variant.Tag)
+		WriteDigest(w, variant.Elem, t.VariantMap()[variant.Tag])
 	case types.FuncKind:
 		digest.WriteDigest(w, v.(Func).Digest())
 	}

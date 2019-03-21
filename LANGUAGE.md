@@ -76,7 +76,7 @@ The following is an overview of Reflow's syntactic features:
   <dd>Integers are arbitrary precision; examples: <code>1</code>, <code>2</code>, <code>31415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679</code>.</dd>
 	<dt>floats (type <code>float</code>)</dt>
   <dd>Floats are arbitrary precision; examples: <code>1.0</code>, <code>2.23</code>,  <code>3e10</code>, <code>0.5e-8</code>,  <code>3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679</code>.</dd>
-  <dt>booleans (type <code<>bool</code>)</dt>
+  <dt>booleans (type <code>bool</code>)</dt>
   <dd><code>true</code>, <code>false</code></dt>
   <dt>files (type <code>file</code>)</dt>
   <dd>Files are blobs of bytes; can be imported from external URLs: <code>file("s3://grail-marius/test")</code>; or from a local file: <code>file("/path/to/file")</code>.</dd>
@@ -90,10 +90,83 @@ The following is an overview of Reflow's syntactic features:
   <dd>Maps are a mapping of keys to values; examples: <code>["one": 1, "two": 2]</code> (type <code>[string: int]</code>), <code>[1: 10, 2: 20]</code> (type <code>[int: int]</code>).</dd>
   <dt>records (type <code>{f1 t1, f2 t2, f3 t3}</code></dt>
   <dd>Records store an unordered collection of typed fields; examples: <code>{a: 123, b: "hello world"}</code> (type <code>{a int, b string}</code>).</dd>
+	<dt>sum types (type <code>#T1(t1) | #T2(t2) | #T3(t3)</code>)</dt>
+	<dd>Sum types (a.k.a. algebraic data types, variant types, unions) express multiple disjoint possibilities for a value.  For example, you might want to express the idea of "nil or some integer value", which you could encode as <code>#Nil | #SomeInt(int)</code>.  Another use case might be expression of "file or directory", which you could encode as <code>#File(file) | #Dir(dir)</code>.  As you may have noticed from the <code>#Nil</code> variant above, variants do not require elements, so you can use sum types to encode "enumerations", e.g. <code>#Yes | #No | #Maybe</code>.
+	Sum types are also polymorphic, which means that you can use variants anywhere they structurally fit:
+<pre>
+type YesNo #Yes | #No
+type YesNoMaybe #Yes | #No | #Maybe
+func parseDecision(s string) YesNo =
+	if s == "yes" {
+		#Yes
+	} else {
+		#No
+	}
+}
+func printDecision(d YesNoMaybe) string =
+	switch d {
+	case #Yes:
+		"yes"
+	case #No:
+		"no"
+	case #Maybe:
+		"maybe"
+	}
+Main := printDecision(parseDecision("nope")) // prints "no"
+</pre>
+	Here, we pass a <code>#Yes | #No</code> to a function expecting a <code>#Yes | #No | #Maybe</code>.  Because every variant of <code>#Yes | #No</code> is compatible with <code>#Yes | #No | #Maybe</code>, this is allowed.
+	</dd>
   <dt>assignment</dt>
   <dd>Values can be assigned identifiers with <code>val</code>; example: <code>val ident = 123</code> (the identifier <code>ident</code> has type <code>int</code>). Assignments can specify a type annotation: <code>val ident int = 123</code> and can also perform pattern matching (see below), and a syntax shortcut is provided for simple assignments where neither is required: <code>ident := 123</code>.</dd>
   <dt>conditionals</dt>
   <dd>Conditionals compute a branch depending on a condition; example: <code>if x < 0 { -x } else if x >= 0 && x < 2 { x } else { x - 2 }</code></dd>
+	<dt>switch expressions</dt>
+	<dd>Switch expressions can be used to try to match multiple patterns.  They evaluate to the value of the matching case's expression.
+<pre>
+val someList [string] = ...
+switch someList {
+case []:
+	"the list is empty"
+case [s]:
+	"the list has exactly one element: " + s
+case [s, _, ..._]:
+	"the list has more than one element, and the first one is: " + s
+}
+</pre>
+	The cases of a switch expression must be exhaustive:
+<pre>
+val someList [string] = ...
+switch someList {
+case []:
+	"the list is empty"
+}
+// ERROR: ...because any non-empty list will not match a case.
+</pre>
+	Switches are particularly useful when used with sum types:
+<pre>
+pi := 3.14159
+type square {length float}
+type rectangle {length float, width float}
+type circle {radius float}
+type shape #Point | #Custom(float) | #Square(square) | #Rectangle(rectangle) | #Circle(circle)
+func computeArea(s shape) float =
+	switch s {
+	case #Point:
+		0.0
+	case #Custom(a):
+		a
+	case #Square(s):
+		s.length * s.length
+	case #Rectangle(r):
+		r.length * r.width
+	case #Circle(c):
+		pi * c.radius * c.radius
+	}
+computeArea(#Circle({radius: 2.0}))                // 12.56636
+computeArea(#Point)                                // 0.0
+computeArea(#Rectangle({length: 3.0, width: 4.0})) // 12.0
+computeArea(#Custom(3.0))                          // 3.0
+</pre></dd>
   <dt>functions (type <code>func(a1, a2) r</code>)</dt>
   <dd>Functions abstract code over a list of parameters, they are lexically scoped; examples: <code>func(x int, y int) => x*y</code> (type <code>func(x, y int) int</code>. It is very common to declare a function and assign it to an identifier; Reflow provides syntax sugar for this:
 <pre>
@@ -184,6 +257,15 @@ identifier),
 <pre>
 val lst = ["a", "b", "c", "d", "e"]
 val [a, b, ...] = lst
+</pre>
+Use pattern matching to extract values from variants:
+<pre>
+type Message string
+type Excuse string
+type YesNo #Yes(Message) | #No(Excuse)
+val decision YesNo = #No("just because")
+val #No(reason) = decision // reason == "just because"
+val #Yes(excuse) = decision // ERROR: cannot match tag #Yes with a variant with tag #No
 </pre>
 </dd>
 

@@ -28,6 +28,7 @@
 //	module{I1: t1, I2: t2, ..., In: tn,
 //	       type a1 at1, type a2 at2}          the type of module with values I1, ... In, of types t1, ..., tn
 //	                                          and type aliases a1, a2 of at1, at2.
+//	#{Tag1(t1) | Tag2(t2) | ... | TagN(tn)}   the type of sum types with tagged variants Tag1, Tag2, ..., TagN
 //
 // See package grail.com/reflow/syntax for parsing concrete syntax into
 // type trees.
@@ -60,6 +61,7 @@ import (
 	"fmt"
 	"strings"
 	"sync/atomic"
+	"unicode"
 )
 
 // Kind represents a type's kind.
@@ -116,6 +118,11 @@ const (
 	// at compile time.
 	ModuleKind
 
+	// SumKind is the kind of sum types. Note that sum types are polymorphic,
+	// e.g. #Int(int) | #String(string) is a subtype of #Int(int) |
+	// #String(string) | #Float(float).
+	SumKind
+
 	// RefKind is a pseudo-kind to carry type alias references.
 	RefKind
 
@@ -141,6 +148,7 @@ var kindStrings = [typeMax]string{
 	StructKind:  "struct",
 	ModuleKind:  "module",
 	TopKind:     "top",
+	SumKind:     "sum",
 }
 
 func (k Kind) String() string {
@@ -167,6 +175,7 @@ var kindsInOrder = [...]Kind{
 	FloatKind,
 	FilesetKind,
 	TopKind,
+	SumKind,
 }
 
 var kindID [typeMax]byte
@@ -334,6 +343,15 @@ func FieldsString(fields []*Field) string {
 	return strings.Join(args, ", ")
 }
 
+// Variant represents a single variant of a sum type.
+type Variant struct {
+	// Tag is the unique identifier of the variant within the type.
+	Tag string
+	// Elem is the type of this variant.  It may be nil, in which case the
+	// variant is just the tag.
+	Elem *T
+}
+
 // A T is a Reflow type. The zero T is a TypeError.
 type T struct {
 	// Kind is the kind of the type. See above.
@@ -349,6 +367,9 @@ type T struct {
 	Aliases []*Field
 	// Error holds the type's error.
 	Error error
+
+	// Variants holds the variants of this type; used in sum types.
+	Variants []*Variant
 
 	// Path is a type reference path, used by RefKind.
 	// It is also used after alias expansion to retain identifiers
@@ -400,6 +421,11 @@ func Make(t *T) *T {
 				return f.T
 			}
 		}
+		for _, variant := range t.Variants {
+			if variant.Elem != nil && variant.Elem.Error != nil {
+				return variant.Elem
+			}
+		}
 		return t
 	})
 }
@@ -448,6 +474,28 @@ func Struct(fields ...*Field) *T {
 // Module returns a new module type with the given fields.
 func Module(fields []*Field, aliases []*Field) *T {
 	return Make(&T{Kind: ModuleKind, Fields: fields, Aliases: aliases})
+}
+
+// Sum returns a new sum type with the given variants.  Tags must be unique.
+// Tags must begin with uppercase.  There must be at least one variant.
+func Sum(variants ...*Variant) *T {
+	if len(variants) < 1 {
+		return Errorf("sum types must have at least one variant")
+	}
+	tags := make(map[string]struct{})
+	for _, vt := range variants {
+		if vt.Tag == "" {
+			return Errorf("tag must be non-empty")
+		}
+		if unicode.IsLower([]rune(vt.Tag)[0]) {
+			return Errorf("tag %q does not begin with uppercase", vt.Tag)
+		}
+		if _, ok := tags[vt.Tag]; ok {
+			return Errorf("tag %q is not unique", vt.Tag)
+		}
+		tags[vt.Tag] = struct{}{}
+	}
+	return Make(&T{Kind: SumKind, Variants: variants})
 }
 
 // Ref returns a new pseudo-type reference to the given path.
@@ -532,6 +580,16 @@ func (t *T) String() string {
 			s += ", " + strings.Join(aliases, ", ")
 		}
 		s += "}"
+	case SumKind:
+		args := make([]string, len(t.Variants))
+		for i, variant := range t.Variants {
+			if variant.Elem == nil {
+				args[i] = fmt.Sprintf("#%s", variant.Tag)
+				continue
+			}
+			args[i] = fmt.Sprintf("#%s(%s)", variant.Tag, variant.Elem.String())
+		}
+		s = strings.Join(args, " | ")
 	case BottomKind:
 		s = "bottom"
 	case TopKind:
@@ -553,6 +611,18 @@ func (t *T) FieldMap() map[string]*T {
 	m := make(map[string]*T)
 	for _, f := range t.Fields {
 		m[f.Name] = f.T
+	}
+	return m
+}
+
+// VariantMap returns the Type's variant elements as a map, keyed by tag.
+func (t *T) VariantMap() map[string]*T {
+	if len(t.Variants) == 0 {
+		return nil
+	}
+	m := make(map[string]*T)
+	for _, variant := range t.Variants {
+		m[variant.Tag] = variant.Elem
 	}
 	return m
 }
@@ -624,6 +694,9 @@ func (t *T) equal(u *T, refok bool) bool {
 	if len(t.Fields) != len(u.Fields) {
 		return false
 	}
+	if len(t.Variants) != len(u.Variants) {
+		return false
+	}
 	switch t.Kind {
 	case TupleKind, FuncKind:
 		for i := range t.Fields {
@@ -635,6 +708,22 @@ func (t *T) equal(u *T, refok bool) bool {
 		tf, uf := t.FieldMap(), u.FieldMap()
 		for k := range tf {
 			if !tf[k].equal(uf[k], refok) {
+				return false
+			}
+		}
+	case SumKind:
+		tv, uv := t.VariantMap(), u.VariantMap()
+		for tag := range tv {
+			telem, tok := tv[tag]
+			uelem, uok := uv[tag]
+			switch {
+			case tok != uok:
+				return false
+			case telem == nil && uelem == nil:
+				continue
+			case telem == nil || uelem == nil:
+				return false
+			case !telem.equal(uelem, refok):
 				return false
 			}
 		}
@@ -708,6 +797,31 @@ func (t *T) Sub(u *T) bool {
 			}
 		}
 		return true
+	case SumKind:
+		uvariants := u.VariantMap()
+		for _, variant := range t.Variants {
+			ut, ok := uvariants[variant.Tag]
+			if !ok {
+				// There is a tag in t that is not in u, so t is trivially not a
+				// subtype of u.
+				return false
+			}
+			tt := variant.Elem
+			if tt == nil && ut == nil {
+				// They're both typeless variants, so they're effectively
+				// equivalent.
+				continue
+			}
+			if tt == nil || ut == nil {
+				// Only one is a typeless variant, and typeless variants can't
+				// be subtypes of each other.
+				return false
+			}
+			if !tt.Sub(ut) {
+				return false
+			}
+		}
+		return true
 	}
 }
 
@@ -727,6 +841,11 @@ func (t *T) Map(fn func(*T) *T) *T {
 	for i, f := range t.Fields {
 		if ftyp := f.T.Map(fn); ftyp != f.T {
 			set(&u, t).Fields[i].T = ftyp
+		}
+	}
+	for i, variant := range t.Variants {
+		if elem := variant.Elem.Map(fn); elem != variant.Elem {
+			set(&u, t).Variants[i].Elem = elem
 		}
 	}
 	return fn(u)
@@ -941,6 +1060,64 @@ func Unify(maxlevel ConstLevel, ts ...*T) *T {
 			// TODO(marius): unify type aliases too. Now we just drop them and
 			// this could lead to perplexing type errors.
 			t = Module(fields, nil)
+		case SumKind:
+			// To unify sum kinds, we collect the union of tags and unify the
+			// elements of the common tags, where appropriate. We attempt to
+			// preserve the ordering of variants, biasing towards the ordering
+			// in t for common tags.
+
+			// Collect the union of tags, de-duping as we go.
+			var tags []string
+			tagSet := make(map[string]struct{})
+			for _, variant := range t.Variants {
+				tags = append(tags, variant.Tag)
+				tagSet[variant.Tag] = struct{}{}
+			}
+			for _, variant := range u.Variants {
+				if _, ok := tagSet[variant.Tag]; ok {
+					// We have already seen this tag, so ignore it.
+					continue
+				}
+				tags = append(tags, variant.Tag)
+				tagSet[variant.Tag] = struct{}{}
+			}
+
+			// Unify the elements of common tags, where appropriate.
+			var (
+				tvariants = t.VariantMap()
+				uvariants = u.VariantMap()
+				variants  []*Variant
+			)
+			for _, tag := range tags {
+				tt, tok := tvariants[tag]
+				ut, uok := uvariants[tag]
+				switch {
+				case tok && uok:
+					// The tag appears in both t and u, so we try to unify them.
+					if tt == nil && ut == nil {
+						// Both the variants are element-less, so we unify to a
+						// element-less variant.
+						variants = append(variants, &Variant{Tag: tag})
+						continue
+					}
+					if tt == nil || ut == nil {
+						// Only one of the variants is typeless, and there is no
+						// way to unify element-less variants and variants with
+						// elements (e.g. there's no way to unify `#Foo` and
+						// `#Foo(int)`.)
+						return Errorf("cannot unify %s, as one of variants is typeless", tag)
+					}
+					variant := &Variant{Tag: tag, Elem: Unify(maxlevel, tt, ut)}
+					variants = append(variants, variant)
+				case tok:
+					// The tag only appears in t, so we just take t's variant.
+					variants = append(variants, &Variant{Tag: tag, Elem: tt})
+				case uok:
+					// The tag only appears in u, so we just take u's variant.
+					variants = append(variants, &Variant{Tag: tag, Elem: ut})
+				}
+			}
+			t = Sum(variants...)
 		}
 	}
 	if t == ts[0] {

@@ -132,6 +132,22 @@ func Force(v values.T, t *types.T) values.T {
 				copy[kv.K.(string)] = *kv.V
 			}
 		})
+	case types.SumKind:
+		var (
+			variant = v.(*values.Variant)
+			elemTyp = t.VariantMap()[variant.Tag]
+		)
+		if elemTyp == nil {
+			// It is a variant with no element, so there is nothing to resolve.
+			return v
+		}
+		var (
+			copy = &values.Variant{Tag: variant.Tag}
+			r    = newResolver(copy, t)
+		)
+		copy.Elem = Force(variant.Elem, elemTyp)
+		r.Add(&copy.Elem, elemTyp)
+		return r.Resolve(nil)
 	}
 	panic("bad value")
 }

@@ -73,6 +73,15 @@ func expand(t *types.T, env *types.Env) *types.T {
 			}
 		}
 	}
+	if t.Variants != nil {
+		u.Variants = make([]*types.Variant, len(t.Variants))
+		for i, variant := range t.Variants {
+			u.Variants[i] = &types.Variant{Tag: variant.Tag}
+			if variant.Elem != nil {
+				u.Variants[i].Elem = expand(variant.Elem, env)
+			}
+		}
+	}
 	if t.Aliases != nil {
 		u.Aliases = make([]*types.Field, len(t.Aliases))
 		for i, f := range t.Aliases {

@@ -13,3 +13,12 @@ val TestDeferred = switch delay([delay(["a"]), [delay("b")]]) {
 	case [[a], [b]]: a == "a" && b == "b"
 	case _: false
 }
+
+val TestSumType = {
+	val x #Yes | #No | #NoWithReason(string) = #NoWithReason("just because")
+	switch x {
+	case #Yes: false
+	case #No: false
+	case #NoWithReason(reason): reason == "just because"
+	}
+}

@@ -7,6 +7,7 @@ package syntax
 import (
 	"bytes"
 	"errors"
+	"math/big"
 	"reflect"
 	"regexp"
 	"testing"
@@ -75,6 +76,11 @@ func TestEvalSimple(t *testing.T) {
 				&types.Field{T: types.String},
 				&types.Field{T: types.Bool}),
 			values.Tuple{values.NewInt(1), "ok", false},
+		},
+		{
+			`#Foo(3)`,
+			types.Sum(&types.Variant{Tag: "Foo", Elem: types.Int}),
+			&values.Variant{Tag: "Foo", Elem: big.NewInt(3)},
 		},
 		{`switch 123 { case i: i + 333 }`, types.Int, values.NewInt(456)},
 	} {

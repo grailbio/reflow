@@ -35,6 +35,26 @@ func TestParseTypeOk(t *testing.T) {
 		{"(int, dir)", types.Tuple(&types.Field{"", types.Int}, &types.Field{"", types.Dir})},
 		{"func(int, dir) dir", types.Func(types.Dir, &types.Field{"", types.Int}, &types.Field{"", types.Dir})},
 		{
+			"#One | #Two | #Three | #String(string)",
+			types.Sum(
+				&types.Variant{Tag: "One", Elem: nil},
+				&types.Variant{Tag: "Two"},
+				&types.Variant{Tag: "Three"},
+				&types.Variant{Tag: "String", Elem: types.String},
+			),
+		},
+		{
+			"#Int(int) | #String(string) | #IntOrString(#Int(int) | #String(string))",
+			types.Sum(
+				&types.Variant{Tag: "Int", Elem: types.Int},
+				&types.Variant{Tag: "String", Elem: types.String},
+				&types.Variant{Tag: "IntOrString", Elem: types.Sum(
+					&types.Variant{Tag: "Int", Elem: types.Int},
+					&types.Variant{Tag: "String", Elem: types.String},
+				)},
+			),
+		},
+		{
 			"{r1 file, r2 file, stats dir}",
 			types.Struct(
 				&types.Field{"r1", types.File},
@@ -61,7 +81,7 @@ func TestParseTypeOk(t *testing.T) {
 	} {
 		p := Parser{Mode: ParseType, Body: bytes.NewReader([]byte(c.s))}
 		if err := p.Parse(); err != nil {
-			t.Errorf("parse error: %v", err)
+			t.Errorf("parse error on %q: %v", c.s, err)
 			continue
 		}
 		if got, want := p.Type, c.t; !got.StructurallyEqual(want) {

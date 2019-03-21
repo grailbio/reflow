@@ -31,3 +31,16 @@ val TestStructCompareCast = {
 
 val TestTupleCompare = (1, 2, "3") == (1, 2, "3")
 val TestTupleCompareNe = (1, 2, "3") != (1, 2, "4")
+
+type testSum #Foo | #Bar | #I(int) | #S(string)
+val foo testSum = #Foo
+val bar testSum = #Bar
+func makeI(i int) testSum = #I(i)
+func makeS(s string) testSum = #S(s)
+val TestSumCompare1 = foo == foo
+val TestSumCompare2 = makeI(1) == makeI(1)
+val TestSumCompareDelayed2 = makeI(delay(1)) == makeI(1)
+val TestSumCompareNe1 = foo != bar
+val TestSumCompareNe2 = foo != makeI(1)
+val TestSumCompareNe3 = makeS("hi") != makeI(1)
+val TestSumCompareNe4 = makeS("hi") != makeS("hello")
