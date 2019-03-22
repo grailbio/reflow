@@ -9,6 +9,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/google/go-containerregistry/pkg/authn"
 	imgname "github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"github.com/grailbio/base/retry"
@@ -99,13 +100,23 @@ func imageDigestReference(ctx context.Context, image string, auth authn.Authenti
 		return "", errors.E(err, "tool.imageDigestReference", "parse", image)
 	}
 
-	// TODO(sbagaria): Should we retry here as well? This initializes the HTTP transport.
-	img, err := remote.Image(ref, remote.WithAuth(auth))
-	if err != nil {
-		return "", errors.E(err, "tool.imageDigestReference", "remote", ref.Name())
+	var img v1.Image
+	retryPolicy := retry.MaxTries(retry.Backoff(time.Second, 10*time.Second, 1.5), 5)
+	for retries := 0; ; retries++ {
+		img, err = remote.Image(ref, remote.WithAuth(auth))
+		if err == nil {
+			break
+		}
+		log.Printf("retrying connecting to container registry for %q: %v", ref.Name(), err)
+		if err := retry.Wait(ctx, retryPolicy, retries); err != nil {
+			// Mark error as kind Unavailable to indicate that this could be a
+			// transient error.  If we do not explicitly mark as Unavailable, then
+			// errors of type TooManyTries from grailbio/base do not get assigned to
+			// the right reflow/errors kind.
+			return "", errors.E(errors.Unavailable, err, "tool.imageDigestReference", "remote", ref.Name())
+		}
 	}
 
-	retryPolicy := retry.MaxTries(retry.Backoff(time.Second, 10*time.Second, 1.5), 5)
 	for retries := 0; ; retries++ {
 		hash, err := img.Digest()
 		if err == nil {
@@ -127,10 +138,6 @@ func imageDigestReference(ctx context.Context, image string, auth authn.Authenti
 		}
 		log.Printf("retrying getting image manifest for %q: %v", ref.Name(), err)
 		if err := retry.Wait(ctx, retryPolicy, retries); err != nil {
-			// Mark error as kind Unavailable to indicate that this could be a
-			// transient error.  If we do not explicitly mark as Unavailable, then
-			// errors of type TooManyTries from grailbio/base do not get assigned to
-			// the right reflow/errors kind.
 			return "", errors.E(errors.Unavailable, err, "tool.imageDigestReference", ref.Name())
 		}
 	}
