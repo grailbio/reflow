@@ -5,6 +5,7 @@
 package syntax
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/grailbio/reflow/flow"
@@ -71,6 +72,37 @@ func TestDigestMap(t *testing.T) {
 		}
 		f := v.(*flow.Flow)
 		if got, want := f.Digest().String(), "sha256:f8a6305d5c748c774a08c8db12d02a322e64562f9c11b83a0ca59b5642fcf631"; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	}
+}
+
+func TestDigestVariant(t *testing.T) {
+	for _, c := range []struct {
+		expr   string
+		digest string
+	}{
+		{
+			`{x := 1; #Foo(x)}`,
+			"sha256:0661ccd5ff53d713ec0e11ce3abdcddf4e82c0545ccae3584fd96acd21d4b47b",
+		},
+		{
+			`{y := 1; #Foo(y)}`,
+			"sha256:0661ccd5ff53d713ec0e11ce3abdcddf4e82c0545ccae3584fd96acd21d4b47b",
+		},
+		{
+			`#Foo`,
+			"sha256:d53df340bde56133204297f48a5d54c8b2d76f971846784061d6f76ed9d6ae76",
+		},
+	} {
+		p := Parser{Body: bytes.NewReader([]byte(c.expr)), Mode: ParseExpr}
+		if err := p.Parse(); err != nil {
+			t.Fatalf("%s: %v", c.expr, err)
+		}
+		e := p.Expr
+		_, venv := Stdlib()
+		d := e.Digest(venv)
+		if got, want := d.String(), c.digest; got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
 	}

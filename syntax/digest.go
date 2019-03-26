@@ -134,6 +134,11 @@ func (e *Expr) digest(w io.Writer, env *values.Env) {
 			ke.digest(w, env)
 			e.Map[ke].digest(w, env)
 		}
+	case ExprVariant:
+		io.WriteString(w, e.Ident)
+		if e.Left != nil {
+			digest.WriteDigest(w, e.Left.Digest(env))
+		}
 	case ExprExec:
 		for _, d := range e.Decls {
 			if d.Pat.Ident == "image" {
