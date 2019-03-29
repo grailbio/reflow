@@ -30,3 +30,11 @@ func (w *waitAssoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (
 	err = errors.E(errors.NotExist)
 	return
 }
+
+func (w *waitAssoc) BatchGet(ctx context.Context, batch assoc.Batch) (err error) {
+	for i := 0; i < len(batch); i++ {
+		<-w.tick
+	}
+	err = errors.E(errors.NotExist)
+	return
+}

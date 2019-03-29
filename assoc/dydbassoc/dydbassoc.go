@@ -14,10 +14,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/request"
-
 	"github.com/aws/aws-sdk-go/aws"
+
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
 	"github.com/grailbio/base/digest"
@@ -354,6 +354,11 @@ func (a *Assoc) BatchGet(ctx context.Context, batch assoc.Batch) error {
 				}
 				kinds := unique[k]
 				for kind := range kinds {
+					if _, ok := it[colmap[kind]]; !ok {
+						continue
+					}
+					// TODO(pgopal) - this assumes that the value is of type string. Today we store lists too.
+					// But we don't call batchget for those types. We should ideally handle all types.
 					value := it[colmap[kind]].S
 					v, err := reflow.Digester.Parse(*value)
 					if err != nil {
@@ -373,12 +378,15 @@ func (a *Assoc) BatchGet(ctx context.Context, batch assoc.Batch) error {
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
 	for _, b := range batches {
 		for k, v := range b {
 			batch[k] = v
 		}
 	}
-	return err
+	return nil
 }
 
 const updaterConcurrency = 10

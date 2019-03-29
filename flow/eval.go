@@ -444,6 +444,8 @@ func (e *Eval) Do(ctx context.Context) error {
 		e.roots.Reset()
 		e.Trace.Debugf("todo %d from %d roots", len(todo.q), nroots)
 
+		// LookupFlows consists of all the flows that need to be looked in the cache in this round of flow scheduling.
+		var lookupFlows []*Flow
 	dequeue:
 		for todo.Walk() {
 			f := todo.Flow
@@ -496,10 +498,7 @@ func (e *Eval) Do(ctx context.Context) error {
 				// bundle requests automatically.
 				e.Mutate(f, Lookup)
 				e.pending.Add(f)
-				e.step(f, func(f *Flow) error {
-					e.lookup(ctx, f)
-					return nil
-				})
+				lookupFlows = append(lookupFlows, f)
 			case NeedTransfer:
 				e.Mutate(f, Transfer)
 				e.pending.Add(f)
@@ -597,6 +596,9 @@ func (e *Eval) Do(ctx context.Context) error {
 					return nil
 				})
 			}
+		}
+		if len(lookupFlows) > 0 {
+			go e.batchLookup(ctx, lookupFlows...)
 		}
 		// Delay task submission until we have gathered all potential tasks
 		// that can be scheduled concurrently. This is represented by the
@@ -937,7 +939,7 @@ func (e *Eval) returnFlow(f *Flow) {
 	}
 }
 
-// collect reclaims unreachable objects from the executor's repository.
+// Collect reclaims unreachable objects from the executor's repository.
 // Objects are considered live if:
 //
 //	(1) They are part of the frontier of flow nodes in Done state.
@@ -1037,7 +1039,7 @@ func (e *Eval) collect(ctx context.Context) {
 	e.live = live
 }
 
-// dirty determines whether node f is (transitively) dirty, and must
+// Dirty determines whether node f is (transitively) dirty, and must
 // be recomputed. Dirty considers only visible nodes; it does not
 // incur extra computation, thus dirtying does not work when dirtying
 // nodes are hidden behind maps, continuations, or coercions.
@@ -1056,7 +1058,7 @@ func (e *Eval) dirty(f *Flow) bool {
 	return false
 }
 
-// valid tells whether f's cached results should be considered valid.
+// Valid tells whether f's cached results should be considered valid.
 func (e *Eval) valid(f *Flow) bool {
 	if e.Invalidate == nil {
 		return true
@@ -1068,7 +1070,7 @@ func (e *Eval) valid(f *Flow) bool {
 	return !invalid
 }
 
-// todo adds to e.list the set of ready Flows in f. Todo adds all nodes
+// Todo adds to e.list the set of ready Flows in f. Todo adds all nodes
 // that require evaluation to the provided visitor.
 func (e *Eval) todo(f *Flow, visited flowOnce, v *FlowVisitor) {
 	if f == nil || !visited.Visit(f) {
@@ -1140,7 +1142,7 @@ func (e *Eval) todo(f *Flow, visited flowOnce, v *FlowVisitor) {
 	}
 }
 
-// eval performs a one-step simplification of f. It must be called
+// Eval performs a one-step simplification of f. It must be called
 // only after all of f's dependencies are ready.
 //
 // eval also caches results of successful execs if e.Cache is defined.
@@ -1418,106 +1420,122 @@ func (e *Eval) lookupFailed(f *Flow) {
 	}
 }
 
-// lookup performs a cache lookup of node f.
-func (e *Eval) lookup(ctx context.Context, f *Flow) {
-	if !e.valid(f) || !e.CacheMode.Reading() || e.NoCacheExtern && (f.Op == Extern || f == e.root) {
-		e.lookupFailed(f)
-		return
-	}
-	var (
-		keys = f.CacheKeys()
-		fs   reflow.Fileset
-		fsid digest.Digest
-		err  error
-	)
-	if len(keys) == 0 {
-		// This can't be true now, but in the future it could be valid for nodes
-		// to present no cache keys.
-		e.lookupFailed(f)
-		return
-	}
-	which := -1
-	// The assoc lookups can produce a very high rate of lookups, especially
-	// when restarting large workflows. This is exacerbated by the fact that
-	// we don't perform batch lookups, and also perform "blind" read-repair:
-	// since we don't know which keys are missing, we write back all of the
-	// candidates. Here, the former would alleviate the latter.
-	//
-	// For now, we have the band-aids of concurrency limiting and large
-	// timeouts.
-	//
-	// TODO(marius): push multiple lookups into the assoc,
-	// so that these requests can be batched underneath,
-	// then perform precise read repair.
-	for i, key := range keys {
-		ctx, cancel := context.WithTimeout(ctx, e.CacheLookupTimeout)
-		key, fsid, err = e.Assoc.Get(ctx, assoc.Fileset, key)
-		cancel()
-		if err != nil {
-			if !errors.Is(errors.NotExist, err) {
-				e.Log.Errorf("assoc.Get %v: %v", f, err)
-			}
+// BatchLookup performs a cache lookup of a set of flow nodes.
+func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
+	batch := make(assoc.Batch)
+	for _, f := range flows {
+		if !e.valid(f) || !e.CacheMode.Reading() || e.NoCacheExtern && (f.Op == Extern || f == e.root) {
+			e.lookupFailed(f)
 			continue
 		}
-		err = unmarshal(ctx, e.Repository, fsid, &fs)
-		if err == nil {
-			which = i
-			break
+		keys := f.CacheKeys()
+		if len(keys) == 0 {
+			// This can't be true now, but in the future it could be valid for nodes
+			// to present no cache keys.
+			e.lookupFailed(f)
+			continue
 		}
-		if !errors.Is(errors.NotExist, err) {
-			e.Log.Errorf("unmarshal %v: %v", fsid, err)
+		for _, key := range keys {
+			batch.Add(assoc.Key{assoc.Fileset, key})
 		}
 	}
-	// Nothing was found, so there is no read repair to do.
-	// Fail the lookup early.
-	if which < 0 {
-		e.lookupFailed(f)
-		return
-	}
-	// Make sure all of the files are present in the repository.
-	// If they are not, we consider this a cache miss.
-	missing, err := missing(ctx, e.Repository, fs.Files()...)
-	switch {
-	case err != nil:
-		if err != ctx.Err() {
-			e.Log.Errorf("missing %v: %v", fs, err)
+	{
+		ctx, cancel := context.WithTimeout(ctx, e.CacheLookupTimeout)
+		err := e.Assoc.BatchGet(ctx, batch)
+		cancel()
+		if err != nil {
+			e.Log.Errorf("assoc.BatchGet: %v", err)
+			for _, f := range flows {
+				e.step(f, func(f *Flow) error {
+					e.lookupFailed(f)
+					return nil
+				})
+			}
+			return
 		}
-	case len(missing) != 0:
-		var total int64
-		for _, file := range missing {
-			total += file.Size
-		}
-		err = errors.E(
-			errors.NotExist, "cache.Lookup",
-			errors.Errorf("missing %d files (%s)", len(missing), data.Size(total)))
 	}
-	if err == nil && e.RecomputeEmpty && fs.AnyEmpty() {
-		e.Log.Debugf("recomputing empty value for %v", f)
-	} else if err == nil {
-		// Perform read repair: asynchronously write back all of the other
-		// keys (which are synonymous by definition).
-		keys = append(keys[:which], keys[which+1:]...)
-		bgctx := Background(ctx)
-		go func() {
+	for _, f := range flows {
+		e.step(f, func(f *Flow) error {
+			var (
+				keys = f.CacheKeys()
+				fs   reflow.Fileset
+				fsid digest.Digest
+				err  error
+			)
 			for _, key := range keys {
-				if err := e.Assoc.Store(bgctx, assoc.Fileset, key, fsid); err != nil {
-					if !errors.Is(errors.Precondition, err) {
-						e.Log.Errorf("assoc write for read repair %v %v: %v", f, key, err)
+				res, ok := batch[assoc.Key{Kind: assoc.Fileset, Digest: key}]
+				if !ok || res.Digest.IsZero() || res.Error != nil {
+					if ok && res.Error != nil {
+						e.Log.Errorf("assoc.BatchGet: %v %v", key, res.Error)
 					}
+					continue
+				}
+				err = unmarshal(ctx, e.Repository, res.Digest, &fs)
+				if err == nil {
+					fsid = res.Digest
+					break
+				}
+				if !errors.Is(errors.NotExist, err) {
+					e.Log.Errorf("unmarshal %v: %v", res.Digest, err)
 				}
 			}
-			bgctx.Complete()
-		}()
-		// The node is marked done. If the needed objects are not later
-		// found in the cache's repository, the node will be marked for
-		// recomputation.
-		e.Mutate(f, fs, Cached, Done)
-		if e.BottomUp {
-			e.LogFlow(ctx, f)
-		}
-		return
+			// Nothing was found, so there is no read repair to do.
+			// Fail the lookup early.
+			if fsid.IsZero() {
+				e.lookupFailed(f)
+				return nil
+			}
+			// Make sure all of the files are present in the repository.
+			// If they are not, we consider this a cache miss.
+			missing, err := missing(ctx, e.Repository, fs.Files()...)
+			switch {
+			case err != nil:
+				if err != ctx.Err() {
+					e.Log.Errorf("missing %v: %v", fs, err)
+				}
+			case len(missing) != 0:
+				var total int64
+				for _, file := range missing {
+					total += file.Size
+				}
+				err = errors.E(
+					errors.NotExist, "cache.Lookup",
+					errors.Errorf("missing %d files (%s)", len(missing), data.Size(total)))
+			}
+			if err == nil && e.RecomputeEmpty && fs.AnyEmpty() {
+				e.Log.Debugf("recomputing empty value for %v", f)
+			} else if err == nil {
+				// Perform read repair: asynchronously write back all non existent keys.
+				writeback := keys[:0]
+				for _, key := range keys {
+					if res, ok := batch[assoc.Key{Kind: assoc.Fileset, Digest: key}]; !ok || res.Digest.IsZero() || res.Error != nil {
+						writeback = append(writeback, key)
+					}
+				}
+				bgctx := Background(ctx)
+				go func() {
+					for _, key := range writeback {
+						if err := e.Assoc.Store(bgctx, assoc.Fileset, key, fsid); err != nil {
+							if !errors.Is(errors.Precondition, err) {
+								e.Log.Errorf("assoc write for read repair %v %v: %v", f, key, err)
+							}
+						}
+					}
+					bgctx.Complete()
+				}()
+				// The node is marked done. If the needed objects are not later
+				// found in the cache's repository, the node will be marked for
+				// recomputation.
+				e.Mutate(f, fs, Cached, Done)
+				if e.BottomUp {
+					e.LogFlow(ctx, f)
+				}
+				return nil
+			}
+			e.lookupFailed(f)
+			return nil
+		})
 	}
-	e.lookupFailed(f)
 }
 
 // needTransfer returns the file objects that require transfer from flow f.

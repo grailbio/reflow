@@ -323,7 +323,7 @@ type Flow struct {
 
 	// Dirty is used by the evaluator to track which nodes are dirtied
 	// by this node: once the node has been evaluated, these flows
-	// may be eligble for evaluation.
+	// may be eligible for evaluation.
 	Dirty []*Flow
 
 	// Pending maintains a map of this node's dependent nodes that
