@@ -18,9 +18,8 @@ import (
 )
 
 // TODO(marius): allow users to pass other build flags, too
-
 func usage() {
-	fmt.Fprintln(os.Stderr, `usage: buildreflow [-o output] [-version version] [-v]
+	fmt.Fprintln(os.Stderr, `usage: buildreflow [-o output] [-version version] [-p package]
 
 Buildreflow builds a reflow binary that's usable for distributed
 execution.`)
@@ -32,8 +31,7 @@ func main() {
 	var (
 		output      = flag.String("o", "reflow", "reflow binary output path")
 		packagePath = flag.String("p", "github.com/grailbio/reflow/cmd/reflow", "reflow main package path")
-		v           = flag.Bool("v", false, "verbose output")
-		version     = flag.String("version", "", "version with which to stamp the binary; computed from git if empty")
+		version     = flag.String("version", "", "version with which to stamp the binary")
 	)
 	log.SetFlags(0)
 	log.SetPrefix("")
@@ -42,8 +40,6 @@ func main() {
 	if flag.NArg() != 0 {
 		flag.Usage()
 	}
-	// TODO(marius): embed Git version, or some other meaningful version stamp?
-
 	if *version == "" {
 		*version = packageVersion(*packagePath)
 	}
@@ -58,9 +54,6 @@ func main() {
 	cmd := exec.Command("go", "build", "-ldflags", ldflags, "-o", *output, *packagePath)
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
-	if *v {
-		log.Println(*packagePath, *version, goos, goarch)
-	}
 	if err := cmd.Run(); err != nil {
 		log.Fatalf("%s %s: %v", cmd.Path, strings.Join(cmd.Args, " "), err)
 	}
@@ -81,7 +74,6 @@ func main() {
 	cmd.Stdout = os.Stdout
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, "GOOS=linux", "GOARCH=amd64")
-	log.Println(*packagePath, *version, "linux", "amd64")
 	if err := cmd.Run(); err != nil {
 		log.Fatalf("%s %s: %v", cmd.Path, strings.Join(cmd.Args, " "), err)
 	}

@@ -14,8 +14,12 @@ import (
 	_ "github.com/grailbio/reflow/trace"
 )
 
+// version is set by the linker when building the binary.
+var version = "broken"
+
 var configFile = os.ExpandEnv("$HOME/.reflow/config.yaml")
 
+const reflowlet = "grailbio/reflowlet:bootstrap"
 const intro = `Cluster computing and caching
 
 Additional configuration is required to use a cluster for Reflow
