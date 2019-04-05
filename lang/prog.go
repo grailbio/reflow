@@ -158,7 +158,7 @@ func (p *Program) Eval() *flow.Flow {
 }
 
 // ModuleType computes and returns the Reflow module type for this
-// program. This is used for briding "v0" scripts into "v1" modules.
+// program. This is used for bridging "v0" scripts into "v1" modules.
 // This should be called only after type checking has completed.
 //
 // For simplicity we only export non-function values, since they
@@ -176,6 +176,7 @@ func (p *Program) ModuleType() *types.T {
 			fields = append(fields, &types.Field{Name: id, T: typ})
 		}
 	}
+	fields = append(fields, &types.Field{Name: "Main", T: types.Fileset})
 	return types.Module(fields, nil)
 }
 
@@ -205,6 +206,9 @@ func (p *Program) ModuleValue() (values.T, error) {
 
 	mval := make(values.Module)
 	for _, f := range p.ModuleType().Fields {
+		if f.Name == "Main" {
+			continue
+		}
 		expr := p.def[f.Name]
 		mval[f.Name] = v02v1(expr.Eval(env), f.T)
 	}

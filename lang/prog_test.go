@@ -9,12 +9,15 @@ import (
 	"os"
 	"testing"
 
+	types2 "github.com/grailbio/reflow/types"
+
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/flow"
 	op "github.com/grailbio/reflow/test/flow"
 )
 
 func newProgramOrError(t *testing.T, file string) *Program {
+	t.Helper()
 	var buf bytes.Buffer
 	p := &Program{Errors: &buf, File: file}
 	f, err := os.Open(p.File)
@@ -24,6 +27,9 @@ func newProgramOrError(t *testing.T, file string) *Program {
 	defer f.Close()
 	if err := p.ParseAndTypecheck(f); err != nil {
 		t.Fatalf("error %v: %s", err, buf.String())
+	}
+	if mainType := p.ModuleType().FieldMap()["Main"]; mainType != types2.Fileset {
+		t.Fatalf("expected Main to be %v, got %v ", types2.Fileset, mainType)
 	}
 	return p
 }
