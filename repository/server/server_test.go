@@ -15,10 +15,11 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/grailbio/reflow/liveset/bloomlive"
+
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/liveset/bloomlive"
 	"github.com/grailbio/reflow/repository/client"
 	"github.com/grailbio/reflow/repository/filerepo"
 	"github.com/grailbio/reflow/rest"

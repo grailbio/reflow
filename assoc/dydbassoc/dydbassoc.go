@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
+	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/limiter"
@@ -466,11 +466,11 @@ func (c *counter) Get() int64 {
 
 // CollectWithThreshold removes from this Assoc any objects whose keys are not in the
 // liveset and have not been accessed more recently than the liveset's threshold
-func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, kind assoc.Kind, threshold time.Time, rate int64, dryRun bool) error {
+func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, dead liveset.Liveset, kind assoc.Kind, threshold time.Time, rate int64, dryRun bool) error {
 	log.Debug("Collecting association")
 	scanner := newScanner(a)
 
-	var itemsCheckedCount, liveItemsCount, afterThresholdCount, itemsCollectedCount counter
+	var itemsCheckedCount, liveItemsCount, afterThresholdCount, itemsCollectedCount, deadFilterCount counter
 	start := time.Now()
 
 	updater := &updater{cells: make(chan *cell), a: a, rate: rate}
@@ -504,9 +504,16 @@ func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, 
 
 			mu.Lock()
 			contains := live.Contains(d)
+			remove := dead.Contains(d)
 			mu.Unlock()
 			if contains {
 				liveItemsCount.Add(1)
+			} else if remove {
+				if !dryRun {
+					updater.cells <- &cell{d, kind}
+				}
+				itemsCollectedCount.Add(1)
+				deadFilterCount.Add(1)
 			} else if time.Unix(itemAccessTime, 0).After(threshold) {
 				afterThresholdCount.Add(1)
 			} else {
@@ -531,8 +538,8 @@ func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, 
 	if !dryRun {
 		action = "were"
 	}
-	log.Printf("%d of %d associations (%.2f%%) %s collected",
-		itemsCollectedCount.Get(), itemsCheckedCount.Get(), float64(itemsCollectedCount.Get())/float64(itemsCheckedCount.Get())*100, action)
+	log.Printf("%d of %d associations (%.2f%%) %s collected (%d associations matched the dead set)",
+		itemsCollectedCount.Get(), itemsCheckedCount.Get(), float64(itemsCollectedCount.Get())/float64(itemsCheckedCount.Get())*100, action, deadFilterCount.Get())
 
 	return err
 }
@@ -576,7 +583,14 @@ func (a *Assoc) Scan(ctx context.Context, mappingHandler assoc.MappingHandler) e
 				if err != nil {
 					return fmt.Errorf("invalid dynamodb entry %v", item)
 				}
-				mappingHandler.HandleMapping(k, v, assoc.Fileset, time.Unix(itemAccessTime, 0))
+				var labels []string
+				if item["Labels"] != nil {
+					err := dynamodbattribute.Unmarshal(item["Labels"], &labels)
+					if err != nil {
+						return fmt.Errorf("invalid label: %v", err)
+					}
+				}
+				mappingHandler.HandleMapping(k, v, assoc.Fileset, time.Unix(itemAccessTime, 0), labels)
 			}
 
 		}

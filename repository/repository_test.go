@@ -43,7 +43,7 @@ func (nilRepository) ReadFrom(context.Context, digest.Digest, *url.URL) error {
 	panic("not implemented")
 }
 
-func (nilRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+func (nilRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, dead liveset.Liveset, threshold time.Time, dryRun bool) error {
 	panic("not implemented")
 }
 

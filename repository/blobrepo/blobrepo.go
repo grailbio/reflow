@@ -175,7 +175,7 @@ func (r *Repository) delete(ctx context.Context, keys []string) error {
 // CollectWithThreshold removes from this repository any objects which are not in the
 // liveset and which have not been accessed more recently than the liveset's
 // threshold time
-func (r *Repository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+func (r *Repository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, dead liveset.Liveset, threshold time.Time, dryRun bool) error {
 	var (
 		objectsCheckedCount int64
 		liveObjectsCount    int64
@@ -204,10 +204,9 @@ func (r *Repository) CollectWithThreshold(ctx context.Context, live liveset.Live
 			log.Errorf("invalid s3 entry %v (%s)", key, file)
 			continue
 		}
-
 		if live.Contains(digest) {
 			liveObjectsCount++
-		} else if file.LastModified.After(threshold) {
+		} else if !dead.Contains(digest) && file.LastModified.After(threshold) {
 			afterThresholdCount++
 		} else {
 			if !dryRun {

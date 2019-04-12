@@ -34,16 +34,16 @@ const (
 // MappingHandler is an interface for handling a mapping while scanning.
 type MappingHandler interface {
 	// HandleMapping handles a scanned association.
-	HandleMapping(k, v digest.Digest, kind Kind, lastAccessTime time.Time)
+	HandleMapping(k, v digest.Digest, kind Kind, lastAccessTime time.Time, labels []string)
 }
 
 // MappingHandlerFunc is a convenience type to avoid having to declare a struct
 // to implement the MappingHandler interface.
-type MappingHandlerFunc func(k, v digest.Digest, kind Kind, lastAccessTime time.Time)
+type MappingHandlerFunc func(k, v digest.Digest, kind Kind, lastAccessTime time.Time, labels []string)
 
 // HandleMapping implements the MappingHandler interface.
-func (h MappingHandlerFunc) HandleMapping(k, v digest.Digest, kind Kind, lastAccessTime time.Time) {
-	h(k, v, kind, lastAccessTime)
+func (h MappingHandlerFunc) HandleMapping(k, v digest.Digest, kind Kind, lastAccessTime time.Time, labels []string) {
+	h(k, v, kind, lastAccessTime, labels)
 }
 
 // Key is the (key, kind) pair which uniquely identifies a value in the assoc.
@@ -108,8 +108,8 @@ type Assoc interface {
 	BatchGet(ctx context.Context, batch Batch) error
 
 	// CollectWithThreshold removes from this assoc any objects whose keys are not in the
-	// liveset and which have not been accessed more recently than the threshold time.
-	CollectWithThreshold(context.Context, liveset.Liveset, Kind, time.Time, int64, bool) error
+	// liveset and is either in the dead set or its creation times are not more recent than the threshold time.
+	CollectWithThreshold(ctx context.Context, live, dead liveset.Liveset, kind Kind, threshold time.Time, rate int64, dryrun bool) error
 
 	// Count returns an estimate of the number of associations in this mapping.
 	Count(ctx context.Context) (int64, error)

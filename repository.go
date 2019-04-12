@@ -21,10 +21,9 @@ type Repository interface {
 	// Liveset
 	Collect(context.Context, liveset.Liveset) error
 
-	// CollectWithThreshold removes from this repository any objects not in the
-	// Liveset and whose creation times are not more recent than the
-	// threshold time.
-	CollectWithThreshold(context.Context, liveset.Liveset, time.Time, bool) error
+	// CollectWithThreshold removes from this repository any objects not in the live set and
+	// is either in the dead set or its creation times are not more recent than the threshold time.
+	CollectWithThreshold(ctx context.Context, live liveset.Liveset, dead liveset.Liveset, threshold time.Time, dryrun bool) error
 
 	// Stat returns the File metadata for the blob with the given digest.
 	// It returns errors.NotExist if the blob does not exist in this

@@ -90,7 +90,7 @@ func (r *InmemoryRepository) Put(_ context.Context, rd io.Reader) (digest.Digest
 // CollectWithThreshold removes from this repository any objects not in the
 // Liveset and whose creation times are not more recent than the
 // threshold time.
-func (r *InmemoryRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+func (r *InmemoryRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, dead liveset.Liveset, threshold time.Time, dryRun bool) error {
 	return errors.E("collectwiththreshold", errors.NotSupported)
 }
 
@@ -248,7 +248,7 @@ func (r *ExpectRepository) ReadFrom(_ context.Context, id digest.Digest, u *url.
 // CollectWithThreshold removes from this repository any objects not in the
 // Liveset and whose creation times are not more recent than the
 // threshold time.
-func (r *ExpectRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+func (r *ExpectRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, dead liveset.Liveset, threshold time.Time, dryRun bool) error {
 	return errors.E("collectwiththreshold", errors.NotSupported)
 }
 
@@ -281,7 +281,7 @@ func (*panicRepository) ReadFrom(context.Context, digest.Digest, *url.URL) error
 func (*panicRepository) Collect(context.Context, liveset.Liveset) error {
 	panic("not implemented")
 }
-func (*panicRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+func (*panicRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, dead liveset.Liveset, threshold time.Time, dryRun bool) error {
 	panic("not implemented")
 }
 func (*panicRepository) URL() *url.URL { panic("not implemented") }
@@ -322,7 +322,7 @@ func NewWaitRepository(rawurl string) *WaitRepository {
 // CollectWithThreshold removes from this repository any objects not in the
 // Liveset and whose creation times are not more recent than the
 // threshold time.
-func (r *WaitRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+func (r *WaitRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, dead liveset.Liveset, threshold time.Time, dryRun bool) error {
 	panic("not implemented")
 }
 

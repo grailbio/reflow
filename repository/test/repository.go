@@ -131,7 +131,7 @@ func (r *testRepository) ReadFrom(ctx context.Context, id digest.Digest, u *url.
 
 }
 
-func (r *testRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+func (r *testRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, dead liveset.Liveset, threshold time.Time, dryRun bool) error {
 	return errors.E("collectwiththreshold", errors.NotSupported)
 }
 

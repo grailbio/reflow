@@ -304,7 +304,7 @@ func (r *Repository) Vacuum(ctx context.Context, repo *Repository) error {
 // CollectWithThreshold removes from this repository any objects not in the
 // Liveset and whose creation times are not more recent than the
 // threshold time.
-func (r *Repository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+func (r *Repository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, dead liveset.Liveset, threshold time.Time, dryRun bool) error {
 	return errors.E("collectwiththreshold", errors.NotSupported)
 }
 

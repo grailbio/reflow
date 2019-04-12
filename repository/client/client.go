@@ -118,7 +118,7 @@ func (c *Client) ReadFrom(ctx context.Context, id digest.Digest, u *url.URL) err
 // CollectWithThreshold removes from this repository any objects not in the
 // Liveset and whose creation times are not more recent than the
 // threshold time.
-func (c *Client) CollectWithThreshold(ctx context.Context, live liveset.Liveset, threshold time.Time, dryRun bool) error {
+func (c *Client) CollectWithThreshold(ctx context.Context, live liveset.Liveset, dead liveset.Liveset, threshold time.Time, dryRun bool) error {
 	return errors.E("collectwiththreshold", errors.NotSupported)
 }
 
