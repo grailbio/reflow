@@ -71,7 +71,7 @@ func (w *S3Walker) Scan(ctx context.Context) bool {
 	}
 	w.token = res.NextContinuationToken
 	w.objects = res.Contents
-	w.done = len(w.objects) == 0 || !aws.BoolValue(res.IsTruncated)
+	w.done = !aws.BoolValue(res.IsTruncated)
 	return w.Scan(ctx)
 }
 
