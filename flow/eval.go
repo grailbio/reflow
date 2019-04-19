@@ -1341,14 +1341,8 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) 
 	pid := digest.Digest{}
 	var stdout, stderr digest.Digest
 	if f.Op.External() {
-		b := new(bytes.Buffer)
-		enc := json.NewEncoder(b)
-		if err = enc.Encode(f.Inspect); err == nil {
-			if pid, err = e.Repository.Put(ctx, b); err != nil {
-				log.Errorf("repository put profile: %v", err)
-			}
-		} else {
-			log.Errorf("encoder marshal profile: %v", err)
+		if pid, err = marshal(ctx, e.Repository, f.Inspect); err != nil {
+			log.Errorf("repository put profile: %v", err)
 		}
 		if f.Exec != nil {
 			if rc, err := f.Exec.Logs(ctx, true, false, false); err == nil {
