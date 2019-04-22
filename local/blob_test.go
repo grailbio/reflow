@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"crypto/md5"
+	"fmt"
+
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/s3blob"
@@ -92,10 +95,14 @@ func TestS3ExecInternPrefix(t *testing.T) {
 	}
 	for _, file := range files {
 		client.SetFile(prefix+file, []byte(file), "unused")
-		val.Map[file] = reflow.File{
-			ID:   reflow.Digester.FromString(file),
-			Size: int64(len(file)),
+		rf := reflow.File{
+			ID:     reflow.Digester.FromString(file),
+			Source: fmt.Sprintf("s3://%s/%s%s", bucket, prefix, file),
+			ETag:   fmt.Sprintf("%x", md5.Sum([]byte(file))),
+			Size:   int64(len(file)),
 		}
+		rf.Assertions = blob.Assertions(rf)
+		val.Map[file] = rf
 	}
 
 	ctx := context.Background()
@@ -203,10 +210,17 @@ func TestS3ExecPath(t *testing.T) {
 	if err := s3.Promote(ctx); err != nil {
 		t.Fatal(err)
 	}
+
+	rf := reflow.File{
+		ID:     reflow.Digester.FromString(contents),
+		Source: fmt.Sprintf("s3://%s/%s", bucket, key),
+		ETag:   fmt.Sprintf("%x", md5.Sum([]byte(contents))),
+		Size:   int64(len(contents)),
+	}
+	rf.Assertions = blob.Assertions(rf)
+
 	want := reflow.Result{Fileset: reflow.Fileset{
-		Map: map[string]reflow.File{
-			".": reflow.File{ID: reflow.Digester.FromString(contents), Size: int64(len(contents))},
-		},
+		Map: map[string]reflow.File{".": rf},
 	}}
 	if !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)

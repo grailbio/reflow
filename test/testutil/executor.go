@@ -7,6 +7,7 @@ package testutil
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"sync"
@@ -169,9 +170,15 @@ func (e *Executor) Get(ctx context.Context, id digest.Digest) (reflow.Exec, erro
 	return x, nil
 }
 
-// Remove is not implemented.
-func (*Executor) Remove(ctx context.Context, id digest.Digest) error {
-	panic("not implemented")
+// Remove removes the exec with id if it exists or returns an error.
+func (e *Executor) Remove(ctx context.Context, id digest.Digest) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if _, ok := e.execs[id]; !ok {
+		return errors.E("testutil.Executor", id, errors.NotExist)
+	}
+	delete(e.execs, id)
+	return nil
 }
 
 // Execs enumerates the execs managed by this executor.
@@ -199,14 +206,22 @@ func (e *Executor) Repository() reflow.Repository {
 	return e.Repo
 }
 
+// flowId computes the exec id for this flow.
+func (e *Executor) flowId(f *flow.Flow) digest.Digest {
+	if f.ExecId.IsZero() {
+		panic(fmt.Errorf("no exec id set for flow %v", f))
+	}
+	return f.ExecId
+}
+
 // Equiv tells whether this executor contains precisely a set of flows.
 func (e *Executor) Equiv(flows ...*flow.Flow) bool {
 	ids := map[digest.Digest]bool{}
-	for _, f := range flows {
-		ids[f.Digest()] = true
-	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	for _, f := range flows {
+		ids[e.flowId(f)] = true
+	}
 	for id := range e.execs {
 		if !ids[id] {
 			return false
@@ -221,7 +236,7 @@ func (e *Executor) Exec(f *flow.Flow) *Exec {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for {
-		if x := e.execs[f.Digest()]; x != nil {
+		if x := e.execs[e.flowId(f)]; x != nil {
 			return x
 		}
 		e.cond.Wait()
@@ -237,7 +252,7 @@ func (e *Executor) Wait(f *flow.Flow) {
 func (e *Executor) Pending(f *flow.Flow) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	_, ok := e.execs[f.Digest()]
+	_, ok := e.execs[e.flowId(f)]
 	return ok
 }
 
@@ -247,7 +262,7 @@ func (e *Executor) WaitAny(flows ...*flow.Flow) *flow.Flow {
 	defer e.mu.Unlock()
 	for {
 		for _, flow := range flows {
-			if e.execs[flow.Digest()] != nil {
+			if e.execs[e.flowId(flow)] != nil {
 				return flow
 			}
 		}
@@ -270,4 +285,14 @@ func (e *Executor) Ok(f *flow.Flow, res interface{}) {
 // Error defines an erroneous result for the flow.
 func (e *Executor) Error(f *flow.Flow, err error) {
 	e.Exec(f).Error(err)
+}
+
+// AssignExecId assigns ExecIDs for the given set of flows using the given assertions.
+func AssignExecId(a *reflow.Assertions, flows ...*flow.Flow) {
+	if a == nil {
+		a = new(reflow.Assertions)
+	}
+	for _, f := range flows {
+		f.ExecId = reflow.Digester.FromDigests(f.Digest(), a.Digest())
+	}
 }

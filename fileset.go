@@ -20,6 +20,7 @@ import (
 // resolved if it contains the digest of the file's contents.
 // Otherwise, a File is said to be a reference, in which case it must
 // contain a source and etag.
+// Any type of File (resolved or reference) can contain Assertions.
 type File struct {
 	// The digest of the contents of the file.
 	ID digest.Digest
@@ -35,12 +36,19 @@ type File struct {
 	ETag string `json:",omitempty"`
 
 	// LastModified stores the file's last modified time.
-	LastModified time.Time
+	LastModified time.Time `json:",omitempty"`
+
+	// Assertions are the set of assertions representing the state
+	// of all the dependencies that went into producing this file.
+	// Unlike Etag/Size etc which are properties of this File,
+	// Assertions can include properties of other subjects that
+	// contributed to producing this File.
+	Assertions *Assertions `json:",omitempty"`
 }
 
 // Digest returns the file's digest: if the file is a reference, the
-// digest comprises the reference, source, and etag. Resolved files
-// return the file's digest.
+// digest comprises the reference, source, etag and assertions.
+// Resolved files return the file's digest.
 func (f File) Digest() digest.Digest {
 	if !f.IsRef() {
 		return f.ID
@@ -51,11 +59,16 @@ func (f File) Digest() digest.Digest {
 	w.Write(b[:])
 	io.WriteString(w, f.Source)
 	io.WriteString(w, f.ETag)
+	f.Assertions.WriteDigest(w)
 	return w.Digest()
 }
 
 // Equal returns whether files f and g represent the same content.
 func (f File) Equal(g File) bool {
+	// Always compare assertions.
+	if !f.Assertions.Equal(g.Assertions) {
+		return false
+	}
 	if f.IsRef() || g.IsRef() {
 		// When we compare references, we require nonempty etags.
 		return f.Size == g.Size && f.Source == g.Source && f.ETag != "" && f.ETag == g.ETag
@@ -81,7 +94,11 @@ func (f File) String() string {
 	}
 	if f.ETag != "" {
 		maybeComma(&b)
-		fmt.Fprintf(&b, "etag: %vs", f.ETag)
+		fmt.Fprintf(&b, "etag: %v", f.ETag)
+	}
+	if !f.Assertions.IsEmpty() {
+		maybeComma(&b)
+		fmt.Fprintf(&b, "assertions: <%s>", f.Assertions.Short())
 	}
 	return b.String()
 }
@@ -95,7 +112,7 @@ func (f File) Short() string {
 }
 
 // Fileset is the result of an evaluated flow. Values may either be
-// lists of values or Filesets. Filesets are a map of paths to Files.
+// lists of values or Filesets.  Filesets are a map of paths to Files.
 type Fileset struct {
 	List []Fileset       `json:",omitempty"`
 	Map  map[string]File `json:"Fileset,omitempty"`
@@ -145,6 +162,38 @@ func (v Fileset) AnyEmpty() bool {
 	return len(v.List) == 0 && len(v.Map) == 0
 }
 
+// Assertions returns union of Assertions in all the Files in this Fileset.
+func (v Fileset) Assertions() (*Assertions, error) {
+	a := new(Assertions)
+	for _, f := range v.Files() {
+		if err := a.AddFrom(f.Assertions); err != nil {
+			return nil, err
+		}
+	}
+	return a, nil
+}
+
+// AddAssertions adds the given assertions to all files in this Fileset.
+func (v *Fileset) AddAssertions(as *Assertions) error {
+	if as.IsEmpty() {
+		return nil
+	}
+	for _, fs := range v.List {
+		return fs.AddAssertions(as)
+	}
+	for k := range v.Map {
+		f := v.Map[k]
+		if f.Assertions == nil {
+			f.Assertions = new(Assertions)
+			v.Map[k] = f
+		}
+		if err := f.Assertions.AddFrom(as); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Flatten is a convenience function to flatten (shallowly) the value
 // v, returning a list of Values. If the value is a list value, the
 // list is returned; otherwise a unary list of the value v is
@@ -160,11 +209,11 @@ func (v Fileset) Flatten() []Fileset {
 
 // Files returns the set of Files that comprise the value.
 func (v Fileset) Files() []File {
-	fs := map[File]bool{}
+	fs := map[digest.Digest]File{}
 	v.files(fs)
 	files := make([]File, len(fs))
 	i := 0
-	for f := range fs {
+	for _, f := range fs {
 		files[i] = f
 		i++
 	}
@@ -193,10 +242,10 @@ func (v Fileset) Size() int64 {
 	return s
 }
 
-// Subst fileset v with references files substituted using the
-// provided map. Subst returns whether the fileset is fully resolved
-// after substitution.
-func (v Fileset) Subst(sub map[File]File) (out Fileset, resolved bool) {
+// Subst the files in fileset using the provided mapping of File object digests to Files.
+// Subst returns whether the fileset is fully resolved after substitution.
+// That is, any unresolved file f in this fileset tree, will be substituted by sub[f.Digest()].
+func (v Fileset) Subst(sub map[digest.Digest]File) (out Fileset, resolved bool) {
 	resolved = true
 	if v.List != nil {
 		out.List = make([]Fileset, len(v.List))
@@ -211,7 +260,7 @@ func (v Fileset) Subst(sub map[File]File) (out Fileset, resolved bool) {
 	if v.Map != nil {
 		out.Map = make(map[string]File, len(v.Map))
 		for path, file := range v.Map {
-			if f, ok := sub[file]; ok {
+			if f, ok := sub[file.Digest()]; ok {
 				out.Map[path] = f
 			} else {
 				out.Map[path] = file
@@ -224,13 +273,13 @@ func (v Fileset) Subst(sub map[File]File) (out Fileset, resolved bool) {
 	return
 }
 
-func (v Fileset) files(fs map[File]bool) {
+func (v Fileset) files(fs map[digest.Digest]File) {
 	for i := range v.List {
 		v.List[i].files(fs)
 	}
 	if v.Map != nil {
 		for _, f := range v.Map {
-			fs[f] = true
+			fs[f.Digest()] = f
 		}
 	}
 }

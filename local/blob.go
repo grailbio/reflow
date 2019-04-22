@@ -289,7 +289,9 @@ func (e *blobExec) doIntern(ctx context.Context) error {
 		dl := download{
 			Bucket: bucket,
 			Key:    prefix,
+			Source: file.Source,
 			Size:   file.Size,
+			ETag:   file.ETag,
 			Log:    e.log,
 		}
 		file, err = dl.Do(ctx, &e.staging)
@@ -318,7 +320,9 @@ func (e *blobExec) doIntern(ctx context.Context) error {
 			dl := download{
 				Bucket: bucket,
 				Key:    key,
+				Source: file.Source,
 				Size:   file.Size,
+				ETag:   file.ETag,
 				Log:    e.log,
 			}
 			file, err = dl.Do(ctx, &e.staging)
@@ -331,7 +335,6 @@ func (e *blobExec) doIntern(ctx context.Context) error {
 			e.mu.Unlock()
 			return nil
 		})
-
 	}
 	// Always wait for work to complete regardless of error.
 	// If there is an error, the context will be cancelled and
@@ -496,6 +499,7 @@ type download struct {
 	Bucket blob.Bucket
 	Key    string
 	Size   int64
+	Source string
 	ETag   string
 	Log    *log.Logger
 }
@@ -518,6 +522,8 @@ func (d *download) Do(ctx context.Context, repo *filerepo.Repository) (reflow.Fi
 	w.Reset()
 	digestingFiles.Add(1)
 	file, err := repo.Install(filename)
+	file.Source, file.ETag = d.Source, d.ETag
+	file.Assertions = blob.Assertions(file)
 	digestingFiles.Add(-1)
 	if err == nil && file.Size != d.Size {
 		err = errors.E(errors.Integrity,

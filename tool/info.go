@@ -367,7 +367,7 @@ func (c *Cmd) printFileset(w io.Writer, prefix string, fs reflow.Fileset) {
 		sort.Strings(keys)
 		for _, key := range keys {
 			file := fs.Map[key]
-			fmt.Fprintf(w, "%s%s:\t%s (%s)\n", prefix, key, file.ID, data.Size(file.Size))
+			fmt.Fprintf(w, "%s%s:\t%s (%s) assertions:%s\n", prefix, key, file.ID, data.Size(file.Size), file.Assertions)
 		}
 	}
 }

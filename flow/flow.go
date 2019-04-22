@@ -158,7 +158,7 @@ const (
 	// NeedTransfer indicates that the evaluator should transfer all
 	// objects needed for execution into the evaluator's repository.
 	NeedTransfer
-	// Transfer indicates that the evalutor is currently
+	// Transfer indicates that the evaluator is currently
 	// transferring the flow's dependent objects from cache.
 	Transfer
 
@@ -287,7 +287,7 @@ type Flow struct {
 
 	// Value stores the Value to which the node was evaluated.
 	Value values.T
-	// Err stores any evaluation error that occured during flow evaluation.
+	// Err stores any evaluation error that occurred during flow evaluation.
 	Err *errors.Error
 
 	// The total runtime for evaluating this node.
@@ -298,6 +298,11 @@ type Flow struct {
 
 	// The exec working on this node.
 	Exec reflow.Exec
+
+	// The exec id assigned to this node which is used to submit the flow to an executor.
+	// This is different from the flow's digest, should be set only by the evaluator
+	// because it encompasses assertions of the flow's dependencies (See Eval.AssignExecId).
+	ExecId digest.Digest
 
 	// Cached stores whether the flow was retrieved from cache.
 	Cached bool

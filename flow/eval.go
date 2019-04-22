@@ -23,6 +23,7 @@ import (
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/status"
+	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
@@ -128,6 +129,12 @@ type EvalConfig struct {
 	// metadata associations.
 	Assoc assoc.Assoc
 
+	// AssertionGenerator is the implementation for generating assertions.
+	AssertionGenerator reflow.AssertionGenerator
+
+	// Assert is the policy to use for asserting cached Assertions.
+	Assert reflow.Assert
+
 	// CacheMode determines whether the evaluator reads from
 	// or writees to the cache. If CacheMode is nonzero, Assoc,
 	// Repository, and Transferer must be non-nil.
@@ -230,6 +237,11 @@ type Eval struct {
 	completed []*Flow
 	// The set of cached flows, used for reporting
 	cached []*Flow
+
+	// assertions is an accumulation of assertions from computed flows (cache-hit or not)
+	// used to ensure that no two flows can be computed with conflicting assertions.
+	assertions *reflow.Assertions
+
 	// A channel indicating how much extra resources are needed
 	// in order to avoid queueing.
 	needch chan reflow.Requirements
@@ -295,6 +307,7 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 	e := &Eval{
 		EvalConfig: config,
 		root:       root.Canonicalize(config.Config),
+		assertions: new(reflow.Assertions),
 		needch:     make(chan reflow.Requirements),
 		errors:     make(chan error),
 		returnch:   make(chan *Flow, 1024),
@@ -302,6 +315,7 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 		wakeupch:   make(chan bool, 1),
 		pending:    newWorkingset(),
 	}
+
 	if config.Executor != nil {
 		e.repo = config.Executor.Repository()
 		e.total = config.Executor.Resources()
@@ -515,13 +529,14 @@ func (e *Eval) Do(ctx context.Context) error {
 					// this is of course subject to race conditions: when multiple
 					// execs concurrently require the same objects, these may be
 					// reported multiple times in aggregate transfer size.
-					seen := make(map[reflow.File]bool)
+					seen := make(map[digest.Digest]bool)
 					for _, file := range files {
-						if seen[file] {
+						dig := file.Digest()
+						if seen[dig] {
 							continue
 						}
 						f.TransferSize += data.Size(file.Size)
-						seen[file] = true
+						seen[dig] = true
 					}
 					e.Mutate(f, Refresh) // TransferSize is updated
 					e.LogFlow(ctx, f)
@@ -555,8 +570,6 @@ func (e *Eval) Do(ctx context.Context) error {
 						break
 					}
 				}
-
-				e.Mutate(f, Execing, Reserve(f.Resources))
 				e.pending.Add(f)
 				if err != nil {
 					go func(err *errors.Error) {
@@ -565,9 +578,16 @@ func (e *Eval) Do(ctx context.Context) error {
 					}(err)
 					break
 				}
-
+				e.Mutate(f, Execing, Reserve(f.Resources))
+				if err := e.AssignExecId(ctx, f); err != nil {
+					go func() {
+						e.Mutate(f, err, Done)
+						e.returnch <- f
+					}()
+					break
+				}
 				task := sched.NewTask()
-				task.ID = f.Digest()
+				task.ID = f.ExecId
 				task.Config = f.ExecConfig()
 				task.Log = e.Log.Prefixf("task %s: ", f.Digest().Short())
 				tasks = append(tasks, task)
@@ -1496,40 +1516,90 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 					errors.NotExist, "cache.Lookup",
 					errors.Errorf("missing %d files (%s)", len(missing), data.Size(total)))
 			}
-			if err == nil && e.RecomputeEmpty && fs.AnyEmpty() {
-				e.Log.Debugf("recomputing empty value for %v", f)
-			} else if err == nil {
-				// Perform read repair: asynchronously write back all non existent keys.
-				writeback := keys[:0]
-				for _, key := range keys {
-					if res, ok := batch[assoc.Key{Kind: assoc.Fileset, Digest: key}]; !ok || res.Digest.IsZero() || res.Error != nil {
-						writeback = append(writeback, key)
-					}
-				}
-				bgctx := Background(ctx)
-				go func() {
-					for _, key := range writeback {
-						if err := e.Assoc.Store(bgctx, assoc.Fileset, key, fsid); err != nil {
-							if !errors.Is(errors.Precondition, err) {
-								e.Log.Errorf("assoc write for read repair %v %v: %v", f, key, err)
-							}
-						}
-					}
-					bgctx.Complete()
-				}()
-				// The node is marked done. If the needed objects are not later
-				// found in the cache's repository, the node will be marked for
-				// recomputation.
-				e.Mutate(f, fs, Cached, Done)
-				if e.BottomUp {
-					e.LogFlow(ctx, f)
-				}
+			if err != nil {
+				e.lookupFailed(f)
 				return nil
 			}
-			e.lookupFailed(f)
+			// If the cached fileset has viable assertions, assert them..
+			// In case of error or empty assertions, simply continue.
+			if fsa, err := fs.Assertions(); err == nil && !fsa.IsEmpty() {
+				fsaNew, err := e.refreshAssertions(ctx, fsa)
+				if err != nil {
+					e.Log.Debugf("refresh assertions: %v", err)
+					e.lookupFailed(f)
+					return nil
+				}
+				if e.Log.At(log.DebugLevel) {
+					if diff := fsa.PrettyDiff(fsaNew); diff != "" {
+						e.Log.Debugf("flow %s assertions diff:\n%s\n", f.Digest().Short(), diff)
+					}
+				}
+				if !e.Assert(ctx, fsa, fsaNew) {
+					e.lookupFailed(f)
+					return nil
+				}
+			}
+			if e.RecomputeEmpty && fs.AnyEmpty() {
+				e.Log.Debugf("recomputing empty value for %v", f)
+				e.lookupFailed(f)
+				return nil
+			}
+			// Perform read repair: asynchronously write back all non existent keys.
+			writeback := keys[:0]
+			for _, key := range keys {
+				if res, ok := batch[assoc.Key{Kind: assoc.Fileset, Digest: key}]; !ok || res.Digest.IsZero() || res.Error != nil {
+					writeback = append(writeback, key)
+				}
+			}
+			bgctx := Background(ctx)
+			go func() {
+				for _, key := range writeback {
+					if err := e.Assoc.Store(bgctx, assoc.Fileset, key, fsid); err != nil {
+						if !errors.Is(errors.Precondition, err) {
+							e.Log.Errorf("assoc write for read repair %v %v: %v", f, key, err)
+						}
+					}
+				}
+				bgctx.Complete()
+			}()
+			// The node is marked done. If the needed objects are not later
+			// found in the cache's repository, the node will be marked for
+			// recomputation.
+			e.Mutate(f, fs, Cached, Done)
+			if e.BottomUp {
+				e.LogFlow(ctx, f)
+			}
 			return nil
 		})
 	}
+}
+
+// refreshAssertions returns assertions with current values for each key from the given assertions.
+// For each AssertionKey, the current value is computed:
+// - from the assertions (if it exists)
+// - by invoking assertion generators for those keys.
+func (e *Eval) refreshAssertions(ctx context.Context, a *reflow.Assertions) (*reflow.Assertions, error) {
+	new, missing := e.assertions.Filter(a)
+	if len(missing) == 0 {
+		return new, nil
+	}
+	missingSet := make(map[reflow.GeneratorKey]bool)
+	var toGenerate []reflow.GeneratorKey
+	for _, m := range missing {
+		key := reflow.GeneratorKey{m.Subject, m.Namespace}
+		if _, ok := missingSet[key]; !ok {
+			missingSet[key] = true
+			toGenerate = append(toGenerate, key)
+		}
+	}
+	err := traverse.Each(len(toGenerate), func(i int) error {
+		a, err := e.AssertionGenerator.Generate(ctx, toGenerate[i])
+		if err != nil {
+			return err
+		}
+		return new.AddFrom(a)
+	})
+	return new, err
 }
 
 // needTransfer returns the file objects that require transfer from flow f.
@@ -1577,6 +1647,41 @@ func (e *Eval) transfer(ctx context.Context, f *Flow) error {
 	return errors.E(errors.Unavailable, "cache.Transfer", err)
 }
 
+// AssignExecId assigns an Exec ID appropriate for the given Flow
+// by merging its digest with the assertions it depends on.
+func (e *Eval) AssignExecId(ctx context.Context, f *Flow) error {
+	assertions, err := inputAssertions(f)
+	if err != nil {
+		return errors.E("AssignExecID", f.Digest(), err)
+	}
+	state, err := e.refreshAssertions(ctx, assertions)
+	if err != nil {
+		return errors.E("AssignExecID", f.Digest(), err)
+	}
+	f.ExecId = reflow.Digester.FromDigests(f.Digest(), state.Digest())
+	return nil
+}
+
+// inputAssertions returns all the assertions of the inputs of the given flow.
+func inputAssertions(f *Flow) (*reflow.Assertions, error) {
+	a := new(reflow.Assertions)
+	cfg := f.ExecConfig()
+	// Collect assertions from all the inputs
+	for _, arg := range cfg.Args {
+		if arg.Fileset == nil {
+			continue
+		}
+		fsa, err := arg.Fileset.Assertions()
+		if err != nil {
+			return nil, err
+		}
+		if err = a.AddFrom(fsa); err != nil {
+			return nil, err
+		}
+	}
+	return a, nil
+}
+
 // exec performs and waits for an exec with the given config.
 // exec tries each step up to numExecTries. Exec returns a value
 // pointer which has been registered as live.
@@ -1594,17 +1699,20 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 		err error
 		x   reflow.Exec
 		r   reflow.Result
+		a   *reflow.Assertions
 		n   = 0
 		s   = statePut
-		id  = f.Digest()
 		cfg = f.ExecConfig()
 	)
+	if a, err = inputAssertions(f); err != nil {
+		return err
+	}
 	// TODO(marius): we should distinguish between fatal and nonfatal errors.
 	// The fatal ones are useless to retry.
 	for n < numExecTries && s < stateDone {
 		switch s {
 		case statePut:
-			x, err = e.Executor.Put(ctx, id, cfg)
+			x, err = e.Executor.Put(ctx, f.ExecId, cfg)
 			if err == nil {
 				f.Exec = x
 				e.LogFlow(ctx, f)
@@ -1616,6 +1724,8 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 		case stateResult:
 			r, err = x.Result(ctx)
 			if err == nil {
+				// Add all input assertions to the result Fileset.
+				r.Fileset.AddAssertions(a)
 				e.Mutate(f, r.Fileset, Incr)
 			}
 		case statePromote:
@@ -1756,6 +1866,22 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 		}
 	}
 	e.muGC.RUnlock()
+	// Assign an ExecId for Execing (external) flows.
+	if f.Op.External() && f.State == Execing {
+		if err := e.AssignExecId(context.Background(), f); err != nil {
+			f.Err = errors.Recover(errors.E("assign execid", f.Digest(), errors.Temporary, err))
+		}
+	}
+	// When a flow is done (without errors), add all its assertions to the vector clock.
+	if f.Op.External() && f.State == Done && f.Err == nil {
+		fsa, err := f.Value.(reflow.Fileset).Assertions()
+		if err != nil {
+			f.Err = errors.Recover(errors.E("assertions conflict", f.Digest(), errors.Temporary, err))
+		}
+		if err := e.assertions.AddFrom(fsa); err != nil {
+			f.Err = errors.Recover(errors.E("assertions conflict", f.Digest(), errors.Temporary, err))
+		}
+	}
 	// Update task status, if applicable.
 	if e.Status == nil {
 		return

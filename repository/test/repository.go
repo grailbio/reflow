@@ -52,7 +52,7 @@ type call struct {
 }
 
 func (c *call) Equal(m *call) bool {
-	if c.Type != m.Type || c.ID != m.ID || ((c.URL == nil) != (m.URL == nil)) || c.File != m.File || c.Err != m.Err {
+	if c.Type != m.Type || c.ID != m.ID || ((c.URL == nil) != (m.URL == nil)) || !c.File.Equal(m.File) || c.Err != m.Err {
 		return false
 	}
 	if c.URL != nil && *c.URL != *m.URL {

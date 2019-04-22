@@ -57,6 +57,7 @@ type runConfig struct {
 	eval           string
 	invalidate     string
 	sched          bool
+	assert         string
 }
 
 func (r *runConfig) Flags(flags *flag.FlagSet) {
@@ -72,6 +73,7 @@ func (r *runConfig) Flags(flags *flag.FlagSet) {
 	flags.StringVar(&r.eval, "eval", "topdown", "evaluation strategy")
 	flags.StringVar(&r.invalidate, "invalidate", "", "regular expression for node identifiers that should be invalidated")
 	flags.BoolVar(&r.sched, "sched", false, "use scalable scheduler instead of work stealing")
+	flags.StringVar(&r.assert, "assert", "never", "policy used to assert cached flow result compatibility (eg: never, exact)")
 }
 
 func (r *runConfig) Err() error {
@@ -311,15 +313,17 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	run := runner.Runner{
 		Flow: e.Main(),
 		EvalConfig: flow.EvalConfig{
-			Log:         execLogger,
-			Repository:  repo,
-			Snapshotter: c.blob(),
-			Assoc:       ass,
-			CacheMode:   c.Config.CacheMode(),
-			Transferer:  transferer,
-			Status:      c.Status.Group(runID.Short()),
-			Scheduler:   scheduler,
-			ImageMap:    e.ImageMap,
+			Log:                execLogger,
+			Repository:         repo,
+			Snapshotter:        c.blob(),
+			Assoc:              ass,
+			AssertionGenerator: c.assertionGenerator(),
+			Assert:             c.asserter(config.assert),
+			CacheMode:          c.Config.CacheMode(),
+			Transferer:         transferer,
+			Status:             c.Status.Group(runID.Short()),
+			Scheduler:          scheduler,
+			ImageMap:           e.ImageMap,
 		},
 		Type:    e.MainType(),
 		Labels:  make(pool.Labels),
@@ -434,15 +438,17 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		log.Fatal(err)
 	}
 	evalConfig := flow.EvalConfig{
-		Executor:    x,
-		Snapshotter: c.blob(),
-		Transferer:  transferer,
-		Log:         execLogger,
-		Repository:  repo,
-		Assoc:       ass,
-		CacheMode:   c.Config.CacheMode(),
-		Status:      c.Status.Group(runID.Short()),
-		ImageMap:    imageMap,
+		Executor:           x,
+		Snapshotter:        c.blob(),
+		Transferer:         transferer,
+		Log:                execLogger,
+		Repository:         repo,
+		Assoc:              ass,
+		AssertionGenerator: c.assertionGenerator(),
+		Assert:             c.asserter(config.assert),
+		CacheMode:          c.Config.CacheMode(),
+		Status:             c.Status.Group(runID.Short()),
+		ImageMap:           imageMap,
 	}
 	config.Configure(&evalConfig)
 	if config.trace {
@@ -514,6 +520,26 @@ func (c Cmd) WaitForBackgroundTasks(wg *wg.WaitGroup, timeout time.Duration) {
 			c.Log.Errorf("some cache writes still pending after timeout %v", timeout)
 		}
 	}
+}
+
+// AssertionGenerator returns the configured AssertionGenerator mux.
+func (c Cmd) assertionGenerator() reflow.AssertionGeneratorMux {
+	mux := make(reflow.AssertionGeneratorMux)
+	mux[blob.AssertionsNamespace] = c.blob()
+	return mux
+}
+
+// asserter returns a reflow.Assert based on the given name.
+func (c Cmd) asserter(name string) reflow.Assert {
+	switch name {
+	case "never":
+		return reflow.AssertNever
+	case "exact":
+		return reflow.AssertExact
+	default:
+		c.Fatal(fmt.Errorf("unknown assert policy %s", name))
+	}
+	return nil
 }
 
 // Blob returns the configured blob muxer.

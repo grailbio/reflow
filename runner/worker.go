@@ -172,7 +172,7 @@ func (w *worker) do(ctx context.Context, f *flow.Flow) (err error) {
 				w.Log.Errorf("transfer error: %v", err)
 			}
 		case statePut:
-			x, err = w.Executor.Put(ctx, f.Digest(), reflow.ExecConfig{
+			x, err = w.Executor.Put(ctx, f.ExecId, reflow.ExecConfig{
 				Type:        "exec",
 				Ident:       f.Ident,
 				Image:       f.Image,

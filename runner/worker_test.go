@@ -25,6 +25,7 @@ func TestWorker(t *testing.T) {
 	exec2 := op.Exec("image", "command2 %s", testutil.Resources, intern)
 	exec3 := op.Exec("image", "command3 %s", testutil.Resources, intern)
 	merge := op.Merge(exec1, exec2, exec3)
+	testutil.AssignExecId(nil, intern, exec1, exec2, exec3, merge)
 
 	var tf testutil.WaitTransferer
 	tf.Init()

@@ -317,7 +317,7 @@ func (e *Executor) Load(ctx context.Context, fs reflow.Fileset) (reflow.Fileset,
 	g, ctx := errgroup.WithContext(ctx)
 	var (
 		mu       sync.Mutex
-		resolved = make(map[reflow.File]reflow.File)
+		resolved = make(map[digest.Digest]reflow.File)
 		files    = fs.Files()
 	)
 	for i := range files {
@@ -334,13 +334,14 @@ func (e *Executor) Load(ctx context.Context, fs reflow.Fileset) (reflow.Fileset,
 				Bucket: bucket,
 				Key:    key,
 				Size:   file.Size,
+				Source: file.Source,
 				ETag:   file.ETag,
 				Log:    e.Log,
 			}
 			res, err := dl.Do(ctx, e.FileRepository)
 			if err == nil {
 				mu.Lock()
-				resolved[file] = res
+				resolved[file.Digest()] = res
 				mu.Unlock()
 			}
 			return err

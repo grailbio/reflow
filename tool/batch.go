@@ -84,6 +84,7 @@ flags override any parameters in the batch sample file.
 	evalStrategy := flags.String("eval", "topdown", "evaluation strategy")
 	invalidateFlag := flags.String("invalidate", "", "regular expression for node identifiers that should be invalidated")
 	idsFlag := flags.String("ids", "", "comma-separated list of ids to run; an empty list runs all")
+	assertFlag := flags.String("assert", "never", "policy used to assert cached flow result compatibility (always, exact, etc)")
 	c.Parse(flags, args, help, "runbatch [-retry] [-reset] [flags]")
 
 	switch *evalStrategy {
@@ -129,17 +130,19 @@ flags override any parameters in the batch sample file.
 	}
 	b := &batch.Batch{
 		EvalConfig: flow.EvalConfig{
-			Log:            c.Log,
-			Snapshotter:    c.blob(),
-			Repository:     repo,
-			Assoc:          assoc,
-			CacheMode:      c.Config.CacheMode(),
-			NoCacheExtern:  *nocacheexternFlag,
-			RecomputeEmpty: *recomputeemptyFlag,
-			Transferer:     transferer,
-			GC:             *gcFlag,
-			BottomUp:       *evalStrategy == "bottomup",
-			Invalidate:     invalidate,
+			Log:                c.Log,
+			Snapshotter:        c.blob(),
+			Repository:         repo,
+			Assoc:              assoc,
+			AssertionGenerator: c.assertionGenerator(),
+			Assert:             c.asserter(*assertFlag),
+			CacheMode:          c.Config.CacheMode(),
+			NoCacheExtern:      *nocacheexternFlag,
+			RecomputeEmpty:     *recomputeemptyFlag,
+			Transferer:         transferer,
+			GC:                 *gcFlag,
+			BottomUp:           *evalStrategy == "bottomup",
+			Invalidate:         invalidate,
 		},
 		Args:    flags.Args(),
 		Rundir:  c.rundir(),

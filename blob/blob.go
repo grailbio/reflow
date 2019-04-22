@@ -22,7 +22,7 @@ type Store interface {
 	Bucket(ctx context.Context, name string) (Bucket, error)
 }
 
-// A Bucket is a single namespace of keys from which files can be
+// A Bucket is a single Namespace of keys from which files can be
 // retrieved. Buckets support efficient prefix scans as well as both
 // streaming and "direct" (concurrent) downloads.
 type Bucket interface {

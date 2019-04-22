@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/grailbio/base/data"
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/reflow"
@@ -130,8 +131,8 @@ type transfer struct {
 }
 
 type transferKey struct {
-	Dest string
-	File reflow.File
+	Dest   string
+	FileID digest.Digest
 }
 
 // A Manager is used to transfer objects between repositories while
@@ -167,6 +168,7 @@ type Manager struct {
 	managerStat transferStat
 
 	transfers map[transferKey]*transfer
+	files     map[digest.Digest]reflow.File
 }
 
 // Transfer transmits a set of files between two repositories,
@@ -350,7 +352,12 @@ func (m *Manager) claim(dst, src reflow.Repository, file reflow.File) (*transfer
 	if m.transfers == nil {
 		m.transfers = make(map[transferKey]*transfer)
 	}
-	key := transferKey{key(dst), file}
+	if m.files == nil {
+		m.files = make(map[digest.Digest]reflow.File)
+	}
+	dig := file.Digest()
+	key := transferKey{key(dst), dig}
+	m.files[dig] = file
 	if t := m.transfers[key]; t != nil {
 		return t, false
 	}
@@ -361,9 +368,11 @@ func (m *Manager) claim(dst, src reflow.Repository, file reflow.File) (*transfer
 
 func (m *Manager) done(dst, src reflow.Repository, file reflow.File, err error) {
 	m.mu.Lock()
-	key := transferKey{key(dst), file}
+	dig := file.Digest()
+	key := transferKey{key(dst), dig}
 	t := m.transfers[key]
 	delete(m.transfers, key)
+	delete(m.files, dig)
 	m.mu.Unlock()
 	t.Err = err
 	close(t.C)

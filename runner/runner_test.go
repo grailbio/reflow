@@ -89,6 +89,7 @@ func TestRunner(t *testing.T) {
 			Flow:       flow.Exec("image", "blah", resources),
 		}
 	)
+	testutil.AssignExecId(nil, r.Flow)
 	r.ID = reflow.Digester.FromString("test")
 	transferer.Init()
 	cluster.Init()

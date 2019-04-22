@@ -56,10 +56,20 @@ var maxResources = reflow.Resources{
 
 var errUnresolved = errors.New("unresolved fileset")
 
+type testGenerator struct{ valuesBySubject map[string]string }
+
+func (t testGenerator) Generate(ctx context.Context, key reflow.GeneratorKey) (*reflow.Assertions, error) {
+	if key.Namespace == "error" {
+		return nil, fmt.Errorf("error")
+	}
+	return reflow.AssertionsFromMap(map[reflow.AssertionKey]string{reflow.AssertionKey{key.Namespace, key.Subject, "tag"}: t.valuesBySubject[key.Subject]}), nil
+}
+
 func TestSimpleEval(t *testing.T) {
 	intern := op.Intern("internurl")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
 	extern := op.Extern("externurl", exec)
+	testutil.AssignExecId(nil, intern, exec, extern)
 
 	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
@@ -87,6 +97,7 @@ func TestGroupbyMapCollect(t *testing.T) {
 	mapCollect := op.Map(func(f *flow.Flow) *flow.Flow {
 		return op.Collect("^./(.*)", "$1", f)
 	}, groupby)
+	testutil.AssignExecId(nil, intern, groupby, mapCollect)
 
 	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
@@ -109,6 +120,7 @@ func TestGroupbyMapCollect(t *testing.T) {
 
 func TestExecRetry(t *testing.T) {
 	exec := op.Exec("image", "command", testutil.Resources)
+	testutil.AssignExecId(nil, exec)
 	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
 
@@ -134,8 +146,10 @@ func TestSteal(t *testing.T) {
 	var execs [N]*flow.Flow
 	for i := range execs {
 		execs[i] = op.Exec(fmt.Sprintf("cmd%d", i), "image", testutil.Resources)
+		testutil.AssignExecId(nil, execs[i])
 	}
 	merge := op.Merge(execs[:]...)
+	testutil.AssignExecId(nil, merge)
 
 	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
@@ -178,6 +192,7 @@ func TestCacheWrite(t *testing.T) {
 		exec := op.Exec("image", "command", testutil.Resources, intern)
 		groupby := op.Groupby("(.*)", exec)
 		pullup := op.Pullup(groupby)
+		testutil.AssignExecId(nil, intern, exec, groupby, pullup)
 
 		assoc := testutil.NewInmemoryAssoc()
 		repo := testutil.NewInmemoryRepository()
@@ -222,11 +237,14 @@ func TestCacheLookup(t *testing.T) {
 	intern := op.Intern("internurl")
 	groupby := op.Groupby("(.*)", intern)
 	mapFunc := func(f *flow.Flow) *flow.Flow {
-		return op.Exec("image", "command", testutil.Resources, f)
+		exec := op.Exec("image", "command", testutil.Resources, f)
+		testutil.AssignExecId(nil, exec)
+		return exec
 	}
 	mapCollect := op.Map(mapFunc, groupby)
 	pullup := op.Pullup(mapCollect)
 	extern := op.Extern("externurl", pullup)
+	testutil.AssignExecId(nil, intern, groupby, mapCollect, pullup, extern)
 
 	e := testutil.Executor{Have: testutil.Resources}
 
@@ -281,15 +299,136 @@ func TestCacheLookup(t *testing.T) {
 	}
 }
 
-func TestCacheLookupBottomup(t *testing.T) {
+func TestCacheLookupWithAssertions(t *testing.T) {
 	intern := op.Intern("internurl")
 	groupby := op.Groupby("(.*)", intern)
 	mapFunc := func(f *flow.Flow) *flow.Flow {
-		return op.Exec("image", "command", testutil.Resources, f)
+		exec := op.Exec("image", "command", testutil.Resources, f)
+		testutil.AssignExecId(nil, exec)
+		return exec
 	}
 	mapCollect := op.Map(mapFunc, groupby)
 	pullup := op.Pullup(mapCollect)
 	extern := op.Extern("externurl", pullup)
+	testutil.AssignExecId(nil, intern, groupby, mapCollect, pullup, extern)
+
+	e := testutil.Executor{Have: testutil.Resources}
+
+	e.Init()
+	e.Repo = testutil.NewInmemoryRepository()
+	eval := flow.NewEval(extern, flow.EvalConfig{
+		Executor:           &e,
+		CacheMode:          flow.CacheRead | flow.CacheWrite,
+		Assoc:              testutil.NewInmemoryAssoc(),
+		AssertionGenerator: testGenerator{map[string]string{"c": "v1"}},
+		Assert:             reflow.AssertExact,
+		Repository:         testutil.NewInmemoryRepository(),
+		Transferer:         testutil.Transferer,
+		Log:                logger(),
+		Trace:              logger(),
+	})
+
+	// Write a cached result with same value returned by the generator.
+	fs := testutil.WriteFiles(eval.Repository, "c")
+	fs.AddAssertions(reflow.AssertionsFromMap(map[reflow.AssertionKey]string{reflow.AssertionKey{"namespace", "c", "tag"}: "v1"}))
+	testutil.WriteCacheFileset(eval, extern.Digest(), fs)
+
+	rc := testutil.EvalAsync(context.Background(), eval)
+	r := <-rc
+	if r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if !e.Equiv() { //no flows to be executed
+		t.Error("did not expect any flows to be executed")
+	}
+
+	e.Init()
+	e.Repo = testutil.NewInmemoryRepository()
+	eval = flow.NewEval(extern, flow.EvalConfig{
+		Executor:           &e,
+		CacheMode:          flow.CacheRead | flow.CacheWrite,
+		Assoc:              testutil.NewInmemoryAssoc(),
+		AssertionGenerator: testGenerator{map[string]string{"c": "v1"}},
+		Assert:             reflow.AssertExact,
+		Repository:         testutil.NewInmemoryRepository(),
+		Transferer:         testutil.Transferer,
+		Log:                logger(),
+		Trace:              logger(),
+	})
+
+	testutil.WriteCache(eval, intern.Digest(), "a", "b")
+
+	// Write a cached result with different value returned by the generator.
+	fs = testutil.WriteFiles(eval.Repository, "c")
+	fs.AddAssertions(reflow.AssertionsFromMap(map[reflow.AssertionKey]string{reflow.AssertionKey{"namespace", "c", "tag"}: "v2"}))
+	testutil.WriteCacheFileset(eval, extern.Digest(), fs)
+
+	rc = testutil.EvalAsync(context.Background(), eval)
+	for _, v := range []reflow.Fileset{testutil.Files("a"), testutil.Files("b")} {
+		v := v
+		f := mapFunc(&flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done})
+		go e.Ok(f, v) // identity
+	}
+
+	e.Ok(extern, fs)
+	r = <-rc
+	if r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if !e.Equiv(extern, mapFunc(flowFiles("a")), mapFunc(flowFiles("b"))) {
+		t.Error("wrong set of expected flows")
+	}
+
+	e.Init()
+	e.Repo = testutil.NewInmemoryRepository()
+	eval = flow.NewEval(extern, flow.EvalConfig{
+		Executor:           &e,
+		CacheMode:          flow.CacheRead | flow.CacheWrite,
+		Assoc:              testutil.NewInmemoryAssoc(),
+		AssertionGenerator: testGenerator{map[string]string{"c": "v1"}},
+		Assert:             reflow.AssertExact,
+		Repository:         testutil.NewInmemoryRepository(),
+		Transferer:         testutil.Transferer,
+		Log:                logger(),
+		Trace:              logger(),
+	})
+
+	testutil.WriteCache(eval, intern.Digest(), "a", "b")
+
+	// Write a cached result with an assertion for which the generator will return an error.
+	fs = testutil.WriteFiles(eval.Repository, "c")
+	fs.AddAssertions(reflow.AssertionsFromMap(map[reflow.AssertionKey]string{reflow.AssertionKey{"error", "c", "tag"}: "v"}))
+	testutil.WriteCacheFileset(eval, extern.Digest(), fs)
+
+	rc = testutil.EvalAsync(context.Background(), eval)
+	for _, v := range []reflow.Fileset{testutil.Files("a"), testutil.Files("b")} {
+		v := v
+		f := mapFunc(&flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done})
+		go e.Ok(f, v) // identity
+	}
+
+	e.Ok(extern, fs)
+	r = <-rc
+	if r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if !e.Equiv(extern, mapFunc(flowFiles("a")), mapFunc(flowFiles("b"))) {
+		t.Error("wrong set of expected flows")
+	}
+}
+
+func TestCacheLookupBottomup(t *testing.T) {
+	intern := op.Intern("internurl")
+	groupby := op.Groupby("(.*)", intern)
+	mapFunc := func(f *flow.Flow) *flow.Flow {
+		exec := op.Exec("image", "command", testutil.Resources, f)
+		testutil.AssignExecId(nil, exec)
+		return exec
+	}
+	mapCollect := op.Map(mapFunc, groupby)
+	pullup := op.Pullup(mapCollect)
+	extern := op.Extern("externurl", pullup)
+	testutil.AssignExecId(nil, intern, groupby, mapCollect, pullup, extern)
 
 	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
@@ -329,9 +468,260 @@ func TestCacheLookupBottomup(t *testing.T) {
 	}
 }
 
+func TestCacheLookupBottomupWithAssertions(t *testing.T) {
+	intern := op.Intern("internurl")
+	groupby := op.Groupby("(.*)", intern)
+	mapFunc := func(f *flow.Flow) *flow.Flow {
+		exec := op.Exec("image", "command", testutil.Resources, f)
+		testutil.AssignExecId(nil, exec)
+		return exec
+	}
+	mapCollect := op.Map(mapFunc, groupby)
+	pullup := op.Pullup(mapCollect)
+	extern := op.Extern("externurl", pullup)
+	testutil.AssignExecId(nil, intern, groupby, mapCollect, pullup)
+
+	e := testutil.Executor{Have: testutil.Resources}
+	e.Init()
+	e.Repo = testutil.NewInmemoryRepository()
+	var cache testutil.WaitCache
+	cache.Init()
+
+	eval := flow.NewEval(extern, flow.EvalConfig{
+		Executor:           &e,
+		CacheMode:          flow.CacheRead | flow.CacheWrite,
+		Assoc:              testutil.NewInmemoryAssoc(),
+		AssertionGenerator: testGenerator{map[string]string{"a": "v1", "b": "v1", "c": "v1"}},
+		Assert:             reflow.AssertExact,
+		Repository:         testutil.NewInmemoryRepository(),
+		Transferer:         testutil.Transferer,
+		BottomUp:           true,
+		// We set a small cache lookup timeout here to shorten test times.
+		// TODO(marius): allow for tighter integration or observation
+		// between the evaluator and its tests, e.g., so that we can wait
+		// for physical digests to be available and not rely on cache
+		// timeouts for progress. Perhaps this can be done by way of
+		// traces, or a way of observing individual nodes. (Observers would
+		// need to be shared across canonicalizations.)
+		CacheLookupTimeout: 100 * time.Millisecond,
+		Log:                logger(),
+		Trace:              logger(),
+	})
+
+	testutil.WriteCache(eval, intern.Digest(), "a", "b", "c")
+
+	fsA, fsB, fsC := testutil.Files("a"), testutil.Files("b"), testutil.Files("c")
+	// "a" has "v1" and will get "v1" from the generator, so the cache hit will be accepted.
+	fsA.AddAssertions(reflow.AssertionsFromMap(map[reflow.AssertionKey]string{reflow.AssertionKey{"namespace", "a", "tag"}: "v1"}))
+	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("a")).Digest(), fsA)
+	// "b" has "v2" but will get "v1" from the generator, so the cache hit will be rejected.
+	fsB.AddAssertions(reflow.AssertionsFromMap(map[reflow.AssertionKey]string{reflow.AssertionKey{"namespace", "b", "tag"}: "v2"}))
+	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("b")).Digest(), fsB)
+	// "c" has "error" in the namespace so the generator will error out, so the cache hit will be rejected.
+	fsC.AddAssertions(reflow.AssertionsFromMap(map[reflow.AssertionKey]string{reflow.AssertionKey{"error", "c", "tag"}: "v"}))
+	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("c")).Digest(), fsC)
+
+	// Cache-hits contribute towards exec ID computation.
+	testutil.AssignExecId(reflow.AssertionsFromMap(map[reflow.AssertionKey]string{
+		reflow.AssertionKey{"namespace", "a", "tag"}: "v1",
+	}), extern)
+
+	rc := testutil.EvalAsync(context.Background(), eval)
+	go e.Ok(mapFunc(flowFiles("b")), testutil.Files("b"))
+	go e.Ok(mapFunc(flowFiles("c")), testutil.Files("c"))
+	e.Ok(extern, reflow.Fileset{})
+	r := <-rc
+	if r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if !e.Equiv(extern, mapFunc(flowFiles("b")), mapFunc(flowFiles("c"))) {
+		t.Error("wrong set of expected flows")
+	}
+}
+
+func TestCacheLookupBottomupWithAssertExact(t *testing.T) {
+	intern := op.Intern("internurl")
+	groupby := op.Groupby("(.*)", intern)
+	mapFunc := func(f *flow.Flow) *flow.Flow {
+		exec := op.Exec("image", "command", testutil.Resources, f)
+		testutil.AssignExecId(nil, exec)
+		return exec
+	}
+	mapCollect := op.Map(mapFunc, groupby)
+	pullup := op.Pullup(mapCollect)
+	extern := op.Extern("externurl", pullup)
+	testutil.AssignExecId(nil, intern, groupby, mapCollect, pullup)
+
+	e := testutil.Executor{Have: testutil.Resources}
+	e.Init()
+	e.Repo = testutil.NewInmemoryRepository()
+	var cache testutil.WaitCache
+	cache.Init()
+
+	eval := flow.NewEval(extern, flow.EvalConfig{
+		Executor:           &e,
+		CacheMode:          flow.CacheRead | flow.CacheWrite,
+		Assoc:              testutil.NewInmemoryAssoc(),
+		AssertionGenerator: testGenerator{map[string]string{"a": "va", "b": "vb", "c": "vc"}},
+		Assert:             reflow.AssertExact,
+		Repository:         testutil.NewInmemoryRepository(),
+		Transferer:         testutil.Transferer,
+		BottomUp:           true,
+		// We set a small cache lookup timeout here to shorten test times.
+		// TODO(marius): allow for tighter integration or observation
+		// between the evaluator and its tests, e.g., so that we can wait
+		// for physical digests to be available and not rely on cache
+		// timeouts for progress. Perhaps this can be done by way of
+		// traces, or a way of observing individual nodes. (Observers would
+		// need to be shared across canonicalizations.)
+		CacheLookupTimeout: 100 * time.Millisecond,
+		Log:                logger(),
+		Trace:              logger(),
+	})
+
+	testutil.WriteCache(eval, intern.Digest(), "a", "b", "c")
+
+	fsA, fsB, fsC := testutil.Files("a"), testutil.Files("b"), testutil.Files("c")
+	// All three will be cache-hits.
+	fsA.AddAssertions(reflow.AssertionsFromMap(map[reflow.AssertionKey]string{reflow.AssertionKey{"namespace", "a", "tag"}: "va"}))
+	fsB.AddAssertions(reflow.AssertionsFromMap(map[reflow.AssertionKey]string{reflow.AssertionKey{"namespace", "b", "tag"}: "vb"}))
+	fsC.AddAssertions(reflow.AssertionsFromMap(map[reflow.AssertionKey]string{reflow.AssertionKey{"namespace", "c", "tag"}: "vc"}))
+	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("a")).Digest(), fsA)
+	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("b")).Digest(), fsB)
+	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("c")).Digest(), fsC)
+
+	// Cache-hits contribute towards exec ID computation.
+	testutil.AssignExecId(reflow.AssertionsFromMap(map[reflow.AssertionKey]string{
+		reflow.AssertionKey{"namespace", "a", "tag"}: "va",
+		reflow.AssertionKey{"namespace", "b", "tag"}: "vb",
+		reflow.AssertionKey{"namespace", "c", "tag"}: "vc",
+	}), extern)
+
+	rc := testutil.EvalAsync(context.Background(), eval)
+	e.Ok(extern, reflow.Fileset{})
+	r := <-rc
+	if r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if !e.Equiv(extern) {
+		t.Error("wrong set of expected flows")
+	}
+}
+
+func TestCacheLookupBottomupWithAssertNever(t *testing.T) {
+	intern := op.Intern("internurl")
+	groupby := op.Groupby("(.*)", intern)
+	mapFunc := func(f *flow.Flow) *flow.Flow {
+		exec := op.Exec("image", "command", testutil.Resources, f)
+		testutil.AssignExecId(nil, exec)
+		return exec
+	}
+	mapCollect := op.Map(mapFunc, groupby)
+	pullup := op.Pullup(mapCollect)
+	extern := op.Extern("externurl", pullup)
+	testutil.AssignExecId(nil, intern, groupby, mapCollect, pullup, extern)
+
+	e := testutil.Executor{Have: testutil.Resources}
+
+	e.Init()
+	e.Repo = testutil.NewInmemoryRepository()
+	eval := flow.NewEval(extern, flow.EvalConfig{
+		Executor:           &e,
+		CacheMode:          flow.CacheRead | flow.CacheWrite,
+		Assoc:              testutil.NewInmemoryAssoc(),
+		AssertionGenerator: testGenerator{map[string]string{"e": "v1"}},
+		Assert:             reflow.AssertNever,
+		Repository:         testutil.NewInmemoryRepository(),
+		Transferer:         testutil.Transferer,
+		Log:                logger(),
+		Trace:              logger(),
+	})
+
+	fs := testutil.Files("e")
+	fs.AddAssertions(reflow.AssertionsFromMap(map[reflow.AssertionKey]string{
+		reflow.AssertionKey{"namespace", "e", "tag"}: "invalid"}))
+	testutil.WriteCacheFileset(eval, extern.Digest(), fs)
+
+	testutil.AssignExecId(reflow.AssertionsFromMap(map[reflow.AssertionKey]string{
+		reflow.AssertionKey{"namespace", "e", "tag"}: "v1",
+	}), extern)
+
+	testutil.WriteCache(eval, extern.Digest())
+	rc := testutil.EvalAsync(context.Background(), eval)
+	r := <-rc
+	if r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if !e.Equiv() { //no flows to be executed
+		t.Error("did not expect any flows to be executed")
+	}
+
+	e = testutil.Executor{Have: testutil.Resources}
+	e.Init()
+	e.Repo = testutil.NewInmemoryRepository()
+	var cache testutil.WaitCache
+	cache.Init()
+
+	eval = flow.NewEval(extern, flow.EvalConfig{
+		Executor:           &e,
+		CacheMode:          flow.CacheRead | flow.CacheWrite,
+		Assoc:              testutil.NewInmemoryAssoc(),
+		AssertionGenerator: testGenerator{map[string]string{"a": "va", "b": "vb", "c": "vc"}},
+		Assert:             reflow.AssertNever,
+		Repository:         testutil.NewInmemoryRepository(),
+		Transferer:         testutil.Transferer,
+		BottomUp:           true,
+		// We set a small cache lookup timeout here to shorten test times.
+		// TODO(marius): allow for tighter integration or observation
+		// between the evaluator and its tests, e.g., so that we can wait
+		// for physical digests to be available and not rely on cache
+		// timeouts for progress. Perhaps this can be done by way of
+		// traces, or a way of observing individual nodes. (Observers would
+		// need to be shared across canonicalizations.)
+		CacheLookupTimeout: 100 * time.Millisecond,
+		Log:                logger(),
+		Trace:              logger(),
+	})
+
+	testutil.WriteCache(eval, intern.Digest(), "a", "b", "c")
+
+	fsA, fsB, fsC := testutil.Files("a"), testutil.Files("b"), testutil.Files("c")
+	// All three will be cache-hits.
+	fsA.AddAssertions(reflow.AssertionsFromMap(map[reflow.AssertionKey]string{
+		reflow.AssertionKey{"namespace", "a", "tag"}: "invalid"}))
+	fsB.AddAssertions(reflow.AssertionsFromMap(map[reflow.AssertionKey]string{
+		reflow.AssertionKey{"namespace", "b", "tag"}: "invalid"}))
+	fsC.AddAssertions(reflow.AssertionsFromMap(map[reflow.AssertionKey]string{
+		reflow.AssertionKey{"namespace", "c", "tag"}: "invalid"}))
+	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("a")).Digest(), fsA)
+	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("b")).Digest(), fsB)
+	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("c")).Digest(), fsC)
+
+	// Cache-hits contribute towards exec ID computation.
+	// Values used for computing Exec ID are based on the testGenerator
+	// and not the cached values for those keys.
+	testutil.AssignExecId(reflow.AssertionsFromMap(map[reflow.AssertionKey]string{
+		reflow.AssertionKey{"namespace", "a", "tag"}: "va",
+		reflow.AssertionKey{"namespace", "b", "tag"}: "vb",
+		reflow.AssertionKey{"namespace", "c", "tag"}: "vc",
+	}), extern)
+
+	// extern also has a cached result.
+	testutil.WriteCache(eval, extern.Digest())
+	rc = testutil.EvalAsync(context.Background(), eval)
+	r = <-rc
+	if r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if !e.Equiv() { //no flows to be executed
+		t.Error("did not expect any flows to be executed")
+	}
+}
+
 func TestCacheLookupMissing(t *testing.T) {
 	intern := op.Intern("internurl")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
+	testutil.AssignExecId(nil, intern, exec)
 
 	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
@@ -371,11 +761,14 @@ func TestNoCacheExtern(t *testing.T) {
 		intern := op.Intern("internurl")
 		groupby := op.Groupby("(.*)", intern)
 		mapFunc := func(f *flow.Flow) *flow.Flow {
-			return op.Exec("image", "command", testutil.Resources, f)
+			exec := op.Exec("image", "command", testutil.Resources, f)
+			testutil.AssignExecId(nil, exec)
+			return exec
 		}
 		mapCollect := op.Map(mapFunc, groupby)
 		pullup := op.Pullup(mapCollect)
 		extern := op.Extern("externurl", pullup)
+		testutil.AssignExecId(nil, intern, groupby, mapCollect, pullup, extern)
 
 		e := testutil.Executor{Have: testutil.Resources}
 		e.Init()
@@ -412,12 +805,17 @@ func TestGC(t *testing.T) {
 	intern := op.Intern("internurl")
 	groupby := op.Groupby("^(.)/.*", intern)
 	mapCollect := op.Map(func(f *flow.Flow) *flow.Flow {
-		return op.Collect("^./(.*)", "$1", f)
+		c := op.Collect("^./(.*)", "$1", f)
+		testutil.AssignExecId(nil, c)
+		return c
 	}, groupby)
 	mapPullup := op.Map(func(f *flow.Flow) *flow.Flow {
-		return op.Pullup(f, op.Collect("orphan", "anotherfile", intern))
+		p := op.Pullup(f, op.Collect("orphan", "anotherfile", intern))
+		testutil.AssignExecId(nil, p)
+		return p
 	}, mapCollect)
 	pullup := op.Pullup(mapPullup)
+	testutil.AssignExecId(nil, intern, groupby, mapCollect, mapPullup, pullup)
 
 	e := testutil.Executor{Have: testutil.Resources}
 	e.Init()
@@ -499,7 +897,7 @@ type testAlloc struct {
 	// Repo is the alloc's repository.
 	Repo reflow.Repository
 	// Sub is the substitution map used for reference loading.
-	Sub map[reflow.File]reflow.File
+	Sub map[digest.Digest]reflow.File
 
 	mu        sync.Mutex
 	allocated bool
@@ -608,6 +1006,7 @@ func TestScheduler(t *testing.T) {
 	intern := op.Intern("internurl")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
 	extern := op.Extern("externurl", exec)
+	testutil.AssignExecId(nil, intern, exec, extern)
 
 	eval := flow.NewEval(extern, config)
 	rc := testutil.EvalAsync(context.Background(), eval)
@@ -637,16 +1036,17 @@ func TestSnapshotter(t *testing.T) {
 		},
 	}
 	// Populate the substitution map for all known files.
-	e.Sub = make(map[reflow.File]reflow.File)
+	e.Sub = make(map[digest.Digest]reflow.File)
 	for _, fs := range snapshotter {
 		for _, file := range fs.Files() {
-			e.Sub[file] = testutil.WriteFile(e.Repo, file.Source)
+			e.Sub[file.Digest()] = testutil.WriteFile(e.Repo, file.Source)
 		}
 	}
 
 	intern := op.Intern("s3://bucket/prefix")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
 	extern := op.Extern("externurl", exec)
+	testutil.AssignExecId(nil, intern, exec, extern)
 
 	eval := flow.NewEval(extern, config)
 	rc := testutil.EvalAsync(context.Background(), eval)
@@ -680,6 +1080,7 @@ func TestResolverFail(t *testing.T) {
 	intern := op.Intern("s3://bucket/prefix")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
 	extern := op.Extern("externurl", exec)
+	testutil.AssignExecId(nil, intern, exec, extern)
 
 	eval := flow.NewEval(extern, config)
 	rc := testutil.EvalAsync(context.Background(), eval)
@@ -712,6 +1113,7 @@ func TestLoadFail(t *testing.T) {
 	intern := op.Intern("s3://bucket/prefix")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
 	extern := op.Extern("externurl", exec)
+	testutil.AssignExecId(nil, intern, exec, extern)
 
 	eval := flow.NewEval(extern, config)
 	rc := testutil.EvalAsync(context.Background(), eval)
@@ -731,6 +1133,7 @@ func TestSchedulerSubmit(t *testing.T) {
 	exec2 := op.Exec("image", "command2", testutil.Resources, intern)
 	merged := op.Pullup(exec1, exec2)
 	extern := op.Extern("externurl", merged)
+	testutil.AssignExecId(nil, intern, exec1, exec2, merged, extern)
 
 	wa := newWaitAssoc()
 	config.Assoc = wa

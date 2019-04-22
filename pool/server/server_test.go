@@ -47,7 +47,7 @@ func (*testAlloc) Inspect(ctx context.Context) (pool.AllocInspect, error) {
 }
 
 func (*testAlloc) Load(ctx context.Context, fs reflow.Fileset) (reflow.Fileset, error) {
-	if fs.N() != 1 || fs.Map["."] != testFile {
+	if fs.N() != 1 || !fs.Map["."].Equal(testFile) {
 		return reflow.Fileset{}, errors.New("unexpected fileset")
 	}
 	file := fs.Map["."]

@@ -73,7 +73,12 @@ func WriteFile(r reflow.Repository, content string) reflow.File {
 // WriteCache writes the provided files into the eval's repository and registers
 // a Fileset cache assoc.
 func WriteCache(e *flow.Eval, key digest.Digest, files ...string) {
-	fs := WriteFiles(e.Repository, files...)
+	WriteCacheFileset(e, key, WriteFiles(e.Repository, files...))
+}
+
+// WriteCacheFileset writes the provided fileset into the eval's repository and registers
+// a Fileset cache assoc.
+func WriteCacheFileset(e *flow.Eval, key digest.Digest, fs reflow.Fileset) {
 	fsid, err := repository.Marshal(context.Background(), e.Repository, fs)
 	if err != nil {
 		unexpected(err)

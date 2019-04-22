@@ -56,37 +56,45 @@ func (f *Fuzz) Digest() digest.Digest {
 }
 
 // File returns a random file. If refok is true, then
-// the returned file may be a reference file.
-func (f *Fuzz) File(refok bool) reflow.File {
+// the returned file may be a reference file.  If aok
+// is true, then the returned file will contain assertions.
+func (f *Fuzz) File(refok, aok bool) reflow.File {
+	var file reflow.File
 	if refok && f.Float64() < 0.5 {
-		return reflow.File{
+		file = reflow.File{
 			Size:   int64(f.Uint64()),
 			Source: fmt.Sprintf("s3://%s/%s", f.String(""), f.String("/")),
 			ETag:   f.String(""),
 		}
 	} else {
-		return reflow.File{ID: f.Digest()}
+		file = reflow.File{ID: f.Digest()}
 	}
+	if aok {
+		file.Assertions = reflow.AssertionsFromMap(map[reflow.AssertionKey]string{
+			reflow.AssertionKey{"blob", file.Source, "etag"}: fmt.Sprintf("etag%d", f.Intn(10))})
+	}
+	return file
 }
 
 // Fileset returns a random fileset. If refok is true, then
-// the returned fileset may contain reference files.
-func (f *Fuzz) Fileset(refok bool) reflow.Fileset {
-	return f.fileset(0, refok)
+// the returned fileset may contain reference files.  If aok
+//// is true, then the returned fileset will contain assertions.
+func (f *Fuzz) Fileset(refok, aok bool) reflow.Fileset {
+	return f.fileset(0, refok, aok)
 }
 
-func (f *Fuzz) fileset(depth int, refok bool) (fs reflow.Fileset) {
+func (f *Fuzz) fileset(depth int, refok, aok bool) (fs reflow.Fileset) {
 	if f.Float64() < math.Pow(0.5, float64(depth+1)) {
 		n := f.Intn(10) + 1
 		fs.List = make([]reflow.Fileset, n)
 		for i := range fs.List {
-			fs.List[i] = f.fileset(depth+1, refok)
+			fs.List[i] = f.fileset(depth+1, refok, aok)
 		}
 	} else {
 		n := f.Intn(10) + 1
 		fs.Map = make(map[string]reflow.File)
 		for i := 0; i < n; i++ {
-			fs.Map[f.String("/")] = f.File(refok)
+			fs.Map[f.String("/")] = f.File(refok, aok)
 		}
 	}
 	return
