@@ -7,6 +7,7 @@ package execimage
 import (
 	"crypto"
 	_ "crypto/sha256" // Needed for crypto.SHA256
+	"debug/elf"
 	"debug/macho"
 	"fmt"
 	"io"
@@ -106,6 +107,10 @@ func InstallImage(exec io.ReadCloser, prefix string) error {
 	return err
 }
 
+func sectionEndAligned(s *elf.Section) uint64 {
+	return ((s.Offset + s.FileSize) + (s.Addralign - 1)) & -s.Addralign
+}
+
 // ErrNoEmbeddedImage is thrown if the current binary has no embedded linux image.
 var ErrNoEmbeddedImage = errors.New("no embedded linux image")
 
@@ -123,8 +128,49 @@ func EmbeddedLinuxImage() (io.ReadCloser, error) {
 	if err != nil {
 		return nil, err
 	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
 	if runtime.GOOS == "linux" {
-		return os.Open(path)
+		elff, err := elf.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		// We could embed a reflowlet in other binaries. This requires us to inspect the binary
+		// and find out where the bits of the reflowlet binary start.
+		// We read the ELF file sections and determine the section that comes last in the file.
+		// The last section's end offset (aligned to the section's alignment) gives us the
+		// size of the file.
+		var lastOffset uint64
+		for _, s := range elff.Sections {
+			// section type SHT_NOBITS occupies no space in the file.
+			switch {
+			case s.Type == elf.SHT_NOBITS:
+				continue
+			case lastOffset == 0:
+				lastOffset = sectionEndAligned(s)
+			default:
+				offset := sectionEndAligned(s)
+				if offset > lastOffset {
+					lastOffset = offset
+				}
+			}
+		}
+		if lastOffset > uint64(fi.Size()) {
+			return nil, errors.New(fmt.Sprintf("ELF file computed size greater than actual size (%v vs %v)", lastOffset, fi.Size()))
+		}
+		if lastOffset == uint64(fi.Size()) {
+			return os.Open(path)
+		}
+		r, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		if _, err = r.Seek(int64(lastOffset), io.SeekStart); err != nil {
+			return nil, err
+		}
+		return r, nil
 	}
 	fh, err := macho.Open(path)
 	if err != nil {
@@ -132,10 +178,6 @@ func EmbeddedLinuxImage() (io.ReadCloser, error) {
 	}
 	sg := fh.Segment("__LINKEDIT")
 	machoSize := int64(sg.SegmentHeader.Filesz + sg.SegmentHeader.Offset)
-	fi, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
 	if fi.Size() == machoSize {
 		return nil, ErrNoEmbeddedImage
 	}
