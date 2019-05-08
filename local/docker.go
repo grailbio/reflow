@@ -25,6 +25,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/retry"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
@@ -69,6 +70,8 @@ type dockerExec struct {
 	Manifest
 	err error
 }
+
+var retryPolicy = retry.MaxTries(retry.Backoff(time.Second, 10*time.Second, 1.5), 5)
 
 // newExec creates a new exec with parent executor x.
 func newDockerExec(id digest.Digest, x *Executor, cfg reflow.ExecConfig, stdout, stderr *log.Logger) *dockerExec {
@@ -141,8 +144,15 @@ func (e *dockerExec) create(ctx context.Context) (execState, error) {
 		return execInit, errors.E("ContainerInspect", e.containerName(), kind(err), err)
 	}
 	// TODO: it might be worthwhile doing image pulling as a separate state.
-	if err := e.Executor.ensureImage(ctx, e.Config.Image); err != nil {
-		return execInit, fmt.Errorf("failed to pull image %s: %s", e.Config.Image, err)
+	for retries := 0; ; retries++ {
+		err := e.Executor.ensureImage(ctx, e.Config.Image)
+		if err == nil {
+			break
+		}
+		e.Log.Errorf("error ensuring image %s: %v", e.Config.Image, err)
+		if err := retry.Wait(ctx, retryPolicy, retries); err != nil {
+			return execInit, errors.E(errors.Unavailable, "failed to pull image %s: %s", e.Config.Image, err)
+		}
 	}
 	// Map the products to input arguments and volume bindings for
 	// the container. Currently we map the whole repository (named by
