@@ -9,12 +9,15 @@ import (
 	"net/http"
 	"regexp"
 
+	"sort"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ecr"
 	"github.com/aws/aws-sdk-go/service/ecr/ecriface"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/ec2authenticator"
+	"github.com/grailbio/reflow/ec2cluster/instances"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/runner"
@@ -104,6 +107,14 @@ type Config struct {
 // key "ec2cluster". It returns an error if this key cannot be unmarshaled
 // into a valid EC2 configuration.
 func (c *Config) Init() error {
+	// If InstanceTypes are not defined, include all known types.
+	if len(c.InstanceTypes) == 0 {
+		c.InstanceTypes = make([]string, len(instances.Types))
+		for i := range instances.Types {
+			c.InstanceTypes[i] = instances.Types[i].Name
+		}
+		sort.Strings(c.InstanceTypes)
+	}
 	v := c.Value(ec2cluster)
 	if v == nil {
 		return nil
