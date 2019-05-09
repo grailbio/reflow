@@ -145,11 +145,13 @@ func TestSteal(t *testing.T) {
 		Trace:    logger(),
 	})
 	rc := testutil.EvalAsync(context.Background(), eval)
+	stolen := []*flow.Flow{execs[N-1]}
 	for i := 0; i < N; i++ {
-		e.Wait(execs[N-i-1])
+		exec := stolen[0]
+		e.Wait(exec)
 		s := eval.Stealer()
-		stolen := make([]*flow.Flow, N-i-1)
-		for j := range stolen {
+		stolen = make([]*flow.Flow, N-i-1)
+		for j := 0; j < N-i-1; j++ {
 			stolen[j] = <-s.Admit(maxResources)
 		}
 		select {
@@ -157,7 +159,7 @@ func TestSteal(t *testing.T) {
 			t.Errorf("stole too much %d: %v", i, f)
 		default:
 		}
-		e.Ok(execs[N-i-1], reflow.Fileset{})
+		e.Ok(exec, reflow.Fileset{})
 		// Return the rest undone.
 		for _, f := range stolen {
 			s.Return(f)
