@@ -26,21 +26,33 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
+	"github.com/aws/aws-sdk-go/service/ecr"
 	"github.com/grailbio/base/status"
+	"github.com/grailbio/infra"
+	"github.com/grailbio/infra/tls"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/config"
+	"github.com/grailbio/reflow/ec2authenticator"
+	"github.com/grailbio/reflow/ec2cluster/instances"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/ecrauth"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/pool/client"
+	"golang.org/x/net/http2"
 )
 
 const (
 	ec2PollInterval = time.Minute
 )
+
+func init() {
+	infra.Register(new(Cluster))
+
+}
 
 // A Cluster implements a runner.Cluster backed by EC2.  The cluster expands
 // with demand.  Instances are configured so that they shut down when they
@@ -53,65 +65,72 @@ const (
 // In the case of Reflow, this means that multiple runs (single or batch)
 // share the same cluster efficiently.
 type Cluster struct {
-	pool.Mux
+	pool.Mux `yaml:"-"`
 	// HTTPClient is used to communicate to the reflowlet servers
 	// running on the individual instances. In Cluster, this is done for
 	// liveness/health checking.
-	HTTPClient *http.Client
+	HTTPClient *http.Client `yaml:"-"`
 	// Logger for cluster events.
-	Log *log.Logger
+	Log *log.Logger `yaml:"-"`
 	// EC2 is the EC2 API instance through which EC2 calls are made.
-	EC2 ec2iface.EC2API
+	EC2 ec2iface.EC2API `yaml:"-"`
 	// Authenticator authenticates the ECR repository that stores the
 	// Reflowlet container.
-	Authenticator ecrauth.Interface
+	Authenticator ecrauth.Interface `yaml:"-"`
 	// InstanceTags is the set of EC2 tags attached to instances created by this Cluster.
-	InstanceTags map[string]string
+	InstanceTags map[string]string `yaml:"-"`
 	// Labels is the set of labels that should be added as EC2 tags (for informational purpose only).
-	Labels pool.Labels
+	Labels pool.Labels `yaml:"-"`
 	// Spot is set to true when a spot instance is desired.
-	Spot bool
+	Spot bool `yaml:"spot,omitempty"`
 	// InstanceProfile is the EC2 instance profile to use for the cluster instances.
-	InstanceProfile string
+	InstanceProfile string `yaml:"instanceprofile,omitempty"`
 	// SecurityGroup is the EC2 security group to use for cluster instances.
-	SecurityGroup string
+	SecurityGroup string `yaml:"securitygroup,omitempty"`
 	// Region is the AWS availability region to use for launching new EC2 instances.
-	Region string
-	// InstanceTypes stores the set of admissible instance types.
+	Region string `yaml:"region,omitempty"`
+	// InstanceTypesMap stores the set of admissible instance types.
 	// If nil, all instance types are permitted.
-	InstanceTypes map[string]bool
+	InstanceTypesMap map[string]bool `yaml:"-"`
 	// ReflowletImage is the Docker URI of the image used for instance reflowlets.
 	// The image must be retrievable by the cluster's authenticator.
-	ReflowletImage string
+	ReflowletImage string `yaml:"-"`
 	// ReflowVersion is the version of reflow binary compatible with this cluster.
-	ReflowVersion string
+	ReflowVersion string `yaml:"-"`
 	// MaxInstances is the maximum number of concurrent instances permitted.
-	MaxInstances int
+	MaxInstances int `yaml:"-"`
 	// DiskType is the EBS disk type to use.
-	DiskType string
+	DiskType string `yaml:"disktype"`
 	// DiskSpace is the number of GiB of disk space to allocate for each node.
-	DiskSpace int
+	DiskSpace int `yaml:"diskspace"`
 	// DiskSlices is the number of EBS volumes that are used. When DiskSlices > 1,
 	// they are arranged in a RAID0 array to increase throughput.
-	DiskSlices int
+	DiskSlices int `yaml:"diskslices"`
 	// AMI is the VM image used to launch new instances.
-	AMI string
+	AMI string `yaml:"ami"`
 	// The config for this Reflow instantiation. Used to provide configs to
 	// EC2 instances.
-	Config config.Config
+	Config config.Config `yaml:"-"`
 	// User's public SSH key.
-	SshKey string
+	SshKey string `yaml:"sshkey"`
 	// AWS key name for launching instances.
-	KeyName string
+	KeyName string `yaml:"keyname"`
 	// Immortal determines whether instances should be made immortal.
-	Immortal bool
+	Immortal bool `yaml:"immortal,omitempty"`
 	// CloudConfig is merged into the instance's cloudConfig before launching.
-	CloudConfig cloudConfig
+	CloudConfig cloudConfig `yaml:"cloudconfig"`
 	// SpotProbeDepth is the probing depth for spot instance capacity checks.
-	SpotProbeDepth int
+	SpotProbeDepth int `yaml:"spotprobedepth,omitempty"`
 
 	// Status is used to report cluster and instance status.
-	Status *status.Group
+	Status *status.Group `yaml:"-"`
+
+	// InstanceTypesMap defines the set of allowable EC2 instance types for
+	// this cluster. If empty, all instance types are permitted.
+	InstanceTypes []string `yaml:"instancetypes,omitempty"`
+	// Name is the name of the cluster config, which defaults to defaultClusterName.
+	// Multiple clusters can be launched/maintained simultaneously by using different names.
+	Name string `yaml:"name,omitempty"`
 
 	instanceState   *instanceState
 	instanceConfigs map[string]instanceConfig
@@ -120,6 +139,57 @@ type Cluster struct {
 	state *state
 
 	wait chan *waiter
+}
+
+func (c *Cluster) Init(tls *tls.Authority, sess *session.Session, labels pool.Labels, reflowlet *reflow.ReflowletVersion, reflowVersion *reflow.ReflowVersion, id *reflow.User, logger *log.Logger, sshKey *reflow.SshKey) error {
+	// If InstanceTypes are not defined, include all known types.
+	if len(c.InstanceTypes) == 0 {
+		c.InstanceTypes = make([]string, len(instances.Types))
+		for i := range instances.Types {
+			c.InstanceTypes[i] = instances.Types[i].Name
+		}
+		sort.Strings(c.InstanceTypes)
+	}
+	clientConfig, _, err := tls.HTTPS()
+	if err != nil {
+		return err
+	}
+	transport := &http.Transport{TLSClientConfig: clientConfig}
+	http2.ConfigureTransport(transport)
+	httpClient := &http.Client{Transport: transport}
+	svc := ec2.New(sess, &aws.Config{MaxRetries: aws.Int(13)})
+	if reflowVersion.Value() == "" {
+		return errors.New("no version specified in cluster configuration")
+	}
+	if err := validateReflowletImage(ecr.New(sess), string(*reflowlet), logger); err != nil {
+		return err
+	}
+
+	c.EC2 = svc
+	c.Authenticator = ec2authenticator.New(sess)
+	c.HTTPClient = httpClient
+	c.Log = logger.Tee(nil, "ec2cluster: ")
+	if c.Name == "" {
+		c.Name = defaultClusterName
+	}
+	c.Labels = labels.Copy()
+	c.ReflowletImage = reflowlet.Value()
+	c.ReflowVersion = string(*reflowVersion)
+	c.SshKey = string(*sshKey)
+	if c.MaxInstances == 0 {
+		c.MaxInstances = defaultMaxInstances
+	}
+	if len(c.InstanceTypes) > 0 {
+		c.InstanceTypesMap = make(map[string]bool)
+		for _, typ := range c.InstanceTypes {
+			c.InstanceTypesMap[typ] = true
+		}
+	}
+	qtags := make(map[string]string)
+	qtags["Name"] = fmt.Sprintf("%s (reflow)", id.User())
+	qtags["cluster"] = c.Name
+	c.InstanceTags = qtags
+	return nil
 }
 
 type waiter struct {
@@ -132,9 +202,9 @@ func (w *waiter) Notify() {
 	close(w.c)
 }
 
-// Init initializes the cluster's data structures. It must be called
+// Initialize initializes the cluster's data structures. It must be called
 // before use. Init also starts maintenance goroutines.
-func (c *Cluster) Init() error {
+func (c *Cluster) initialize() error {
 	if c.MaxInstances == 0 {
 		return errors.New("missing max instances parameter")
 	}
@@ -162,7 +232,7 @@ func (c *Cluster) Init() error {
 	c.instanceConfigs = make(map[string]instanceConfig)
 	for _, config := range instanceTypes {
 		config.Resources["disk"] = float64(c.DiskSpace << 30)
-		if c.InstanceTypes == nil || c.InstanceTypes[config.Type] {
+		if c.InstanceTypesMap == nil || c.InstanceTypesMap[config.Type] {
 			instances = append(instances, config)
 		}
 		c.instanceConfigs[config.Type] = config

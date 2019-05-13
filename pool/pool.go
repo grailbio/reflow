@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/grailbio/base/traverse"
+
+	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
@@ -35,6 +37,10 @@ const (
 
 	pollInterval = 10 * time.Second
 )
+
+func init() {
+	infra.Register(make(Labels))
+}
 
 // Alloc represent a resource allocation attached to a single
 // executor, a reservation of resources on a single node.

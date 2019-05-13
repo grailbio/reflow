@@ -15,6 +15,7 @@ require (
 	github.com/gorilla/context v1.1.1 // indirect
 	github.com/gorilla/mux v1.6.2 // indirect
 	github.com/grailbio/base v0.0.0
+	github.com/grailbio/infra v0.0.0
 	github.com/grailbio/testutil v0.0.0
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
 	github.com/opencontainers/image-spec v1.0.1 // indirect
@@ -29,6 +30,8 @@ require (
 	gotest.tools v2.2.0+incompatible // indirect
 	v.io/x/lib v0.1.2
 )
+
+
 
 
 

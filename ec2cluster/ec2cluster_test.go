@@ -6,15 +6,24 @@ package ec2cluster
 
 import (
 	"context"
-	"reflect"
-	"testing"
-
 	"fmt"
+	"reflect"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/grailbio/infra"
+	_ "github.com/grailbio/infra/aws"
+	"github.com/grailbio/infra/tls"
+	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/pool"
+	"github.com/grailbio/reflow/runner"
 )
 
 func TestGetEC2State(t *testing.T) {
@@ -212,5 +221,70 @@ func setEquals(t *testing.T, msg string, gots, wants []string) {
 		if _, ok := wantsMap[g]; !ok {
 			t.Fatalf("%s: got %s absent in [%s]", msg, g, strings.Join(wants, ","))
 		}
+	}
+}
+
+func TestClusterInfra(t *testing.T) {
+	skipIfNoCreds(t)
+	var schema = infra.Schema{
+		"labels":    make(pool.Labels),
+		"cluster":   new(runner.Cluster),
+		"tls":       new(tls.Authority),
+		"logger":    new(log.Logger),
+		"session":   new(session.Session),
+		"user":      new(reflow.User),
+		"reflowlet": new(reflow.ReflowletVersion),
+		"reflow":    new(reflow.ReflowVersion),
+		"sshkey":    new(reflow.SshKey),
+	}
+	config, err := schema.Make(infra.Keys{
+		"labels":    "github.com/grailbio/reflow/pool.Labels",
+		"tls":       "github.com/grailbio/infra/tls.Authority,file=/tmp/ca",
+		"logger":    "github.com/grailbio/reflow/log.Logger",
+		"session":   "github.com/grailbio/infra/aws.Session",
+		"user":      "github.com/grailbio/reflow.User",
+		"reflowlet": "github.com/grailbio/reflow.ReflowletVersion,version=1.2.3",
+		"reflow":    "github.com/grailbio/reflow.ReflowVersion,version=abcdef",
+		"cluster":   "github.com/grailbio/reflow/ec2cluster.Cluster",
+		"sshkey":    "github.com/grailbio/reflow.SshKey",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cluster runner.Cluster
+	config.Must(&cluster)
+	ec2cluster, ok := cluster.(*Cluster)
+	if !ok {
+		t.Fatalf("%v is not an ec2cluster", reflect.TypeOf(cluster))
+	}
+	if got, want := ec2cluster.Name, "default"; got != want {
+		t.Errorf("got %v, want %v", ec2cluster.Name, "default")
+	}
+	if got, want := ec2cluster.Spot, false; got != want {
+		t.Errorf("got %v, want %v", ec2cluster.Spot, false)
+	}
+	if got, want := ec2cluster.ReflowVersion, "abcdef"; got != want {
+		t.Errorf("got %v, want %v", ec2cluster.Spot, "abcdef")
+	}
+	if got, want := ec2cluster.ReflowletImage, "1.2.3"; got != want {
+		t.Errorf("got %v, want %v", ec2cluster.Spot, "1.2.3")
+	}
+}
+
+func skipIfNoCreds(t *testing.T) {
+	t.Helper()
+	provider := &credentials.ChainProvider{
+		VerboseErrors: true,
+		Providers: []credentials.Provider{
+			&credentials.EnvProvider{},
+			&credentials.SharedCredentialsProvider{},
+		},
+	}
+	_, err := provider.Retrieve()
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == "NoCredentialProviders" {
+			t.Skip("no credentials in environment; skipping")
+		}
+		t.Fatal(err)
 	}
 }
