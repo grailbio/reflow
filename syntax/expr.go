@@ -844,9 +844,9 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			if arg0.Type.Kind != types.ListKind {
 				e.Type = types.Errorf("unzip expects a list, not %s", arg0.Type)
 			} else if arg0.Type.Elem.Kind != types.TupleKind {
-				e.Type = types.Errorf("unzip expects a list of tuples, not %s", arg0.Type.Elem)
+				e.Type = types.Errorf("unzip expects a list of tuple elements, not a list of %s elements", arg0.Type.Elem)
 			} else if len(arg0.Type.Elem.Fields) != 2 {
-				e.Type = types.Errorf("unzip expects a list of 2-tuples, not %s", arg0.Type.Elem)
+				e.Type = types.Errorf("unzip expects a list of 2-tuple elements, not a list of %s elements", arg0.Type.Elem)
 			} else {
 				e.Type = types.Tuple(
 					&types.Field{T: types.List(arg0.Type.Elem.Fields[0].T)},
