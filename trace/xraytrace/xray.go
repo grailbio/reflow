@@ -6,21 +6,27 @@ import (
 	"net/http"
 	"regexp"
 
+	"github.com/grailbio/infra"
+
 	"github.com/aws/aws-xray-sdk-go/header"
 	"github.com/aws/aws-xray-sdk-go/xray"
 	"github.com/grailbio/reflow/trace"
 )
 
+func init() {
+	infra.Register(new(Tracer))
+}
+
 // Tracer is the reflow tracer implementation for xray.
-type tracer struct{}
+type Tracer struct{}
 
 // Xray is the xray tracer.
-var Xray trace.Tracer = tracer{}
+var Xray trace.Tracer = Tracer{}
 
 const xrayHttpHeaderName = "x-aws-xray-trace"
 
 // WriteHTTPContext writes the trace context to the HTTP header.
-func (tracer) WriteHTTPContext(ctx context.Context, h *http.Header) {
+func (Tracer) WriteHTTPContext(ctx context.Context, h *http.Header) {
 	seg := xray.GetSegment(ctx)
 	if seg == nil {
 		return
@@ -29,7 +35,7 @@ func (tracer) WriteHTTPContext(ctx context.Context, h *http.Header) {
 }
 
 // ReadHTTPContext reads the trace context from HTTP headers and returns a new context with the trace context.
-func (tracer) ReadHTTPContext(ctx context.Context, h http.Header) context.Context {
+func (Tracer) ReadHTTPContext(ctx context.Context, h http.Header) context.Context {
 	str := h.Get(xrayHttpHeaderName)
 	if str == "" {
 		return ctx
@@ -43,12 +49,12 @@ func (tracer) ReadHTTPContext(ctx context.Context, h http.Header) context.Contex
 }
 
 // CopyTraceContext copies the trace context from src to dst.
-func (tracer) CopyTraceContext(src, dst context.Context) context.Context {
+func (Tracer) CopyTraceContext(src, dst context.Context) context.Context {
 	return context.WithValue(dst, xray.ContextKey, xray.GetSegment(src))
 }
 
 // Emit emits a trace event.
-func (tracer) Emit(ctx context.Context, e trace.Event) (context.Context, error) {
+func (Tracer) Emit(ctx context.Context, e trace.Event) (context.Context, error) {
 	switch e.Kind {
 	case trace.StartEvent:
 		var seg *xray.Segment
@@ -94,7 +100,7 @@ func (tracer) Emit(ctx context.Context, e trace.Event) (context.Context, error) 
 }
 
 // URL returns the trace URL.
-func (tracer) URL(ctx context.Context) string {
+func (Tracer) URL(ctx context.Context) string {
 	id := xray.TraceID(ctx)
 	var url string
 	if id != "" {
