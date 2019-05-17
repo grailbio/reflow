@@ -24,15 +24,23 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/base/traverse"
+	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc/dydbassoc"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/taskdb"
 )
+
+func init() {
+	infra.Register(new(TaskDB))
+}
 
 var (
 	dateKeepaliveIndex = "Date-Keepalive-index"
@@ -53,6 +61,10 @@ const (
 	timeLayout = time.RFC3339
 	// DateLayout is the layout used to serialize date.
 	dateLayout = "2006-01-02"
+
+	// Default provisioned capacities for DynamoDB.
+	writecap = 10
+	readcap  = 20
 )
 
 // Column names used in dynamodb table
@@ -89,6 +101,19 @@ type TaskDB struct {
 	Labels pool.Labels
 	// User who initiated this run.
 	User string
+	// Limiter limits number of concurrent operations.
+	limiter *limiter.Limiter
+}
+
+// Init implements infra.Provider
+func (t *TaskDB) Init(sess *session.Session, assoc *dydbassoc.Assoc, user *reflow.User, labels pool.Labels) error {
+	t.limiter = limiter.New()
+	t.limiter.Release(32)
+	t.DB = dynamodb.New(sess)
+	t.Labels = labels.Copy()
+	t.User = string(*user)
+	t.TableName = assoc.TableName
+	return nil
 }
 
 // CreateRun sets a new run in the taskdb with the given id, labels and user.

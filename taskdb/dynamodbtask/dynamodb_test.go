@@ -4,19 +4,29 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"reflect"
 	"sort"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/grailbio/reflow/assoc"
+
+	"github.com/grailbio/reflow/test/testutil"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/infra"
+	_ "github.com/grailbio/infra/aws"
 	"github.com/grailbio/reflow"
+	_ "github.com/grailbio/reflow/assoc/dydbassoc"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/taskdb"
 )
@@ -724,5 +734,38 @@ func TestTasksQueryTimeBucketRun(t *testing.T) {
 			}
 		}
 		queryTime = queryTime.Add(time.Hour * 24)
+	}
+}
+
+func TestDydbTaskdbInfra(t *testing.T) {
+	const table = "reflow-unittest"
+	testutil.SkipIfNoCreds(t)
+	var schema = infra.Schema{
+		"session": new(session.Session),
+		"assoc":   new(assoc.Assoc),
+		"user":    new(reflow.User),
+		"labels":  make(pool.Labels),
+		"taskdb":  new(taskdb.TaskDB),
+		"logger":  new(log.Logger),
+	}
+	config, err := schema.Make(infra.Keys{
+		"session": "github.com/grailbio/infra/aws.Session",
+		"user":    "github.com/grailbio/reflow.User,user=test",
+		"taskdb":  "github.com/grailbio/reflow/taskdb/dynamodbtask.TaskDB",
+		"assoc":   fmt.Sprintf("github.com/grailbio/reflow/assoc/dydbassoc.Assoc,table=%v", table),
+		"logger":  "github.com/grailbio/reflow/log.Logger",
+		"labels":  "github.com/grailbio/reflow/pool.Labels",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tdb taskdb.TaskDB
+	config.Must(&tdb)
+	dynamotaskdb, ok := tdb.(*TaskDB)
+	if !ok {
+		t.Fatalf("%v is not an dynamodbtask", reflect.TypeOf(tdb))
+	}
+	if got, want := dynamotaskdb.TableName, table; got != want {
+		t.Errorf("got %v, want %v", dynamotaskdb.TableName, table)
 	}
 }
