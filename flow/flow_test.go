@@ -12,6 +12,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/flow"
 	op "github.com/grailbio/reflow/test/flow"
+	"github.com/grailbio/reflow/test/testutil"
 )
 
 func mustParseURL(s string) *url.URL {
@@ -114,5 +115,49 @@ func TestFlowRequirements(t *testing.T) {
 	}
 	if got, want := req.Min, (reflow.Resources{"mem": 20, "cpu": 1, "disk": 110}); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestDepAssertions(t *testing.T) {
+	fuzz := testutil.NewFuzz(nil)
+	i1, i1Fs := op.Intern("url"), fuzz.Fileset(true, true)
+	i1.Value = i1Fs
+	i1A, _ := i1Fs.Assertions()
+	i2, i2Fs := op.Intern("url"), fuzz.Fileset(true, true)
+	i2.Value = i2Fs
+	i2A, _ := i2Fs.Assertions()
+	mInterns := op.Merge(i1, i2)
+
+	e1, e1Fs := op.Exec("image", "cmd1", reflow.Resources{"mem": 10, "cpu": 1, "disk": 110}, i1), fuzz.Fileset(true, true)
+	e1.Value = e1Fs
+	e1A, _ := e1Fs.Assertions()
+	e2, e2Fs := op.Exec("image", "cmd2", reflow.Resources{"mem": 20, "cpu": 1, "disk": 100}, i2), fuzz.Fileset(true, true)
+	e2.Value = e2Fs
+	e2A, _ := e2Fs.Assertions()
+	ex1 := op.Extern("externurl", e1)
+	ex2 := op.Extern("externurl", e2)
+	mExecs := op.Merge(e1, e2)
+	exM := op.Extern("externurl", mExecs)
+
+	tests := []struct {
+		f    *flow.Flow
+		want *reflow.Assertions
+		we   bool
+	}{
+		{i1, nil, false}, {i2, nil, false}, {mInterns, nil, false},
+		{e1, i1A, false}, {e2, i2A, false}, {mExecs, nil, false},
+		{ex1, e1A, false}, {ex2, e2A, false}, {exM, nil, false},
+	}
+	for _, tt := range tests {
+		got, gotE := tt.f.DepAssertions_UnitTestOnly()
+		if tt.we != (gotE != nil) {
+			t.Errorf("(%v).depAssertions() got %v, want error: %v ", tt.f, gotE, tt.we)
+		}
+		if tt.we {
+			continue
+		}
+		if !got.Equal(tt.want) {
+			t.Errorf("got %v, want %v", got, tt.want)
+		}
 	}
 }

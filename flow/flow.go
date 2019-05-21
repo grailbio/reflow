@@ -747,6 +747,49 @@ func (f *Flow) ExecConfig() reflow.ExecConfig {
 	}
 }
 
+// DepAssertions_UnitTestOnly is an exported version of depAssertions()
+// for the purposes of unit testing only.
+func (f *Flow) DepAssertions_UnitTestOnly() (*reflow.Assertions, error) {
+	return f.depAssertions()
+}
+
+// depAssertions returns the assertions of this flow's dependencies.
+// The flows dependencies must already be computed before invoking depAssertions.
+// depAssertions is valid only for Extern, and Exec ops.
+func (f *Flow) depAssertions() (*reflow.Assertions, error) {
+	switch f.Op {
+	case Extern:
+		if f.Deps[0].Value == nil {
+			break
+		}
+		return f.Deps[0].Value.(reflow.Fileset).Assertions()
+	case Exec:
+		if f.Argmap == nil {
+			f.Argmap = make([]ExecArg, len(f.Deps))
+			for i := range f.Deps {
+				f.Argmap[i] = ExecArg{Index: i}
+			}
+		}
+		a := new(reflow.Assertions)
+		for i := 0; i < f.NExecArg(); i++ {
+			earg := f.ExecArg(i)
+			if earg.Out {
+				continue
+			}
+			if f.Deps[earg.Index].Value == nil {
+				continue
+			}
+			if fsa, err := f.Deps[earg.Index].Value.(reflow.Fileset).Assertions(); err != nil {
+				return nil, err
+			} else if err = a.AddFrom(fsa); err != nil {
+				return nil, err
+			}
+		}
+		return a, nil
+	}
+	return nil, nil
+}
+
 // Digest produces a digest of Flow f. The digest captures the
 // entirety of the Flows semantics: two flows with the same digest
 // must evaluate to the same value. Map Flows are canonicalized

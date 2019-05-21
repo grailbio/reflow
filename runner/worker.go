@@ -192,7 +192,7 @@ func (w *worker) do(ctx context.Context, f *flow.Flow) (err error) {
 		case stateResult:
 			r, err = x.Result(ctx)
 			if err == nil {
-				w.Eval.Mutate(f, r.Fileset, flow.Incr)
+				w.Eval.Mutate(f, r.Fileset, flow.Incr, flow.Propagate)
 			}
 		case statePromote:
 			// TODO(marius): make the exec's staging repository directly

@@ -58,7 +58,7 @@ func (f *Fuzz) Digest() digest.Digest {
 // File returns a random file. If refok is true, then
 // the returned file may be a reference file.  If aok
 // is true, then the returned file will contain assertions.
-func (f *Fuzz) File(refok, aok bool) reflow.File {
+func (f *Fuzz) File(refok, wantAssertions bool) reflow.File {
 	var file reflow.File
 	if refok && f.Float64() < 0.5 {
 		file = reflow.File{
@@ -69,7 +69,8 @@ func (f *Fuzz) File(refok, aok bool) reflow.File {
 	} else {
 		file = reflow.File{ID: f.Digest()}
 	}
-	if aok {
+	if wantAssertions {
+		file.Source = fmt.Sprintf("s3://%s/%s", f.String(""), f.String("/"))
 		file.Assertions = reflow.AssertionsFromMap(map[reflow.AssertionKey]string{
 			reflow.AssertionKey{"blob", file.Source, "etag"}: fmt.Sprintf("etag%d", f.Intn(10))})
 	}

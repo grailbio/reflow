@@ -102,7 +102,11 @@ func (m Mux) Snapshot(ctx context.Context, url string) (reflow.Fileset, error) {
 	if err != nil {
 		return reflow.Fileset{}, err
 	}
-	return bucket.Snapshot(ctx, prefix)
+	fs, err := bucket.Snapshot(ctx, prefix)
+	if err == nil {
+		setAssertions(&fs)
+	}
+	return fs, err
 }
 
 // Generate implements the AssertionGenerator interface for the blob namespace.
@@ -115,6 +119,18 @@ func (m Mux) Generate(ctx context.Context, key reflow.GeneratorKey) (*reflow.Ass
 		return nil, err
 	}
 	return Assertions(f), nil
+}
+
+// setAssertions sets the assertions for each file in the given fileset.
+func setAssertions(fileset *reflow.Fileset) {
+	for _, fs := range fileset.List {
+		setAssertions(&fs)
+	}
+	for k := range fileset.Map {
+		file := fileset.Map[k]
+		file.Assertions = Assertions(file)
+		fileset.Map[k] = file
+	}
 }
 
 // Assertions returns assertions for a blob file.

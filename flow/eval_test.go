@@ -890,6 +890,61 @@ func TestData(t *testing.T) {
 	}
 }
 
+func TestPropagateAssertions(t *testing.T) {
+	fuzz := testutil.NewFuzz(nil)
+	internNoFs := op.Intern("url")
+	intern, iFs := op.Intern("url"), fuzz.Fileset(true, true)
+	intern.Value = iFs
+	internA, _ := iFs.Assertions()
+
+	ec, eFs := op.Exec("image", "cmd1", reflow.Resources{"mem": 10, "cpu": 1, "disk": 110}, intern), fuzz.Fileset(true, true)
+	ec.Value = eFs
+	eA, _ := eFs.Assertions()
+	ex, exFs := op.Extern("externurl", ec), fuzz.Fileset(true, true)
+	ex.Value = exFs
+	exA, _ := exFs.Assertions()
+
+	merged := op.Merge(intern, ec)
+
+	e := testutil.Executor{Have: testutil.Resources}
+	eval := flow.NewEval(ex, flow.EvalConfig{
+		Executor: &e,
+		Log:      logger(),
+		Trace:    logger(),
+	})
+
+	ieA := new(reflow.Assertions)
+	ieA.AddFrom(internA)
+	ieA.AddFrom(eA)
+
+	fullA := new(reflow.Assertions)
+	fullA.AddFrom(internA)
+	fullA.AddFrom(eA)
+	fullA.AddFrom(exA)
+
+	tests := []struct {
+		f    *flow.Flow
+		want *reflow.Assertions
+	}{
+		{merged, nil}, {internNoFs, nil},
+		{intern, internA},
+		{ec, ieA}, {ex, fullA},
+	}
+	for _, tt := range tests {
+		eval.Mutate(tt.f, flow.Propagate)
+		if tt.want == nil {
+			continue
+		}
+		got, err := tt.f.Value.(reflow.Fileset).Assertions()
+		if err != nil {
+			t.Errorf("unexpected: %v", err)
+		}
+		if !got.Equal(tt.want) {
+			t.Errorf("got %v, want %v", got, tt.want)
+		}
+	}
+}
+
 // TestAlloc is used in scheduler tests. As well as implementing
 // alloc, it implements sched.Cluster, handing itself out.
 type testAlloc struct {

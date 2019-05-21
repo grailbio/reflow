@@ -607,7 +607,7 @@ func (e *Eval) Do(ctx context.Context) error {
 					if task.Err != nil {
 						e.Mutate(f, task.Err, Done)
 					} else {
-						e.Mutate(f, task.Result.Err, task.Result.Fileset, Done)
+						e.Mutate(f, task.Result.Err, task.Result.Fileset, Propagate, Done)
 					}
 					if e.CacheMode.Writing() {
 						e.Mutate(f, Incr) // just so the cache write can decr it
@@ -1452,6 +1452,16 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 		for _, key := range keys {
 			batch.Add(assoc.Key{assoc.Fileset, key})
 		}
+		if e.Log.At(log.DebugLevel) {
+			e.Log.Debugf("cache.Lookup flow: %s keys: %s\n", f.Digest().Short(), strings.Join(
+				func() []string {
+					strs := make([]string, len(keys))
+					for i, key := range keys {
+						strs[i] = key.Short()
+					}
+					return strs
+				}(), ", "))
+		}
 	}
 	{
 		ctx, cancel := context.WithTimeout(ctx, e.CacheLookupTimeout)
@@ -1486,6 +1496,7 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 				}
 				err = unmarshal(ctx, e.Repository, res.Digest, &fs)
 				if err == nil {
+					e.Log.Debugf("cache.Lookup flow: %s result from key: %s\n", f.Digest().Short(), key.Short())
 					fsid = res.Digest
 					break
 				}
@@ -1520,9 +1531,19 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 				e.lookupFailed(f)
 				return nil
 			}
-			// If the cached fileset has viable assertions, assert them..
-			// In case of error or empty assertions, simply continue.
-			if fsa, err := fs.Assertions(); err == nil && !fsa.IsEmpty() {
+			fsa, err := fs.Assertions()
+			if err != nil {
+				e.lookupFailed(f)
+				return nil
+			}
+			// If the cached fileset has viable non-empty assertions, assert them.
+			if !fsa.IsEmpty() {
+				// Check if the assertions are internally consistent for the cached fileset.
+				if err = e.assertionsConsistent(f, fsa); err != nil {
+					e.Log.Debugf("assertions consistent: %v", err)
+					e.lookupFailed(f)
+					return nil
+				}
 				fsaNew, err := e.refreshAssertions(ctx, fsa)
 				if err != nil {
 					e.Log.Debugf("refresh assertions: %v", err)
@@ -1650,7 +1671,7 @@ func (e *Eval) transfer(ctx context.Context, f *Flow) error {
 // AssignExecId assigns an Exec ID appropriate for the given Flow
 // by merging its digest with the assertions it depends on.
 func (e *Eval) AssignExecId(ctx context.Context, f *Flow) error {
-	assertions, err := inputAssertions(f)
+	assertions, err := f.depAssertions()
 	if err != nil {
 		return errors.E("AssignExecID", f.Digest(), err)
 	}
@@ -1662,24 +1683,47 @@ func (e *Eval) AssignExecId(ctx context.Context, f *Flow) error {
 	return nil
 }
 
-// inputAssertions returns all the assertions of the inputs of the given flow.
-func inputAssertions(f *Flow) (*reflow.Assertions, error) {
-	a := new(reflow.Assertions)
-	cfg := f.ExecConfig()
-	// Collect assertions from all the inputs
-	for _, arg := range cfg.Args {
-		if arg.Fileset == nil {
-			continue
-		}
-		fsa, err := arg.Fileset.Assertions()
-		if err != nil {
-			return nil, err
-		}
-		if err = a.AddFrom(fsa); err != nil {
-			return nil, err
-		}
+// assertionsConsistent checks whether the assertions are consistent for
+// the given flow if the given fileset were the output of that flow.
+//
+// assertionsConsistent should be called only after the flow's dependencies
+// are done, for it to return a meaningful result.
+//
+// assertionsConsistent is valid only for Intern, Extern, and Exec ops.
+func (e *Eval) assertionsConsistent(f *Flow, a *reflow.Assertions) error {
+	if !f.Op.External() {
+		return nil
 	}
-	return a, nil
+	assertions := new(reflow.Assertions)
+	// Add assertions of dependencies of flow.
+	depAssertions, err := f.depAssertions()
+	if err != nil {
+		return err
+	}
+	if err = assertions.AddFrom(depAssertions); err != nil {
+		return err
+	}
+	return assertions.AddFrom(a)
+}
+
+// propagateAssertions propagates assertions from this flow's dependencies (if any)
+// to its output.  This must be called after the flow is computed but before
+// it is marked as Done.
+// propagateAssertions is valid only for Intern, Extern, and Exec ops.
+func (e *Eval) propagateAssertions(f *Flow) error {
+	if !f.Op.External() {
+		return nil
+	}
+	fs, ok := f.Value.(reflow.Fileset)
+	if !ok {
+		return nil
+	}
+	// Add all input assertions to the result Fileset.
+	a, err := f.depAssertions()
+	if err != nil {
+		return err
+	}
+	return fs.AddAssertions(a)
 }
 
 // exec performs and waits for an exec with the given config.
@@ -1699,14 +1743,10 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 		err error
 		x   reflow.Exec
 		r   reflow.Result
-		a   *reflow.Assertions
 		n   = 0
 		s   = statePut
 		cfg = f.ExecConfig()
 	)
-	if a, err = inputAssertions(f); err != nil {
-		return err
-	}
 	// TODO(marius): we should distinguish between fatal and nonfatal errors.
 	// The fatal ones are useless to retry.
 	for n < numExecTries && s < stateDone {
@@ -1724,9 +1764,7 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 		case stateResult:
 			r, err = x.Result(ctx)
 			if err == nil {
-				// Add all input assertions to the result Fileset.
-				r.Fileset.AddAssertions(a)
-				e.Mutate(f, r.Fileset, Incr)
+				e.Mutate(f, r.Fileset, Incr, Propagate)
 			}
 		case statePromote:
 			err = x.Promote(ctx)
@@ -1807,6 +1845,9 @@ const (
 	MustIntern
 	// NoStatus indicates that a flow node's status should not be updated.
 	NoStatus
+	// Propagate is the mutation that propagates a flow's dependency assertions
+	// to the flow's result Fileset.  Results in a no-op if the flow has no result fileset.
+	Propagate
 )
 
 // Mutate safely applies a set of mutations vis-a-vis the garbage
@@ -1856,6 +1897,10 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 				f.MustIntern = true
 			case NoStatus:
 				statusOk = false
+			case Propagate:
+				if err := e.propagateAssertions(f); err != nil {
+					panic(fmt.Errorf("unexpected propagation error: %v", err))
+				}
 			}
 		case Reserve:
 			f.Reserved.Add(f.Reserved, reflow.Resources(arg))
@@ -1874,12 +1919,10 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 	}
 	// When a flow is done (without errors), add all its assertions to the vector clock.
 	if f.Op.External() && f.State == Done && f.Err == nil {
-		fsa, err := f.Value.(reflow.Fileset).Assertions()
-		if err != nil {
-			f.Err = errors.Recover(errors.E("assertions conflict", f.Digest(), errors.Temporary, err))
-		}
-		if err := e.assertions.AddFrom(fsa); err != nil {
-			f.Err = errors.Recover(errors.E("assertions conflict", f.Digest(), errors.Temporary, err))
+		if fsa, err := f.Value.(reflow.Fileset).Assertions(); err != nil {
+			f.Err = errors.Recover(errors.E("fetching assertions", f.Digest(), errors.Temporary, err))
+		} else if err := e.assertions.AddFrom(fsa); err != nil {
+			f.Err = errors.Recover(errors.E("adding assertions", f.Digest(), errors.Temporary, err))
 		}
 	}
 	// Update task status, if applicable.
