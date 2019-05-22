@@ -50,11 +50,11 @@ type filter struct {
 
 // Match checks if the set matches any of the filter clauses.
 func (f *filter) Match(set []string) bool {
+	if f == nil {
+		return false
+	}
 	switch f.kind {
 	case filterOr:
-		if f == nil {
-			return false
-		}
 		for _, c := range f.clauses {
 			if c.Match(set) {
 				return true
