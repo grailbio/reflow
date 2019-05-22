@@ -1,0 +1,28 @@
+param (
+	in string
+	out string
+	allout string
+)
+
+val dirs = make("$/dirs")
+val files = make("$/files")
+val regexp = make("$/regexp")
+
+func CatCopy(in file) =
+		exec(image := "ubuntu", mem := 10*MiB) (out file) {"
+				cat {{in}} > {{out}}
+		"}
+
+func Concat(files [file]) =
+		exec(image := "ubuntu", mem := 10*MiB) (output file) {"
+				cat {{files}} > {{output}}
+		"}
+
+val directory = dirs.Make(map([(p, CatCopy(f)) | (p, f) <- list(dir(in))]))
+val copied = [files.Copy(f, out+p) | (p, f) <- list(directory)]
+
+val concatenated = Concat([f | (p, f) <- list(dir(out))])
+val concatcopied = files.Copy(concatenated, allout)
+
+@requires(cpu := 1)
+val Main = copied ~> concatcopied
