@@ -123,17 +123,17 @@ func (c *Cmd) collect(ctx context.Context, args ...string) {
 	rateFlag := flags.Int64("rate", 300, "maximum writes/sec to dynamodb")
 	keepFlag := flags.String("keep", "", "regexp to match against labels of cache entries to keep (don't collect)")
 	labelsFlag := flags.String("labels", "", "regexp to match against labels of cache entries to collect")
-	help := `Collect performs garbage collection of the reflow cache, removing entries where
-    a. cache entry labels don't match the keep regexp clause
-    and
-    1. cache entry labels match the labels regexp
-    or
-    2. cache entry has not been accessed more recently than the provided threshold date.
+	help := `Collect performs garbage collection of the reflow cache, removing
+entries where cache entry labels don't match the keep regexp clause;
+and (1) cache entry labels match the labels regexp; or (2) cache
+entry has not been accessed more recently than the provided threshold
+date.
 
-    keep and labels regexp are constructed as follows: <clause>[,<clause>,...][ <clause>[,...]...]
-    Space separated clauses are ORed and each OR clause is an AND of the comma separated sub clauses.
-    A sub clause preceded by ! is negated.
-	`
+Keep and label expressions as follows: <clause>[,<clause>,...][
+<clause>[,...]...] Space separated clauses are ORed and each OR
+clause is an AND of the comma separated sub clauses. A sub clause
+preceded by ! is negated.
+`
 
 	c.Parse(flags, args, help, "collect [-threshold date] [-keep regexp] [-labels labels]")
 
