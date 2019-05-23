@@ -4,9 +4,9 @@ package flow
 
 import "fmt"
 
-const _Mutation_name = "IncrDecrCachedRefreshMustInternNoStatus"
+const _Mutation_name = "IncrDecrCachedRefreshMustInternNoStatusPropagate"
 
-var _Mutation_index = [...]uint8{0, 4, 8, 14, 21, 31, 39}
+var _Mutation_index = [...]uint8{0, 4, 8, 14, 21, 31, 39, 48}
 
 func (i Mutation) String() string {
 	if i < 0 || i >= Mutation(len(_Mutation_index)-1) {
