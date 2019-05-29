@@ -287,12 +287,13 @@ func (e *blobExec) doIntern(ctx context.Context) error {
 			return err
 		}
 		dl := download{
-			Bucket: bucket,
-			Key:    prefix,
-			Source: file.Source,
-			Size:   file.Size,
-			ETag:   file.ETag,
-			Log:    e.log,
+			Bucket:       bucket,
+			Key:          prefix,
+			Source:       file.Source,
+			Size:         file.Size,
+			ETag:         file.ETag,
+			LastModified: file.LastModified,
+			Log:          e.log,
 		}
 		file, err = dl.Do(ctx, &e.staging)
 		if err != nil {
@@ -318,12 +319,13 @@ func (e *blobExec) doIntern(ctx context.Context) error {
 		}
 		g.Go(func() error {
 			dl := download{
-				Bucket: bucket,
-				Key:    key,
-				Source: file.Source,
-				Size:   file.Size,
-				ETag:   file.ETag,
-				Log:    e.log,
+				Bucket:       bucket,
+				Key:          key,
+				Source:       file.Source,
+				Size:         file.Size,
+				ETag:         file.ETag,
+				LastModified: file.LastModified,
+				Log:          e.log,
 			}
 			file, err = dl.Do(ctx, &e.staging)
 			if err != nil {
@@ -496,12 +498,13 @@ func (e *blobExec) Shell(ctx context.Context) (io.ReadWriteCloser, error) {
 }
 
 type download struct {
-	Bucket blob.Bucket
-	Key    string
-	Size   int64
-	Source string
-	ETag   string
-	Log    *log.Logger
+	Bucket       blob.Bucket
+	Key          string
+	Size         int64
+	Source       string
+	ETag         string
+	LastModified time.Time
+	Log          *log.Logger
 }
 
 func (d *download) Do(ctx context.Context, repo *filerepo.Repository) (reflow.File, error) {
@@ -522,8 +525,6 @@ func (d *download) Do(ctx context.Context, repo *filerepo.Repository) (reflow.Fi
 	w.Reset()
 	digestingFiles.Add(1)
 	file, err := repo.Install(filename)
-	file.Source, file.ETag = d.Source, d.ETag
-	file.Assertions = blob.Assertions(file)
 	digestingFiles.Add(-1)
 	if err == nil && file.Size != d.Size {
 		err = errors.E(errors.Integrity,
@@ -532,6 +533,8 @@ func (d *download) Do(ctx context.Context, repo *filerepo.Repository) (reflow.Fi
 	if err != nil {
 		d.Log.Errorf("install %s%s: %v", d.Bucket.Location(), d.Key, err)
 	} else {
+		file.Source, file.ETag, file.LastModified = d.Source, d.ETag, d.LastModified
+		file.Assertions = blob.Assertions(file)
 		dur, bps := w.Lap(d.Size)
 		d.Log.Printf("installed %s%s to %v in %s (%s/s)", d.Bucket.Location(), d.Key, filename, dur, data.Size(bps))
 	}

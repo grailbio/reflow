@@ -331,12 +331,13 @@ func (e *Executor) Load(ctx context.Context, fs reflow.Fileset) (reflow.Fileset,
 				return err
 			}
 			dl := download{
-				Bucket: bucket,
-				Key:    key,
-				Size:   file.Size,
-				Source: file.Source,
-				ETag:   file.ETag,
-				Log:    e.Log,
+				Bucket:       bucket,
+				Key:          key,
+				Size:         file.Size,
+				Source:       file.Source,
+				ETag:         file.ETag,
+				LastModified: file.LastModified,
+				Log:          e.Log,
 			}
 			res, err := dl.Do(ctx, e.FileRepository)
 			if err == nil {

@@ -197,9 +197,10 @@ func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 	}
 	// TODO(marius): support ID if x-sha256 is present.
 	return reflow.File{
-		Source: fmt.Sprintf("s3://%s/%s", b.bucket, key),
-		ETag:   aws.StringValue(resp.ETag),
-		Size:   *resp.ContentLength,
+		Source:       fmt.Sprintf("s3://%s/%s", b.bucket, key),
+		ETag:         aws.StringValue(resp.ETag),
+		LastModified: aws.TimeValue(resp.LastModified),
+		Size:         *resp.ContentLength,
 	}, nil
 }
 

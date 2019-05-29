@@ -95,11 +95,14 @@ func TestS3ExecInternPrefix(t *testing.T) {
 	}
 	for _, file := range files {
 		client.SetFile(prefix+file, []byte(file), "unused")
+		// Get the file to access the LastModified which is set as time.Now() by the test client.
+		fc, _ := client.GetFile(prefix + file)
 		rf := reflow.File{
-			ID:     reflow.Digester.FromString(file),
-			Source: fmt.Sprintf("s3://%s/%s%s", bucket, prefix, file),
-			ETag:   fmt.Sprintf("%x", md5.Sum([]byte(file))),
-			Size:   int64(len(file)),
+			ID:           reflow.Digester.FromString(file),
+			Source:       fmt.Sprintf("s3://%s/%s%s", bucket, prefix, file),
+			ETag:         fmt.Sprintf("%x", md5.Sum([]byte(file))),
+			LastModified: fc.LastModified,
+			Size:         int64(len(file)),
 		}
 		rf.Assertions = blob.Assertions(rf)
 		val.Map[file] = rf
@@ -211,11 +214,14 @@ func TestS3ExecPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Get the file to access the LastModified which is set as time.Now() by the test client.
+	fc, _ := client.GetFile(key)
 	rf := reflow.File{
-		ID:     reflow.Digester.FromString(contents),
-		Source: fmt.Sprintf("s3://%s/%s", bucket, key),
-		ETag:   fmt.Sprintf("%x", md5.Sum([]byte(contents))),
-		Size:   int64(len(contents)),
+		ID:           reflow.Digester.FromString(contents),
+		Source:       fmt.Sprintf("s3://%s/%s", bucket, key),
+		ETag:         fmt.Sprintf("%x", md5.Sum([]byte(contents))),
+		LastModified: fc.LastModified,
+		Size:         int64(len(contents)),
 	}
 	rf.Assertions = blob.Assertions(rf)
 
