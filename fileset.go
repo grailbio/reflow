@@ -48,10 +48,13 @@ type File struct {
 
 // Digest returns the file's digest: if the file is a reference, the
 // digest comprises the reference, source, etag and assertions.
-// Resolved files return the file's digest.
+// Resolved files return digest of: file's digest and assertions digest (if any).
 func (f File) Digest() digest.Digest {
 	if !f.IsRef() {
-		return f.ID
+		if f.Assertions.IsEmpty() {
+			return f.ID
+		}
+		return Digester.FromDigests(f.ID, f.Assertions.Digest())
 	}
 	w := Digester.NewWriter()
 	var b [8]byte
@@ -64,11 +67,8 @@ func (f File) Digest() digest.Digest {
 }
 
 // Equal returns whether files f and g represent the same content.
+// Since equality is a property of the file's contents, assertions are ignored.
 func (f File) Equal(g File) bool {
-	// Always compare assertions.
-	if !f.Assertions.Equal(g.Assertions) {
-		return false
-	}
 	if f.IsRef() || g.IsRef() {
 		// When we compare references, we require nonempty etags.
 		return f.Size == g.Size && f.Source == g.Source && f.ETag != "" && f.ETag == g.ETag

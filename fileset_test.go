@@ -33,7 +33,7 @@ var (
 	vlist = reflow.Fileset{List: []reflow.Fileset{v1, v2}}
 )
 
-const vlistSHA256 = "sha256:d60e67ce9e89548b502a5ad7968e99caed0d388f0a991b906f41a7ba65adb31f"
+const vlistSHA256 = "sha256:44f5143efffbecb099444784d548ac35c80de65d422038a2017cbbd205fc0cc5"
 
 func TestValueDigest(t *testing.T) {
 	if v1.Digest() == v2.Digest() {
@@ -119,8 +119,6 @@ func TestEqual2(t *testing.T) {
 	fid := reflow.Digester.FromString("foo")
 	f1 := reflow.File{ID: fid, Assertions: reflow.AssertionsFromMap(map[reflow.AssertionKey]string{{"t", "s1", "tag"}: "v"})}
 	f2 := reflow.File{ID: fid, Assertions: reflow.AssertionsFromMap(map[reflow.AssertionKey]string{{"t", "s2", "tag"}: "v"})}
-	f12 := reflow.File{ID: fid, Assertions: reflow.AssertionsFromMap(map[reflow.AssertionKey]string{{"t", "s1", "tag"}: "v", {"t", "s2", "tag"}: "v"})}
-	f21 := reflow.File{ID: fid, Assertions: reflow.AssertionsFromMap(map[reflow.AssertionKey]string{{"t", "s2", "tag"}: "v", {"t", "s1", "tag"}: "v"})}
 	fempty := reflow.File{ID: fid, Assertions: reflow.AssertionsFromMap(map[reflow.AssertionKey]string{})}
 	fnil := reflow.File{ID: fid}
 	tests := []struct {
@@ -131,11 +129,10 @@ func TestEqual2(t *testing.T) {
 		{reflow.File{Source: "a"}, reflow.File{Source: "a"}, false},
 		{reflow.File{Source: "a", ETag: "e"}, reflow.File{Source: "a"}, false},
 		{reflow.File{Source: "a", ETag: "e"}, reflow.File{Source: "a", ETag: "e"}, true},
-		{f1, f2, false}, {f1, f12, false}, {f1, f21, false},
-
-		{f12, f21, true}, {fempty, fnil, true}, {fnil, fempty, true},
-		{f1, fempty, false}, {fempty, f1, false},
-		{f1, fnil, false}, {fnil, f1, false},
+		{f1, f2, true},
+		{fempty, fnil, true}, {fnil, fempty, true},
+		{f1, fempty, true}, {fempty, f1, true},
+		{f1, fnil, true}, {fnil, f1, true},
 	}
 	for _, tt := range tests {
 		if got, want := tt.a.Equal(tt.b), tt.w; got != want {
