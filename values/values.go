@@ -248,6 +248,12 @@ var Unit = struct{}{}
 
 // Equal tells whether values v and w are structurally equal.
 func Equal(v, w T) bool {
+	switch v := v.(type) {
+	case reflow.File:
+		l, r := v, w.(reflow.File)
+		return l.Equal(r)
+	default:
+	}
 	return reflect.DeepEqual(v, w)
 }
 
