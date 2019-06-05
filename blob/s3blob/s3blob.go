@@ -32,17 +32,17 @@ import (
 )
 
 const (
-	s3minpartsize     = 100 << 20
-	s3concurrency     = 20
-	defaultS3MinLimit = 2000
-	defaultS3MaxLimit = 10000
+	s3minpartsize     = 5 << 20
+	s3concurrency     = 100
+	defaultS3MinLimit = 500
+	defaultS3MaxLimit = 2000
 	defaultMaxRetries = 3
 
 	// minBPS defines the lowest acceptable transfer rate.
 	minBPS = 1 << 20
 	// minTimeout defines the smallest acceptable timeout.
 	// This helps to give wiggle room for small data transfers.
-	minTimeout = 30 * time.Second
+	minTimeout = 60 * time.Second
 
 	// metaTimeout is used for metadata operations.
 	metaTimeout = 30 * time.Second
@@ -245,11 +245,11 @@ func maxS3Ops(size int64) int {
 	return int(c)
 }
 
-func withTimeout(ctx context.Context, size int64) (context.Context, context.CancelFunc) {
+func withTimeout(ctx context.Context, size int64, retries int) (context.Context, context.CancelFunc) {
 	if size == 0 {
 		return ctx, func() {}
 	}
-	timeout := time.Duration(size/minBPS) * time.Second
+	timeout := time.Duration(int64(retries)*size/minBPS) * time.Second
 	if timeout < minTimeout {
 		timeout = minTimeout
 	}
@@ -281,7 +281,7 @@ func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w i
 				d.PartSize = s3minpartsize
 				d.Concurrency = s3concurrency
 			})
-			ctx, cancel := withTimeout(ctx, size)
+			ctx, cancel := withTimeout(ctx, size, retries)
 			n, err = d.DownloadWithContext(ctx, w, b.getObjectInput(key, etag))
 			cancel()
 			if kind(err) == errors.ResourcesExhausted {
@@ -329,7 +329,7 @@ func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader
 				u.PartSize = s3minpartsize
 				u.Concurrency = s3concurrency
 			})
-			ctx, cancel := withTimeout(ctx, size)
+			ctx, cancel := withTimeout(ctx, size, retries)
 			_, err := up.UploadWithContext(ctx, &s3manager.UploadInput{
 				Bucket: aws.String(b.bucket),
 				Key:    aws.String(key),
