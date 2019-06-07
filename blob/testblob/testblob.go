@@ -194,6 +194,19 @@ func (b *bucket) Copy(ctx context.Context, src, dst string) error {
 	return b.Put(ctx, dst, 0, bytes.NewReader(p))
 }
 
+func (b *bucket) CopyFrom(ctx context.Context, srcBucket blob.Bucket, src, dst string) error {
+	srcb, ok := srcBucket.(*bucket)
+	if !ok {
+		return errors.E(errors.NotSupported, "testblob.CopyFrom", srcBucket.Location())
+	}
+	p, ok := srcb.get(src)
+	if !ok {
+		return errors.E("testblob.Copy", srcBucket.Location(), src, b.name, dst, errors.NotExist)
+	}
+	return b.Put(ctx, dst, 0, bytes.NewReader(p))
+
+}
+
 func (b *bucket) Delete(ctx context.Context, keys ...string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()

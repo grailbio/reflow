@@ -295,6 +295,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	if config.sched {
 		scheduler = sched.New()
 		scheduler.Transferer = transferer
+		scheduler.Mux = c.blob()
 		scheduler.Repository = repo
 		scheduler.Cluster = cluster
 		scheduler.Log = c.Log

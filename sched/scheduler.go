@@ -23,12 +23,17 @@ package sched
 import (
 	"container/heap"
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
+	"github.com/grailbio/base/data"
 	"github.com/grailbio/reflow"
-
+	"github.com/grailbio/reflow/blob"
+	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
+	"github.com/grailbio/reflow/repository/blobrepo"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -49,6 +54,8 @@ type Scheduler struct {
 	// Transferer is used to manage data movement between
 	// allocs and the scheduler's repository.
 	Transferer reflow.Transferer
+	// Mux is used to manage direct data transfers between blob stores (if supported)
+	Mux blob.Mux
 	// Repository is the repository from which dependent objects are
 	// downloaded and to which result objects are uploaded.
 	Repository reflow.Repository
@@ -334,6 +341,16 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		n     = 0
 		state execState
 	)
+	if task.Config.Type == "extern" {
+		// Attempt direct transfer.
+		if err := s.directTransfer(ctx, task); err == nil {
+			state = stateDone
+		} else if !errors.Is(errors.NotSupported, err) {
+			// TODO(swami): Direct transfer resulted in an error (but was supported), should we try indirect?
+			task.Err = err
+			state = stateDone
+		}
+	}
 	// TODO(marius): we should distinguish between fatal and nonfatal errors.
 	// The fatal ones are useless to retry.
 	for n < numExecTries && state < stateDone {
@@ -422,4 +439,62 @@ func requirements(tasks []*Task) reflow.Requirements {
 		req.AddParallel(task.Config.Resources)
 	}
 	return req
+}
+
+// directTransfer attempts to do a direct transfer for externs.
+// Direct transfers are supported only if the scheduler's Repository
+// and the destination repository are both blob stores.
+func (s *Scheduler) directTransfer(ctx context.Context, task *Task) error {
+	if task.Config.Type != "extern" {
+		panic("direct transfers only supported for extern")
+	}
+	if len(task.Config.Args) != 1 {
+		return errors.E(errors.Precondition,
+			errors.Errorf("unexpected args (must be 1, but was %d): %v", len(task.Config.Args), task.Config.Args))
+	}
+	// Check if the scheduler's repository is a blobrepo.
+	srcBlobRepo, ok := s.Repository.(*blobrepo.Repository)
+	if !ok {
+		return errors.E(errors.NotSupported, errors.New("scheduler repository is not blobrepo"))
+	}
+	// Check if the destination is a blob store.
+	if _, _, err := s.Mux.Bucket(ctx, task.Config.URL); err != nil {
+		return err
+	}
+
+	fs := task.Config.Args[0].Fileset.Pullup()
+	task.mu.Lock()
+	task.Result.Fileset.Map = map[string]reflow.File{}
+	task.mu.Unlock()
+
+	extUrl := strings.TrimSuffix(task.Config.URL, "/")
+
+	g, ctx := errgroup.WithContext(ctx)
+	for k, v := range fs.Map {
+		filename, file := k, v
+		g.Go(func() error {
+			srcUrl, err := srcBlobRepo.Location(ctx, file.ID)
+			if err != nil {
+				return err
+			}
+			dstUrl := extUrl + "/" + filename
+			if filename == "." {
+				dstUrl = extUrl
+			}
+			start := time.Now()
+			if err = s.Mux.Transfer(ctx, dstUrl, srcUrl); err != nil {
+				return errors.E(fmt.Sprintf("scheduler direct transfer: %s -> %s", srcUrl, dstUrl), err)
+			}
+			dur := time.Since(start).Round(time.Second)
+			if dur < 1 {
+				dur += time.Second
+			}
+			task.Log.Debugf("scheduler: direct transfer complete: %s -> %s (%s) in %s (%s/s) ", srcUrl, dstUrl, data.Size(file.Size), dur, data.Size(file.Size/int64(dur.Seconds())))
+			task.mu.Lock()
+			task.Result.Fileset.Map[filename] = file
+			task.mu.Unlock()
+			return err
+		})
+	}
+	return g.Wait()
 }

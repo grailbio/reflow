@@ -95,6 +95,20 @@ func (m Mux) Put(ctx context.Context, url string, size int64, body io.Reader) er
 	return bucket.Put(ctx, key, size, body)
 }
 
+// Transfer transfers the contents of object in srcurl to dsturl.
+// errors.NotSupported is returned if the transfer is not possible.
+func (m Mux) Transfer(ctx context.Context, dsturl, srcurl string) error {
+	srcB, src, err := m.Bucket(ctx, srcurl)
+	if err != nil {
+		return err
+	}
+	dstB, dst, err := m.Bucket(ctx, dsturl)
+	if err != nil {
+		return err
+	}
+	return dstB.CopyFrom(ctx, srcB, src, dst)
+}
+
 // Snapshot returns an un-loaded Reflow fileset representing the contents
 // of the provided URL.
 func (m Mux) Snapshot(ctx context.Context, url string) (reflow.Fileset, error) {

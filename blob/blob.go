@@ -62,6 +62,9 @@ type Bucket interface {
 	// Copy copies key src to key dst in this bucket.
 	Copy(ctx context.Context, src, dst string) error
 
+	// CopyFrom copies from bucket src and key srcKey into this bucket.
+	CopyFrom(ctx context.Context, srcBucket Bucket, src, dst string) error
+
 	// Delete removes the provided keys.
 	Delete(ctx context.Context, keys ...string) error
 

@@ -52,15 +52,15 @@ const (
 	// defaultS3ObjectCopySizeLimit is the max size of object for a single PUT Object Copy request.
 	// As per AWS: https://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectCOPY.html
 	// the max size allowed is 5GB, but we use a smaller size here to speed up large file copies.
-	defaultS3ObjectCopySizeLimit = 2 << 30 // 2GiB
+	defaultS3ObjectCopySizeLimit = 256 << 20 // 256MiB
 
 	// defaultS3MultipartCopyPartSize is the max size of each part when doing a multi-part copy.
 	// Note: Though we can do parts of size up to defaultS3ObjectCopySizeLimit, for large files
 	// using smaller size parts (concurrently) is much faster.
-	defaultS3MultipartCopyPartSize = 512 << 20 // 512MiB
+	defaultS3MultipartCopyPartSize = 128 << 20 // 128MiB
 
 	// s3MultipartCopyConcurrencyLimit is the number of concurrent parts to do during a multi-part copy.
-	s3MultipartCopyConcurrencyLimit = 10
+	s3MultipartCopyConcurrencyLimit = 100
 )
 
 // DefaultRegion is the region used for s3 requests if a bucket's
@@ -444,6 +444,20 @@ func (b *Bucket) Copy(ctx context.Context, src, dst string) error {
 	err := b.copyObject(ctx, dst, b, src)
 	if err != nil {
 		err = errors.E("s3blob.Copy", b.bucket, src, dst, kind(err), err)
+	}
+	return err
+}
+
+// CopyFrom copies from bucket src and key srcKey into this bucket.
+// This is done directly without streaming the data through the client.
+func (b *Bucket) CopyFrom(ctx context.Context, srcBucket blob.Bucket, src, dst string) error {
+	srcB, ok := srcBucket.(*Bucket)
+	if !ok {
+		return errors.E(errors.NotSupported, "s3blob.CopyFrom", srcBucket.Location())
+	}
+	err := b.copyObject(ctx, dst, srcB, src)
+	if err != nil {
+		err = errors.E("s3blob.CopyFrom", b.Location(), dst, srcBucket.Location(), src, err)
 	}
 	return err
 }
