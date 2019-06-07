@@ -55,8 +55,9 @@ const memoryDiscount = 0.05 + 0.02
 var minDiskSizes = map[string]uint64{
 	// EBS does not allow you to create ST1 volumes smaller than 500GiB.
 	"st1": 500,
-	// 214 is the smallest disk size that yields maximum throughput.
-	"gp2": 214,
+	// 334GiB is the smallest disk size that yields maximum throughput, as per
+	// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/EBSVolumeTypes.html
+	"gp2": 335,
 }
 
 // instanceConfig represents a instance configuration.
