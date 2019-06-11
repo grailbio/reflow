@@ -119,7 +119,7 @@ func Stdlib() (*types.Env, *values.Env) {
 					// This is a (small) local file; we inline it as a literal.
 					b, err := ioutil.ReadFile(rawurl)
 					if err != nil {
-						return nil, err
+						return nil, fmt.Errorf("%v %v: %v", loc.Position, loc.Ident, err)
 					}
 					if len(b) > 200<<20 {
 						return nil, fmt.Errorf("file %s is too large (%dMB); local files may not exceed 200MB", rawurl, len(b)>>20)
@@ -194,7 +194,7 @@ func Stdlib() (*types.Env, *values.Env) {
 						paths = append(paths, w.Relpath())
 						b, err := ioutil.ReadFile(w.Path())
 						if err != nil {
-							return nil, err
+							return nil, fmt.Errorf("%v %v: %v", loc.Position, loc.Ident, err)
 						}
 						datas = append(datas, b)
 					}
