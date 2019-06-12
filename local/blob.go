@@ -36,7 +36,59 @@ var (
 	downloadingFiles = expvar.NewInt("blobdownloading")
 	digestingFiles   = expvar.NewInt("blobdigesting")
 	uploadingFiles   = expvar.NewInt("blobuploading")
+	internRate       = expvar.NewInt("blobinternrate")
+	externRate       = expvar.NewInt("blobexternrate")
 )
+
+// rateExporter measures progress in bytes and updates exported var.
+// It does so by keeping track of total bytes
+type rateExporter struct {
+	begin time.Time
+	exp   *expvar.Int
+
+	mu       sync.Mutex
+	bytes    int64
+	prevRate int64
+	done     bool
+}
+
+// newRateExporter returns a new rateExporter which updates the given exporter var.
+func newRateExporter(expvar *expvar.Int) *rateExporter {
+	return &rateExporter{begin: time.Now(), exp: expvar}
+}
+
+// rate returns the current rate defined as the ratio of
+// total bytes by the time since the beginning.
+func (b *rateExporter) rate() int64 {
+	dur := time.Since(b.begin)
+	dur -= dur % time.Second
+	if dur < time.Second {
+		dur = time.Second
+	}
+	return b.bytes / int64(dur.Seconds())
+}
+
+// Add adds the given bytes to the rateExporter and causes a recomputation of the rate.
+// Then the difference between the current rate and the previous rate is added to the exported var.
+func (b *rateExporter) Add(bytes int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.done {
+		return
+	}
+	b.bytes += bytes
+	rate := b.rate()
+	b.exp.Add(rate - b.prevRate)
+	b.prevRate = rate
+}
+
+// Done signals that this rateExporter is done and will no longer update the exporter var.
+func (b *rateExporter) Done() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.done = true
+	b.exp.Add(-b.prevRate)
+}
 
 // a canceler rendezvous a cancellation function with a
 // cancellation request.
@@ -306,6 +358,8 @@ func (e *blobExec) doIntern(ctx context.Context) error {
 		return nil
 	}
 
+	rw := newRateExporter(internRate)
+	defer rw.Done()
 	scan := bucket.Scan(prefix)
 	for scan.Scan(ctx) {
 		key, file := scan.Key(), scan.File()
@@ -335,6 +389,7 @@ func (e *blobExec) doIntern(ctx context.Context) error {
 			e.mu.Lock()
 			e.Manifest.Result.Fileset.Map[key[nprefix:]] = file
 			e.mu.Unlock()
+			rw.Add(file.Size)
 			return nil
 		})
 	}
@@ -374,6 +429,8 @@ func (e *blobExec) doExtern(ctx context.Context) error {
 	e.Manifest.Result.Fileset.Map = map[string]reflow.File{}
 	e.mu.Unlock()
 
+	rw := newRateExporter(externRate)
+	defer rw.Done()
 	for k, v := range fileset.Map {
 		fn, f := k, v
 		g.Go(func() error {
@@ -394,6 +451,7 @@ func (e *blobExec) doExtern(ctx context.Context) error {
 			e.mu.Lock()
 			e.Manifest.Result.Fileset.Map[fn] = f
 			e.mu.Unlock()
+			rw.Add(f.Size)
 			return nil
 		})
 	}

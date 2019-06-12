@@ -6,11 +6,13 @@ package local
 
 import (
 	"context"
+	"crypto/md5"
+	"expvar"
+	"fmt"
+	"math/rand"
 	"path/filepath"
 	"testing"
-
-	"crypto/md5"
-	"fmt"
+	"time"
 
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
@@ -237,5 +239,27 @@ func TestS3ExecPath(t *testing.T) {
 	}
 	if !ok {
 		t.Errorf("file is missing from repository")
+	}
+}
+
+func TestRateWatch(t *testing.T) {
+	numRws, numLoops := 5+rand.Intn(10), 5+rand.Intn(10)
+	exp := expvar.NewInt("hello")
+	rws := make([]*rateExporter, numRws)
+	for i := 0; i < numRws; i++ {
+		rws[i] = newRateExporter(exp)
+	}
+	for j := 0; j < numLoops; j++ {
+		time.Sleep(time.Duration(rand.Intn(50)) * time.Millisecond)
+		for i := 0; i < numRws; i++ {
+			rws[i].Add(rand.Int63n(10<<20) + 1<<20)
+		}
+		sum := int64(0)
+		for i := 0; i < numRws; i++ {
+			sum += rws[i].rate()
+		}
+		if got, want := exp.Value(), sum; got != want {
+			t.Errorf("got %d, want %d", got, want)
+		}
 	}
 }
