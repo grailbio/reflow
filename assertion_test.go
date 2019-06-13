@@ -7,7 +7,9 @@ package reflow_test
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"reflect"
+	"sort"
 	"testing"
 
 	"encoding/json"
@@ -23,38 +25,51 @@ var (
 	v  = reflow.AssertionsFromMap(map[reflow.AssertionKey]string{k2: "v2", k1: "v1"})
 )
 
-func TestAssertionKeyIsEmpty(t *testing.T) {
-	tests := []struct {
-		a reflow.AssertionKey
-		w bool
-	}{
-		{k1, false}, {k2, false},
-		{reflow.AssertionKey{}, true},
-		{reflow.AssertionKey{"n", "s", ""}, true},
-		{reflow.AssertionKey{"n", "", "k"}, true},
-		{reflow.AssertionKey{"", "s", "k"}, true},
+const minLen = 10
+const maxLen = 100
+const chars = "abcdefghijklmnopqrstuvwxyxABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+func randString() string {
+	l := minLen + rand.Intn(maxLen-minLen+1)
+	b := make([]byte, l)
+	for i := 0; i < l; i++ {
+		b[i] = chars[rand.Intn(len(chars))]
 	}
-	for _, tt := range tests {
-		if got, want := tt.a.IsEmpty(), tt.w; got != want {
-			t.Errorf("IsEmpty(%v) got %v, want %v", tt.a, got, want)
+	return string(b)
+}
+
+func assertionKeySlice(size int) []reflow.AssertionKey {
+	var keys []reflow.AssertionKey
+	ns, su, o := randString(), randString(), randString()
+	for k := 0; k < size; k++ {
+		if rand.Intn(10) < 2 {
+			ns = randString()
+		}
+		if rand.Intn(10) < 8 {
+			su = randString()
+		}
+		if rand.Intn(10) < 2 {
+			o = randString()
+		}
+		ak := reflow.AssertionKey{ns, su, o}
+		keys = append(keys, ak)
+	}
+	return keys
+}
+
+func TestAssertionKeyLess(t *testing.T) {
+	for i := 0; i < 10; i++ {
+		keys := assertionKeySlice(100)
+		sort.Slice(keys, func(i, j int) bool { return keys[i].Less(keys[j]) })
+		if !sort.SliceIsSorted(keys, func(i, j int) bool {
+			return keys[i].Namespace+keys[i].Subject+keys[i].Object <
+				keys[j].Namespace+keys[j].Subject+keys[j].Object
+		}) {
+			t.Fatalf("not sorted: %v", keys)
 		}
 	}
 }
 
-func TestAssertionKeyString(t *testing.T) {
-	tests := []struct {
-		a reflow.AssertionKey
-		w string
-	}{
-		{reflow.AssertionKey{"n", "s", "k"}, "n s k"},
-		{reflow.AssertionKey{"n1", "s1", "k1"}, "n1 s1 k1"},
-	}
-	for _, tt := range tests {
-		if got, want := tt.a.String(), tt.w; got != want {
-			t.Errorf("String(%v) got %v, want %v", tt.a, got, want)
-		}
-	}
-}
 func TestAssertionsAddToNil(t *testing.T) {
 	func() {
 		var a *reflow.Assertions
@@ -379,6 +394,46 @@ func TestAssertionsAssertExact(t *testing.T) {
 	for _, tt := range tests {
 		if got, want := reflow.AssertExact(context.Background(), tt.src, tt.tgt), tt.w; got != want {
 			t.Errorf("AssertExact(%v, %v): got %v, want %v", tt.src, tt.tgt, got, want)
+		}
+	}
+}
+
+func lessConcat(a, b reflow.AssertionKey) bool {
+	as := strings.Join([]string{a.Namespace, a.Subject, a.Object}, " ")
+	bs := strings.Join([]string{b.Namespace, b.Subject, b.Object}, " ")
+	return as < bs
+}
+
+func lessCompare(a, b reflow.AssertionKey) bool {
+	if a.Namespace == b.Namespace {
+		if a.Subject == b.Subject {
+			return a.Object < b.Object
+		}
+		return a.Subject < b.Subject
+	}
+	return a.Namespace < b.Namespace
+}
+
+func BenchmarkSort(b *testing.B) {
+	for _, size := range []int{100, 1000, 10000} {
+		for _, s := range []struct {
+			name   string
+			lessFn func(a, b reflow.AssertionKey) bool
+		}{
+			{fmt.Sprintf("Concat_N%d", size), lessConcat},
+			{fmt.Sprintf("Compare_N%d", size), lessCompare},
+		} {
+			b.Run(s.name, func(b *testing.B) {
+				allKeys := make([][]reflow.AssertionKey, b.N)
+				for i := 0; i < b.N; i++ {
+					allKeys[i] = assertionKeySlice(size)
+				}
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					keys := allKeys[i]
+					sort.Slice(keys, func(i, j int) bool { return s.lessFn(keys[i], keys[j]) })
+				}
+			})
 		}
 	}
 }

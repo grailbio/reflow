@@ -29,14 +29,15 @@ type AssertionKey struct {
 	Object    string `json:",omitempty"`
 }
 
-// IsEmpty returns whether this assertion key is empty.
-// An assertion is empty unless it has values for all three fields.
-func (ak AssertionKey) IsEmpty() bool {
-	return ak.Namespace == "" || ak.Subject == "" || ak.Object == ""
-}
-
-func (ak AssertionKey) String() string {
-	return strings.Join([]string{ak.Namespace, ak.Subject, ak.Object}, " ")
+// Less returns whether the given AssertionKey is lexicographically smaller than this one.
+func (a AssertionKey) Less(b AssertionKey) bool {
+	if a.Namespace == b.Namespace {
+		if a.Subject == b.Subject {
+			return a.Object < b.Object
+		}
+		return a.Subject < b.Subject
+	}
+	return a.Namespace < b.Namespace
 }
 
 // Assertions are a map of AssertionKey to value.
@@ -136,7 +137,7 @@ func (s *Assertions) Filter(t *Assertions) (*Assertions, []AssertionKey) {
 		}
 		return true
 	})
-	sort.Slice(missing, func(i, j int) bool { return missing[i].String() < missing[j].String() })
+	sort.Slice(missing, func(i, j int) bool { return missing[i].Less(missing[j]) })
 	return AssertionsFromMap(m), missing
 }
 
@@ -207,11 +208,11 @@ func (s *Assertions) String() string {
 		keys = append(keys, k)
 		return true
 	})
-	sort.Slice(keys, func(i, j int) bool { return keys[i].String() < keys[j].String() })
+	sort.Slice(keys, func(i, j int) bool { return keys[i].Less(keys[j]) })
 	ss := make([]string, len(keys))
 	for i, key := range keys {
 		if v, ok := s.load(key); ok {
-			ss[i] = fmt.Sprintf("%s=%s", key.String(), v)
+			ss[i] = fmt.Sprintf("%s %s %s=%s", key.Namespace, key.Subject, key.Object, v)
 		}
 	}
 	return strings.Join(ss, ", ")
@@ -226,7 +227,7 @@ func (s *Assertions) WriteDigest(w io.Writer) {
 		keys = append(keys, k)
 		return true
 	})
-	sort.Slice(keys, func(i, j int) bool { return keys[i].String() < keys[j].String() })
+	sort.Slice(keys, func(i, j int) bool { return keys[i].Less(keys[j]) })
 	for _, key := range keys {
 		v, _ := s.load(key)
 		io.WriteString(w, key.Subject)
@@ -250,7 +251,7 @@ func (s *Assertions) MarshalJSON() ([]byte, error) {
 		entries = append(entries, jsonEntry{k, v})
 		return true
 	})
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Key.String() < entries[j].Key.String() })
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Key.Less(entries[j].Key) })
 	return json.Marshal(entries)
 }
 
