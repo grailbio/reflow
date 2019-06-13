@@ -52,6 +52,8 @@ expressions, d1, d2, .. are declarations; t1, t2, .. are types):
 	exec(d1, d2, ..) t1 {{ template }} // an exec with declarations d1, d2, .., returning t1 with template
 	                                   // identifiers are valid declarations in this context; they are
 	                                   // deparsed as id := id.
+	                                   // takes an optional declaration nondeterministic bool, which tags
+	                                   // this exec as being non-deterministic.
 	e1 <op> e2                         // a binary op (||, &&, <, >, <=, >=, !=, ==, +, /, %, &, <<, >>)
 	<op> e1                            // unary expression (!)
 	if e1 { d1; d2; ..; e2 }

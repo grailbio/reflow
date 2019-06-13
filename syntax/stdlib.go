@@ -25,26 +25,43 @@ import (
 	"github.com/grailbio/reflow/values"
 )
 
+// FuncMode represents the behavior mode for SystemFuncs.
+type FuncMode int
+
+const (
+	// ModeDefault functions are passed arguments that have been evaluated.
+	ModeDefault FuncMode = iota
+
+	// ModeForced functions are passed arguments that have been evaluated and forced.
+	ModeForced
+
+	// ModeDirect functions are passed arguments that have not been evaluated (i.e. may be *flow.Flow).
+	ModeDirect
+)
+
 // SystemFunc is a utility to define a reflow intrinsic.
 type SystemFunc struct {
 	Module string
 	Id     string
 	Doc    string
 	Type   *types.T
-	Force  bool
+	Mode   FuncMode
 	Do     func(loc values.Location, args []values.T) (values.T, error)
 }
 
 // Apply applied the intrinsic with the given arguments.
 func (s SystemFunc) Apply(loc values.Location, args []values.T) (values.T, error) {
 	args = append([]values.T{}, args...)
+	if s.Mode == ModeDirect {
+		return s.Do(loc, args)
+	}
 	var (
 		deps  []*flow.Flow
 		depsi []int
 		dw    = reflow.Digester.NewWriter()
 	)
 	for i := range args {
-		if s.Force {
+		if s.Mode == ModeForced {
 			args[i] = Force(args[i], s.Type.Fields[i].T)
 		}
 		if f, ok := args[i].(*flow.Flow); ok {
@@ -278,7 +295,7 @@ var testDecls = []*Decl{
 		Module: "test",
 		Doc:    "Assert fails if any passed (boolean) value is false.",
 		Type:   types.Func(types.Unit, &types.Field{Name: "tests", T: types.List(types.Bool)}),
-		Force:  true,
+		Mode:   ModeForced,
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
 			list := args[0].(values.List)
 			var failed []int
@@ -298,7 +315,7 @@ var testDecls = []*Decl{
 		Module: "test",
 		Doc:    "All returns true if every passed (boolean) value is true.",
 		Type:   types.Func(types.Bool, &types.Field{Name: "tests", T: types.List(types.Bool)}),
-		Force:  true,
+		Mode:   ModeForced,
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
 			list := args[0].(values.List)
 			for i := range list {
@@ -307,6 +324,26 @@ var testDecls = []*Decl{
 				}
 			}
 			return true, nil
+		},
+	}.Decl(),
+	SystemFunc{
+		Id:     "ExecRepeatAndCheck",
+		Module: "test",
+		Doc: "ExecRepeatAndCheck returns a boolean value denoting whether identical results were produced after" +
+			" repeating (the given number of times) each exec in the DAG implied by the given value.",
+		Type: types.Flow(types.Func(
+			types.Flow(types.Bool),
+			&types.Field{Name: "value", T: types.Flow(types.Top)},
+			&types.Field{Name: "times", T: types.Int}),
+		),
+		Mode: ModeDirect,
+		Do: func(loc values.Location, args []values.T) (values.T, error) {
+			f, bi := args[0].(*flow.Flow), args[1].(*big.Int)
+			f, err := repeatExecs(f, int(bi.Int64()))
+			if err != nil {
+				return nil, errors.E(loc.Position, loc.Ident, err)
+			}
+			return f, nil
 		},
 	}.Decl(),
 }
@@ -359,7 +396,7 @@ var dirsDecls = []*Decl{
 	SystemFunc{
 		Id:     "Make",
 		Module: "dirs",
-		Force:  true,
+		Mode:   ModeForced,
 		Doc:    "Make creates a new dir using the given map of paths to files.",
 		Type: types.Func(types.Dir,
 			&types.Field{Name: "map", T: types.Map(types.String, types.File)}),
@@ -594,7 +631,7 @@ var stringsDecls = []*Decl{
 	SystemFunc{
 		Id:     "Join",
 		Module: "strings",
-		Force:  true, // need full list
+		Mode:   ModeForced, // need full list
 		Doc:    "Join concatenates a list of strings into a single string using the provided separator.",
 		Type: types.Func(types.String,
 			&types.Field{Name: "strs", T: types.List(types.String)},
@@ -635,7 +672,7 @@ var stringsDecls = []*Decl{
 	SystemFunc{
 		Id:     "Sort",
 		Module: "strings",
-		Force:  true, // need full list
+		Mode:   ModeForced, // need full list
 		Doc:    "Sort sorts a list of strings in lexicographic order.",
 		Type: types.Func(types.List(types.String),
 			&types.Field{Name: "strs", T: types.List(types.String)}),
@@ -652,7 +689,7 @@ var stringsDecls = []*Decl{
 	SystemFunc{
 		Id:     "FromInt",
 		Module: "strings",
-		Force:  true,
+		Mode:   ModeForced,
 		Doc:    "FromInt parses an integer into a string.",
 		Type: types.Func(types.String,
 			&types.Field{Name: "intVal", T: types.Int}),
@@ -665,7 +702,7 @@ var stringsDecls = []*Decl{
 	SystemFunc{
 		Id:     "FromFloat",
 		Module: "strings",
-		Force:  true,
+		Mode:   ModeForced,
 		Doc:    "FromFloat parses a float into a string with the specified digits of precision.",
 		Type: types.Func(types.String,
 			&types.Field{Name: "floattVal", T: types.Float},

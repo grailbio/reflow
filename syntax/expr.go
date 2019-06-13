@@ -218,6 +218,9 @@ type Expr struct {
 	// It is populated during evaluation.
 	Image string
 
+	// NonDeterministic defines whether the exec in ExprExec is non-deterministic.
+	NonDeterministic bool
+
 	ComprExpr    *Expr
 	ComprClauses []*ComprClause
 
@@ -608,6 +611,11 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			case "cpufeatures":
 				if d.Type.Kind != types.ListKind || d.Type.Elem.Kind != types.StringKind {
 					e.Type = types.Errorf("%s must be a list of strings", ident)
+					return
+				}
+			case "nondeterministic":
+				if d.Type.Kind != types.BoolKind {
+					e.Type = types.Errorf("%s must be a bool", ident)
 					return
 				}
 			default:

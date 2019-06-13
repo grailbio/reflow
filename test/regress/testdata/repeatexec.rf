@@ -1,0 +1,22 @@
+// This tests test.ExecRepeatAndCheck functionality.
+
+val test = make("$/test")
+
+func CatCopy(in file, random bool) =
+	if random {
+		exec(image := "ubuntu", mem := 10*MiB) (out file) {"
+		echo $RANDOM > {{out}}
+			cat {{in}} >> {{out}}
+		"}
+	} else {
+		exec(image := "ubuntu", mem := 10*MiB) (out file) {"
+		cat {{in}} > {{out}}
+		"}
+	}
+
+@requires(cpu := 1)
+val Main = test.Assert([
+	test.ExecRepeatAndCheck(CatCopy(file("localfile://testdata/repeatexec.rf"), false), 1),
+	test.ExecRepeatAndCheck(CatCopy(file("localfile://testdata/repeatexec.rf"), false), 3),
+	false == test.ExecRepeatAndCheck(CatCopy(file("localfile://testdata/repeatexec.rf"), true), 3),
+])

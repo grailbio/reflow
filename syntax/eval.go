@@ -281,6 +281,9 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			if d.Pat.Ident == "image" {
 				e.Image = v.(string)
 			}
+			if d.Pat.Ident == "nondeterministic" {
+				e.NonDeterministic = v.(bool)
+			}
 			tvals[i] = tval{d.Type, v}
 		}
 		// TODO(marius): abstract into a utility (IsOutput(...))
@@ -779,11 +782,12 @@ func (e *Expr) exec(sess *Session, env *values.Env, ident string, args map[int]v
 			Resources: resources,
 			// TODO(marius): use a better interpolation scheme that doesn't
 			// require us to do these gymnastics wrt string interpolation.
-			Cmd:         b.String(),
-			Deps:        deps,
-			Argmap:      earg,
-			Argstrs:     argstrs,
-			OutputIsDir: dirs,
+			Cmd:              b.String(),
+			Deps:             deps,
+			Argmap:           earg,
+			Argstrs:          argstrs,
+			OutputIsDir:      dirs,
+			NonDeterministic: e.NonDeterministic,
 		}},
 
 		Op:         flow.Coerce,

@@ -1,0 +1,4 @@
+func TestExec(in file) =
+		exec(image := "ubuntu", nondeterministic := 1.2) (out file) {"
+				cat {{in}} > {{out}}
+		"}

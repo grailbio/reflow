@@ -256,9 +256,13 @@ type Flow struct {
 	// and debugging.
 	Argstrs []string
 
-	// FlowDigest stores, for Val and K, a digest representing
+	// FlowDigest stores, for Val, K and Coerce, a digest representing
 	// just the operation or value.
 	FlowDigest digest.Digest
+
+	// ExtraDigest is considered as an additional digestible material of this flow
+	// and included in the the flow's logical and physical digest computation.
+	ExtraDigest digest.Digest
 
 	// A human-readable identifier for the node, for use in
 	// debugging output, etc.
@@ -338,6 +342,9 @@ type Flow struct {
 	// are pending evaluation. It is maintained by the evaluator to trigger
 	// evaluation.
 	Pending map[*Flow]bool
+
+	// NonDeterministic, in the case of Execs, denotes if the exec is non-deterministic.
+	NonDeterministic bool
 
 	digestOnce sync.Once
 	digest     digest.Digest
@@ -894,6 +901,9 @@ func (f *Flow) WriteDigest(w io.Writer) {
 	case Data:
 		w.Write(f.Data)
 	}
+	if !f.ExtraDigest.IsZero() {
+		digest.WriteDigest(w, f.ExtraDigest)
+	}
 }
 
 // PhysicalDigest returns the digest for this node substituting the
@@ -917,6 +927,9 @@ func (f *Flow) physicalDigest(image string) digest.Digest {
 				writeN(w, arg.Index)
 			}
 		}
+	}
+	if !f.ExtraDigest.IsZero() {
+		digest.WriteDigest(w, f.ExtraDigest)
 	}
 	return w.Digest()
 }
