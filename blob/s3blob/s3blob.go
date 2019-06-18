@@ -165,21 +165,21 @@ func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 	var err error
 	for retries := 0; ; retries++ {
 		err = admit.Retry(ctx, b.admitter, 1, func() error {
+			var err error
 			ctx, cancel := context.WithTimeout(ctx, metaTimeout)
 			defer cancel()
-			var err error
 			resp, err = b.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
 				Bucket: aws.String(b.bucket),
 				Key:    aws.String(key),
 			})
+			err = ctxErr(ctx, err)
 			if kind(err) == errors.ResourcesExhausted {
 				log.Printf("s3blob.File: %s/%s: %v (over capacity)\n", b.bucket, key, err)
 				return admit.ErrOverCapacity
 			}
 			return err
 		})
-		var shouldRetry bool
-		if shouldRetry, err = retryError(ctx, err); !shouldRetry {
+		if !retryable(err) {
 			break
 		}
 		log.Printf("s3blob.File: %s/%s (attempt %d): %v\n", b.bucket, key, retries, err)
@@ -245,6 +245,16 @@ func maxS3Ops(size int64) int {
 	return int(c)
 }
 
+// ctxErr will return the context's error (if any) or other.
+// Since AWS wraps context errors, we override any other errors with that
+// to easily determine if the error was ours (ie context canceled or timed out)
+func ctxErr(ctx context.Context, other error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return other
+}
+
 func timeoutPolicy(size int64) retry.Policy {
 	baseTimeout := time.Duration(size/minBPS) * time.Second
 	if baseTimeout < minTimeout {
@@ -258,15 +268,17 @@ func timeout(policy retry.Policy, retries int) time.Duration {
 	return timeout
 }
 
-func retryError(ctx context.Context, err error) (bool, error) {
+// retryable returns whether an error is retryable.
+func retryable(err error) bool {
 	if err == nil {
-		return false, nil
+		return false
 	}
-	if ctx.Err() != nil {
-		return false, ctx.Err()
+	if _, ok := err.(awserr.Error); ok {
+		return kind(err) == errors.Temporary
 	}
-	kind := kind(err)
-	return kind == errors.Canceled || kind == errors.Temporary, err
+	// Not an AWS error, so attempt to recover as reflow error
+	kind := errors.Recover(err).Kind
+	return kind == errors.Timeout || kind == errors.Temporary
 }
 
 // Download downloads the object named by the provided key. Download
@@ -285,16 +297,16 @@ func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w i
 				d.Concurrency = s3concurrency
 			})
 			ctx, cancel := context.WithTimeout(ctx, timeout(policy, retries))
+			defer cancel()
 			n, err = d.DownloadWithContext(ctx, w, b.getObjectInput(key, etag))
-			cancel()
+			err = ctxErr(ctx, err)
 			if kind(err) == errors.ResourcesExhausted {
 				log.Printf("s3blob.Download: %s/%s: %v (over capacity)\n", b.bucket, key, err)
 				err = admit.ErrOverCapacity
 			}
 			return err
 		})
-		var shouldRetry bool
-		if shouldRetry, err = retryError(ctx, err); !shouldRetry {
+		if !retryable(err) {
 			break
 		}
 		log.Printf("s3blob.Download: %s/%s (attempt %d): %v\n", b.bucket, key, retries, err)
@@ -329,25 +341,26 @@ func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader
 	policy := timeoutPolicy(size)
 	for retries := 0; ; retries++ {
 		err = admit.Retry(ctx, b.admitter, s3concurrency, func() error {
+			var err error
 			up := s3manager.NewUploaderWithClient(b.client, func(u *s3manager.Uploader) {
 				u.PartSize = s3minpartsize
 				u.Concurrency = s3concurrency
 			})
 			ctx, cancel := context.WithTimeout(ctx, timeout(policy, retries))
-			_, err := up.UploadWithContext(ctx, &s3manager.UploadInput{
+			defer cancel()
+			_, err = up.UploadWithContext(ctx, &s3manager.UploadInput{
 				Bucket: aws.String(b.bucket),
 				Key:    aws.String(key),
 				Body:   body,
 			})
-			cancel()
+			err = ctxErr(ctx, err)
 			if kind(err) == errors.ResourcesExhausted {
 				log.Printf("s3blob.Put: %s/%s: %v (over capacity)\n", b.bucket, key, err)
 				return admit.ErrOverCapacity
 			}
 			return err
 		})
-		var shouldRetry bool
-		if shouldRetry, err = retryError(ctx, err); !shouldRetry {
+		if !retryable(err) {
 			break
 		}
 		log.Printf("s3blob.Put: %s/%s (attempt %d): %v\n", b.bucket, key, retries, err)

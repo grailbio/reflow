@@ -6,12 +6,19 @@ package s3blob
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io/ioutil"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/grailbio/base/retry"
+
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/service/s3"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/grailbio/reflow"
@@ -24,11 +31,24 @@ func content(s string) *testutil.ByteContent {
 	return &testutil.ByteContent{Data: []byte(s)}
 }
 
+const (
+	name        = "testbucket"
+	errorbucket = "errorbucket"
+)
+
 var testKeys = map[string]*testutil.ByteContent{
 	"test/x":        content("x"),
 	"test/y":        content("y"),
 	"test/z/foobar": content("foobar"),
 	"unrelated":     content("unrelated"),
+}
+
+var errorKeys = map[string]error{
+	"key_awscanceled":       awserr.New(request.CanceledErrorCode, "test", nil),
+	"key_nosuchkey":         awserr.New(s3.ErrCodeNoSuchKey, "test", nil),
+	"key_canceled":          context.Canceled,
+	"key_deadlineexceeded":  context.DeadlineExceeded,
+	"key_awsrequesttimeout": awserr.New("RequestTimeout", "test", nil),
 }
 
 func testFile(key string) reflow.File {
@@ -41,7 +61,6 @@ func testFile(key string) reflow.File {
 
 func newTestBucket(t *testing.T) *Bucket {
 	t.Helper()
-	const name = "testbucket"
 	client := s3test.NewClient(t, name)
 	client.Region = "us-west-2"
 	bucket := NewBucket(name, client)
@@ -49,6 +68,25 @@ func newTestBucket(t *testing.T) *Bucket {
 		client.SetFileContentAt(k, v, "")
 	}
 	return bucket
+}
+
+func newErrorBucket(t *testing.T) *Bucket {
+	client := s3test.NewClient(t, errorbucket)
+	client.Region = "us-west-2"
+	client.Err = func(api string, input interface{}) error {
+		if api != "HeadObjectRequestWithContext" {
+			return nil
+		}
+		if hoi, ok := input.(*s3.HeadObjectInput); ok {
+			if *hoi.Bucket != errorbucket {
+				return nil
+			}
+			err := errorKeys[*hoi.Key]
+			return err
+		}
+		return nil
+	}
+	return NewBucket(errorbucket, client)
 }
 
 func TestSnapshot(t *testing.T) {
@@ -227,5 +265,60 @@ func TestTimeoutPolicy(t *testing.T) {
 	}
 	if got, want := timeout(p, 100), 300*time.Second; got != want {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestFileErrors(t *testing.T) {
+	bucket := newErrorBucket(t)
+	bucket.retrier = retry.MaxTries(retry.Jitter(retry.Backoff(20*time.Millisecond, 100*time.Millisecond, 1.5), 0.25), defaultMaxRetries)
+	ctx := context.Background()
+	for _, tc := range []struct {
+		key   string
+		wantK errors.Kind
+		wantE error
+	}{
+		{"key_nosuchkey", errors.NotExist, nil},
+		{"key_deadlineexceeded", errors.Other, fmt.Errorf("s3blob.File errorbucket key_deadlineexceeded: gave up after 3 tries: too many tries")},
+		{"key_awsrequesttimeout", errors.Other, fmt.Errorf("s3blob.File errorbucket key_awsrequesttimeout: gave up after 3 tries: too many tries")},
+		{"key_canceled", errors.Canceled, nil},
+		{"key_awscanceled", errors.Canceled, nil},
+	} {
+		_, got := bucket.File(ctx, tc.key)
+		if got == nil {
+			t.Errorf("want error, got none")
+			continue
+		}
+		if tc.wantK != errors.Other {
+			if !errors.Is(tc.wantK, got) {
+				t.Errorf("want kind %v, got %v", tc.wantK, got)
+			}
+			continue
+		}
+		if got.Error() != tc.wantE.Error() {
+			t.Errorf("got %v, want %v", got, tc.wantE)
+		}
+	}
+}
+
+func TestShouldRetry(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want bool
+	}{
+		{nil, false},
+		{awserr.New(request.CanceledErrorCode, "test", nil), false},
+		{awserr.New(s3.ErrCodeNoSuchKey, "test", nil), false},
+		{awserr.New("MultipartUpload", "test", context.Canceled), false},
+		{awserr.New("MultipartUpload", "test", context.DeadlineExceeded), false},
+		{aws.ErrMissingRegion, false},
+		{aws.ErrMissingEndpoint, false},
+		{context.Canceled, false},
+		{context.DeadlineExceeded, true},
+		{errors.E("test", errors.Temporary), true},
+		{awserr.New("RequestTimeout", "test", nil), true},
+	} {
+		if got, want := retryable(tc.err), tc.want; got != want {
+			t.Errorf("got %v, want %v: %v", got, want, tc.err)
+		}
 	}
 }
