@@ -245,15 +245,17 @@ func maxS3Ops(size int64) int {
 	return int(c)
 }
 
-func withTimeout(ctx context.Context, size int64, retries int) (context.Context, context.CancelFunc) {
-	if size == 0 {
-		return ctx, func() {}
+func timeoutPolicy(size int64) retry.Policy {
+	baseTimeout := time.Duration(size/minBPS) * time.Second
+	if baseTimeout < minTimeout {
+		baseTimeout = minTimeout
 	}
-	timeout := time.Duration(int64(retries)*size/minBPS) * time.Second
-	if timeout < minTimeout {
-		timeout = minTimeout
-	}
-	return context.WithTimeout(ctx, timeout)
+	return retry.Backoff(baseTimeout, 3*baseTimeout, 1.5)
+}
+
+func timeout(policy retry.Policy, retries int) time.Duration {
+	_, timeout := policy.Retry(retries)
+	return timeout
 }
 
 func retryError(ctx context.Context, err error) (bool, error) {
@@ -274,6 +276,7 @@ func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w i
 	var n int64
 	s3concurrency := maxS3Ops(size)
 	var err error
+	policy := timeoutPolicy(size)
 	for retries := 0; ; retries++ {
 		err = admit.Retry(ctx, b.admitter, s3concurrency, func() error {
 			var err error
@@ -281,7 +284,7 @@ func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w i
 				d.PartSize = s3minpartsize
 				d.Concurrency = s3concurrency
 			})
-			ctx, cancel := withTimeout(ctx, size, retries)
+			ctx, cancel := context.WithTimeout(ctx, timeout(policy, retries))
 			n, err = d.DownloadWithContext(ctx, w, b.getObjectInput(key, etag))
 			cancel()
 			if kind(err) == errors.ResourcesExhausted {
@@ -323,13 +326,14 @@ func (b *Bucket) Get(ctx context.Context, key, etag string) (io.ReadCloser, refl
 func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader) error {
 	s3concurrency := maxS3Ops(size)
 	var err error
+	policy := timeoutPolicy(size)
 	for retries := 0; ; retries++ {
 		err = admit.Retry(ctx, b.admitter, s3concurrency, func() error {
 			up := s3manager.NewUploaderWithClient(b.client, func(u *s3manager.Uploader) {
 				u.PartSize = s3minpartsize
 				u.Concurrency = s3concurrency
 			})
-			ctx, cancel := withTimeout(ctx, size, retries)
+			ctx, cancel := context.WithTimeout(ctx, timeout(policy, retries))
 			_, err := up.UploadWithContext(ctx, &s3manager.UploadInput{
 				Bucket: aws.String(b.bucket),
 				Key:    aws.String(key),

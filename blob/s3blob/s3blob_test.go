@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/grailbio/reflow"
@@ -203,5 +204,28 @@ func TestDownload(t *testing.T) {
 	_, err = bucket.Download(ctx, "test/z/foobar", testFile("test/z/foobar").ETag, 0, b)
 	if err != nil {
 		t.Errorf("unexpected error %v", err)
+	}
+}
+
+func TestTimeoutPolicy(t *testing.T) {
+	p := timeoutPolicy(minBPS)
+	if got, want := timeout(p, 0), 60*time.Second; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := timeout(p, 1), 90*time.Second; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := timeout(p, 100), 180*time.Second; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	p = timeoutPolicy(100 * minBPS)
+	if got, want := timeout(p, 0), 100*time.Second; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := timeout(p, 1), 150*time.Second; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := timeout(p, 100), 300*time.Second; got != want {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
