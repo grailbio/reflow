@@ -79,6 +79,8 @@ func main() {
 	g.Printf("	Name string\n")
 	g.Printf("	// EBSOptimized is set to true if the instance type permits EBS optimization.\n")
 	g.Printf("	EBSOptimized bool\n")
+	g.Printf("	// EBSThroughput is the max throughput for the EBS optimized instance.\n")
+	g.Printf("	EBSThroughput float64\n")
 	g.Printf("	// VCPU stores the number of VCPUs provided by this instance type.\n")
 	g.Printf("	VCPU uint\n")
 	g.Printf("	// Memory stores the number of (fractional) GiB of memory provided by this instance type.\n")
@@ -145,9 +147,15 @@ func main() {
 			log.Printf("excluding instance type %s because it does not support Linux HVM (supported: %s)", e.Type, strings.Join(e.LinuxVirtType, ", "))
 			continue
 		}
+		// All current generation instances are EBS optimized by default as per:
+		// https://aws.amazon.com/ec2/pricing/on-demand/
+		// "For Current Generation Instance types, EBS-optimization is enabled by default at no additional cost."
+		// However, http://ec2instances.info/ seems to have EBSOptimized set to false for all instances.
+		ebsOptimized := e.EBSOptimized || e.Generation == "current"
 		g.Printf("{\n")
 		g.Printf("	Name: %q,\n", e.Type)
-		g.Printf("	EBSOptimized: %v,\n", e.EBSOptimized)
+		g.Printf("	EBSOptimized: %v,\n", ebsOptimized)
+		g.Printf("	EBSThroughput: %f,\n", e.EBSThroughput)
 		g.Printf("	VCPU: %v,\n", e.VCPU)
 		g.Printf("	Memory: %f,\n", e.Memory)
 		g.Printf("	Price: map[string]float64{\n")
@@ -201,10 +209,11 @@ func main() {
 }
 
 type entry struct {
-	Arch         []string `json:"arch"`
-	Type         string   `json:"instance_type"`
-	EBSOptimized bool     `json:"ebs_optimized"`
-	Memory       float64  `json:"memory"`
+	Arch          []string `json:"arch"`
+	Type          string   `json:"instance_type"`
+	EBSOptimized  bool     `json:"ebs_optimized"`
+	EBSThroughput float64  `json:"ebs_throughput"`
+	Memory        float64  `json:"memory"`
 	// VCPU must be an abstract, because "N/A" is returned
 	// for the "i3.metal" instance type.
 	VCPU          interface{}                       `json:"vCPU"`

@@ -51,6 +51,21 @@ import (
 // be a little shy of 2%.
 const memoryDiscount = 0.05 + 0.02
 
+const (
+	// ebsThroughputPremiumCost defines the higher premium in USD dollars
+	// we are willing to pay for an instance with at least ebsThroughputBenefitPct more EBS throughput
+	ebsThroughputPremiumCost = 0.03
+
+	// ebsThroughputPremiumPct defines the higher premium (as a percentage)
+	// we are willing to pay for at least ebsThroughputBenefitPct increased EBS throughput
+	// when choosing instance types.
+	ebsThroughputPremiumPct = 15.0
+
+	// ebsThroughputBenefitPct is the percentage higher EBS throughput we require
+	// to justify paying the premium.
+	ebsThroughputBenefitPct = 50.0
+)
+
 // the smallest acceptable disk sizes per EBS volume type.
 var minDiskSizes = map[string]uint64{
 	// EBS does not allow you to create ST1 volumes smaller than 500GiB.
@@ -67,6 +82,8 @@ type instanceConfig struct {
 
 	// EBSOptimized is true if we should request an EBS optimized instance.
 	EBSOptimized bool
+	// EBSThroughput is the max throughput for the EBS optimized instance.
+	EBSThroughput float64
 	// Resources holds the Reflow resources that are presented by this configuration.
 	// It does not include disk sizes; they are dynamic.
 	Resources reflow.Resources
@@ -88,9 +105,10 @@ var (
 func init() {
 	for _, typ := range instances.Types {
 		instanceTypes[typ.Name] = instanceConfig{
-			Type:         typ.Name,
-			EBSOptimized: typ.EBSOptimized,
-			Price:        typ.Price,
+			Type:          typ.Name,
+			EBSOptimized:  typ.EBSOptimized,
+			EBSThroughput: typ.EBSThroughput,
+			Price:         typ.Price,
 			Resources: reflow.Resources{
 				"cpu": float64(typ.VCPU),
 				"mem": (1 - memoryDiscount) * typ.Memory * 1024 * 1024 * 1024,
@@ -189,8 +207,11 @@ func (s *instanceState) MinAvailable(need reflow.Resources, spot bool) (instance
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var (
+		price     float64
 		best      instanceConfig
-		bestPrice float64 = math.MaxFloat64
+		bestPrice = math.MaxFloat64
+		found, ok bool
+		viable    []instanceConfig
 	)
 	for _, config := range s.configs {
 		if time.Since(s.unavailable[config.Type]) < s.sleepTime || (spot && !config.SpotOk) {
@@ -199,7 +220,29 @@ func (s *instanceState) MinAvailable(need reflow.Resources, spot bool) (instance
 		if !config.Resources.Available(need) {
 			continue
 		}
-		if price, ok := config.Price[s.region]; ok && price < bestPrice {
+		if price, ok = config.Price[s.region]; !ok {
+			continue
+		}
+		viable = append(viable, config)
+		if price < bestPrice {
+			bestPrice = price
+			best = config
+		}
+	}
+	// Choose a higher cost but better EBS throughput instance type if applicable.
+	for _, config := range viable {
+		price = config.Price[s.region]
+		// Prefer a reasonably more expensive one with higher EBS throughput
+		if !found &&
+			(price < bestPrice+ebsThroughputPremiumCost ||
+				price < bestPrice*(1.0+ebsThroughputPremiumPct/100)) &&
+			config.EBSThroughput > best.EBSThroughput*(1.0+ebsThroughputBenefitPct/100) {
+			bestPrice = price
+			best = config
+			found = true
+		}
+		// Prefer a cheaper one with same EBS throughput.
+		if found && price < bestPrice && config.EBSThroughput >= best.EBSThroughput {
 			bestPrice = price
 			best = config
 		}

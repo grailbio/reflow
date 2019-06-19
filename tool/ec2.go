@@ -24,6 +24,7 @@ The columns displayed by the instance listing are:
 	type    the name of the instance type
 	mem     the amount of instance memory (GiB)
 	cpu     the number of instance VCPUs
+    ebs_max the max EBS throughput available for an EBS instance	
 	price   the hourly on-demand price of the instance in the selected region
 	cpu features
 			a set of CPU features supported by this instance type
@@ -46,6 +47,8 @@ The columns displayed by the instance listing are:
 			return types[i].VCPU < types[j].VCPU
 		case "mem":
 			return types[i].Memory < types[j].Memory
+		case "ebs_max":
+			return types[i].EBSThroughput < types[j].EBSThroughput
 		case "price":
 			return types[i].Price[*regionFlag] < types[j].Price[*regionFlag]
 		default:
@@ -72,9 +75,9 @@ The columns displayed by the instance listing are:
 			features = append(features, feature)
 		}
 		sort.Strings(features)
-		fmt.Fprintf(&tw, "%s\t\t%.2f\t%d\t%.2f\t{%s}\t{%s}\n",
+		fmt.Fprintf(&tw, "%s\t\t%.2f\t%d\t%.2f\t%.2f\t{%s}\t{%s}\n",
 			typ.Name, typ.Memory,
-			typ.VCPU, typ.Price[*regionFlag],
+			typ.VCPU, typ.EBSThroughput, typ.Price[*regionFlag],
 			strings.Join(features, ","),
 			strings.Join(flags, ","))
 	}
