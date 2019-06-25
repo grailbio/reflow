@@ -48,13 +48,10 @@ type File struct {
 
 // Digest returns the file's digest: if the file is a reference, the
 // digest comprises the reference, source, etag and assertions.
-// Resolved files return digest of: file's digest and assertions digest (if any).
+// Resolved files return digest of the file's ID.
 func (f File) Digest() digest.Digest {
 	if !f.IsRef() {
-		if f.Assertions.IsEmpty() {
-			return f.ID
-		}
-		return Digester.FromDigests(f.ID, f.Assertions.Digest())
+		return f.ID
 	}
 	w := Digester.NewWriter()
 	var b [8]byte

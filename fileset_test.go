@@ -33,7 +33,7 @@ var (
 	vlist = reflow.Fileset{List: []reflow.Fileset{v1, v2}}
 )
 
-const vlistSHA256 = "sha256:44f5143efffbecb099444784d548ac35c80de65d422038a2017cbbd205fc0cc5"
+const vlistSHA256 = "sha256:d60e67ce9e89548b502a5ad7968e99caed0d388f0a991b906f41a7ba65adb31f"
 
 func TestValueDigest(t *testing.T) {
 	if v1.Digest() == v2.Digest() {
