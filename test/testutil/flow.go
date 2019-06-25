@@ -27,11 +27,8 @@ func File(contents string) reflow.File {
 	}
 }
 
-// Files returns a value comprising the given files with contents derived from
-// their names.
-func Files(files ...string) reflow.Fileset {
-	var v reflow.Fileset
-	v.Map = map[string]reflow.File{}
+func fileContents(files ...string) map[string]string {
+	fc := make(map[string]string, len(files))
 	for _, file := range files {
 		var path, contents string
 		parts := strings.SplitN(file, ":", 2)
@@ -43,6 +40,17 @@ func Files(files ...string) reflow.Fileset {
 			path = parts[0]
 			contents = parts[1]
 		}
+		fc[path] = contents
+	}
+	return fc
+}
+
+// Files returns a value comprising the given files with contents derived from
+// their names.
+func Files(files ...string) reflow.Fileset {
+	var v reflow.Fileset
+	v.Map = map[string]reflow.File{}
+	for path, contents := range fileContents(files...) {
 		v.Map[path] = File(contents)
 	}
 	return v
@@ -51,8 +59,8 @@ func Files(files ...string) reflow.Fileset {
 // WriteFiles writes the provided files into the repository r and
 // returns a Fileset as in Files.
 func WriteFiles(r reflow.Repository, files ...string) reflow.Fileset {
-	for _, file := range files {
-		_, err := r.Put(context.Background(), bytes.NewReader([]byte(file)))
+	for _, contents := range fileContents(files...) {
+		_, err := r.Put(context.Background(), bytes.NewReader([]byte(contents)))
 		if err != nil {
 			panic(fmt.Sprintf("unexpected error writing to repository: %v", err))
 		}

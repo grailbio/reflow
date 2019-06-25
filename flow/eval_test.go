@@ -468,6 +468,68 @@ func TestCacheLookupBottomup(t *testing.T) {
 	}
 }
 
+func TestCacheLookupBottomupPhysical(t *testing.T) {
+	// intern from two different locations but the same contents
+	internA, internB := op.Intern("internurlA"), op.Intern("internurlB")
+	// execA will compute and execB should use the former's cached results
+	execA := op.Exec("image", "command1", testutil.Resources, internA)
+	execB := op.Exec("image", "command1", testutil.Resources, internB)
+	execA.Ident, execB.Ident = "execA", "execB"
+	merge := op.Merge(execA, execB)
+	extern := op.Extern("externurl", merge)
+	testutil.AssignExecId(nil, internA, internB, execA, execB, merge, extern)
+
+	e := testutil.Executor{Have: testutil.Resources}
+	e.Init()
+	e.Repo = testutil.NewInmemoryRepository()
+	var cache testutil.WaitCache
+	cache.Init()
+	eval := flow.NewEval(extern, flow.EvalConfig{
+		Executor:   &e,
+		CacheMode:  flow.CacheRead | flow.CacheWrite,
+		Assoc:      testutil.NewInmemoryAssoc(),
+		Repository: testutil.NewInmemoryRepository(),
+		Transferer: testutil.Transferer,
+		BottomUp:   true,
+		// We set a small cache lookup timeout here to shorten test times.
+		// TODO(marius): allow for tighter integration or observation
+		// between the evaluator and its tests, e.g., so that we can wait
+		// for physical digests to be available and not rely on cache
+		// timeouts for progress. Perhaps this can be done by way of
+		// traces, or a way of observing individual nodes. (Observers would
+		// need to be shared across canonicalizations.)
+		CacheLookupTimeout: 100 * time.Millisecond,
+		Log:                logger(),
+		Trace:              logger(),
+	})
+	internFiles, execFiles := "a:same_contents", "same_exec_result"
+	testutil.WriteCache(eval, internA.Digest(), internFiles)
+	testutil.WriteFile(e.Repo, execFiles)
+	testutil.WriteCache(eval, extern.Digest(), "extern_result")
+
+	rc := testutil.EvalAsync(context.Background(), eval)
+
+	// define execA's result and wait for it to finish writing to cache.
+	e.Ok(execA, testutil.Files(execFiles))
+	if err := e.Exec(execA).Wait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// TODO(marius/swami): allow for tighter integration or observation
+	// Hack to wait for the exec's results to be written to the cache.
+	// Calling eval.CacheWrite() directly won't work either since we
+	// have to wait for the flow's state mutations anyway.
+	time.Sleep(100 * time.Millisecond)
+	// Now define internB's result (same as internA)
+	e.Ok(internB, testutil.Files(internFiles))
+	r := <-rc
+	if r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if !e.Equiv(execA, internB) {
+		t.Error("wrong set of expected flows")
+	}
+}
+
 func TestCacheLookupBottomupWithAssertions(t *testing.T) {
 	intern := op.Intern("internurl")
 	groupby := op.Groupby("(.*)", intern)

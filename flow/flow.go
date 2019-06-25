@@ -694,6 +694,16 @@ func (f *Flow) ExecArg(i int) ExecArg {
 	}
 }
 
+// setArgmap defines f.Argmap if it isn't already.
+func (f *Flow) setArgmap() {
+	if f.Argmap == nil {
+		f.Argmap = make([]ExecArg, len(f.Deps))
+		for i := range f.Deps {
+			f.Argmap[i] = ExecArg{Index: i}
+		}
+	}
+}
+
 // ExecConfig returns the flow's exec configuration. The flows dependencies
 // must already be computed before invoking ExecConfig. ExecConfig is valid
 // only for Intern, Extern, and Exec ops.
@@ -714,12 +724,7 @@ func (f *Flow) ExecConfig() reflow.ExecConfig {
 			Args:  []reflow.Arg{{Fileset: &fs}},
 		}
 	case Exec:
-		if f.Argmap == nil {
-			f.Argmap = make([]ExecArg, len(f.Deps))
-			for i := range f.Deps {
-				f.Argmap[i] = ExecArg{Index: i}
-			}
-		}
+		f.setArgmap()
 		args := make([]reflow.Arg, f.NExecArg())
 		for i := range args {
 			earg := f.ExecArg(i)
@@ -764,12 +769,7 @@ func (f *Flow) depAssertions() (*reflow.Assertions, error) {
 		}
 		return f.Deps[0].Value.(reflow.Fileset).Assertions()
 	case Exec:
-		if f.Argmap == nil {
-			f.Argmap = make([]ExecArg, len(f.Deps))
-			for i := range f.Deps {
-				f.Argmap[i] = ExecArg{Index: i}
-			}
-		}
+		f.setArgmap()
 		a := new(reflow.Assertions)
 		for i := 0; i < f.NExecArg(); i++ {
 			earg := f.ExecArg(i)
@@ -906,6 +906,7 @@ func (f *Flow) physicalDigest(image string) digest.Digest {
 	case Exec:
 		io.WriteString(w, image)
 		io.WriteString(w, f.Cmd)
+		f.setArgmap()
 		for _, arg := range f.Argmap {
 			if arg.Out {
 				writeN(w, -arg.Index)

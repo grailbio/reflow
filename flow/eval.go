@@ -1459,7 +1459,7 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 			batch.Add(assoc.Key{assoc.Fileset, key})
 		}
 		if e.Log.At(log.DebugLevel) {
-			e.Log.Debugf("cache.Lookup flow: %s keys: %s\n", f.Digest().Short(), strings.Join(
+			e.Log.Debugf("cache.Lookup flow: %s (%s) keys: %s\n", f.Digest().Short(), f.Ident, strings.Join(
 				func() []string {
 					strs := make([]string, len(keys))
 					for i, key := range keys {
@@ -1502,7 +1502,7 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 				}
 				err = unmarshal(ctx, e.Repository, res.Digest, &fs)
 				if err == nil {
-					e.Log.Debugf("cache.Lookup flow: %s result from key: %s\n", f.Digest().Short(), key.Short())
+					e.Log.Debugf("cache.Lookup flow: %s (%s) result from key: %s\n", f.Digest().Short(), f.Ident, key.Short())
 					fsid = res.Digest
 					break
 				}
