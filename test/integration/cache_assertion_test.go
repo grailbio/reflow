@@ -18,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/base/cloud/awssession"
+	"github.com/grailbio/base/iofmt"
 	"github.com/grailbio/base/vcontext"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/s3blob"
@@ -25,11 +26,9 @@ import (
 )
 
 const (
-	sampleA      = "Sample a contents"
-	sampleB      = "Contents of b sample"
-	sampleC      = "Changed contents of sample a"
 	reflowModule = "testdata/cache_assertion.rf"
 	testBucket   = "reflow-unittest"
+	timeFormat   = "2006_01_02_15_04"
 )
 
 var (
@@ -60,8 +59,8 @@ func TestCacheAssertions(t *testing.T) {
 	mux := blob.Mux{"s3": s3blob.New(awsSession)}
 
 	for _, tc := range []testConfig{
-		{mux, "EvalTopDown", []string{"-eval", "topdown"}, *local},
-		{mux, "EvalBottomUp", []string{"-eval", "bottomup"}, *local},
+		{mux: mux, name: "EvalTopDown", runArgs: []string{"-eval", "topdown"}, local: *local},
+		{mux: mux, name: "EvalBottomUp", runArgs: []string{"-eval", "bottomup"}, local: *local},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
@@ -69,6 +68,7 @@ func TestCacheAssertions(t *testing.T) {
 				// Run tests in parallel when running locally.
 				t.Parallel()
 			}
+			tc.init()
 			defer tc.cleanup(t)
 			commonScenarios(t, tc)
 			evalOnlyScenarios(t, tc)
@@ -80,10 +80,12 @@ func TestCacheAssertions(t *testing.T) {
 		return
 	}
 	for _, tc := range []testConfig{
-		{mux, "SchedTopDown", []string{"-sched", "-eval", "topdown"}, false},
-		{mux, "SchedBottomUp", []string{"-sched", "-eval", "bottomup"}, false}} {
+		{mux: mux, name: "SchedTopDown", runArgs: []string{"-sched", "-eval", "topdown"}, local: false},
+		{mux: mux, name: "SchedBottomUp", runArgs: []string{"-sched", "-eval", "bottomup"}, local: false},
+	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			tc.init()
 			defer tc.cleanup(t)
 			commonScenarios(t, tc)
 			schedOnlyScenarios(t, tc)
@@ -96,41 +98,41 @@ func evalOnlyScenarios(t *testing.T, tc testConfig) {
 	// Setup paths and input files.
 	in, out, allout := tc.basePath()+"/input/", tc.basePath()+"/output/", tc.basePath()+"/all/out"
 
-	wants := tc.assertContents(t, map[string]string{"/output/a": sampleA, "/output/b": sampleB, "/all/out": sampleA + sampleB})
+	wants := tc.assertContents(t, map[string]string{"/output/a": tc.sampleA, "/output/b": tc.sampleB, "/all/out": tc.sampleA + tc.sampleB})
 	// Write the same contents again
-	if err := tc.createInput(map[string]string{"/input/a": sampleA, "/input/b": sampleB}); err != nil {
+	if err := tc.writeFiles(map[string]string{"/input/a": tc.sampleA, "/input/b": tc.sampleB}); err != nil {
 		t.Fatal(err)
 	}
 	// Should hit cached results.
-	tc.runReflow(t, append([]string{"-assert", "never"}, tc.runArgs...), in, out, allout)
-	gots := tc.assertContents(t, map[string]string{"/output/a": sampleA, "/output/b": sampleB, "/all/out": sampleA + sampleB})
+	tc.runReflow(t, "eval_touched_never", append([]string{"-assert", "never"}, tc.runArgs...), in, out, allout)
+	gots := tc.assertContents(t, map[string]string{"/output/a": tc.sampleA, "/output/b": tc.sampleB, "/all/out": tc.sampleA + tc.sampleB})
 	assertSame(t, gots, wants)
 
 	// With assertions, should copy all the files (though contents didn't change) in to out and concat into allout
-	tc.runReflow(t, append([]string{"-assert", "exact"}, tc.runArgs...), in, out, allout)
-	gots = tc.assertContents(t, map[string]string{"/output/a": sampleA, "/output/b": sampleB, "/all/out": sampleA + sampleB})
+	tc.runReflow(t, "eval_touched_exact", append([]string{"-assert", "exact"}, tc.runArgs...), in, out, allout)
+	gots = tc.assertContents(t, map[string]string{"/output/a": tc.sampleA, "/output/b": tc.sampleB, "/all/out": tc.sampleA + tc.sampleB})
 	assertDifferent(t, gots, wants)
 
 	// Should hit cached results.
 	wants = gots
-	tc.runReflow(t, append([]string{"-assert", "exact"}, tc.runArgs...), in, out, allout)
-	gots = tc.assertContents(t, map[string]string{"/output/a": sampleA, "/output/b": sampleB, "/all/out": sampleA + sampleB})
+	tc.runReflow(t, "eval_touched_exact_again", append([]string{"-assert", "exact"}, tc.runArgs...), in, out, allout)
+	gots = tc.assertContents(t, map[string]string{"/output/a": tc.sampleA, "/output/b": tc.sampleB, "/all/out": tc.sampleA + tc.sampleB})
 	assertSame(t, gots, wants)
 
 	// Change contents of one of the inputs
-	if err := tc.createInput(map[string]string{"/input/a": sampleC}); err != nil {
+	if err := tc.writeFiles(map[string]string{"/input/a": tc.sampleC}); err != nil {
 		t.Fatal(err)
 	}
 	// Should hit cached results.
-	tc.runReflow(t, append([]string{"-assert", "never"}, tc.runArgs...), in, out, allout)
-	gots = tc.assertContents(t, map[string]string{"/output/a": sampleA, "/output/b": sampleB, "/all/out": sampleA + sampleB})
+	tc.runReflow(t, "eval_changed_never", append([]string{"-assert", "never"}, tc.runArgs...), in, out, allout)
+	gots = tc.assertContents(t, map[string]string{"/output/a": tc.sampleA, "/output/b": tc.sampleB, "/all/out": tc.sampleA + tc.sampleB})
 	assertSame(t, gots, wants)
 
 	// With assertions, should copy only the changed file from in to out and concat into allout
-	tc.runReflow(t, append([]string{"-assert", "exact"}, tc.runArgs...), in, out, allout)
-	gots = tc.assertContents(t, map[string]string{"/output/a": sampleC, "/all/out": sampleC + sampleB})
+	tc.runReflow(t, "eval_changed_exact", append([]string{"-assert", "exact"}, tc.runArgs...), in, out, allout)
+	gots = tc.assertContents(t, map[string]string{"/output/a": tc.sampleC, "/all/out": tc.sampleC + tc.sampleB})
 	assertDifferent(t, gots, wants)
-	gots = tc.assertContents(t, map[string]string{"/output/b": sampleB})
+	gots = tc.assertContents(t, map[string]string{"/output/b": tc.sampleB})
 	assertSame(t, gots, wants)
 }
 
@@ -139,37 +141,37 @@ func evalOnlyScenarios(t *testing.T, tc testConfig) {
 func schedOnlyScenarios(t *testing.T, tc testConfig) {
 	// Setup paths and input files.
 	in, out, allout := tc.basePath()+"/input/", tc.basePath()+"/output/", tc.basePath()+"/all/out"
-	wants := tc.assertContents(t, map[string]string{"/output/a": sampleA, "/output/b": sampleB, "/all/out": sampleA + sampleB})
+	wants := tc.assertContents(t, map[string]string{"/output/a": tc.sampleA, "/output/b": tc.sampleB, "/all/out": tc.sampleA + tc.sampleB})
 
 	// Write the same contents again
-	if err := tc.createInput(map[string]string{"/input/a": sampleA, "/input/b": sampleB}); err != nil {
+	if err := tc.writeFiles(map[string]string{"/input/a": tc.sampleA, "/input/b": tc.sampleB}); err != nil {
 		t.Fatal(err)
 	}
 	// Since scheduler uses snapshotter, changes are picked up even without assertions.
-	tc.runReflow(t, append([]string{"-assert", "never"}, tc.runArgs...), in, out, allout)
-	gots := tc.assertContents(t, map[string]string{"/output/a": sampleA, "/output/b": sampleB, "/all/out": sampleA + sampleB})
+	tc.runReflow(t, "sched_touched_never", append([]string{"-assert", "never"}, tc.runArgs...), in, out, allout)
+	gots := tc.assertContents(t, map[string]string{"/output/a": tc.sampleA, "/output/b": tc.sampleB, "/all/out": tc.sampleA + tc.sampleB})
 	assertDifferent(t, gots, wants)
 
 	wants = gots
-	tc.runReflow(t, append([]string{"-assert", "exact"}, tc.runArgs...), in, out, allout)
-	gots = tc.assertContents(t, map[string]string{"/output/a": sampleA, "/output/b": sampleB, "/all/out": sampleA + sampleB})
+	tc.runReflow(t, "sched_touched_exact", append([]string{"-assert", "exact"}, tc.runArgs...), in, out, allout)
+	gots = tc.assertContents(t, map[string]string{"/output/a": tc.sampleA, "/output/b": tc.sampleB, "/all/out": tc.sampleA + tc.sampleB})
 	assertSame(t, gots, wants)
 
 	// Change contents of one of the inputs
-	if err := tc.createInput(map[string]string{"/input/a": sampleC}); err != nil {
+	if err := tc.writeFiles(map[string]string{"/input/a": tc.sampleC}); err != nil {
 		t.Fatal(err)
 	}
 	// Since scheduler uses snapshotter, changes are picked up even without assertions.
-	tc.runReflow(t, append([]string{"-assert", "never"}, tc.runArgs...), in, out, allout)
-	gots = tc.assertContents(t, map[string]string{"/output/a": sampleC, "/all/out": sampleC + sampleB})
+	tc.runReflow(t, "sched_changed_never", append([]string{"-assert", "never"}, tc.runArgs...), in, out, allout)
+	gots = tc.assertContents(t, map[string]string{"/output/a": tc.sampleC, "/all/out": tc.sampleC + tc.sampleB})
 	assertDifferent(t, gots, wants)
-	gots = tc.assertContents(t, map[string]string{"/output/b": sampleB})
+	gots = tc.assertContents(t, map[string]string{"/output/b": tc.sampleB})
 	assertSame(t, gots, wants)
 
 	// Should hit cached results.
-	wants = tc.assertContents(t, map[string]string{"/output/a": sampleC, "/output/b": sampleB, "/all/out": sampleC + sampleB})
-	tc.runReflow(t, append([]string{"-assert", "exact"}, tc.runArgs...), in, out, allout)
-	gots = tc.assertContents(t, map[string]string{"/output/a": sampleC, "/output/b": sampleB, "/all/out": sampleC + sampleB})
+	wants = tc.assertContents(t, map[string]string{"/output/a": tc.sampleC, "/output/b": tc.sampleB, "/all/out": tc.sampleC + tc.sampleB})
+	tc.runReflow(t, "sched_changed_exact", append([]string{"-assert", "exact"}, tc.runArgs...), in, out, allout)
+	gots = tc.assertContents(t, map[string]string{"/output/a": tc.sampleC, "/output/b": tc.sampleB, "/all/out": tc.sampleC + tc.sampleB})
 	assertSame(t, gots, wants)
 }
 
@@ -177,21 +179,21 @@ func schedOnlyScenarios(t *testing.T, tc testConfig) {
 func commonScenarios(t *testing.T, tc testConfig) {
 	// Setup paths and input files.
 	in, out, allout := tc.basePath()+"/input/", tc.basePath()+"/output/", tc.basePath()+"/all/out"
-	if err := tc.createInput(map[string]string{"/input/a": sampleA, "/input/b": sampleB}); err != nil {
+	if err := tc.writeFiles(map[string]string{"/input/a": tc.sampleA, "/input/b": tc.sampleB}); err != nil {
 		t.Fatal(err)
 	}
 	// Should copy all files from in to out and concat into allout
-	tc.runReflow(t, append([]string{"-assert", "never"}, tc.runArgs...), in, out, allout)
-	wants := tc.assertContents(t, map[string]string{"/output/a": sampleA, "/output/b": sampleB, "/all/out": sampleA + sampleB})
+	tc.runReflow(t, "common_first_run", append([]string{"-assert", "never"}, tc.runArgs...), in, out, allout)
+	wants := tc.assertContents(t, map[string]string{"/output/a": tc.sampleA, "/output/b": tc.sampleB, "/all/out": tc.sampleA + tc.sampleB})
 
 	// Should hit cached results.
-	tc.runReflow(t, append([]string{"-assert", "never"}, tc.runArgs...), in, out, allout)
-	gots := tc.assertContents(t, map[string]string{"/output/a": sampleA, "/output/b": sampleB, "/all/out": sampleA + sampleB})
+	tc.runReflow(t, "common_never", append([]string{"-assert", "never"}, tc.runArgs...), in, out, allout)
+	gots := tc.assertContents(t, map[string]string{"/output/a": tc.sampleA, "/output/b": tc.sampleB, "/all/out": tc.sampleA + tc.sampleB})
 	assertSame(t, gots, wants)
 
 	// With assertions, should *still* hit cached results.
-	tc.runReflow(t, append([]string{"-assert", "exact"}, tc.runArgs...), in, out, allout)
-	gots = tc.assertContents(t, map[string]string{"/output/a": sampleA, "/output/b": sampleB, "/all/out": sampleA + sampleB})
+	tc.runReflow(t, "common_exact", append([]string{"-assert", "exact"}, tc.runArgs...), in, out, allout)
+	gots = tc.assertContents(t, map[string]string{"/output/a": tc.sampleA, "/output/b": tc.sampleB, "/all/out": tc.sampleA + tc.sampleB})
 	assertSame(t, gots, wants)
 }
 
@@ -200,6 +202,14 @@ type testConfig struct {
 	name    string
 	runArgs []string
 	local   bool
+
+	sampleA, sampleB, sampleC string
+}
+
+func (tc *testConfig) init() {
+	tc.sampleA = "Sample a contents:" + tc.dirSuffix()
+	tc.sampleB = "Contents of b sample:" + tc.dirSuffix()
+	tc.sampleC = "Changed contents of sample a:" + tc.dirSuffix()
 }
 
 // cleanup removes all in/out dir contents
@@ -220,14 +230,21 @@ func (tc testConfig) cleanup(t *testing.T) {
 	}
 }
 
-func (tc testConfig) createInput(dir map[string]string) error {
+func (tc testConfig) writeFiles(dir map[string]string) error {
 	base := tc.basePath()
+	// We add a delay before writing to S3 to ensure that metadata will always differ
+	// (ie, even if contents are same, last-modified would be different)
+	time.Sleep(time.Second)
 	for name, contents := range dir {
 		path := base + name
 		if err := tc.mux.Put(context.Background(), path, int64(len(contents)), strings.NewReader(contents)); err != nil {
 			return fmt.Errorf("write %s: %v", path, err)
 		}
 	}
+	// We add a delay after writing to S3 to wait for S3's eventual consistency since
+	// overwriting an existing key with new data can sometimes yield the old result.
+	// TODO(swami):  Perhaps Get after Put to ensure contents/metadata changed
+	time.Sleep(time.Second)
 	return nil
 }
 
@@ -258,14 +275,14 @@ func (tc testConfig) dirSuffix() string {
 	return testDir + "/" + tc.name
 }
 
-func (tc testConfig) runReflow(t *testing.T, runArgs []string, in, out, allout string) {
+func (tc testConfig) runReflow(t *testing.T, logPrefix string, runArgs []string, in, out, allout string) {
 	if tc.local {
 		dir, cleanup := testutil.TempDir(t, "/tmp", "")
 		defer cleanup()
 		runArgs = append(runArgs, "-local", "-localdir", dir)
 	}
 	args := []string{
-		"-labels", fmt.Sprintf("kv,cache_assertion_test=%s", tc.dirSuffix()),
+		"-labels", fmt.Sprintf("kv,cache_assertion_test=%s_%s", time.Now().Format(timeFormat), tc.dirSuffix()),
 	}
 	if *debug {
 		args = append(args, "-log", "debug")
@@ -274,8 +291,8 @@ func (tc testConfig) runReflow(t *testing.T, runArgs []string, in, out, allout s
 	args = append(args, runArgs...)
 	args = append(args, reflowModule, "-in", in, "-out", out, "-allout", allout)
 	cmd := exec.Command(*binary, args...)
-	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
+	cmd.Stderr = iofmt.PrefixWriter(os.Stderr, tc.name+":"+logPrefix+": \t")
+	cmd.Stdout = iofmt.PrefixWriter(os.Stdout, tc.name+":"+logPrefix+": \t")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("%s %s: %v", cmd.Path, strings.Join(cmd.Args[1:], " "), err)
 	}
@@ -313,7 +330,7 @@ func assertDifferent(t *testing.T, a, b map[string]fileInfo) {
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 func randString() string {
-	b := make([]byte, 10)
+	b := make([]byte, 32)
 	for i := range b {
 		b[i] = letterBytes[rand.Intn(len(letterBytes))]
 	}
