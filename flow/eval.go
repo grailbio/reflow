@@ -731,7 +731,13 @@ func (e *Eval) LogSummary(log *log.Logger) {
 	var tw tabwriter.Writer
 	tw.Init(newPrefixWriter(&b, "\t"), 4, 4, 1, ' ', 0)
 	fmt.Fprintln(&tw, "ident\tn\tncache\ttransfer\truntime(m)\tcpu\tmem(GiB)\tdisk(GiB)\ttmp(GiB)")
-	for ident, stats := range stats {
+	idents := make([]string, 0, len(stats))
+	for ident := range stats {
+		idents = append(idents, ident)
+	}
+	sort.Strings(idents)
+	for _, ident := range idents {
+		stats := stats[ident]
 		fmt.Fprintf(&tw, "%s\t%d\t%d\t%s", ident, stats.N, stats.Ncache, stats.Transfer)
 		if stats.CPU.N() > 0 {
 			fmt.Fprintf(&tw, "\t%s\t%s\t%s\t%s\t%s",
