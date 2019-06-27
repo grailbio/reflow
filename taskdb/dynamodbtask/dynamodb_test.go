@@ -4,15 +4,10 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"reflect"
 	"sort"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/grailbio/reflow/assoc"
-
-	"github.com/grailbio/reflow/test/testutil"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -24,11 +19,13 @@ import (
 	"github.com/grailbio/infra"
 	_ "github.com/grailbio/infra/aws"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc"
 	_ "github.com/grailbio/reflow/assoc/dydbassoc"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/taskdb"
+	"github.com/grailbio/reflow/test/testutil"
 )
 
 const (
@@ -48,13 +45,13 @@ func (m *mockDynamodbPut) PutItemWithContext(ctx aws.Context, input *dynamodb.Pu
 
 func TestRunCreate(t *testing.T) {
 	var (
+		labels = []string{"test=label"}
 		mockdb = mockDynamodbPut{}
-		taskb  = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		taskb  = &TaskDB{DB: &mockdb, TableName: mockTableName, Labels: labels}
 		id     = reflow.Digester.Rand(rand.New(rand.NewSource(1)))
-		labels = pool.Labels{"test": "label"}
 		user   = "reflow"
 	)
-	err := taskb.CreateRun(context.Background(), id, labels, user)
+	err := taskb.CreateRun(context.Background(), id, user)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +64,7 @@ func TestRunCreate(t *testing.T) {
 		{*mockdb.pinput.Item[colID4].S, id.HexN(4)},
 		{*mockdb.pinput.Item[colUser].S, user},
 		{*mockdb.pinput.Item[colType].S, "run"},
-		{*mockdb.pinput.Item[colLabels].SS[0], "test=label"},
+		{*mockdb.pinput.Item[colLabels].SS[0], labels[0]},
 	} {
 		if test.expected != test.actual {
 			t.Errorf("expected %s, got %v", test.expected, test.actual)
@@ -77,8 +74,9 @@ func TestRunCreate(t *testing.T) {
 
 func TestTaskCreate(t *testing.T) {
 	var (
+		labels = []string{"test=label"}
 		mockdb = mockDynamodbPut{}
-		taskb  = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		taskb  = &TaskDB{DB: &mockdb, TableName: mockTableName, Labels: labels}
 		id     = reflow.Digester.Rand(nil)
 		runid  = reflow.Digester.Rand(nil)
 		flowid = reflow.Digester.Rand(nil)
@@ -101,6 +99,7 @@ func TestTaskCreate(t *testing.T) {
 		{*mockdb.pinput.Item[colType].S, "task"},
 		{*mockdb.pinput.Item[colType].S, "task"},
 		{*mockdb.pinput.Item[colURI].S, "machineUri"},
+		{*mockdb.pinput.Item[colLabels].SS[0], labels[0]},
 	} {
 		if test.expected != test.actual {
 			t.Errorf("expected %s, got %v", test.expected, test.actual)
@@ -193,7 +192,8 @@ func TestKeepalive(t *testing.T) {
 		{*mockdb.uInput.TableName, "mockdynamodb"},
 		{*mockdb.uInput.ExpressionAttributeValues[":ka"].S, keepalive.Format(timeLayout)},
 		{*mockdb.uInput.ExpressionAttributeValues[":date"].S, date(keepalive).Format(dateLayout)},
-		{*mockdb.uInput.UpdateExpression, "SET Keepalive = :ka, Date = :date"},
+		{*mockdb.uInput.UpdateExpression, "SET Keepalive = :ka, #Date = :date"},
+		{*mockdb.uInput.ExpressionAttributeNames["#Date"], colDate},
 	} {
 		if test.expected != test.actual {
 			t.Errorf("expected %s, got %v", test.expected, test.actual)
@@ -592,7 +592,8 @@ func TestTasksUserQueryTimeBucket(t *testing.T) {
 		{"date", *mockdb.qinput.ExpressionAttributeValues[":date"].S, date},
 		{"user", *mockdb.qinput.ExpressionAttributeValues[":user"].S, query.User},
 		{"attribute name user", *mockdb.qinput.ExpressionAttributeNames["#User"], colUser},
-		{"key condition", *mockdb.qinput.KeyConditionExpression, colDate + " = :date and " + colKeepalive + " > :ka "},
+		{"attribute name date", *mockdb.qinput.ExpressionAttributeNames["#Date"], colDate},
+		{"key condition", *mockdb.qinput.KeyConditionExpression, "#Date = :date and " + colKeepalive + " > :ka "},
 		{"filter expression", *mockdb.qinput.FilterExpression, "#User = :user"},
 	} {
 		if test.expected != test.actual {
@@ -634,8 +635,10 @@ func TestTasksQueryTimeBucketSince(t *testing.T) {
 		{"type", *mockdb.qinput.ExpressionAttributeValues[":type"].S, "run"},
 		{"date", *mockdb.qinput.ExpressionAttributeValues[":date"].S, date},
 		{"keepalive", *mockdb.qinput.ExpressionAttributeValues[":ka"].S, since.Format(timeLayout)},
-		{"key condition", *mockdb.qinput.KeyConditionExpression, colDate + " = :date and " + colKeepalive + " > :ka "},
-		{"filter expression", *mockdb.qinput.FilterExpression, colType + " = :type"},
+		{"key condition", *mockdb.qinput.KeyConditionExpression, "#Date = :date and " + colKeepalive + " > :ka "},
+		{"filter expression", *mockdb.qinput.FilterExpression, "#Type = :type"},
+		{"attribute name date", *mockdb.qinput.ExpressionAttributeNames["#Date"], colDate},
+		{"attribute name type", *mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
 	} {
 		if test.expected != test.actual {
 			t.Errorf("expected %s, got %v", test.expected, test.actual)
@@ -666,9 +669,11 @@ func TestTasksQueryTimeBucketUser(t *testing.T) {
 		{"date", *mockdb.qinput.ExpressionAttributeValues[":date"].S, date},
 		{"keepalive", *mockdb.qinput.ExpressionAttributeValues[":ka"].S, since.UTC().Format(timeLayout)},
 		{"user", *mockdb.qinput.ExpressionAttributeValues[":user"].S, query.User},
-		{"key condition", *mockdb.qinput.KeyConditionExpression, colDate + " = :date and " + colKeepalive + " > :ka "},
-		{"filter expression", *mockdb.qinput.FilterExpression, "#User = :user and " + colType + " = :type"},
-		{"name user", *mockdb.qinput.ExpressionAttributeNames["#User"], colUser},
+		{"key condition", *mockdb.qinput.KeyConditionExpression, "#Date = :date and " + colKeepalive + " > :ka "},
+		{"filter expression", *mockdb.qinput.FilterExpression, "#User = :user and #Type = :type"},
+		{"attribute name user", *mockdb.qinput.ExpressionAttributeNames["#User"], colUser},
+		{"attribute name date", *mockdb.qinput.ExpressionAttributeNames["#Date"], colDate},
+		{"attribute name type", *mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
 	} {
 		if test.expected != test.actual {
 			t.Errorf("expected %s, got %v", test.expected, test.actual)
@@ -725,9 +730,11 @@ func TestTasksQueryTimeBucketRun(t *testing.T) {
 			{"date", *qinput.ExpressionAttributeValues[":date"].S, date},
 			{"keepalive", *qinput.ExpressionAttributeValues[":ka"].S, ka},
 			{"user", *qinput.ExpressionAttributeValues[":user"].S, query.User},
-			{"key condition", *qinput.KeyConditionExpression, "Date = :date and Keepalive > :ka "},
-			{"filter expression", *qinput.FilterExpression, "#User = :user and " + colType + " = :type"},
-			{"name user", *mockdb.qinput.ExpressionAttributeNames["#User"], colUser},
+			{"key condition", *qinput.KeyConditionExpression, "#Date = :date and Keepalive > :ka "},
+			{"filter expression", *qinput.FilterExpression, "#User = :user and #Type = :type"},
+			{"attribute name user", *mockdb.qinput.ExpressionAttributeNames["#User"], colUser},
+			{"attribute name date", *mockdb.qinput.ExpressionAttributeNames["#Date"], colDate},
+			{"attribute name type", *mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
 		} {
 			if test.expected != test.actual {
 				t.Errorf("expected %s, got %v", test.expected, test.actual)
@@ -761,10 +768,10 @@ func TestDydbTaskdbInfra(t *testing.T) {
 	}
 	var tdb taskdb.TaskDB
 	config.Must(&tdb)
-	dynamotaskdb, ok := tdb.(*TaskDB)
-	if !ok {
-		t.Fatalf("%v is not an dynamodbtask", reflect.TypeOf(tdb))
-	}
+
+	var dynamotaskdb *TaskDB
+	config.Must(&dynamotaskdb)
+
 	if got, want := dynamotaskdb.TableName, table; got != want {
 		t.Errorf("got %v, want %v", dynamotaskdb.TableName, table)
 	}

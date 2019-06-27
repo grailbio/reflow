@@ -98,7 +98,7 @@ type TaskDB struct {
 	// TableName is the table to write the run/task info to.
 	TableName string
 	// Labels on the run.
-	Labels pool.Labels
+	Labels []string
 	// User who initiated this run.
 	User string
 	// Limiter limits number of concurrent operations.
@@ -110,18 +110,17 @@ func (t *TaskDB) Init(sess *session.Session, assoc *dydbassoc.Assoc, user *reflo
 	t.limiter = limiter.New()
 	t.limiter.Release(32)
 	t.DB = dynamodb.New(sess)
-	t.Labels = labels.Copy()
+	t.Labels = make([]string, 0, len(labels))
+	for k, v := range labels {
+		t.Labels = append(t.Labels, fmt.Sprintf("%s=%s", k, v))
+	}
 	t.User = string(*user)
 	t.TableName = assoc.TableName
 	return nil
 }
 
 // CreateRun sets a new run in the taskdb with the given id, labels and user.
-func (t *TaskDB) CreateRun(ctx context.Context, id digest.Digest, labels pool.Labels, user string) error {
-	l := make([]string, 0, len(labels))
-	for k, v := range labels {
-		l = append(l, fmt.Sprintf("%s=%s", k, v))
-	}
+func (t *TaskDB) CreateRun(ctx context.Context, id digest.Digest, user string) error {
 	input := &dynamodb.PutItemInput{
 		TableName: aws.String(t.TableName),
 		Item: map[string]*dynamodb.AttributeValue{
@@ -132,7 +131,7 @@ func (t *TaskDB) CreateRun(ctx context.Context, id digest.Digest, labels pool.La
 				S: aws.String(id.HexN(4)),
 			},
 			colLabels: {
-				SS: aws.StringSlice(l),
+				SS: aws.StringSlice(t.Labels),
 			},
 			colUser: {
 				S: aws.String(user),
@@ -177,6 +176,9 @@ func (t *TaskDB) CreateTask(ctx context.Context, id, runid, flowid digest.Digest
 			},
 			colURI: {
 				S: aws.String(uri),
+			},
+			colLabels: {
+				SS: aws.StringSlice(t.Labels),
 			},
 		},
 	}
@@ -243,10 +245,13 @@ func (t *TaskDB) Keepalive(ctx context.Context, id digest.Digest, keepalive time
 				S: aws.String(id.String()),
 			},
 		},
-		UpdateExpression: aws.String(fmt.Sprintf("SET %s = :ka, %s = :date", colKeepalive, colDate)),
+		UpdateExpression: aws.String(fmt.Sprintf("SET %s = :ka, #Date = :date", colKeepalive)),
 		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
 			":ka":   {S: aws.String(keepalive.Format(timeLayout))},
 			":date": {S: aws.String(keepalive.Format(dateLayout))},
+		},
+		ExpressionAttributeNames: map[string]*string{
+			"#Date": aws.String(colDate),
 		},
 	}
 	_, err := t.DB.UpdateItemWithContext(ctx, input)
@@ -303,6 +308,7 @@ func (t *TaskDB) buildQueries(q taskdb.Query, typ objType) []*dynamodb.QueryInpu
 	type part struct {
 		keyExpression string
 		attrValues    map[string]*dynamodb.AttributeValue
+		attrNames     map[string]*string
 	}
 	var (
 		keyExpression    string
@@ -318,10 +324,13 @@ func (t *TaskDB) buildQueries(q taskdb.Query, typ objType) []*dynamodb.QueryInpu
 	since := q.Since.UTC()
 	for _, d := range dates(since, now) {
 		part := part{
-			keyExpression: colDate + " = :date and " + colKeepalive + " > :ka ",
+			keyExpression: "#Date = :date and " + colKeepalive + " > :ka ",
 			attrValues: map[string]*dynamodb.AttributeValue{
 				":date": &dynamodb.AttributeValue{S: aws.String(d.Format(dateLayout))},
 				":ka":   &dynamodb.AttributeValue{S: aws.String(since.Format(timeLayout))},
+			},
+			attrNames: map[string]*string{
+				"#Date": aws.String(colDate),
 			},
 		}
 		timeBuckets = append(timeBuckets, part)
@@ -333,8 +342,9 @@ func (t *TaskDB) buildQueries(q taskdb.Query, typ objType) []*dynamodb.QueryInpu
 		attributeNames["#User"] = aws.String(colUser)
 	}
 	if typ == run {
-		filterExpression = append(filterExpression, colType+" = :type")
+		filterExpression = append(filterExpression, "#Type = :type")
 		attributeValues[":type"] = &dynamodb.AttributeValue{S: aws.String(string(typ))}
+		attributeNames["#Type"] = aws.String(colType)
 	}
 	if len(timeBuckets) > 0 {
 		var queries []*dynamodb.QueryInput
@@ -342,14 +352,17 @@ func (t *TaskDB) buildQueries(q taskdb.Query, typ objType) []*dynamodb.QueryInpu
 			for k, v := range attributeValues {
 				ti.attrValues[k] = v
 			}
+			for k, v := range attributeNames {
+				ti.attrNames[k] = v
+			}
 			query := &dynamodb.QueryInput{
 				TableName:                 aws.String(t.TableName),
 				IndexName:                 aws.String(dateKeepaliveIndex),
 				KeyConditionExpression:    aws.String(ti.keyExpression),
 				ExpressionAttributeValues: ti.attrValues,
 			}
-			if len(attributeNames) > 0 {
-				query.ExpressionAttributeNames = attributeNames
+			if len(ti.attrNames) > 0 {
+				query.ExpressionAttributeNames = ti.attrNames
 			}
 			if len(filterExpression) > 0 {
 				query.FilterExpression = aws.String(strings.Join(filterExpression, " and "))

@@ -16,8 +16,8 @@ import (
 
 // TaskDB is the interface to read/write run and task information to a run db.
 type TaskDB interface {
-	// CreateRun creates a new Run with the provided id, labels amd user.
-	CreateRun(ctx context.Context, id digest.Digest, labels pool.Labels, user string) error
+	// CreateRun creates a new Run with the provided id and user.
+	CreateRun(ctx context.Context, id digest.Digest, user string) error
 	// CreateTask creates a new task with the provided id, runid, flowid and uri.
 	CreateTask(ctx context.Context, id, run, flowid digest.Digest, uri string) error
 	// SetTaskResult sets the result of the task post completion.
