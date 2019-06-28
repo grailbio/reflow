@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"reflect"
 	"sort"
 	"strings"
@@ -46,6 +47,7 @@ var testKeys = map[string]*testutil.ByteContent{
 var errorKeys = map[string]error{
 	"key_awscanceled":       awserr.New(request.CanceledErrorCode, "test", nil),
 	"key_nosuchkey":         awserr.New(s3.ErrCodeNoSuchKey, "test", nil),
+	"key_badrequest":        awserr.New("BadRequest", "test", nil),
 	"key_canceled":          context.Canceled,
 	"key_deadlineexceeded":  context.DeadlineExceeded,
 	"key_awsrequesttimeout": awserr.New("RequestTimeout", "test", nil),
@@ -71,9 +73,11 @@ func newTestBucket(t *testing.T) *Bucket {
 }
 
 func newErrorBucket(t *testing.T) *Bucket {
+	t.Helper()
 	client := s3test.NewClient(t, errorbucket)
 	client.Region = "us-west-2"
 	client.Err = func(api string, input interface{}) error {
+		t.Logf("call: %s\ninput: %v\n", api, input)
 		if api != "HeadObjectRequestWithContext" {
 			return nil
 		}
@@ -81,8 +85,7 @@ func newErrorBucket(t *testing.T) *Bucket {
 			if *hoi.Bucket != errorbucket {
 				return nil
 			}
-			err := errorKeys[*hoi.Key]
-			return err
+			return errorKeys[*hoi.Key]
 		}
 		return nil
 	}
@@ -174,7 +177,7 @@ func TestGet(t *testing.T) {
 	if err := rc.Close(); err != nil {
 		t.Error(err)
 	}
-	if got, want := p, testKeys["test/x"].Data; bytes.Compare(got, want) != 0 {
+	if got, want := p, testKeys["test/x"].Data; !bytes.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 
@@ -204,7 +207,7 @@ func TestPut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := p, c.Data; bytes.Compare(got, want) != 0 {
+	if got, want := p, c.Data; !bytes.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	if got, want := file.Size, c.Size(); got != want {
@@ -231,7 +234,7 @@ func TestDownload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := b.Bytes(), testKeys["test/z/foobar"].Data; bytes.Compare(got, want) != 0 {
+	if got, want := b.Bytes(), testKeys["test/z/foobar"].Data; !bytes.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 
@@ -319,6 +322,142 @@ func TestShouldRetry(t *testing.T) {
 	} {
 		if got, want := retryable(tc.err), tc.want; got != want {
 			t.Errorf("got %v, want %v: %v", got, want, tc.err)
+		}
+	}
+}
+
+func TestCopy(t *testing.T) {
+	bucket := newTestBucket(t)
+	ctx := context.Background()
+	c := content("new content")
+	if err := bucket.Put(ctx, "src", 0, bytes.NewReader(c.Data)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := bucket.Get(ctx, "src", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := bucket.Copy(ctx, "src", "dst"); err != nil {
+		t.Fatal(err)
+	}
+	rc, file, err := bucket.Get(ctx, "dst", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := ioutil.ReadAll(rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := p, c.Data; !bytes.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := file.Size, c.Size(); got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	// ETag generation is technically opaque to us but the s3 test client
+	// uses the content's MD5.
+	if got, want := file.ETag, c.Checksum(); got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+// failN returns true n times when fail() is called and then returns false, until its reset.
+type failN struct {
+	n, i int
+}
+
+func (p *failN) fail() bool {
+	if p.i < p.n {
+		p.i++
+		return true
+	}
+	return false
+}
+
+func (p *failN) reset() {
+	p.i = 0
+}
+
+func newCopyErrorBucket(t *testing.T, fn *failN) *Bucket {
+	t.Helper()
+	client := s3test.NewClient(t, errorbucket)
+	client.Region = "us-west-2"
+	client.Err = func(api string, input interface{}) error {
+		switch api {
+		case "UploadPartCopyWithContext":
+			if upc, ok := input.(*s3.UploadPartCopyInput); ok {
+				// Possibly fail the first part with an error based on the key
+				if *upc.PartNumber == int64(1) && fn.fail() {
+					return errorKeys[*upc.Key]
+				}
+			}
+		}
+		return nil
+	}
+	bucket := NewBucket(errorbucket, client)
+	bucket.retrier = retry.MaxTries(retry.Jitter(retry.Backoff(20*time.Millisecond, 100*time.Millisecond, 1.5), 0.25), defaultMaxRetries)
+	return bucket
+}
+
+func TestCopyMultipart(t *testing.T) {
+	ctx := context.Background()
+	testBucket := newTestBucket(t)
+	fn2, fnMax := &failN{n: 2}, &failN{n: defaultMaxRetries + 1}
+	errorBucket := newCopyErrorBucket(t, fn2)
+	failMaxBucket := newCopyErrorBucket(t, fnMax)
+	for _, tc := range []struct {
+		bucket                *Bucket
+		dstKey                string
+		size, limit, partsize int64
+		wantErr               bool
+	}{
+		// 100KiB of data, multi-part limit 50KiB, part size 10KiB
+		{testBucket, "dst", 100 << 10, 50 << 10, 10 << 10, false},
+		// 50KiB of data, multi-part limit 50KiB, part size 10KiB
+		{testBucket, "dst", 50 << 10, 50 << 10, 10 << 10, false},
+		{errorBucket, "key_badrequest", 100 << 10, 50 << 10, 10 << 10, false},
+		{errorBucket, "key_deadlineexceeded", 100 << 10, 50 << 10, 10 << 10, false},
+		{errorBucket, "key_awsrequesttimeout", 100 << 10, 50 << 10, 10 << 10, false},
+		{errorBucket, "key_canceled", 100 << 10, 50 << 10, 10 << 10, true},
+		{failMaxBucket, "key_badrequest", 100 << 10, 50 << 10, 10 << 10, true},
+	} {
+		fn2.reset()
+		fnMax.reset()
+		b := make([]byte, tc.size)
+		tc.bucket.s3ObjectCopySizeLimit = tc.limit
+		tc.bucket.s3MultipartCopyPartSize = tc.partsize
+		if _, err := rand.Read(b); err != nil {
+			t.Fatal(err)
+		}
+		c := &testutil.ByteContent{Data: b}
+		if err := tc.bucket.Put(ctx, "src", 0, bytes.NewReader(c.Data)); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := tc.bucket.Get(ctx, "src", ""); err != nil {
+			t.Fatal(err)
+		}
+		err := tc.bucket.Copy(ctx, "src", tc.dstKey)
+		if tc.wantErr {
+			if err == nil {
+				t.Error("got no error, want error")
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		rc, file, err := tc.bucket.Get(ctx, tc.dstKey, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, err := ioutil.ReadAll(rc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := p, c.Data; !bytes.Equal(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		if got, want := file.Size, c.Size(); got != want {
+			t.Errorf("got %v, want %v", got, want)
 		}
 	}
 }

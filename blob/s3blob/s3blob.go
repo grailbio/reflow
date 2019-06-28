@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/grailbio/base/traverse"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/request"
@@ -46,6 +48,19 @@ const (
 
 	// metaTimeout is used for metadata operations.
 	metaTimeout = 30 * time.Second
+
+	// defaultS3ObjectCopySizeLimit is the max size of object for a single PUT Object Copy request.
+	// As per AWS: https://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectCOPY.html
+	// the max size allowed is 5GB, but we use a smaller size here to speed up large file copies.
+	defaultS3ObjectCopySizeLimit = 2 << 30 // 2GiB
+
+	// defaultS3MultipartCopyPartSize is the max size of each part when doing a multi-part copy.
+	// Note: Though we can do parts of size up to defaultS3ObjectCopySizeLimit, for large files
+	// using smaller size parts (concurrently) is much faster.
+	defaultS3MultipartCopyPartSize = 512 << 20 // 512MiB
+
+	// s3MultipartCopyConcurrencyLimit is the number of concurrent parts to do during a multi-part copy.
+	s3MultipartCopyConcurrencyLimit = 10
 )
 
 // DefaultRegion is the region used for s3 requests if a bucket's
@@ -151,12 +166,18 @@ type Bucket struct {
 	client   s3iface.S3API
 	admitter admit.RetryPolicy
 	retrier  retry.Policy
+
+	// s3ObjectCopySizeLimit is the max size of object for a single PUT Object Copy request.
+	s3ObjectCopySizeLimit int64
+	// s3MultipartCopyPartSize is the max size of each part when doing a multi-part copy.
+	s3MultipartCopyPartSize int64
 }
 
 // NewBucket returns a new S3 bucket that uses the provided client
 // for SDK calls. NewBucket is primarily intended for testing.
 func NewBucket(name string, client s3iface.S3API) *Bucket {
-	return &Bucket{name, client, newS3AdmitPolicy(), newS3RetryPolicy()}
+	return &Bucket{name, client, newS3AdmitPolicy(), newS3RetryPolicy(),
+		defaultS3ObjectCopySizeLimit, defaultS3MultipartCopyPartSize}
 }
 
 // File returns metadata for the provided key.
@@ -420,11 +441,7 @@ func (b *Bucket) Snapshot(ctx context.Context, prefix string) (reflow.Fileset, e
 // Copy copies the key src to the key dst. This is done directly without
 // streaming the data through the client.
 func (b *Bucket) Copy(ctx context.Context, src, dst string) error {
-	_, err := b.client.CopyObjectWithContext(ctx, &s3.CopyObjectInput{
-		Bucket:     aws.String(b.bucket),
-		Key:        aws.String(dst),
-		CopySource: aws.String(path.Join(b.bucket + "/" + src)),
-	})
+	err := b.copyObject(ctx, dst, b, src)
 	if err != nil {
 		err = errors.E("s3blob.Copy", b.bucket, src, dst, kind(err), err)
 	}
@@ -447,6 +464,101 @@ func (b *Bucket) Delete(ctx context.Context, keys ...string) error {
 // Location returns the s3 URL of this bucket, e.g., s3://grail-reflow/.
 func (b *Bucket) Location() string {
 	return "s3://" + b.bucket + "/"
+}
+
+// copyObject copies to this bucket and key from the given src bucket and srcKey.
+// Since AWS doesn't allow copying files larger than defaultS3ObjectCopySizeLimit
+// in a single operation, this does multi-part copy object in those cases.
+func (b *Bucket) copyObject(ctx context.Context, key string, src *Bucket, srcKey string) error {
+	srcUrl, dstUrl := path.Join(src.bucket, srcKey), path.Join(b.bucket, key)
+	file, err := src.File(ctx, srcKey)
+	if err != nil {
+		return err
+	}
+	if file.Size <= b.s3ObjectCopySizeLimit {
+		// Do single copy
+		_, err = b.client.CopyObjectWithContext(ctx, &s3.CopyObjectInput{
+			Bucket:     aws.String(b.bucket),
+			Key:        aws.String(key),
+			CopySource: aws.String(srcUrl),
+		})
+		return err
+	}
+	// Do a multi-part copy
+	numParts := (file.Size + b.s3MultipartCopyPartSize - 1) / b.s3MultipartCopyPartSize
+	createOut, err := b.client.CreateMultipartUploadWithContext(ctx, &s3.CreateMultipartUploadInput{
+		Bucket: aws.String(b.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return errors.E(fmt.Sprintf("CreateMultipartUpload: %s -> %s", srcUrl, dstUrl), err)
+	}
+	completedParts := make([]*s3.CompletedPart, numParts)
+	err = traverse.Limit(s3MultipartCopyConcurrencyLimit).Each(int(numParts), func(ti int) error {
+		i := int64(ti)
+		firstByte := i * b.s3MultipartCopyPartSize
+		lastByte := firstByte + b.s3MultipartCopyPartSize - 1
+		if lastByte >= file.Size {
+			lastByte = file.Size - 1
+		}
+		var err error
+		var uploadOut *s3.UploadPartCopyOutput
+		for retries := 0; ; retries++ {
+			uploadOut, err = b.client.UploadPartCopyWithContext(ctx, &s3.UploadPartCopyInput{
+				Bucket:          aws.String(b.bucket),
+				Key:             aws.String(key),
+				CopySource:      aws.String(srcUrl),
+				UploadId:        createOut.UploadId,
+				PartNumber:      aws.Int64(i + 1),
+				CopySourceRange: aws.String(fmt.Sprintf("bytes=%d-%d", firstByte, lastByte)),
+			})
+			if err == nil || !retryable(err) {
+				break
+			}
+			log.Debugf("s3blob.copyObject: attempt (%d) (part %d/%d): %s -> %s\n%v\n", retries, i, numParts, srcUrl, dstUrl, err)
+			if err = retry.Wait(ctx, b.retrier, retries); err != nil {
+				break
+			}
+		}
+		if err == nil {
+			completedParts[i] = &s3.CompletedPart{ETag: uploadOut.CopyPartResult.ETag, PartNumber: aws.Int64(i + 1)}
+			log.Debugf("s3blob.copyObject: done (part %d/%d): %s -> %s", i, numParts, srcUrl, dstUrl)
+			return nil
+		}
+		return errors.E(fmt.Sprintf("upload part copy (part %d/%d) %s -> %s", i, numParts, srcUrl, dstUrl), kind(err), err)
+	})
+	if err == nil {
+		// Complete the multi-part copy
+		for retries := 0; ; retries++ {
+			_, err = b.client.CompleteMultipartUploadWithContext(ctx, &s3.CompleteMultipartUploadInput{
+				Bucket:          aws.String(b.bucket),
+				Key:             aws.String(key),
+				UploadId:        createOut.UploadId,
+				MultipartUpload: &s3.CompletedMultipartUpload{Parts: completedParts},
+			})
+			if err == nil || kind(err) != errors.Temporary {
+				break
+			}
+			log.Debugf("s3blob.copyObject complete upload: attempt (%d): %s -> %s\n%v\n", retries, srcUrl, dstUrl, err)
+			if err = retry.Wait(ctx, b.retrier, retries); err != nil {
+				break
+			}
+		}
+		if err == nil {
+			log.Debugf("s3blob.copyObject: done (all %d parts): %s -> %s", numParts, srcUrl, dstUrl)
+			return nil
+		}
+		err = errors.E(fmt.Sprintf("complete multipart upload %s -> %s", srcUrl, dstUrl), kind(err), err)
+	}
+	// Abort the multi-part copy
+	if _, er := b.client.AbortMultipartUploadWithContext(ctx, &s3.AbortMultipartUploadInput{
+		Bucket:   aws.String(b.bucket),
+		Key:      aws.String(key),
+		UploadId: createOut.UploadId,
+	}); er != nil {
+		err = errors.E(fmt.Sprintf("abort multipart copy %v", er), err)
+	}
+	return err
 }
 
 func (b *Bucket) getObjectInput(key, etag string) *s3.GetObjectInput {
