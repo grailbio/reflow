@@ -45,9 +45,10 @@ func (c *counter) NextID() digest.Digest {
 
 var ntask, nalloc counter
 
-func newTask(cpu, mem float64) *sched.Task {
+func newTask(cpu, mem float64, priority int) *sched.Task {
 	task := sched.NewTask()
 	task.ID = ntask.NextID()
+	task.Priority = priority
 	task.Config.Resources = reflow.Resources{"cpu": cpu, "mem": mem}
 	if *logTasks {
 		out := golog.New(os.Stderr, fmt.Sprintf("task %s (%s): ", task.ID.Short(), task.Config.Resources), golog.LstdFlags)

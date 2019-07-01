@@ -57,7 +57,7 @@ func TestSchedulerBasic(t *testing.T) {
 	in := randomFileset(repo)
 	expectExists(t, repo, in)
 
-	task := newTask(10, 10<<30)
+	task := newTask(10, 10<<30, 0)
 	task.Config.Args = []reflow.Arg{{Fileset: &in}}
 
 	scheduler.Submit(task)
@@ -91,13 +91,14 @@ func TestSchedulerAlloc(t *testing.T) {
 	ctx := context.Background()
 
 	tasks := []*sched.Task{
-		newTask(5, 10<<30),
-		newTask(10, 10<<30),
-		newTask(20, 10<<30),
+		newTask(5, 10<<30, 1),
+		newTask(10, 10<<30, 1),
+		newTask(20, 10<<30, 0),
+		newTask(20, 10<<30, 1),
 	}
 	scheduler.Submit(tasks...)
 	req := <-cluster.Req()
-	if got, want := req.Requirements, newRequirements(20, 10<<30, 3); !got.Equal(want) {
+	if got, want := req.Requirements, newRequirements(20, 10<<30, 4); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	// There shouldn't be another one:
@@ -112,14 +113,31 @@ func TestSchedulerAlloc(t *testing.T) {
 		}
 	}
 	// Partially satisfy the request: we can fit some tasks, but not all in this alloc.
+	// task[2] since it has a higher priority than others and
+	// task[0] since it is has the smallest resource requirements in the lower priority group.
 	alloc := newTestAlloc(reflow.Resources{"cpu": 30, "mem": 30 << 30})
 	req.Reply <- testClusterAllocReply{Alloc: alloc}
 
 	tasks[0].Wait(ctx, sched.TaskRunning)
-	tasks[1].Wait(ctx, sched.TaskRunning)
-	if got, want := tasks[2].State(), sched.TaskInit; got != want {
+	tasks[2].Wait(ctx, sched.TaskRunning)
+	if got, want := tasks[1].State(), sched.TaskInit; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
+	if got, want := tasks[3].State(), sched.TaskInit; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+
+	// We should see another request now for the remaining.
+	req = <-cluster.Req()
+	if got, want := req.Requirements, newRequirements(20, 10<<30, 2); !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+
+	// Don't satisfy this allocation but instead finish tasks[0] and tasks[2]. This
+	// means the scheduler should be able to schedule tasks[1] and tasks[3].
+	exec := alloc.exec(tasks[2].ID)
+	exec.complete(reflow.Result{}, nil)
+	tasks[1].Wait(ctx, sched.TaskRunning)
 
 	// We should see another request now for the remaining.
 	req = <-cluster.Req()
@@ -127,11 +145,16 @@ func TestSchedulerAlloc(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 
-	// Don't satisfy this allocation but instead finish tasks[0]. This
-	// means the scheduler should be able to schedule tasks[2].
-	exec := alloc.exec(tasks[0].ID)
+	exec = alloc.exec(tasks[0].ID)
 	exec.complete(reflow.Result{}, nil)
-	tasks[2].Wait(ctx, sched.TaskRunning)
+	tasks[3].Wait(ctx, sched.TaskRunning)
+
+	// There shouldn't be another one:
+	select {
+	case <-cluster.Req():
+		t.Error("too many requests")
+	default:
+	}
 }
 
 func TestTaskLost(t *testing.T) {
@@ -140,9 +163,9 @@ func TestTaskLost(t *testing.T) {
 	ctx := context.Background()
 
 	tasks := []*sched.Task{
-		newTask(1, 1),
-		newTask(1, 1),
-		newTask(1, 1),
+		newTask(1, 1, 0),
+		newTask(1, 1, 0),
+		newTask(1, 1, 0),
 	}
 	scheduler.Submit(tasks...)
 	allocs := []*testAlloc{

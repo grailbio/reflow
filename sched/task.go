@@ -76,6 +76,10 @@ type Task struct {
 	// set by the scheduler before the task enters TaskRunning state.
 	Exec reflow.Exec
 
+	// Priority is the task priority. Lower numbers indicate higher priority.
+	// Higher priority tasks will get scheduler before any lower priority tasks.
+	Priority int
+
 	mu   sync.Mutex
 	cond *ctxsync.Cond
 
@@ -125,6 +129,9 @@ type taskq []*Task
 func (q taskq) Len() int { return len(q) }
 
 func (q taskq) Less(i, j int) bool {
+	if q[i].Priority != q[j].Priority {
+		return q[i].Priority < q[j].Priority
+	}
 	return q[i].Config.Resources.ScaledDistance(nil) < q[j].Config.Resources.ScaledDistance(nil)
 }
 
