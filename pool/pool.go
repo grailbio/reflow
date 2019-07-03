@@ -19,10 +19,10 @@ import (
 	"time"
 
 	"github.com/grailbio/base/traverse"
-
 	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
 	"golang.org/x/sync/errgroup"
 )
@@ -70,6 +70,17 @@ type Alloc interface {
 
 // Labels represents a set of metadata labels for a run.
 type Labels map[string]string
+
+// Init implements infra.Provider
+func (l *Labels) Init(user *infra2.User) error {
+	(*l)["user"] = string(*user)
+	return nil
+}
+
+// Instance implements infra.Provider
+func (l *Labels) Instance() interface{} {
+	return l
+}
 
 // Add returns a copy of Labels l with an added key and value.
 func (l Labels) Add(k, v string) Labels {

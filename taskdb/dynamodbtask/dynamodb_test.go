@@ -22,6 +22,7 @@ import (
 	"github.com/grailbio/reflow/assoc"
 	_ "github.com/grailbio/reflow/assoc/dydbassoc"
 	"github.com/grailbio/reflow/errors"
+	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/taskdb"
@@ -750,14 +751,14 @@ func TestDydbTaskdbInfra(t *testing.T) {
 	var schema = infra.Schema{
 		"session": new(session.Session),
 		"assoc":   new(assoc.Assoc),
-		"user":    new(reflow.User),
+		"user":    new(infra2.User),
 		"labels":  make(pool.Labels),
 		"taskdb":  new(taskdb.TaskDB),
 		"logger":  new(log.Logger),
 	}
 	config, err := schema.Make(infra.Keys{
 		"session": "github.com/grailbio/infra/aws.Session",
-		"user":    "github.com/grailbio/reflow.User,user=test",
+		"user":    "github.com/grailbio/reflow/infra.User,user=test",
 		"taskdb":  "github.com/grailbio/reflow/taskdb/dynamodbtask.TaskDB",
 		"assoc":   fmt.Sprintf("github.com/grailbio/reflow/assoc/dydbassoc.Assoc,table=%v", table),
 		"logger":  "github.com/grailbio/reflow/log.Logger",

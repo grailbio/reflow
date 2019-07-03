@@ -17,14 +17,18 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/errors"
+	"github.com/grailbio/infra"
+	infraaws "github.com/grailbio/infra/aws"
+	infratls "github.com/grailbio/infra/tls"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/s3blob"
-	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/internal/execimage"
 	"github.com/grailbio/reflow/local"
@@ -43,9 +47,13 @@ const maxConcurrentStreams = 20000
 
 // A Server is a reflow server, exposing a local pool over an HTTP server.
 type Server struct {
+	// Schema is the infra schema.
+	Schema infra.Schema
+	// SchemaKeys contains the schema providers and flags.
+	SchemaKeys infra.Keys
 	// The server's config.
 	// TODO(marius): move most of what is now flags here into the config.
-	Config config.Config
+	Config infra.Config
 
 	// Addr is the address on which to listen.
 	Addr string
@@ -106,7 +114,8 @@ func (s *Server) setTags() error {
 	if err != nil {
 		return err
 	}
-	sess, err := s.Config.AWS()
+	var sess *session.Session
+	err = s.Config.Instance(&sess)
 	if err != nil {
 		return err
 	}
@@ -128,12 +137,17 @@ func (s *Server) ListenAndServe() error {
 		if err != nil {
 			return err
 		}
-		if err := config.Unmarshal(b, s.Config.Keys()); err != nil {
-			return err
+		keys := make(infra.Keys)
+		if err := yaml.Unmarshal(b, keys); err != nil {
+			return fmt.Errorf("config %v: %v", s.configFlag, err)
+		}
+		for k, v := range keys {
+			s.SchemaKeys[k] = v
 		}
 	}
+
 	var err error
-	s.Config, err = config.Make(s.Config)
+	s.Config, err = s.Schema.Make(s.SchemaKeys)
 	if err != nil {
 		return err
 	}
@@ -148,19 +162,24 @@ func (s *Server) ListenAndServe() error {
 		return err
 	}
 
-	sess, err := s.Config.AWS()
+	var sess *session.Session
+	err = s.Config.Instance(&sess)
 	if err != nil {
 		return err
 	}
-	clientConfig, serverConfig, err := s.Config.HTTPS()
+	var tlsa *infratls.Authority
+	err = s.Config.Instance(&tlsa)
 	if err != nil {
 		return err
 	}
-	creds, err := s.Config.AWSCreds()
+	clientConfig, serverConfig, err := tlsa.HTTPS()
+	var creds *credentials.Credentials
+	err = s.Config.Instance(&creds)
 	if err != nil {
 		return err
 	}
-	tool, err := s.Config.AWSTool()
+	var tool *infraaws.AWSTool
+	err = s.Config.Instance(&tool)
 	if err != nil {
 		return err
 	}
@@ -182,7 +201,7 @@ func (s *Server) ListenAndServe() error {
 		Dir:           s.Dir,
 		Prefix:        s.Prefix,
 		Authenticator: ec2authenticator.New(sess),
-		AWSImage:      tool,
+		AWSImage:      string(*tool),
 		AWSCreds:      creds,
 		Blob: blob.Mux{
 			"s3": s3blob.New(sess),
@@ -220,12 +239,13 @@ func (s *Server) ListenAndServe() error {
 
 	http.Handle("/", rest.Handler(server.NewNode(p), httpLog))
 	// Add the reflowlet version to the config and serve it from an API.
-	cfgNode, err := newConfigNode(&config.KeyConfig{s.Config, "reflowletversion", s.version})
+	cfgNode, err := newConfigNode(s.Config)
 	if err != nil {
 		return fmt.Errorf("read config: %v", err)
 	}
 	http.Handle("/v1/config", rest.DoFuncHandler(cfgNode, httpLog))
-	repo, err := s.Config.Repository()
+	var repo reflow.Repository
+	err = s.Config.Instance(&repo)
 	if err != nil {
 		return fmt.Errorf("repo: %v", err)
 	}
@@ -259,12 +279,8 @@ func IgnoreSigpipe() {
 	}
 }
 
-func newConfigNode(cfg config.Config) (rest.DoFunc, error) {
-	keys := make(config.Keys)
-	if err := cfg.Marshal(keys); err != nil {
-		return nil, fmt.Errorf("marshal config: %v", err)
-	}
-	b, err := yaml.Marshal(keys)
+func newConfigNode(cfg infra.Config) (rest.DoFunc, error) {
+	b, err := cfg.Marshal(false)
 	if err != nil {
 		return nil, fmt.Errorf("serialize keys: %v", err)
 	}

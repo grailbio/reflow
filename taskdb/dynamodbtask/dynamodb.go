@@ -34,6 +34,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc/dydbassoc"
 	"github.com/grailbio/reflow/errors"
+	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/taskdb"
 )
@@ -106,7 +107,7 @@ type TaskDB struct {
 }
 
 // Init implements infra.Provider
-func (t *TaskDB) Init(sess *session.Session, assoc *dydbassoc.Assoc, user *reflow.User, labels pool.Labels) error {
+func (t *TaskDB) Init(sess *session.Session, assoc *dydbassoc.Assoc, user *infra2.User, labels pool.Labels) error {
 	t.limiter = limiter.New()
 	t.limiter.Release(32)
 	t.DB = dynamodb.New(sess)

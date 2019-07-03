@@ -6,10 +6,9 @@ import (
 	"net/http"
 	"regexp"
 
-	"github.com/grailbio/infra"
-
 	"github.com/aws/aws-xray-sdk-go/header"
 	"github.com/aws/aws-xray-sdk-go/xray"
+	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow/trace"
 )
 

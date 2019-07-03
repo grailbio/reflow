@@ -10,8 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/flow"
+	"github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
@@ -73,7 +76,7 @@ testloop:
 			evalConfig := flow.EvalConfig{
 				Executor:  executor,
 				Log:       c.Log.Prefix(test.Name + ": "),
-				CacheMode: flow.CacheOff,
+				CacheMode: infra.CacheOff,
 				ImageMap:  e.ImageMap,
 			}
 			eval := flow.NewEval(val, evalConfig)
@@ -112,11 +115,13 @@ func (c *Cmd) makeTestExecutor(executor **local.Executor) {
 		return
 	}
 	client, resources := c.dockerClient()
-	sess, err := c.Config.AWS()
+	var sess *session.Session
+	err := c.Config.Instance(&sess)
 	if err != nil {
 		c.Fatal(err)
 	}
-	creds, err := c.Config.AWSCreds()
+	var creds credentials.Credentials
+	err = c.Config.Instance(&creds)
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -124,7 +129,7 @@ func (c *Cmd) makeTestExecutor(executor **local.Executor) {
 		Client:        client,
 		Dir:           defaultFlowDir,
 		Authenticator: ec2authenticator.New(sess),
-		AWSCreds:      creds,
+		AWSCreds:      &creds,
 		Log:           c.Log.Tee(nil, "executor: "),
 	}
 	(*executor).SetResources(resources)

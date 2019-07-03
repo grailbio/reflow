@@ -20,7 +20,8 @@ func (c *Cmd) cat(ctx context.Context, args ...string) {
 	if flags.NArg() == 0 {
 		flags.Usage()
 	}
-	repo, err := c.Config.Repository()
+	var repo reflow.Repository
+	err := c.Config.Instance(&repo)
 	if err != nil {
 		c.Fatal(err)
 	}

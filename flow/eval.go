@@ -27,6 +27,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
+	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/liveset/bloomlive"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/sched"
@@ -57,32 +58,6 @@ var stateStatusOrder = []State{
 
 	// DEBUG:
 	NeedLookup, Lookup, NeedTransfer, TODO,
-}
-
-// CacheMode is a bitmask that tells how caching is to be used
-// in the evaluator.
-type CacheMode int
-
-const (
-	// CacheOff is CacheMode's default value and indicates
-	// no caching (read or write) is to be performed.
-	CacheOff CacheMode = 0
-	// CacheRead indicates that cache lookups should be performed
-	// during evaluation.
-	CacheRead CacheMode = 1 << iota
-	// CacheWrite indicates that the evaluator should write evaluation
-	// results to the cache.
-	CacheWrite
-)
-
-// Reading returns whether the cache mode contains CacheRead.
-func (m CacheMode) Reading() bool {
-	return m&CacheRead == CacheRead
-}
-
-// Writing returns whether the cache mode contains CacheWrite.
-func (m CacheMode) Writing() bool {
-	return m&CacheWrite == CacheWrite
 }
 
 // Snapshotter provides an interface for snapshotting source URL data into
@@ -138,7 +113,7 @@ type EvalConfig struct {
 	// CacheMode determines whether the evaluator reads from
 	// or writees to the cache. If CacheMode is nonzero, Assoc,
 	// Repository, and Transferer must be non-nil.
-	CacheMode CacheMode
+	CacheMode infra2.CacheMode
 
 	// NoCacheExtern determines whether externs are cached.
 	NoCacheExtern bool
@@ -191,7 +166,7 @@ func (e EvalConfig) String() string {
 	} else {
 		flags = append(flags, "cacheextern")
 	}
-	if e.CacheMode == CacheOff {
+	if e.CacheMode == infra2.CacheOff {
 		flags = append(flags, "nocache")
 	} else {
 		if e.CacheMode.Reading() {
@@ -292,7 +267,7 @@ type Eval struct {
 // NewEval creates and initializes a new evaluator using the provided
 // evaluation configuration and root flow.
 func NewEval(root *Flow, config EvalConfig) *Eval {
-	if (config.Assoc == nil || config.Repository == nil) && config.CacheMode != CacheOff {
+	if (config.Assoc == nil || config.Repository == nil) && config.CacheMode != infra2.CacheOff {
 		switch {
 		case config.Assoc == nil && config.Repository == nil:
 			config.Log.Printf("turning caching off because assoc and repository are not configured")
@@ -301,7 +276,7 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 		case config.Repository == nil:
 			config.Log.Printf("turning caching off because repository is not configured")
 		}
-		config.CacheMode = CacheOff
+		config.CacheMode = infra2.CacheOff
 	}
 
 	e := &Eval{

@@ -196,14 +196,16 @@ func (c *Cmd) printRunInfo(ctx context.Context, w io.Writer, id digest.Digest) b
 }
 
 func (c *Cmd) printCacheInfo(ctx context.Context, w io.Writer, id digest.Digest) bool {
-	ass, err := c.Config.Assoc()
+	var ass assoc.Assoc
+	err := c.Config.Instance(&ass)
 	if err != nil {
 		c.Fatal(err)
 	}
 	id, fsid, err := ass.Get(ctx, assoc.Fileset, id)
 	switch {
 	case err == nil:
-		repo, err := c.Config.Repository()
+		var repo reflow.Repository
+		err := c.Config.Instance(&repo)
 		if err != nil {
 			c.Fatal(err)
 		}
@@ -231,7 +233,8 @@ func (c *Cmd) printCacheInfo(ctx context.Context, w io.Writer, id digest.Digest)
 }
 
 func (c *Cmd) printFileInfo(ctx context.Context, w io.Writer, id digest.Digest) bool {
-	repo, err := c.Config.Repository()
+	var repo reflow.Repository
+	err := c.Config.Instance(&repo)
 	if err != nil {
 		c.Fatal(err)
 	}

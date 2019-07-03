@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/lang"
@@ -167,13 +168,10 @@ func (c *Cmd) evalV1(sess *syntax.Session, e *Eval) error {
 	flags.VisitAll(func(f *flag.Flag) {
 		e.Params[f.Name] = f.Value.String()
 	})
-	awsSess, err := c.Config.AWS()
-	if err != nil {
-		// We fail later if and when we try to authenticate for an ECR image.
-		awsSess = nil
-	}
+	var awsSession *session.Session
+	err = c.Config.Instance(&awsSession)
 	r := imageResolver{
-		authenticator: ec2authenticator.New(awsSess),
+		authenticator: ec2authenticator.New(awsSession),
 	}
 	e.ImageMap, err = r.resolveImages(context.Background(), sess.Images())
 	return err

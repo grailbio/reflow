@@ -22,9 +22,10 @@ import (
 	"syscall"
 
 	"github.com/grailbio/base/status"
-	"github.com/grailbio/reflow/config"
+	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/log"
+	"gopkg.in/yaml.v2"
 )
 
 // Func is the type of a command function.
@@ -33,19 +34,18 @@ type Func func(*Cmd, context.Context, ...string)
 // Cmd holds the configuration, flag definitions, and runtime objects
 // required for tool invocations.
 type Cmd struct {
+	// Schema is the infrastructure schema.
+	Schema infra.Schema
+	// SchemaKeys is the schema keys to providers,flags.
+	SchemaKeys infra.Keys
 	// Config must be specified.
-	Config            config.Config
+	Config            infra.Config
 	DefaultConfigFile string
 	Version           string
 	Variant           string
 
 	// Commands contains the additional set of invocable commands.
 	Commands map[string]Func
-
-	// MakeConfig is called to wrap the base configuration.
-	// This allows a tool instance to customize on top of the
-	// base configuration.
-	MakeConfig func(config.Config) config.Config
 
 	// ConfigFile stores the path of the active configuration file.
 	// May be overridden by the -config flag.
@@ -62,11 +62,6 @@ type Cmd struct {
 	// Status object for the current cmd invocation. This is used to continuously update the
 	// progress of the cmd execution.
 	Status *status.Status
-
-	// ValidateConfig is run on the configuration to validate its state.
-	// Configuration validation errors are fatal.
-	// ValidateConfig is not run for command "migrate"
-	ValidateConfig func(config.Config) error
 
 	configFlags    map[string]*string
 	httpFlag       string
@@ -226,6 +221,7 @@ func (c *Cmd) Main() {
 		logflags = golog.LstdFlags
 		logprefix = ""
 	}
+
 	c.Status = new(status.Status)
 	http.Handle("/debug/status", status.Handler(c.Status))
 	if level < log.DebugLevel {
@@ -242,40 +238,30 @@ func (c *Cmd) Main() {
 	c.Log = log.Std
 
 	// Define logs as configured by flags.
-	c.Config = &logConfig{c.Config, c.Log}
-
 	if c.ConfigFile != "" {
 		b, err := ioutil.ReadFile(c.ConfigFile)
 		if err != nil && c.ConfigFile != c.DefaultConfigFile {
 			c.Fatal(err)
 		}
-		if err := config.Unmarshal(b, c.Config.Keys()); err != nil {
-			c.Fatal(err)
+		keys := make(infra.Keys)
+		if err := yaml.Unmarshal(b, keys); err != nil {
+			c.Fatalf("config %v: %v", c.ConfigFile, err)
+		}
+		for k, v := range keys {
+			c.SchemaKeys[k] = v
 		}
 	}
 	for k, v := range c.configFlags {
 		if *v == "" {
 			continue
 		}
-		c.Config.Keys()[k] = *v
+		c.SchemaKeys[k] = *v
 	}
+	c.SchemaKeys["logger"] = c.SchemaKeys["logger"].(string) + "," + fmt.Sprintf("level=%v", c.logFlag)
 	var err error
-	c.Config, err = config.Make(c.Config)
+	c.Config, err = c.Schema.Make(c.SchemaKeys)
 	if err != nil {
 		c.Fatal(err)
-	}
-	// Run MakeConfig last, so that they can be properly composed with
-	// underlying config overrides.
-	if c.MakeConfig != nil {
-		// The whole business of wrapping configuration is getting
-		// ugly. We should rethink this configuration system a little.
-		c.Config = c.MakeConfig(c.Config)
-	}
-	c.Config = config.Once(c.Config)
-	if c.ValidateConfig != nil && cmd != "migrate" {
-		if err := c.ValidateConfig(c.Config); err != nil {
-			c.Fatalf(`invalid configuration: %v: please run "reflow migrate"`, err)
-		}
 	}
 
 	if c.httpFlag != "" {
@@ -297,7 +283,6 @@ func (c *Cmd) Main() {
 	}
 
 	c.Log.Debug("reflow version ", c.version())
-	c.Log.Debug("reflowlet image ", c.Config.Value("reflowlet").(string))
 
 	// Create a context and cancel it if we receive an interrupt.
 	// The second interrupt we receive results in a hard exit.
@@ -382,9 +367,8 @@ func (c *Cmd) Flags() *flag.FlagSet {
 		c.flags.StringVar(&c.logFlag, "log", "info", "set the log level: off, error, info, debug")
 		// Add flags to override configuration.
 		c.configFlags = make(map[string]*string)
-		for _, key := range config.AllKeys {
-			c.configFlags[key] = c.flags.String(key, "",
-				fmt.Sprintf("override %s from config; see reflow config -help", key))
+		for key := range c.SchemaKeys {
+			c.configFlags[key] = c.flags.String(key, "", fmt.Sprintf("override %s from config; see reflow config -help", key))
 		}
 	}
 	return c.flags
@@ -426,13 +410,4 @@ func increaseFDRlimit() error {
 	}
 
 	return syscall.Setrlimit(syscall.RLIMIT_NOFILE, &l)
-}
-
-type logConfig struct {
-	config.Config
-	logger *log.Logger
-}
-
-func (c *logConfig) Logger() (*log.Logger, error) {
-	return c.logger, nil
 }

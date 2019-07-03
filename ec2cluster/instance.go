@@ -8,6 +8,7 @@ package ec2cluster
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -23,16 +24,18 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/base/sync/once"
+	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
-	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/ec2cluster/instances"
 	"github.com/grailbio/reflow/errors"
+	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/internal/ecrauth"
 	"github.com/grailbio/reflow/internal/execimage"
 	"github.com/grailbio/reflow/log"
@@ -269,7 +272,7 @@ func (s *instanceState) Type(typ string) (instanceConfig, bool) {
 type instance struct {
 	HTTPClient      *http.Client
 	Config          instanceConfig
-	ReflowConfig    config.Config
+	ReflowConfig    infra.Config
 	Log             *log.Logger
 	Authenticator   ecrauth.Interface
 	EC2             ec2iface.EC2API
@@ -485,7 +488,8 @@ func (i *instance) Go(ctx context.Context) {
 				i.err = errors.E(errors.Fatal, err)
 				break
 			}
-			repo, err := i.ReflowConfig.Repository()
+			var repo reflow.Repository
+			err = i.ReflowConfig.Instance(&repo)
 			if err != nil {
 				i.err = errors.E(errors.Fatal, err)
 				break
@@ -666,13 +670,29 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 
 	// /etc/reflowconfig contains the (YAML) marshaled configuration file
 	// for the reflowlet.
-	keys := make(config.Keys)
-	if err := i.ReflowConfig.Marshal(keys); err != nil {
+	b, err := i.ReflowConfig.Marshal(true)
+	if err != nil {
 		return "", err
 	}
 	// The remote side does not need a cluster implementation.
-	delete(keys, config.Cluster)
-	b, err := yaml.Marshal(keys)
+	keys := make(infra.Keys)
+	err = yaml.Unmarshal(b, &keys)
+	if err != nil {
+		return "", err
+	}
+	delete(keys, infra2.Cluster)
+	b, err = yaml.Marshal(keys)
+	if err != nil {
+		return "", err
+	}
+	// Compress file so that we are below the 16KB limit for user data.
+	var gb bytes.Buffer
+	gw := gzip.NewWriter(&gb)
+	_, err = gw.Write(b)
+	if err != nil {
+		return "", err
+	}
+	err = gw.Close()
 	if err != nil {
 		return "", err
 	}
@@ -680,7 +700,8 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 		Path:        "/etc/reflowconfig",
 		Permissions: "0644",
 		Owner:       "root",
-		Content:     string(b),
+		Encoding:    "gzip",
+		Content:     gb.String(),
 	})
 
 	// Turn off CoreOS services that would restart or otherwise disrupt
@@ -755,8 +776,10 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 	if i.InstanceProfile != "" {
 		profile = fmt.Sprintf("-a %s", i.InstanceProfile)
 	} else {
-		if awscreds, err := i.ReflowConfig.AWSCreds(); err == nil {
-			if c, err := awscreds.Get(); err == nil {
+		var creds *credentials.Credentials
+		err := i.ReflowConfig.Instance(&creds)
+		if err == nil {
+			if c, err := creds.Get(); err == nil {
 				akey = fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", c.AccessKeyID)
 				secret = fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", c.SecretAccessKey)
 				token = fmt.Sprintf("AWS_SESSION_TOKEN=%s", c.SessionToken)
@@ -816,7 +839,6 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 			  {{.image}} serve -prefix /host -ec2cluster  -config /host/etc/reflowconfig
 		`, args{"mortal": !i.Immortal, "image": i.ReflowletImage}),
 	})
-
 	b, err = c.Marshal()
 	if err != nil {
 		return "", err

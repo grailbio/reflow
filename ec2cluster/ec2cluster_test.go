@@ -20,7 +20,7 @@ import (
 	"github.com/grailbio/infra"
 	_ "github.com/grailbio/infra/aws"
 	"github.com/grailbio/infra/tls"
-	"github.com/grailbio/reflow"
+	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/runner"
@@ -232,21 +232,21 @@ func TestClusterInfra(t *testing.T) {
 		"tls":       new(tls.Authority),
 		"logger":    new(log.Logger),
 		"session":   new(session.Session),
-		"user":      new(reflow.User),
-		"reflowlet": new(reflow.ReflowletVersion),
-		"reflow":    new(reflow.ReflowVersion),
-		"sshkey":    new(reflow.SshKey),
+		"user":      new(infra2.User),
+		"reflowlet": new(infra2.ReflowletVersion),
+		"reflow":    new(infra2.ReflowVersion),
+		"sshkey":    new(infra2.SshKey),
 	}
 	config, err := schema.Make(infra.Keys{
 		"labels":    "github.com/grailbio/reflow/pool.Labels",
 		"tls":       "github.com/grailbio/infra/tls.Authority,file=/tmp/ca",
 		"logger":    "github.com/grailbio/reflow/log.Logger",
 		"session":   "github.com/grailbio/infra/aws.Session",
-		"user":      "github.com/grailbio/reflow.User",
-		"reflowlet": "github.com/grailbio/reflow.ReflowletVersion,version=1.2.3",
-		"reflow":    "github.com/grailbio/reflow.ReflowVersion,version=abcdef",
+		"user":      "github.com/grailbio/reflow/infra.User",
+		"reflowlet": "github.com/grailbio/reflow/infra.ReflowletVersion,version=1.2.3",
+		"reflow":    "github.com/grailbio/reflow/infra.ReflowVersion,version=abcdef",
 		"cluster":   "github.com/grailbio/reflow/ec2cluster.Cluster",
-		"sshkey":    "github.com/grailbio/reflow.SshKey",
+		"sshkey":    "github.com/grailbio/reflow/infra.SshKey",
 	})
 	if err != nil {
 		t.Fatal(err)

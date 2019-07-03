@@ -8,7 +8,6 @@ import (
 	"context"
 	"flag"
 
-	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/reflowlet"
 )
@@ -37,7 +36,8 @@ as well as credentials to access various services.
 	// Make sure that we always shut down with a non-zero exit code,
 	// so that systemd considers the process failed.
 	defer c.Exit(1)
-	server.Config = make(config.Base)
+	server.SchemaKeys = c.SchemaKeys
+	server.Schema = c.Schema
 	go reflowlet.IgnoreSigpipe()
 	log.Fatal(server.ListenAndServe())
 }

@@ -16,7 +16,7 @@ import (
 	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/config/dynamodbconfig"
-	"github.com/grailbio/reflow/flow"
+	"github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/repository/blobrepo"
 )
 
@@ -31,7 +31,7 @@ func init() {
 			}
 			cfg = &repository{Config: cfg, Bucket: parts[0]}
 			cfg = &dynamodbconfig.Assoc{Config: cfg, Table: parts[1]}
-			cfg = &cacheMode{Config: cfg, Mode: flow.CacheRead | flow.CacheWrite}
+			cfg = &cacheMode{Config: cfg, Mode: infra.CacheRead | infra.CacheWrite}
 			return cfg, nil
 		},
 	)
@@ -71,9 +71,9 @@ func (r *repository) Repository() (reflow.Repository, error) {
 
 type cacheMode struct {
 	config.Config
-	Mode flow.CacheMode
+	Mode infra.CacheMode
 }
 
-func (m *cacheMode) CacheMode() flow.CacheMode {
+func (m *cacheMode) CacheMode() infra.CacheMode {
 	return m.Mode
 }

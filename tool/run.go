@@ -19,15 +19,20 @@ import (
 	"sort"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
+	"github.com/grailbio/infra/aws"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
+	"github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
@@ -199,11 +204,13 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	// throughout the system.
 	runID := reflow.Digester.Rand(nil)
 	c.Log.Printf("run ID: %s", runID.Short())
-	repo, err := c.Config.Repository()
+	var repo reflow.Repository
+	err := c.Config.Instance(&repo)
 	if err != nil {
 		c.Fatal(err)
 	}
-	ass, err := c.Config.Assoc()
+	var ass assoc.Assoc
+	err = c.Config.Instance(&ass)
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -265,7 +272,8 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	}
 	c.Log.Debug(b.String())
 	ctx, cancel := context.WithCancel(ctx)
-	tracer, err := c.Config.Tracer()
+	var tracer trace.Tracer
+	err = c.Config.Instance(&tracer)
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -311,6 +319,11 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 			wg.Done()
 		}()
 	}
+	var cache *infra.CacheProvider
+	err = c.Config.Instance(&cache)
+	if err != nil {
+		c.Fatal(err)
+	}
 	run := runner.Runner{
 		Flow: e.Main(),
 		EvalConfig: flow.EvalConfig{
@@ -320,7 +333,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 			Assoc:              ass,
 			AssertionGenerator: c.assertionGenerator(),
 			Assert:             c.asserter(config.assert),
-			CacheMode:          c.Config.CacheMode(),
+			CacheMode:          cache.CacheMode,
 			Transferer:         transferer,
 			Status:             c.Status.Group(runID.Short()),
 			Scheduler:          scheduler,
@@ -388,23 +401,28 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 
 func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID digest.Digest, f *flow.Flow, typ *types.T, imageMap map[string]string, cmdline string) {
 	client, resources := c.dockerClient()
-	repo, err := c.Config.Repository()
+	var repo reflow.Repository
+	err := c.Config.Instance(&repo)
 	if err != nil {
 		c.Fatal(err)
 	}
-	ass, err := c.Config.Assoc()
+	var ass assoc.Assoc
+	err = c.Config.Instance(&ass)
 	if err != nil {
 		c.Fatal(err)
 	}
-	sess, err := c.Config.AWS()
+	var sess *session.Session
+	err = c.Config.Instance(&sess)
 	if err != nil {
 		c.Fatal(err)
 	}
-	creds, err := c.Config.AWSCreds()
+	var creds *credentials.Credentials
+	err = c.Config.Instance(&creds)
 	if err != nil {
 		c.Fatal(err)
 	}
-	awstool, err := c.Config.AWSTool()
+	var awstool *aws.AWSTool
+	err = c.Config.Instance(&awstool)
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -425,7 +443,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		Client:        client,
 		Dir:           dir,
 		Authenticator: ec2authenticator.New(sess),
-		AWSImage:      awstool,
+		AWSImage:      string(*awstool),
 		AWSCreds:      creds,
 		Blob:          c.blob(),
 		Log:           c.Log.Tee(nil, "executor: "),
@@ -438,6 +456,11 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	if err := x.Start(); err != nil {
 		log.Fatal(err)
 	}
+	var cache *infra.CacheProvider
+	err = c.Config.Instance(&cache)
+	if err != nil {
+		c.Fatal(err)
+	}
 	evalConfig := flow.EvalConfig{
 		Executor:           x,
 		Snapshotter:        c.blob(),
@@ -447,7 +470,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		Assoc:              ass,
 		AssertionGenerator: c.assertionGenerator(),
 		Assert:             c.asserter(config.assert),
-		CacheMode:          c.Config.CacheMode(),
+		CacheMode:          cache.CacheMode,
 		Status:             c.Status.Group(runID.Short()),
 		ImageMap:           imageMap,
 	}
@@ -545,7 +568,8 @@ func (c Cmd) asserter(name string) reflow.Assert {
 
 // Blob returns the configured blob muxer.
 func (c Cmd) blob() blob.Mux {
-	sess, err := c.Config.AWS()
+	var sess *session.Session
+	err := c.Config.Instance(&sess)
 	if err != nil {
 		c.Fatal(err)
 	}

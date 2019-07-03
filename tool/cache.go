@@ -25,7 +25,8 @@ Items are digests read from the standard input.`
 		flags.Usage()
 	}
 
-	ass, err := c.Config.Assoc()
+	var ass assoc.Assoc
+	err := c.Config.Instance(&ass)
 	if err != nil {
 		c.Fatal(err)
 	}

@@ -22,6 +22,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
+	"github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/repository/filerepo"
@@ -202,7 +203,7 @@ func TestCacheWrite(t *testing.T) {
 		e.Repo = testutil.NewInmemoryRepository()
 		eval := flow.NewEval(pullup, flow.EvalConfig{
 			Executor:   &e,
-			CacheMode:  flow.CacheRead | flow.CacheWrite,
+			CacheMode:  infra.CacheRead | infra.CacheWrite,
 			Assoc:      assoc,
 			Transferer: testutil.Transferer,
 			Repository: repo,
@@ -252,7 +253,7 @@ func TestCacheLookup(t *testing.T) {
 	e.Repo = testutil.NewInmemoryRepository()
 	eval := flow.NewEval(extern, flow.EvalConfig{
 		Executor:   &e,
-		CacheMode:  flow.CacheRead | flow.CacheWrite,
+		CacheMode:  infra.CacheRead | infra.CacheWrite,
 		Assoc:      testutil.NewInmemoryAssoc(),
 		Repository: testutil.NewInmemoryRepository(),
 		Transferer: testutil.Transferer,
@@ -274,7 +275,7 @@ func TestCacheLookup(t *testing.T) {
 	e.Repo = testutil.NewInmemoryRepository()
 	eval = flow.NewEval(extern, flow.EvalConfig{
 		Executor:   &e,
-		CacheMode:  flow.CacheRead | flow.CacheWrite,
+		CacheMode:  infra.CacheRead | infra.CacheWrite,
 		Assoc:      testutil.NewInmemoryAssoc(),
 		Repository: testutil.NewInmemoryRepository(),
 		Transferer: testutil.Transferer,
@@ -318,7 +319,7 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 	e.Repo = testutil.NewInmemoryRepository()
 	eval := flow.NewEval(extern, flow.EvalConfig{
 		Executor:           &e,
-		CacheMode:          flow.CacheRead | flow.CacheWrite,
+		CacheMode:          infra.CacheRead | infra.CacheWrite,
 		Assoc:              testutil.NewInmemoryAssoc(),
 		AssertionGenerator: testGenerator{map[string]string{"c": "v1"}},
 		Assert:             reflow.AssertExact,
@@ -346,7 +347,7 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 	e.Repo = testutil.NewInmemoryRepository()
 	eval = flow.NewEval(extern, flow.EvalConfig{
 		Executor:           &e,
-		CacheMode:          flow.CacheRead | flow.CacheWrite,
+		CacheMode:          infra.CacheRead | infra.CacheWrite,
 		Assoc:              testutil.NewInmemoryAssoc(),
 		AssertionGenerator: testGenerator{map[string]string{"c": "v1"}},
 		Assert:             reflow.AssertExact,
@@ -383,7 +384,7 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 	e.Repo = testutil.NewInmemoryRepository()
 	eval = flow.NewEval(extern, flow.EvalConfig{
 		Executor:           &e,
-		CacheMode:          flow.CacheRead | flow.CacheWrite,
+		CacheMode:          infra.CacheRead | infra.CacheWrite,
 		Assoc:              testutil.NewInmemoryAssoc(),
 		AssertionGenerator: testGenerator{map[string]string{"c": "v1"}},
 		Assert:             reflow.AssertExact,
@@ -437,7 +438,7 @@ func TestCacheLookupBottomup(t *testing.T) {
 	cache.Init()
 	eval := flow.NewEval(extern, flow.EvalConfig{
 		Executor:   &e,
-		CacheMode:  flow.CacheRead | flow.CacheWrite,
+		CacheMode:  infra.CacheRead | infra.CacheWrite,
 		Assoc:      testutil.NewInmemoryAssoc(),
 		Repository: testutil.NewInmemoryRepository(),
 		Transferer: testutil.Transferer,
@@ -486,7 +487,7 @@ func TestCacheLookupBottomupPhysical(t *testing.T) {
 	cache.Init()
 	eval := flow.NewEval(extern, flow.EvalConfig{
 		Executor:   &e,
-		CacheMode:  flow.CacheRead | flow.CacheWrite,
+		CacheMode:  infra.CacheRead | infra.CacheWrite,
 		Assoc:      testutil.NewInmemoryAssoc(),
 		Repository: testutil.NewInmemoryRepository(),
 		Transferer: testutil.Transferer,
@@ -551,7 +552,7 @@ func TestCacheLookupBottomupWithAssertions(t *testing.T) {
 
 	eval := flow.NewEval(extern, flow.EvalConfig{
 		Executor:           &e,
-		CacheMode:          flow.CacheRead | flow.CacheWrite,
+		CacheMode:          infra.CacheRead | infra.CacheWrite,
 		Assoc:              testutil.NewInmemoryAssoc(),
 		AssertionGenerator: testGenerator{map[string]string{"a": "v1", "b": "v1", "c": "v1"}},
 		Assert:             reflow.AssertExact,
@@ -622,7 +623,7 @@ func TestCacheLookupBottomupWithAssertExact(t *testing.T) {
 
 	eval := flow.NewEval(extern, flow.EvalConfig{
 		Executor:           &e,
-		CacheMode:          flow.CacheRead | flow.CacheWrite,
+		CacheMode:          infra.CacheRead | infra.CacheWrite,
 		Assoc:              testutil.NewInmemoryAssoc(),
 		AssertionGenerator: testGenerator{map[string]string{"a": "va", "b": "vb", "c": "vc"}},
 		Assert:             reflow.AssertExact,
@@ -689,7 +690,7 @@ func TestCacheLookupBottomupWithAssertNever(t *testing.T) {
 	e.Repo = testutil.NewInmemoryRepository()
 	eval := flow.NewEval(extern, flow.EvalConfig{
 		Executor:           &e,
-		CacheMode:          flow.CacheRead | flow.CacheWrite,
+		CacheMode:          infra.CacheRead | infra.CacheWrite,
 		Assoc:              testutil.NewInmemoryAssoc(),
 		AssertionGenerator: testGenerator{map[string]string{"e": "v1"}},
 		Assert:             reflow.AssertNever,
@@ -726,7 +727,7 @@ func TestCacheLookupBottomupWithAssertNever(t *testing.T) {
 
 	eval = flow.NewEval(extern, flow.EvalConfig{
 		Executor:           &e,
-		CacheMode:          flow.CacheRead | flow.CacheWrite,
+		CacheMode:          infra.CacheRead | infra.CacheWrite,
 		Assoc:              testutil.NewInmemoryAssoc(),
 		AssertionGenerator: testGenerator{map[string]string{"a": "va", "b": "vb", "c": "vc"}},
 		Assert:             reflow.AssertNever,
@@ -793,7 +794,7 @@ func TestCacheLookupMissing(t *testing.T) {
 	cache.Init()
 	eval := flow.NewEval(exec, flow.EvalConfig{
 		Executor:           &e,
-		CacheMode:          flow.CacheRead | flow.CacheWrite,
+		CacheMode:          infra.CacheRead | infra.CacheWrite,
 		Assoc:              testutil.NewInmemoryAssoc(),
 		Repository:         repo,
 		Transferer:         testutil.Transferer,
@@ -838,7 +839,7 @@ func TestNoCacheExtern(t *testing.T) {
 
 		eval := flow.NewEval(extern, flow.EvalConfig{
 			Executor:      &e,
-			CacheMode:     flow.CacheRead | flow.CacheWrite,
+			CacheMode:     infra.CacheRead | infra.CacheWrite,
 			Assoc:         testutil.NewInmemoryAssoc(),
 			Repository:    testutil.NewInmemoryRepository(),
 			Transferer:    testutil.Transferer,
@@ -1255,7 +1256,7 @@ func TestSchedulerSubmit(t *testing.T) {
 	wa := newWaitAssoc()
 	config.Assoc = wa
 	config.Repository = testutil.NewInmemoryRepository()
-	config.CacheMode = flow.CacheRead
+	config.CacheMode = infra.CacheRead
 	config.Transferer = testutil.Transferer
 	config.BottomUp = true
 	config.Log = logger()

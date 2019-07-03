@@ -20,24 +20,27 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/aws/aws-sdk-go/service/ecr"
+	"github.com/aws/aws-sdk-go/service/ecr/ecriface"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/infra"
 	"github.com/grailbio/infra/tls"
 	"github.com/grailbio/reflow"
-	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/ec2cluster/instances"
 	"github.com/grailbio/reflow/errors"
+	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/internal/ecrauth"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
@@ -45,14 +48,17 @@ import (
 	"golang.org/x/net/http2"
 )
 
-const (
-	ec2PollInterval = time.Minute
-)
-
 func init() {
 	infra.Register(new(Cluster))
-
 }
+
+const (
+	ec2PollInterval     = time.Minute
+	defaultMaxInstances = 100
+	defaultClusterName  = "default"
+)
+
+var ecrURI = regexp.MustCompile(`^[0-9]+\.dkr\.ecr\.[a-z0-9-]+\.amazonaws.com/(.*):(.*)$`)
 
 // A Cluster implements a runner.Cluster backed by EC2.  The cluster expands
 // with demand.  Instances are configured so that they shut down when they
@@ -108,9 +114,10 @@ type Cluster struct {
 	DiskSlices int `yaml:"diskslices"`
 	// AMI is the VM image used to launch new instances.
 	AMI string `yaml:"ami"`
-	// The config for this Reflow instantiation. Used to provide configs to
+	// Configuration for this Reflow instantiation. Used to provide configs to
 	// EC2 instances.
-	Config config.Config `yaml:"-"`
+	Configuration infra.Config `yaml:"-"`
+
 	// User's public SSH key.
 	SshKey string `yaml:"sshkey"`
 	// AWS key name for launching instances.
@@ -141,7 +148,29 @@ type Cluster struct {
 	wait chan *waiter
 }
 
-func (c *Cluster) Init(tls *tls.Authority, sess *session.Session, labels pool.Labels, reflowlet *reflow.ReflowletVersion, reflowVersion *reflow.ReflowVersion, id *reflow.User, logger *log.Logger, sshKey *reflow.SshKey) error {
+func validateReflowletImage(ecrApi ecriface.ECRAPI, reflowlet string, log *log.Logger) error {
+	matches := ecrURI.FindStringSubmatch(reflowlet)
+	if len(matches) != 3 {
+		log.Debugf("cannot determine repository name and/or image tag from: %s", reflowlet)
+		return nil
+	}
+	dii := &ecr.DescribeImagesInput{
+		RepositoryName: &matches[1],
+		ImageIds:       []*ecr.ImageIdentifier{{ImageTag: &matches[2]}},
+	}
+	if _, err := ecrApi.DescribeImages(dii); err != nil {
+		return fmt.Errorf("required reflowlet image not found on AWS: %v", err)
+	}
+	return nil
+}
+
+// Config implements infra.Provider
+func (c *Cluster) Config() interface{} {
+	return c
+}
+
+// Init implements infra.Provider
+func (c *Cluster) Init(tls *tls.Authority, sess *session.Session, labels pool.Labels, reflowlet *infra2.ReflowletVersion, reflowVersion *infra2.ReflowVersion, id *infra2.User, logger *log.Logger, sshKey *infra2.SshKey) error {
 	// If InstanceTypes are not defined, include all known types.
 	if len(c.InstanceTypes) == 0 {
 		c.InstanceTypes = make([]string, len(instances.Types))
@@ -175,7 +204,7 @@ func (c *Cluster) Init(tls *tls.Authority, sess *session.Session, labels pool.La
 	c.Labels = labels.Copy()
 	c.ReflowletImage = reflowlet.Value()
 	c.ReflowVersion = string(*reflowVersion)
-	c.SshKey = string(*sshKey)
+	c.SshKey = sshKey.Value()
 	if c.MaxInstances == 0 {
 		c.MaxInstances = defaultMaxInstances
 	}
@@ -189,6 +218,10 @@ func (c *Cluster) Init(tls *tls.Authority, sess *session.Session, labels pool.La
 	qtags["Name"] = fmt.Sprintf("%s (reflow)", id.User())
 	qtags["cluster"] = c.Name
 	c.InstanceTags = qtags
+
+	if err := c.initialize(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -337,7 +370,7 @@ func (c *Cluster) loop() {
 	launch := func(config instanceConfig, price float64) {
 		i := &instance{
 			HTTPClient:      c.HTTPClient,
-			ReflowConfig:    c.Config,
+			ReflowConfig:    c.Configuration,
 			Config:          config,
 			Log:             c.Log,
 			Authenticator:   c.Authenticator,

@@ -4,17 +4,17 @@
 
 package config
 
-import "github.com/grailbio/reflow/flow"
+import "github.com/grailbio/reflow/infra"
 
 func init() {
 	options := []struct {
 		name, doc string
-		mode      flow.CacheMode
+		mode      infra.CacheMode
 	}{
-		{"off", "turn caching off", flow.CacheOff},
-		{"read", "read-only caching", flow.CacheRead},
-		{"write", "write-only caching", flow.CacheWrite},
-		{"read+write", "read and write caching", flow.CacheRead | flow.CacheWrite},
+		{"off", "turn caching off", infra.CacheOff},
+		{"read", "read-only caching", infra.CacheRead},
+		{"write", "write-only caching", infra.CacheWrite},
+		{"read+write", "read and write caching", infra.CacheRead | infra.CacheWrite},
 	}
 	for _, opt := range options {
 		opt := opt
@@ -28,9 +28,9 @@ func init() {
 
 type cacheMode struct {
 	Config
-	mode flow.CacheMode
+	mode infra.CacheMode
 }
 
-func (c *cacheMode) CacheMode() flow.CacheMode {
+func (c *cacheMode) CacheMode() infra.CacheMode {
 	return c.mode
 }

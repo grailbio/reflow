@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/grailbio/base/limiter"
+	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/flow"
 	"golang.org/x/sync/errgroup"
 )
@@ -43,11 +45,13 @@ supplied via a CSV batch file as in "reflow runbatch".`
 	default:
 		flags.Usage()
 	}
-	assoc, err := c.Config.Assoc()
+	var assoc assoc.Assoc
+	err := c.Config.Instance(&assoc)
 	if err != nil {
 		c.Fatal(err)
 	}
-	repo, err := c.Config.Repository()
+	var repo reflow.Repository
+	err = c.Config.Instance(&repo)
 	if err != nil {
 		c.Fatal(err)
 	}

@@ -170,18 +170,19 @@ preceded by ! is negated.
 			flags.Usage()
 		}
 	}
-
-	a, err := c.Config.Assoc()
+	var ass assoc.Assoc
+	err = c.Config.Instance(&ass)
 	if err != nil {
 		c.Fatal(err)
 	}
-	r, err := c.Config.Repository()
+	var repo reflow.Repository
+	err = c.Config.Instance(&repo)
 	if err != nil {
 		c.Fatal(err)
 	}
 
 	// Use an estimate of the item count in the assoc to create our bloom filters
-	count, err := a.Count(ctx)
+	count, err := ass.Count(ctx)
 	c.Log.Debugf("Finding liveset for cache with %d associations and threshold: %v", count, threshold)
 
 	keyFilter := bloom.NewWithEstimates(uint(count), .000001)
@@ -200,7 +201,7 @@ preceded by ! is negated.
 	liveObjectsNotInRepository := int64(0)
 
 	start := time.Now()
-	err = a.Scan(ctx, assoc.MappingHandlerFunc(func(k, v digest.Digest, kind assoc.Kind, lastAccessTime time.Time, labels []string) {
+	err = ass.Scan(ctx, assoc.MappingHandlerFunc(func(k, v digest.Digest, kind assoc.Kind, lastAccessTime time.Time, labels []string) {
 		switch kind {
 		case assoc.Fileset:
 		default:
@@ -212,7 +213,7 @@ preceded by ! is negated.
 				err error
 			)
 			for i := 0; i < 5; i++ {
-				err = unmarshal(ctx, r, v, &fs)
+				err = unmarshal(ctx, repo, v, &fs)
 				if err == nil {
 					break
 				}
@@ -285,12 +286,12 @@ preceded by ! is negated.
 		itemsScannedCount, liveItemCount, liveObjectsInFilesets, liveObjectsNotInRepository)
 
 	// Garbage collect the repository using the values liveset
-	if err = r.CollectWithThreshold(ctx, bloomlive.New(valueFilter), deadValueFilter, threshold, *dryRunFlag); err != nil {
+	if err = repo.CollectWithThreshold(ctx, bloomlive.New(valueFilter), deadValueFilter, threshold, *dryRunFlag); err != nil {
 		c.Fatal(err)
 	}
 
 	// Garbage collect the association using the keys liveset
-	if err = a.CollectWithThreshold(ctx, bloomlive.New(keyFilter), deadKeyFilter, assoc.Fileset, threshold, *rateFlag, *dryRunFlag); err != nil {
+	if err = ass.CollectWithThreshold(ctx, bloomlive.New(keyFilter), deadKeyFilter, assoc.Fileset, threshold, *rateFlag, *dryRunFlag); err != nil {
 		c.Fatal(err)
 	}
 }

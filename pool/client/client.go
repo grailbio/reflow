@@ -14,14 +14,15 @@ import (
 	"time"
 
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
-	"github.com/grailbio/reflow/config"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	repositoryclient "github.com/grailbio/reflow/repository/client"
 	"github.com/grailbio/reflow/rest"
 	"golang.org/x/sync/singleflight"
+	"gopkg.in/yaml.v2"
 )
 
 // Client implements a reflow pool by dispatching calls to a remote
@@ -89,7 +90,7 @@ func (c *Client) Allocs(ctx context.Context) ([]pool.Alloc, error) {
 }
 
 // Config retrieves the reflowlet instance's reflow config.
-func (c *Client) Config(ctx context.Context) (config.Config, error) {
+func (c *Client) Config(ctx context.Context) (infra.Keys, error) {
 	call := c.Call("GET", "config")
 	defer call.Close()
 	code, err := call.Do(ctx, nil)
@@ -103,11 +104,12 @@ func (c *Client) Config(ctx context.Context) (config.Config, error) {
 	if err := call.Unmarshal(&cfgStr); err != nil {
 		return nil, errors.E("unmarshal config ", err)
 	}
-	cfg, err := config.Parse([]byte(cfgStr))
+	var keys infra.Keys
+	err = yaml.Unmarshal([]byte(cfgStr), &keys)
 	if err != nil {
 		return nil, errors.E("parse config", err)
 	}
-	return cfg, nil
+	return keys, nil
 }
 
 // ExecImage retrieves the reflowlet instance's executable image info.

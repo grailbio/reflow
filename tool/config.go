@@ -9,12 +9,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io"
 	"sort"
-
-	"github.com/grailbio/reflow/config"
-	yaml "gopkg.in/yaml.v2"
-	"v.io/x/lib/textutil"
 )
 
 func (c *Cmd) config(ctx context.Context, args ...string) {
@@ -38,49 +33,35 @@ modified and overriden:
 	// Construct a help string from the available providers.
 	b := new(bytes.Buffer)
 	b.WriteString(header)
-	usages := config.Help()
+
 	var keys []string
-	for key := range usages {
+	for key := range c.Schema {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		usages := usages[key]
-		sort.Slice(usages, func(i, j int) bool {
-			return usages[i].Kind < usages[j].Kind
-		})
-		for _, usage := range usages {
-			fmt.Fprintf(b, "%s: %s", key, usage.Kind)
-			if arg := usage.Arg; arg != "" {
-				fmt.Fprintf(b, ",%s", arg)
-			}
-			b.WriteString("\n")
-			pw := textutil.PrefixLineWriter(b, "	")
-			ww := textutil.NewUTF8WrapWriter(pw, 80)
-			if _, err := io.WriteString(ww, usage.Usage); err != nil {
-				c.Fatal(err)
-			}
-			ww.Flush()
-			pw.Flush()
-		}
+		// TODO(pgopal) - Do we need to instantiate all the providers for the keys
+		// and inspect their flag definitions here?
+		fmt.Fprintf(b, "%s: %s", key, c.SchemaKeys[key])
 		b.WriteString("\n")
 	}
 	b.WriteString(footer)
 
 	c.Parse(flags, args, b.String(), "config")
+
 	if flags.NArg() != 0 {
 		flags.Usage()
 	}
 	var data []byte
 	if *marshalFlag {
 		var err error
-		data, err = config.Marshal(c.Config)
+		data, err = c.Config.Marshal(true)
 		if err != nil {
 			c.Fatal(err)
 		}
 	} else {
 		var err error
-		data, err = yaml.Marshal(c.Config.Keys())
+		data, err = c.Config.Marshal(false)
 		if err != nil {
 			c.Fatal(err)
 		}

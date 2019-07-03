@@ -7,13 +7,15 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/base/status"
+	"github.com/grailbio/infra/tls"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/ec2cluster"
+	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository/blobrepo"
 	repositoryhttp "github.com/grailbio/reflow/repository/http"
 	"github.com/grailbio/reflow/runner"
@@ -35,16 +37,20 @@ type needer interface {
 // also ties the binary to specific implementations (e.g., s3), which
 // should be avoided.
 func (c *Cmd) Cluster(status *status.Group) runner.Cluster {
-	cluster, err := c.Config.Cluster()
+	var cluster runner.Cluster
+	err := c.Config.Instance(&cluster)
 	if err != nil {
 		c.Fatal(err)
 	}
-	if ec2cluster, ok := cluster.(*ec2cluster.Cluster); ok {
-		ec2cluster.Status = status
+	var ec *ec2cluster.Cluster
+	if err := c.Config.Instance(&ec); err == nil {
+		ec.Status = status
+		ec.Configuration = c.Config
 	} else {
-		log.Print("not a ec2cluster!")
+		log.Printf("not a ec2cluster! : %v", err)
 	}
-	sess, err := c.Config.AWS()
+	var sess *session.Session
+	err = c.Config.Instance(&sess)
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -71,7 +77,12 @@ func (c *Cmd) Cluster(status *status.Group) runner.Cluster {
 }
 
 func (c *Cmd) httpClient() (*http.Client, error) {
-	clientConfig, _, err := c.Config.HTTPS()
+	var ca *tls.Authority
+	err := c.Config.Instance(&ca)
+	if err != nil {
+		c.Fatal(err)
+	}
+	clientConfig, _, err := ca.HTTPS()
 	if err != nil {
 		c.Fatal(err)
 	}

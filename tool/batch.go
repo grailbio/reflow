@@ -22,9 +22,12 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/batch"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
+	"github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/runner"
@@ -36,7 +39,6 @@ import (
 func (c *Cmd) batchrun(ctx context.Context, args ...string) {
 	c.Fatal("command batchrun has been renamed runbatch")
 }
-
 func (c *Cmd) runbatch(ctx context.Context, args ...string) {
 	flags := flag.NewFlagSet("runbatch", flag.ExitOnError)
 	help := `Runbatch runs the batch defined in this directory.
@@ -102,16 +104,19 @@ flags override any parameters in the batch sample file.
 			return re.MatchString(f.Ident)
 		}
 	}
-	user, err := c.Config.User()
+	var user infra.User
+	err := c.Config.Instance(&user)
 	if err != nil {
 		c.Fatal(err)
 	}
 	cluster := c.Cluster(c.Status.Group("ec2cluster"))
-	repo, err := c.Config.Repository()
+	var repo reflow.Repository
+	err = c.Config.Instance(&repo)
 	if err != nil {
 		c.Fatal(err)
 	}
-	assoc, err := c.Config.Assoc()
+	var assoc assoc.Assoc
+	err = c.Config.Instance(&assoc)
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -128,6 +133,11 @@ flags override any parameters in the batch sample file.
 	if err != nil {
 		c.Log.Error(err)
 	}
+	var cache *infra.CacheProvider
+	err = c.Config.Instance(&cache)
+	if err != nil {
+		c.Log.Error(err)
+	}
 	b := &batch.Batch{
 		EvalConfig: flow.EvalConfig{
 			Log:                c.Log,
@@ -136,7 +146,7 @@ flags override any parameters in the batch sample file.
 			Assoc:              assoc,
 			AssertionGenerator: c.assertionGenerator(),
 			Assert:             c.asserter(*assertFlag),
-			CacheMode:          c.Config.CacheMode(),
+			CacheMode:          cache.CacheMode,
 			NoCacheExtern:      *nocacheexternFlag,
 			RecomputeEmpty:     *recomputeemptyFlag,
 			Transferer:         transferer,
@@ -146,7 +156,7 @@ flags override any parameters in the batch sample file.
 		},
 		Args:    flags.Args(),
 		Rundir:  c.rundir(),
-		User:    user,
+		User:    string(user),
 		Cluster: cluster,
 		Status:  c.Status.Groupf("batch %s", wd),
 	}

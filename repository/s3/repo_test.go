@@ -2,7 +2,6 @@ package s3
 
 import (
 	"fmt"
-	"reflect"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -32,10 +31,8 @@ func TestS3RepositoryInfra(t *testing.T) {
 
 	var repos reflow.Repository
 	config.Must(&repos)
-	s3repos, ok := repos.(*Repository)
-	if !ok {
-		t.Fatalf("%v is not a s3 repository", reflect.TypeOf(repos))
-	}
+	var s3repos *Repository
+	config.Must(&s3repos)
 	if got, want := s3repos.Bucket, bucket; got != want {
 		t.Errorf("got %v, want %v", s3repos.Bucket, bucket)
 	}

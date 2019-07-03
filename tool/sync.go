@@ -36,15 +36,17 @@ are not also in the fileset.`
 	if err != nil {
 		c.Fatalf("parse %s: %v", fsID, err)
 	}
-	ass, err := c.Config.Assoc()
+	var ass assoc.Assoc
+	err = c.Config.Instance(&ass)
+	if err != nil {
+		c.Fatal(err)
+	}
+	var repo reflow.Repository
+	err = c.Config.Instance(&repo)
 	if err != nil {
 		c.Fatal(err)
 	}
 	id, fsid, err := ass.Get(ctx, assoc.Fileset, id)
-	if err != nil {
-		c.Fatal(err)
-	}
-	repo, err := c.Config.Repository()
 	if err != nil {
 		c.Fatal(err)
 	}

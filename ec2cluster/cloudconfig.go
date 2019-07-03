@@ -13,6 +13,7 @@ type CloudFile struct {
 	Permissions string `yaml:"permissions,omitempty"`
 	Owner       string `yaml:"owner,omitempty"`
 	Content     string `yaml:"content,omitempty"`
+	Encoding    string `yaml:"encoding,omitempty"`
 }
 
 // CloudUnit is a component of the cloudConfig configuration for CoreOS.
