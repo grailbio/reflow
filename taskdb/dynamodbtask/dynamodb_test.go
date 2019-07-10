@@ -757,12 +757,12 @@ func TestDydbTaskdbInfra(t *testing.T) {
 		"logger":  new(log.Logger),
 	}
 	config, err := schema.Make(infra.Keys{
-		"session": "github.com/grailbio/infra/aws.Session",
-		"user":    "github.com/grailbio/reflow/infra.User,user=test",
-		"taskdb":  "github.com/grailbio/reflow/taskdb/dynamodbtask.TaskDB",
-		"assoc":   fmt.Sprintf("github.com/grailbio/reflow/assoc/dydbassoc.Assoc,table=%v", table),
-		"logger":  "github.com/grailbio/reflow/log.Logger",
-		"labels":  "github.com/grailbio/reflow/pool.Labels",
+		"session": "awssession",
+		"user":    "user,user=test",
+		"taskdb":  "dynamodbtask",
+		"assoc":   fmt.Sprintf("dynamodb,table=%v", table),
+		"logger":  "logger",
+		"labels":  "labels",
 	})
 	if err != nil {
 		t.Fatal(err)

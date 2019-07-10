@@ -15,7 +15,7 @@ import (
 )
 
 func init() {
-	infra.Register(new(Repository))
+	infra.Register("s3", new(Repository))
 }
 
 // Repository is a s3 backed blob repository.

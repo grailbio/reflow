@@ -12,8 +12,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-
-	"github.com/grailbio/infra"
 )
 
 // Level defines the level of logging. Higher levels are more
@@ -54,10 +52,6 @@ func (m multiOutputter) Output(calldepth int, s string) error {
 // message to all the provided outputters.
 func MultiOutputter(outputters ...Outputter) Outputter {
 	return multiOutputter(outputters)
-}
-
-func init() {
-	infra.Register(new(Logger))
 }
 
 // A Logger receives log messages at multiple levels, and publishes

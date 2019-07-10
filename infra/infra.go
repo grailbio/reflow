@@ -12,12 +12,15 @@ import (
 )
 
 func init() {
-	infra.Register(new(User))
-	infra.Register(new(ReflowletVersion))
-	infra.Register(new(ReflowVersion))
-	infra.Register(new(SshKey))
-	infra.Register(new(CacheProvider))
-	infra.Register(new(Logger))
+	infra.Register("user", new(User))
+	infra.Register("reflowletversion", new(ReflowletVersion))
+	infra.Register("reflowversion", new(ReflowVersion))
+	infra.Register("sshkey", new(SshKey))
+	infra.Register("off", new(CacheProviderOff))
+	infra.Register("read", new(CacheProviderRead))
+	infra.Register("write", new(CacheProviderWrite))
+	infra.Register("readwrite", new(CacheProviderReadWrite))
+	infra.Register("logger", new(Logger))
 }
 
 // Reflow infra schema key names.
@@ -34,7 +37,7 @@ const (
 	Reflow     = "reflow"
 	Reflowlet  = "reflowlet"
 	Session    = "session"
-	SSHKey     = "sshkey"
+	SSHKey     = "sshk"
 	Username   = "user"
 	TLS        = "tls"
 	Tracer     = "tracer"
@@ -114,7 +117,7 @@ const sshKeyFile = "$HOME/.ssh/id_rsa.pub"
 
 // SshKey is the infrastructure provider for ssh key
 type SshKey struct {
-	Key string `yaml:"key"`
+	Key string `yaml:"key,omitempty"`
 }
 
 // Init implements infra.Provider.
@@ -171,24 +174,40 @@ type CacheProvider struct {
 	mode string
 }
 
-// Init implements infra.Provider
-func (c *CacheProvider) Init() error {
-	switch c.mode {
-	case "off":
-		c.CacheMode = CacheOff
-	case "read":
-		c.CacheMode = CacheRead
-	case "write":
-		c.CacheMode = CacheWrite
-	case "read+write":
-		c.CacheMode = CacheRead | CacheWrite
-	}
+type CacheProviderOff struct {
+	*CacheProvider
+}
+
+func (c *CacheProviderOff) Init() error {
+	c.CacheProvider = &CacheProvider{CacheMode: CacheOff}
 	return nil
 }
 
-// Flags implements infra.Provider
-func (c *CacheProvider) Flags(flags *flag.FlagSet) {
-	flags.StringVar(&c.mode, "cache", "read+write", "cache can be off, read, write, or read+write.")
+type CacheProviderRead struct {
+	*CacheProvider
+}
+
+func (c *CacheProviderRead) Init() error {
+	c.CacheProvider = &CacheProvider{CacheMode: CacheRead}
+	return nil
+}
+
+type CacheProviderWrite struct {
+	*CacheProvider
+}
+
+func (c *CacheProviderWrite) Init() error {
+	c.CacheProvider = &CacheProvider{CacheMode: CacheWrite}
+	return nil
+}
+
+type CacheProviderReadWrite struct {
+	*CacheProvider
+}
+
+func (c *CacheProviderReadWrite) Init() error {
+	c.CacheProvider = &CacheProvider{CacheMode: CacheRead | CacheWrite}
+	return nil
 }
 
 // Logger is the infra provider for logger.

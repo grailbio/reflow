@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	infra.Register(new(Tracer))
+	infra.Register("xray", new(Tracer))
 }
 
 // Tracer is the reflow tracer implementation for xray.

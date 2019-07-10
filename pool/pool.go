@@ -39,7 +39,7 @@ const (
 )
 
 func init() {
-	infra.Register(make(Labels))
+	infra.Register("labels", make(Labels))
 }
 
 // Alloc represent a resource allocation attached to a single

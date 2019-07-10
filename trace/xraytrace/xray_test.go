@@ -14,7 +14,7 @@ func TestXrayTracerInfra(t *testing.T) {
 		"tracer": new(trace.Tracer),
 	}
 	config, err := schema.Make(infra.Keys{
-		"tracer": "github.com/grailbio/reflow/trace/xraytrace.Tracer",
+		"tracer": "xray",
 	})
 	if err != nil {
 		t.Fatal(err)

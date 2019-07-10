@@ -235,18 +235,18 @@ func TestClusterInfra(t *testing.T) {
 		"user":      new(infra2.User),
 		"reflowlet": new(infra2.ReflowletVersion),
 		"reflow":    new(infra2.ReflowVersion),
-		"sshkey":    new(infra2.SshKey),
+		"sshk":      new(infra2.SshKey),
 	}
 	config, err := schema.Make(infra.Keys{
-		"labels":    "github.com/grailbio/reflow/pool.Labels",
-		"tls":       "github.com/grailbio/infra/tls.Authority,file=/tmp/ca",
-		"logger":    "github.com/grailbio/reflow/log.Logger",
-		"session":   "github.com/grailbio/infra/aws.Session",
-		"user":      "github.com/grailbio/reflow/infra.User",
-		"reflowlet": "github.com/grailbio/reflow/infra.ReflowletVersion,version=1.2.3",
-		"reflow":    "github.com/grailbio/reflow/infra.ReflowVersion,version=abcdef",
-		"cluster":   "github.com/grailbio/reflow/ec2cluster.Cluster",
-		"sshkey":    "github.com/grailbio/reflow/infra.SshKey",
+		"labels":    "labels",
+		"tls":       "tls,file=/tmp/ca",
+		"logger":    "logger",
+		"session":   "awssession",
+		"user":      "user",
+		"reflowlet": "reflowletversion,version=1.2.3",
+		"reflow":    "reflowversion,version=abcdef",
+		"cluster":   "ec2cluster",
+		"sshk":      "sshkey",
 	})
 	if err != nil {
 		t.Fatal(err)

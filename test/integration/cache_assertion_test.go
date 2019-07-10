@@ -282,7 +282,7 @@ func (tc testConfig) runReflow(t *testing.T, logPrefix string, runArgs []string,
 		runArgs = append(runArgs, "-local", "-localdir", dir)
 	}
 	args := []string{
-		"-labels", fmt.Sprintf("grail.com/cmd/reflow/ticketconfig.Labels,labels=cache_assertion_test=%s_%s", time.Now().Format(timeFormat), tc.dirSuffix()),
+		"-labels", fmt.Sprintf("graillabels,labels=cache_assertion_test=%s_%s", time.Now().Format(timeFormat), tc.dirSuffix()),
 	}
 	if *debug {
 		args = append(args, "-log", "debug")

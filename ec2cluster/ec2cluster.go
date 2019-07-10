@@ -49,7 +49,7 @@ import (
 )
 
 func init() {
-	infra.Register(new(Cluster))
+	infra.Register("ec2cluster", new(Cluster))
 }
 
 const (

@@ -40,7 +40,7 @@ import (
 )
 
 func init() {
-	infra.Register(new(TaskDB))
+	infra.Register("dynamodbtask", new(TaskDB))
 }
 
 var (

@@ -93,18 +93,18 @@ func main() {
 		infra2.Tracer:     new(trace.Tracer),
 	}
 	cmd.SchemaKeys = infra.Keys{
-		infra2.AWSCreds:  "github.com/grailbio/infra/aws.AWSCreds",
-		infra2.AWSTool:   fmt.Sprintf("github.com/grailbio/infra/aws.AWSTool,awstool=grailbio/awstool:latest"),
-		infra2.Cache:     "github.com/grailbio/reflow/infra.CacheProvider,cache=off",
-		infra2.Labels:    "github.com/grailbio/reflow/pool.Labels",
-		infra2.Log:       "github.com/grailbio/reflow/infra.Logger",
-		infra2.Reflowlet: fmt.Sprintf("github.com/grailbio/reflow/infra.ReflowletVersion,version=%s", reflowlet),
-		infra2.Reflow:    fmt.Sprintf("github.com/grailbio/reflow/infra.ReflowVersion,version=%s", version),
-		infra2.Session:   "github.com/grailbio/infra/aws.Session",
-		infra2.SSHKey:    "github.com/grailbio/reflow/infra.SshKey",
-		infra2.TLS:       "github.com/grailbio/infra/tls.Authority,file=/tmp/ca.reflow",
-		infra2.Username:  "github.com/grailbio/reflow/infra.User",
-		infra2.Tracer:    "github.com/grailbio/reflow/trace/xraytrace.Tracer",
+		infra2.AWSCreds:  "awscreds",
+		infra2.AWSTool:   fmt.Sprintf("awstool,awstool=grailbio/awstool:latest"),
+		infra2.Cache:     "off",
+		infra2.Labels:    "labels",
+		infra2.Log:       "logger",
+		infra2.Reflowlet: fmt.Sprintf("reflowletversion,version=%s", reflowlet),
+		infra2.Reflow:    fmt.Sprintf("reflowversion,version=%s", version),
+		infra2.Session:   "awssession",
+		infra2.SSHKey:    "sshkey",
+		infra2.TLS:       "tls,file=/tmp/ca.reflow",
+		infra2.Username:  "user",
+		infra2.Tracer:    "xray",
 	}
 	cmd.Flags().Parse(os.Args[1:])
 	cmd.Main()

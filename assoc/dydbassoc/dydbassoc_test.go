@@ -343,10 +343,10 @@ func TestDydbassocInfra(t *testing.T) {
 		"logger":  new(log.Logger),
 	}
 	config, err := schema.Make(infra.Keys{
-		"labels":  "github.com/grailbio/reflow/pool.Labels",
-		"session": "github.com/grailbio/infra/aws.Session",
-		"assoc":   fmt.Sprintf("github.com/grailbio/reflow/assoc/dydbassoc.Assoc,table=%v", table),
-		"logger":  "github.com/grailbio/reflow/log.Logger",
+		"labels":  "labels",
+		"session": "awssession",
+		"assoc":   fmt.Sprintf("dynamodb,table=%v", table),
+		"logger":  "logger",
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -38,7 +38,7 @@ import (
 )
 
 func init() {
-	infra.Register(new(Assoc))
+	infra.Register("dynamodb", new(Assoc))
 }
 
 const (
