@@ -164,6 +164,11 @@ func validateReflowletImage(ecrApi ecriface.ECRAPI, reflowlet string, log *log.L
 	return nil
 }
 
+// Help implements infra.Provider
+func (Cluster) Help() string {
+	return "configure a cluster using AWS EC2 compute nodes"
+}
+
 // Config implements infra.Provider
 func (c *Cluster) Config() interface{} {
 	return c

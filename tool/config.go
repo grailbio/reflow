@@ -9,7 +9,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"sort"
+
+	"v.io/x/lib/textutil"
 )
 
 func (c *Cmd) config(ctx context.Context, args ...string) {
@@ -35,14 +38,27 @@ modified and overriden:
 	b.WriteString(header)
 
 	var keys []string
-	for key := range c.Schema {
+	help := c.Config.Help()
+	for key := range help {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	for _, key := range keys {
-		// TODO(pgopal) - Do we need to instantiate all the providers for the keys
-		// and inspect their flag definitions here?
-		fmt.Fprintf(b, "%s: %s", key, c.SchemaKeys[key])
+	for _, k := range keys {
+		v := help[k]
+		for _, p := range v {
+			fmt.Fprintf(b, "%s: %s", k, p.Name)
+			for _, arg := range p.Args {
+				fmt.Fprintf(b, ",%s", arg)
+			}
+			b.WriteString("\n")
+			pw := textutil.PrefixLineWriter(b, "	")
+			ww := textutil.NewUTF8WrapWriter(pw, 80)
+			if _, err := io.WriteString(ww, p.Usage); err != nil {
+				c.Fatal(err)
+			}
+			ww.Flush()
+			pw.Flush()
+		}
 		b.WriteString("\n")
 	}
 	b.WriteString(footer)

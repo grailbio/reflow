@@ -26,6 +26,11 @@ type Repository struct {
 	Bucket string
 }
 
+// Help implements infra.Provider
+func (Repository) Help() string {
+	return "configure a repository using a S3 bucket"
+}
+
 // Flags implements infra.Provider
 func (r *Repository) Flags(flags *flag.FlagSet) {
 	flags.StringVar(&r.Bucket, "bucket", "", "bucket name")

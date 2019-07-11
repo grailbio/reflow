@@ -106,6 +106,11 @@ type TaskDB struct {
 	limiter *limiter.Limiter
 }
 
+// Help implements infra.Provider
+func (TaskDB) Help() string {
+	return "configure a dynamodb table to store run/task information"
+}
+
 // Init implements infra.Provider
 func (t *TaskDB) Init(sess *session.Session, assoc *dydbassoc.Assoc, user *infra2.User, labels pool.Labels) error {
 	t.limiter = limiter.New()

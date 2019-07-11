@@ -46,16 +46,16 @@ The resulting configuration can be examined with "reflow config"`
 	if err != nil {
 		c.Fatal(err)
 	}
-	pkgPath := "github.com/grailbio/reflow/assoc/dydbassoc.Assoc"
+	name := "dynamodbassoc"
 	keys := config.Keys
 	if v, ok := keys["assoc"]; ok {
 		parts := strings.Split(v.(string), ",")
-		if len(parts) != 2 || parts[0] != pkgPath || parts[1] != table {
+		if len(parts) != 2 || parts[0] != name || parts[1] != table {
 			c.Fatalf("assoc already setup: %v", v)
 		}
 		c.Log.Printf("assoc already set up; updating schemas")
 	}
-	c.SchemaKeys["assoc"] = fmt.Sprintf("%s,table=%v", pkgPath, table)
+	c.SchemaKeys["assoc"] = fmt.Sprintf("%s,table=%v", name, table)
 	c.Config, err = c.Schema.Make(c.SchemaKeys)
 	if err != nil {
 		c.Fatal(err)

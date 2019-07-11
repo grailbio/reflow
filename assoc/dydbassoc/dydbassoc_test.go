@@ -343,9 +343,9 @@ func TestDydbassocInfra(t *testing.T) {
 		"logger":  new(log.Logger),
 	}
 	config, err := schema.Make(infra.Keys{
-		"labels":  "labels",
+		"labels":  "kv",
 		"session": "awssession",
-		"assoc":   fmt.Sprintf("dynamodb,table=%v", table),
+		"assoc":   fmt.Sprintf("dynamodbassoc,table=%v", table),
 		"logger":  "logger",
 	})
 	if err != nil {

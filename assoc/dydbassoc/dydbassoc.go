@@ -38,7 +38,7 @@ import (
 )
 
 func init() {
-	infra.Register("dynamodb", new(Assoc))
+	infra.Register("dynamodbassoc", new(Assoc))
 }
 
 const (
@@ -65,6 +65,11 @@ type Assoc struct {
 
 	labelsOnce sync.Once `yaml:"-"`
 	labels     []*string `yaml:"-"`
+}
+
+// Help implements infra.Provider
+func (a *Assoc) Help() string {
+	return "configure an assoc using the provided DynamoDB table name"
 }
 
 // Init implements infra.Provider.

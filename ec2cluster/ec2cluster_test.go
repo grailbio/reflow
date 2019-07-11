@@ -235,10 +235,10 @@ func TestClusterInfra(t *testing.T) {
 		"user":      new(infra2.User),
 		"reflowlet": new(infra2.ReflowletVersion),
 		"reflow":    new(infra2.ReflowVersion),
-		"sshk":      new(infra2.SshKey),
+		"sshkey":    new(infra2.SshKey),
 	}
 	config, err := schema.Make(infra.Keys{
-		"labels":    "labels",
+		"labels":    "kv",
 		"tls":       "tls,file=/tmp/ca",
 		"logger":    "logger",
 		"session":   "awssession",
@@ -246,7 +246,7 @@ func TestClusterInfra(t *testing.T) {
 		"reflowlet": "reflowletversion,version=1.2.3",
 		"reflow":    "reflowversion,version=abcdef",
 		"cluster":   "ec2cluster",
-		"sshk":      "sshkey",
+		"sshkey":    "key",
 	})
 	if err != nil {
 		t.Fatal(err)

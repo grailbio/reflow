@@ -15,7 +15,7 @@ func init() {
 	infra.Register("user", new(User))
 	infra.Register("reflowletversion", new(ReflowletVersion))
 	infra.Register("reflowversion", new(ReflowVersion))
-	infra.Register("sshkey", new(SshKey))
+	infra.Register("key", new(SshKey))
 	infra.Register("off", new(CacheProviderOff))
 	infra.Register("read", new(CacheProviderRead))
 	infra.Register("write", new(CacheProviderWrite))
@@ -37,7 +37,7 @@ const (
 	Reflow     = "reflow"
 	Reflowlet  = "reflowlet"
 	Session    = "session"
-	SSHKey     = "sshk"
+	SSHKey     = "sshkey"
 	Username   = "user"
 	TLS        = "tls"
 	Tracer     = "tracer"
@@ -45,6 +45,11 @@ const (
 
 // User is the infrastructure provider for username.
 type User string
+
+// Help implements infra.Provider
+func (u *User) Help() string {
+	return "provide a username"
+}
 
 // Init implements infra.Provider.
 func (u *User) Init() error {
@@ -74,6 +79,11 @@ func (u User) User() string {
 // ReflowletVersion is the infrastructure provider for the reflowlet version.
 type ReflowletVersion string
 
+// Help implements infra.Provider
+func (r ReflowletVersion) Help() string {
+	return "provide a reflowlet version"
+}
+
 // Init implements infra.Provider.
 func (r *ReflowletVersion) Init() error {
 	if *r == "" {
@@ -94,6 +104,11 @@ func (r *ReflowletVersion) Value() string {
 
 // ReflowVersion is the infrastructure provider for the reflow version.
 type ReflowVersion string
+
+// Help implements infra.Provider
+func (r ReflowVersion) Help() string {
+	return "provide a reflow version"
+}
 
 // Init implements infra.Provider.
 func (r *ReflowVersion) Init() error {
@@ -118,6 +133,11 @@ const sshKeyFile = "$HOME/.ssh/id_rsa.pub"
 // SshKey is the infrastructure provider for ssh key
 type SshKey struct {
 	Key string `yaml:"key,omitempty"`
+}
+
+// Help implements infra.Provider
+func (SshKey) Help() string {
+	return "provide a ssh public key"
 }
 
 // Init implements infra.Provider.
@@ -171,40 +191,67 @@ func (c CacheMode) Writing() bool {
 type CacheProvider struct {
 	// CacheMode is the configured cache mode of this CacheMode infra provider.
 	CacheMode
-	mode string
 }
 
+// CacheProviderOff is the provider to turn off cache.
 type CacheProviderOff struct {
 	*CacheProvider
 }
 
+// Help implements infra.Provider
+func (CacheProviderOff) Help() string {
+	return "turn caching off"
+}
+
+// Init implements infra.Provider
 func (c *CacheProviderOff) Init() error {
 	c.CacheProvider = &CacheProvider{CacheMode: CacheOff}
 	return nil
 }
 
+// CacheProviderRead is the provider to only read from cache.
 type CacheProviderRead struct {
 	*CacheProvider
 }
 
+// Init implements infra.Provider
 func (c *CacheProviderRead) Init() error {
 	c.CacheProvider = &CacheProvider{CacheMode: CacheRead}
 	return nil
 }
 
+// Help implements infra.Provider
+func (CacheProviderRead) Help() string {
+	return "read-only cache"
+}
+
+// CacheProviderWrite is the provider to only write to cache.
 type CacheProviderWrite struct {
 	*CacheProvider
 }
 
+// Init implements infra.Provider
 func (c *CacheProviderWrite) Init() error {
 	c.CacheProvider = &CacheProvider{CacheMode: CacheWrite}
 	return nil
 }
 
+// Help implements infra.Provider
+func (CacheProviderWrite) Help() string {
+	return "write-only cache"
+}
+
+// CacheProviderReadWrite is the provider to read and write to cache.
 type CacheProviderReadWrite struct {
 	*CacheProvider
 }
 
+// Help implements infra.Provider
+func (CacheProviderReadWrite) Help() string {
+	return "read write cache"
+}
+
+// Init implements infra.Provider
 func (c *CacheProviderReadWrite) Init() error {
 	c.CacheProvider = &CacheProvider{CacheMode: CacheRead | CacheWrite}
 	return nil
@@ -214,6 +261,11 @@ func (c *CacheProviderReadWrite) Init() error {
 type Logger struct {
 	*log.Logger
 	level string
+}
+
+// Help implements infra.Provider
+func (Logger) Help() string {
+	return "provide a logger"
 }
 
 // Init implements infra.Provider

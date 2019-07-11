@@ -24,6 +24,11 @@ var Xray trace.Tracer = Tracer{}
 
 const xrayHttpHeaderName = "x-aws-xray-trace"
 
+// Help implements infra.Provider
+func (Tracer) Help() string {
+	return "configure an AWS Xray tracer to write traces"
+}
+
 // WriteHTTPContext writes the trace context to the HTTP header.
 func (Tracer) WriteHTTPContext(ctx context.Context, h *http.Header) {
 	seg := xray.GetSegment(ctx)

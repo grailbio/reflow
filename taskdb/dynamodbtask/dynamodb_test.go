@@ -760,9 +760,9 @@ func TestDydbTaskdbInfra(t *testing.T) {
 		"session": "awssession",
 		"user":    "user,user=test",
 		"taskdb":  "dynamodbtask",
-		"assoc":   fmt.Sprintf("dynamodb,table=%v", table),
+		"assoc":   fmt.Sprintf("dynamodbassoc,table=%v", table),
 		"logger":  "logger",
-		"labels":  "labels",
+		"labels":  "kv",
 	})
 	if err != nil {
 		t.Fatal(err)
