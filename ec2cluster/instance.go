@@ -847,6 +847,33 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 		`, args{"mortal": !i.Immortal, "name": deviceName}),
 	})
 
+	c.AppendFile(CloudFile{
+		Path:        "/etc/journald-cloudwatch-logs.conf",
+		Permissions: "0644",
+		Owner:       "root",
+		Content:     `log_group = "reflow"`,
+	})
+
+	c.AppendUnit(CloudUnit{
+		Name:    "journald-cloudwatch-logs.service",
+		Enable:  true,
+		Command: "start",
+		Content: tmpl(`
+		[Unit]
+		Description=journald-cloudwatch-logs
+		Wants=basic.target
+		After=basic.target network.target
+		[Service]
+		Type=simple
+		ExecStartPre=/usr/bin/sh -c "/usr/bin/echo 'log_stream = \"'$(curl http://169.254.169.254/latest/meta-data/public-hostname)'\"' | /usr/bin/cat - /etc/journald-cloudwatch-logs.conf > /tmp/journald-cloudwatch-logs.conf"
+		ExecStartPre=/usr/bin/wget https://github.com/advantageous/systemd-cloud-watch/releases/download/v0.2.1/systemd-cloud-watch_linux -O /tmp/systemd-cloud-watch_linux
+		ExecStartPre=/usr/bin/chmod +x /tmp/systemd-cloud-watch_linux
+		ExecStart=/tmp/systemd-cloud-watch_linux /tmp/journald-cloudwatch-logs.conf
+		Restart=on-failure
+		RestartSec=30s
+		`, args{}),
+	})
+
 	var profile, akey, secret, token string
 	if i.InstanceProfile != "" {
 		profile = fmt.Sprintf("-a %s", i.InstanceProfile)
