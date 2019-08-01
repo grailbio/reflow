@@ -306,6 +306,12 @@ func retryable(err error) bool {
 // uses the AWS SDK's download manager, performing concurrent
 // downloads to the provided io.WriterAt.
 func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w io.WriterAt) (int64, error) {
+	// Determine size if unspecified
+	if size == 0 {
+		if rf, err := b.File(ctx, key); err == nil {
+			size = rf.Size
+		}
+	}
 	var n int64
 	s3concurrency := maxS3Ops(size)
 	var err error
