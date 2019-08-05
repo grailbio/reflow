@@ -8,6 +8,8 @@ import (
 	"context"
 	"log"
 
+	"github.com/grailbio/base/traverse"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -25,11 +27,13 @@ type S3Walker struct {
 	// Admission policy for S3 operations (can be nil)
 	Policy admit.Policy
 
-	object  *s3.Object
-	objects []*s3.Object
-	token   *string
-	err     error
-	done    bool
+	object    *s3.Object
+	metadata  map[string]*string
+	objects   []*s3.Object
+	metadatas []map[string]*string
+	token     *string
+	err       error
+	done      bool
 }
 
 // Scan scans the next key; it returns false when no more keys can
@@ -43,7 +47,7 @@ func (w *S3Walker) Scan(ctx context.Context) bool {
 		return false
 	}
 	if len(w.objects) > 0 {
-		w.object, w.objects = w.objects[0], w.objects[1:]
+		w.object, w.metadata, w.objects, w.metadatas = w.objects[0], w.metadatas[0], w.objects[1:], w.metadatas[1:]
 		return true
 	}
 	if w.done {
@@ -72,6 +76,17 @@ func (w *S3Walker) Scan(ctx context.Context) bool {
 	w.token = res.NextContinuationToken
 	w.objects = res.Contents
 	w.done = !aws.BoolValue(res.IsTruncated)
+	// Loading object metadata is best-effort.
+	w.metadatas = make([]map[string]*string, len(w.objects))
+	_ = traverse.Each(len(w.metadatas), func(i int) error {
+		if resp, err := w.S3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+			Bucket: aws.String(w.Bucket),
+			Key:    w.objects[i].Key,
+		}); err == nil {
+			w.metadatas[i] = resp.Metadata
+		}
+		return nil
+	})
 	return w.Scan(ctx)
 }
 
@@ -83,4 +98,9 @@ func (w *S3Walker) Err() error {
 // Object returns the last object that was scanned.
 func (w *S3Walker) Object() *s3.Object {
 	return w.object
+}
+
+// Metadata returns the metadata of the last object that was scanned.
+func (w *S3Walker) Metadata() map[string]*string {
+	return w.metadata
 }

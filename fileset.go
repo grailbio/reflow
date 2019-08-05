@@ -17,9 +17,9 @@ import (
 )
 
 // File represents a File inside of Reflow. A file is said to be
-// resolved if it contains the digest of the file's contents.
+// resolved if it contains the digest of the file's contents (ID).
 // Otherwise, a File is said to be a reference, in which case it must
-// contain a source and etag.
+// contain a source and etag and may contain a ContentHash.
 // Any type of File (resolved or reference) can contain Assertions.
 type File struct {
 	// The digest of the contents of the file.
@@ -38,6 +38,11 @@ type File struct {
 	// LastModified stores the file's last modified time.
 	LastModified time.Time `json:",omitempty"`
 
+	// ContentHash is the digest of the file contents and can be present
+	// for unresolved (ie reference) files.
+	// ContentHash is expected to equal ID once this file is resolved.
+	ContentHash digest.Digest `json:",omitempty"`
+
 	// Assertions are the set of assertions representing the state
 	// of all the dependencies that went into producing this file.
 	// Unlike Etag/Size etc which are properties of this File,
@@ -46,12 +51,18 @@ type File struct {
 	Assertions *Assertions `json:",omitempty"`
 }
 
-// Digest returns the file's digest: if the file is a reference, the
-// digest comprises the reference, source, etag and assertions.
-// Resolved files return digest of the file's ID.
+// Digest returns the file's digest: if the file is a reference and
+// it's ContentHash is unset, the digest comprises the
+// reference, source, etag and assertions.
+// Reference files will return ContentHash if set
+// (which is assumed to be the digest of the file's contents).
+// Resolved files return ID which is the digest of the file's contents.
 func (f File) Digest() digest.Digest {
 	if !f.IsRef() {
 		return f.ID
+	}
+	if !f.ContentHash.IsZero() {
+		return f.ContentHash
 	}
 	w := Digester.NewWriter()
 	var b [8]byte
@@ -68,7 +79,12 @@ func (f File) Digest() digest.Digest {
 func (f File) Equal(g File) bool {
 	if f.IsRef() || g.IsRef() {
 		// When we compare references, we require nonempty etags.
-		return f.Size == g.Size && f.Source == g.Source && f.ETag != "" && f.ETag == g.ETag
+		equal := f.Size == g.Size && f.Source == g.Source && f.ETag != "" && f.ETag == g.ETag
+		// We require equal ContentHash if present in both
+		if !f.ContentHash.IsZero() && !g.ContentHash.IsZero() && f.ContentHash.Name() == g.ContentHash.Name() {
+			return equal && f.ContentHash == g.ContentHash
+		}
+		return equal
 	}
 	return f.ID == g.ID
 }
@@ -92,6 +108,10 @@ func (f File) String() string {
 	if f.ETag != "" {
 		maybeComma(&b)
 		fmt.Fprintf(&b, "etag: %v", f.ETag)
+	}
+	if !f.ContentHash.IsZero() {
+		maybeComma(&b)
+		fmt.Fprintf(&b, "contenthash: %v", f.ContentHash.Short())
 	}
 	if !f.Assertions.IsEmpty() {
 		maybeComma(&b)

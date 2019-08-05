@@ -53,12 +53,16 @@ var errorKeys = map[string]error{
 	"key_awsrequesttimeout": awserr.New("RequestTimeout", "test", nil),
 }
 
-func testFile(key string) reflow.File {
-	return reflow.File{
+func testFile(key string, withContentHash bool) reflow.File {
+	f := reflow.File{
 		Size:   testKeys[key].Size(),
 		Source: "s3://testbucket/" + key,
 		ETag:   testKeys[key].Checksum(),
 	}
+	if withContentHash {
+		f.ContentHash = reflow.Digester.FromBytes(testKeys[key].Data)
+	}
+	return f
 }
 
 func newTestBucket(t *testing.T) *Bucket {
@@ -67,7 +71,7 @@ func newTestBucket(t *testing.T) *Bucket {
 	client.Region = "us-west-2"
 	bucket := NewBucket(name, client)
 	for k, v := range testKeys {
-		client.SetFileContentAt(k, v, "")
+		client.SetFileContentAt(k, v, reflow.Digester.FromBytes(v.Data).Hex())
 	}
 	return bucket
 }
@@ -114,7 +118,7 @@ func TestSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect := reflow.Fileset{
-		Map: map[string]reflow.File{".": testFile("test/z/foobar")},
+		Map: map[string]reflow.File{".": testFile("test/z/foobar", true)},
 	}
 	if got, want := fs, expect; !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
@@ -167,7 +171,7 @@ func TestGet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := file, testFile("test/x"); !got.Equal(want) {
+	if got, want := file, testFile("test/x", false); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	p, err := ioutil.ReadAll(rc)
@@ -185,7 +189,7 @@ func TestGet(t *testing.T) {
 	if !errors.Is(errors.Precondition, err) {
 		t.Errorf("expected Precondition, got %v", err)
 	}
-	_, _, err = bucket.Get(ctx, "test/x", testFile("test/x").ETag)
+	_, _, err = bucket.Get(ctx, "test/x", testFile("test/x", false).ETag)
 	if err != nil {
 		t.Errorf("unexpected error %v", err)
 	}
@@ -242,7 +246,7 @@ func TestDownload(t *testing.T) {
 	if !errors.Is(errors.Precondition, err) {
 		t.Errorf("expected Precondition, got %v", err)
 	}
-	_, err = bucket.Download(ctx, "test/z/foobar", testFile("test/z/foobar").ETag, 0, b)
+	_, err = bucket.Download(ctx, "test/z/foobar", testFile("test/z/foobar", false).ETag, 0, b)
 	if err != nil {
 		t.Errorf("unexpected error %v", err)
 	}

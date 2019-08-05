@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/grailbio/base/digest"
+
 	"github.com/grailbio/base/traverse"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -34,6 +36,9 @@ import (
 )
 
 const (
+	// awsContentSha256Key is the header used to store the sha256 of a file's content.
+	awsContentSha256Key = "Content-Sha256"
+
 	s3minpartsize     = 5 << 20
 	s3concurrency     = 100
 	defaultS3MinLimit = 500
@@ -216,13 +221,29 @@ func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 		// NotFound by the SDK.
 		return reflow.File{}, errors.E("s3blob.File", b.bucket, key, kind(err), err)
 	}
-	// TODO(marius): support ID if x-sha256 is present.
 	return reflow.File{
 		Source:       fmt.Sprintf("s3://%s/%s", b.bucket, key),
 		ETag:         aws.StringValue(resp.ETag),
 		LastModified: aws.TimeValue(resp.LastModified),
 		Size:         *resp.ContentLength,
+		ContentHash:  getContentHash(resp.Metadata),
 	}, nil
+}
+
+// getContentHash gets the ContentHash (if possible) from the given S3 metadata map.
+func getContentHash(metadata map[string]*string) digest.Digest {
+	if metadata == nil {
+		return digest.Digest{}
+	}
+	sha256, ok := metadata[awsContentSha256Key]
+	if !ok {
+		return digest.Digest{}
+	}
+	d, err := reflow.Digester.Parse(*sha256)
+	if err != nil {
+		return digest.Digest{}
+	}
+	return d
 }
 
 // Scanner implements blob.Scanner.
@@ -237,6 +258,7 @@ func (s *scanner) File() reflow.File {
 		Size:         aws.Int64Value(s.Object().Size),
 		Source:       fmt.Sprintf("s3://%s/%s", s.bucket, s.Key()),
 		LastModified: aws.TimeValue(s.Object().LastModified),
+		ContentHash:  getContentHash(s.Metadata()),
 	}
 }
 
@@ -358,6 +380,7 @@ func (b *Bucket) Get(ctx context.Context, key, etag string) (io.ReadCloser, refl
 		ETag:         aws.StringValue(resp.ETag),
 		Size:         *resp.ContentLength,
 		LastModified: aws.TimeValue(resp.LastModified),
+		ContentHash:  getContentHash(resp.Metadata),
 	}, nil
 }
 
@@ -420,6 +443,7 @@ func (b *Bucket) Snapshot(ctx context.Context, prefix string) (reflow.Fileset, e
 			ETag:         *head.ETag,
 			Size:         *head.ContentLength,
 			LastModified: aws.TimeValue(head.LastModified),
+			ContentHash:  getContentHash(head.Metadata),
 		}
 		return reflow.Fileset{Map: map[string]reflow.File{".": file}}, nil
 	}

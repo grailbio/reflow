@@ -121,6 +121,10 @@ func TestEqual2(t *testing.T) {
 	f2 := reflow.File{ID: fid, Assertions: reflow.AssertionsFromMap(map[reflow.AssertionKey]string{{"t", "s2", "tag"}: "v"})}
 	fempty := reflow.File{ID: fid, Assertions: reflow.AssertionsFromMap(map[reflow.AssertionKey]string{})}
 	fnil := reflow.File{ID: fid}
+	f3, f3dup := reflow.File{Source: "same_source", ETag: "etag"}, reflow.File{Source: "same_source", ETag: "etag"}
+	f3mid := reflow.File{Source: "same_source", ETag: "etag", ContentHash: reflow.Digester.FromString("mid")}
+	f3middup := reflow.File{Source: "same_source", ETag: "etag", ContentHash: reflow.Digester.FromString("mid")}
+	f4mid := reflow.File{Source: "same_source", ETag: "etag", ContentHash: reflow.Digester.FromString("mid2")}
 	tests := []struct {
 		a, b reflow.File
 		w    bool
@@ -133,6 +137,8 @@ func TestEqual2(t *testing.T) {
 		{fempty, fnil, true}, {fnil, fempty, true},
 		{f1, fempty, true}, {fempty, f1, true},
 		{f1, fnil, true}, {fnil, f1, true},
+		{f3, f3dup, true}, {f3, f3mid, true}, {f3mid, f3middup, true}, {f3dup, f3middup, true},
+		{f3mid, f4mid, false}, {f3middup, f4mid, false},
 	}
 	for _, tt := range tests {
 		if got, want := tt.a.Equal(tt.b), tt.w; got != want {
