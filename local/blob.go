@@ -335,19 +335,17 @@ func (e *blobExec) doIntern(ctx context.Context) error {
 
 	if !strings.HasSuffix(prefix, "/") {
 		file, err := bucket.File(ctx, prefix)
-		if err != nil {
-			return err
+		if found, err := fileFromRepo(ctx, e.Repository, file); err == nil {
+			file = found
+		} else {
+			dl := download{
+				Bucket: bucket,
+				Key:    prefix,
+				File:   file,
+				Log:    e.log,
+			}
+			file, err = dl.Do(ctx, &e.staging)
 		}
-		dl := download{
-			Bucket:       bucket,
-			Key:          prefix,
-			Source:       file.Source,
-			Size:         file.Size,
-			ETag:         file.ETag,
-			LastModified: file.LastModified,
-			Log:          e.log,
-		}
-		file, err = dl.Do(ctx, &e.staging)
 		if err != nil {
 			return err
 		}
@@ -372,16 +370,17 @@ func (e *blobExec) doIntern(ctx context.Context) error {
 			continue
 		}
 		g.Go(func() error {
-			dl := download{
-				Bucket:       bucket,
-				Key:          key,
-				Source:       file.Source,
-				Size:         file.Size,
-				ETag:         file.ETag,
-				LastModified: file.LastModified,
-				Log:          e.log,
+			if found, err := fileFromRepo(ctx, e.Repository, file); err == nil {
+				file = found
+			} else {
+				dl := download{
+					Bucket: bucket,
+					Key:    key,
+					File:   file,
+					Log:    e.log,
+				}
+				file, err = dl.Do(ctx, &e.staging)
 			}
-			file, err = dl.Do(ctx, &e.staging)
 			if err != nil {
 				return err
 			}
@@ -555,14 +554,25 @@ func (e *blobExec) Shell(ctx context.Context) (io.ReadWriteCloser, error) {
 	return nil, errors.New("cannot shell into a file intern/extern")
 }
 
+// fileFromRepo gets the given file from the given repo.
+// Returns an error if the file does not contain ContentHash or it isn't found in repo.
+func fileFromRepo(ctx context.Context, repo *filerepo.Repository, f reflow.File) (file reflow.File, err error) {
+	if !f.ContentHash.IsZero() {
+		if file, err = repo.Stat(ctx, f.ContentHash); err == nil {
+			file.Source, file.ETag, file.LastModified = f.Source, f.ETag, f.LastModified
+			file.Assertions = blob.Assertions(file)
+		}
+	} else {
+		file, err = reflow.File{}, errors.New("No ContentHash")
+	}
+	return
+}
+
 type download struct {
-	Bucket       blob.Bucket
-	Key          string
-	Size         int64
-	Source       string
-	ETag         string
-	LastModified time.Time
-	Log          *log.Logger
+	Bucket blob.Bucket
+	Key    string
+	File   reflow.File
+	Log    *log.Logger
 }
 
 func (d *download) Do(ctx context.Context, repo *filerepo.Repository) (reflow.File, error) {
@@ -584,16 +594,16 @@ func (d *download) Do(ctx context.Context, repo *filerepo.Repository) (reflow.Fi
 	digestingFiles.Add(1)
 	file, err := repo.Install(filename)
 	digestingFiles.Add(-1)
-	if err == nil && file.Size != d.Size {
+	if err == nil && file.Size != d.File.Size {
 		err = errors.E(errors.Integrity,
-			errors.Errorf("expected size %d does not match actual size %d", d.Size, file.Size))
+			errors.Errorf("expected size %d does not match actual size %d", d.File.Size, file.Size))
 	}
 	if err != nil {
 		d.Log.Errorf("install %s%s: %v", d.Bucket.Location(), d.Key, err)
 	} else {
-		file.Source, file.ETag, file.LastModified = d.Source, d.ETag, d.LastModified
+		file.Source, file.ETag, file.LastModified = d.File.Source, d.File.ETag, d.File.LastModified
 		file.Assertions = blob.Assertions(file)
-		dur, bps := w.Lap(d.Size)
+		dur, bps := w.Lap(d.File.Size)
 		d.Log.Printf("installed %s%s to %v in %s (%s/s)", d.Bucket.Location(), d.Key, filename, dur, data.Size(bps))
 	}
 	return file, err
@@ -611,15 +621,15 @@ func (d *download) download(ctx context.Context, repo *filerepo.Repository) (str
 	}()
 	var w bytewatch
 	w.Reset()
-	d.Log.Printf("download %s%s (%s) to %s", d.Bucket.Location(), d.Key, data.Size(d.Size), f.Name())
+	d.Log.Printf("download %s%s (%s) to %s", d.Bucket.Location(), d.Key, data.Size(d.File.Size), f.Name())
 	downloadingFiles.Add(1)
-	_, err = d.Bucket.Download(ctx, d.Key, d.ETag, d.Size, f)
+	_, err = d.Bucket.Download(ctx, d.Key, d.File.ETag, d.File.Size, f)
 	downloadingFiles.Add(-1)
 	if err != nil {
 		d.Log.Printf("download %s%s: %v", d.Bucket.Location(), d.Key, err)
 		return "", err
 	}
-	dur, bps := w.Lap(d.Size)
+	dur, bps := w.Lap(d.File.Size)
 	d.Log.Printf("done %s%s in %s (%s/s)", d.Bucket.Location(), d.Key, dur, data.Size(bps))
 	return f.Name(), err
 }

@@ -330,16 +330,16 @@ func (e *Executor) Load(ctx context.Context, fs reflow.Fileset) (reflow.Fileset,
 			if err != nil {
 				return err
 			}
-			dl := download{
-				Bucket:       bucket,
-				Key:          key,
-				Size:         file.Size,
-				Source:       file.Source,
-				ETag:         file.ETag,
-				LastModified: file.LastModified,
-				Log:          e.Log,
+			res, err := fileFromRepo(ctx, e.FileRepository, file)
+			if err != nil {
+				dl := download{
+					Bucket: bucket,
+					Key:    key,
+					File:   file,
+					Log:    e.Log,
+				}
+				res, err = dl.Do(ctx, e.FileRepository)
 			}
-			res, err := dl.Do(ctx, e.FileRepository)
 			if err == nil {
 				mu.Lock()
 				resolved[file.Digest()] = res

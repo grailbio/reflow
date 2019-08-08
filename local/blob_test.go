@@ -11,8 +11,13 @@ import (
 	"fmt"
 	"math/rand"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/aws/aws-sdk-go/aws/awserr"
+
+	"github.com/aws/aws-sdk-go/service/s3"
 
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
@@ -83,40 +88,73 @@ func executeAndGetResult(ctx context.Context, t *testing.T, s3 *blobExec) reflow
 	return res
 }
 
+type file struct {
+	path, sha256 string
+}
+
+func getFile(path string, withSha bool) file {
+	f := file{path: path}
+	if withSha {
+		f.sha256 = reflow.Digester.FromString(path).String()
+	}
+	return f
+}
+
 func TestS3ExecInternPrefix(t *testing.T) {
 	const (
 		bucket = "testbucket"
 		prefix = "prefix/"
 	)
-	s3, client, repo, cleanup := newS3Test(t, bucket, prefix, intern)
+	s3x, client, repo, cleanup := newS3Test(t, bucket, prefix, intern)
 	defer cleanup()
 
-	files := []string{"a", "a/b", "d", "d/e/f/g", "abcdefg"}
+	inRepoFile := getFile("already/in/repo", true)
+	if _, err := repo.Put(context.Background(), strings.NewReader(inRepoFile.path)); err != nil {
+		t.Fatal(err)
+	}
+	files := []file{
+		getFile("a", true),
+		getFile("a/b", true),
+		getFile("d", true),
+		getFile("d/e/f/g", false),
+		getFile("abcdefg", false),
+		inRepoFile,
+	}
+	client.Err = func(api string, input interface{}) error {
+		if api != "GetObjectRequest" {
+			return nil
+		}
+		if goi, ok := input.(*s3.GetObjectInput); ok {
+			if strings.HasSuffix(*goi.Key, inRepoFile.path) {
+				return awserr.New("Unexpected", "GetObject should not be called on key already in repo", nil)
+			}
+		}
+		return nil
+	}
 	val := reflow.Fileset{
 		Map: map[string]reflow.File{},
 	}
 	for _, file := range files {
-		client.SetFile(prefix+file, []byte(file), "unused")
+		client.SetFile(prefix+file.path, []byte(file.path), file.sha256)
 		// Get the file to access the LastModified which is set as time.Now() by the test client.
-		fc, _ := client.GetFile(prefix + file)
+		fc, _ := client.GetFile(prefix + file.path)
 		rf := reflow.File{
-			ID:           reflow.Digester.FromString(file),
-			Source:       fmt.Sprintf("s3://%s/%s%s", bucket, prefix, file),
-			ETag:         fmt.Sprintf("%x", md5.Sum([]byte(file))),
+			ID:           reflow.Digester.FromString(file.path),
+			Source:       fmt.Sprintf("s3://%s/%s%s", bucket, prefix, file.path),
+			ETag:         fmt.Sprintf("%x", md5.Sum([]byte(file.path))),
 			LastModified: fc.LastModified,
-			Size:         int64(len(file)),
+			Size:         int64(len(file.path)),
 		}
 		rf.Assertions = blob.Assertions(rf)
-		val.Map[file] = rf
+		val.Map[file.path] = rf
 	}
-
 	ctx := context.Background()
-	res2 := executeAndGetResult(ctx, t, s3)
+	res2 := executeAndGetResult(ctx, t, s3x)
 
 	if got, want := res2, (reflow.Result{Fileset: val}); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	if err := s3.Promote(ctx); err != nil {
+	if err := s3x.Promote(ctx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -128,6 +166,12 @@ func TestS3ExecInternPrefix(t *testing.T) {
 		}
 		if !ok {
 			t.Errorf("repo is missing %v", file.ID)
+		}
+	}
+	// Compare assertions
+	for path := range res2.Fileset.Map {
+		if got, want := res2.Fileset.Map[path].Assertions, val.Map[path].Assertions; !got.Equal(want) {
+			t.Errorf("got %v, want %v", got, want)
 		}
 	}
 }
