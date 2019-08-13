@@ -62,6 +62,11 @@ func (r *Repository) Stat(ctx context.Context, id digest.Digest) (reflow.File, e
 	return file, err
 }
 
+// Locator defines an interface for locating blobs..
+type Locator interface {
+	Location(ctx context.Context, id digest.Digest) (string, error)
+}
+
 // Location returns the location of this object.
 func (r *Repository) Location(ctx context.Context, id digest.Digest) (string, error) {
 	id, err := r.resolve(ctx, id)

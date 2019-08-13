@@ -27,13 +27,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/grailbio/reflow/repository/blobrepo"
+
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
-	"github.com/grailbio/reflow/repository/blobrepo"
 	"github.com/grailbio/reflow/taskdb"
 	"golang.org/x/sync/errgroup"
 )
@@ -350,7 +351,10 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		// Attempt direct transfer.
 		if err := s.directTransfer(ctx, task); err == nil {
 			state = stateDone
-		} else if !errors.Is(errors.NotSupported, err) {
+		} else if errors.Is(errors.NotSupported, err) {
+			// If not supported, we fall through to indirect transfer but log a debug message.
+			task.Log.Debugf("scheduler: direct transfer not supported for task %v: %v", task, err)
+		} else {
 			// TODO(swami): Direct transfer resulted in an error (but was supported), should we try indirect?
 			task.Err = err
 			state = stateDone
@@ -473,10 +477,10 @@ func (s *Scheduler) directTransfer(ctx context.Context, task *Task) error {
 		return errors.E(errors.Precondition,
 			errors.Errorf("unexpected args (must be 1, but was %d): %v", len(task.Config.Args), task.Config.Args))
 	}
-	// Check if the scheduler's repository is a blobrepo.
-	srcBlobRepo, ok := s.Repository.(*blobrepo.Repository)
+	// Check if the scheduler's repository supports blobrepo.Locator.
+	fileLocator, ok := s.Repository.(blobrepo.Locator)
 	if !ok {
-		return errors.E(errors.NotSupported, errors.New("scheduler repository is not blobrepo"))
+		return errors.E(errors.NotSupported, errors.New("scheduler repository does not support locating blobs"))
 	}
 	// Check if the destination is a blob store.
 	if _, _, err := s.Mux.Bucket(ctx, task.Config.URL); err != nil {
@@ -494,7 +498,7 @@ func (s *Scheduler) directTransfer(ctx context.Context, task *Task) error {
 	for k, v := range fs.Map {
 		filename, file := k, v
 		g.Go(func() error {
-			srcUrl, err := srcBlobRepo.Location(ctx, file.ID)
+			srcUrl, err := fileLocator.Location(ctx, file.ID)
 			if err != nil {
 				return err
 			}
