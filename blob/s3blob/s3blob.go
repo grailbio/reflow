@@ -236,7 +236,7 @@ func getContentHash(metadata map[string]*string) digest.Digest {
 		return digest.Digest{}
 	}
 	sha256, ok := metadata[awsContentSha256Key]
-	if !ok {
+	if !ok || *sha256 == "" {
 		return digest.Digest{}
 	}
 	d, err := reflow.Digester.Parse(*sha256)
@@ -384,8 +384,9 @@ func (b *Bucket) Get(ctx context.Context, key, etag string) (io.ReadCloser, refl
 	}, nil
 }
 
-// Put stores the contents of the provided io.Reader at the provided key.
-func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader) error {
+// Put stores the contents of the provided io.Reader at the provided key
+// and attaches the given contentHash to the object's metadata.
+func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader, contentHash string) error {
 	s3concurrency := maxS3Ops(size)
 	var err error
 	policy := timeoutPolicy(size)
@@ -398,11 +399,15 @@ func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader
 			})
 			ctx, cancel := context.WithTimeout(ctx, timeout(policy, retries))
 			defer cancel()
-			_, err = up.UploadWithContext(ctx, &s3manager.UploadInput{
+			input := &s3manager.UploadInput{
 				Bucket: aws.String(b.bucket),
 				Key:    aws.String(key),
 				Body:   body,
-			})
+			}
+			if contentHash != "" {
+				input.Metadata = map[string]*string{awsContentSha256Key: aws.String(contentHash)}
+			}
+			_, err = up.UploadWithContext(ctx, input)
 			err = ctxErr(ctx, err)
 			if kind(err) == errors.ResourcesExhausted {
 				log.Printf("s3blob.Put: %s/%s: %v (over capacity)\n", b.bucket, key, err)
@@ -470,8 +475,9 @@ func (b *Bucket) Snapshot(ctx context.Context, prefix string) (reflow.Fileset, e
 
 // Copy copies the key src to the key dst. This is done directly without
 // streaming the data through the client.
-func (b *Bucket) Copy(ctx context.Context, src, dst string) error {
-	err := b.copyObject(ctx, dst, b, src)
+// If a non-empty contentHash is provided, it is stored in the object's metadata.
+func (b *Bucket) Copy(ctx context.Context, src, dst string, contentHash string) error {
+	err := b.copyObject(ctx, dst, b, src, contentHash)
 	if err != nil {
 		err = errors.E("s3blob.Copy", b.bucket, src, dst, kind(err), err)
 	}
@@ -485,7 +491,7 @@ func (b *Bucket) CopyFrom(ctx context.Context, srcBucket blob.Bucket, src, dst s
 	if !ok {
 		return errors.E(errors.NotSupported, "s3blob.CopyFrom", srcBucket.Location())
 	}
-	err := b.copyObject(ctx, dst, srcB, src)
+	err := b.copyObject(ctx, dst, srcB, src, "")
 	if err != nil {
 		err = errors.E("s3blob.CopyFrom", b.Location(), dst, srcBucket.Location(), src, err)
 	}
@@ -513,27 +519,44 @@ func (b *Bucket) Location() string {
 // copyObject copies to this bucket and key from the given src bucket and srcKey.
 // Since AWS doesn't allow copying files larger than defaultS3ObjectCopySizeLimit
 // in a single operation, this does multi-part copy object in those cases.
-func (b *Bucket) copyObject(ctx context.Context, key string, src *Bucket, srcKey string) error {
+// A non-empty contentHash will be added to destination object's metadata but
+// only if not set in src's metadata (ie, src's contentHash if present takes precedence)
+func (b *Bucket) copyObject(ctx context.Context, key string, src *Bucket, srcKey string, contentHash string) error {
 	srcUrl, dstUrl := path.Join(src.bucket, srcKey), path.Join(b.bucket, key)
-	file, err := src.File(ctx, srcKey)
+	srcFile, err := src.File(ctx, srcKey)
 	if err != nil {
 		return err
 	}
-	if file.Size <= b.s3ObjectCopySizeLimit {
+	if srcFile.Size <= b.s3ObjectCopySizeLimit {
 		// Do single copy
-		_, err = b.client.CopyObjectWithContext(ctx, &s3.CopyObjectInput{
+		input := &s3.CopyObjectInput{
 			Bucket:     aws.String(b.bucket),
 			Key:        aws.String(key),
 			CopySource: aws.String(srcUrl),
-		})
+		}
+		// We set metadata only if the src file doesn't already have it and we are provided one.
+		if srcFile.ContentHash.IsZero() && contentHash != "" {
+			input.Metadata = map[string]*string{awsContentSha256Key: aws.String(contentHash)}
+		}
+		_, err = b.client.CopyObjectWithContext(ctx, input)
 		return err
 	}
 	// Do a multi-part copy
-	numParts := (file.Size + b.s3MultipartCopyPartSize - 1) / b.s3MultipartCopyPartSize
-	createOut, err := b.client.CreateMultipartUploadWithContext(ctx, &s3.CreateMultipartUploadInput{
+	numParts := (srcFile.Size + b.s3MultipartCopyPartSize - 1) / b.s3MultipartCopyPartSize
+	input := &s3.CreateMultipartUploadInput{
 		Bucket: aws.String(b.bucket),
 		Key:    aws.String(key),
-	})
+	}
+	// For a multi-part copy, metadata isn't transferred from src because technically we are creating a new object,
+	// and then merely telling S3 to fill its parts by copying from another existing object.
+	// This means, we must always set Metadata in the request.
+	// TODO(swami): Copy all of src's metadata, not just the hash.
+	if !srcFile.ContentHash.IsZero() {
+		input.Metadata = map[string]*string{awsContentSha256Key: aws.String(srcFile.ContentHash.Hex())}
+	} else if contentHash != "" {
+		input.Metadata = map[string]*string{awsContentSha256Key: aws.String(contentHash)}
+	}
+	createOut, err := b.client.CreateMultipartUploadWithContext(ctx, input)
 	if err != nil {
 		return errors.E(fmt.Sprintf("CreateMultipartUpload: %s -> %s", srcUrl, dstUrl), err)
 	}
@@ -542,8 +565,8 @@ func (b *Bucket) copyObject(ctx context.Context, key string, src *Bucket, srcKey
 		i := int64(ti)
 		firstByte := i * b.s3MultipartCopyPartSize
 		lastByte := firstByte + b.s3MultipartCopyPartSize - 1
-		if lastByte >= file.Size {
-			lastByte = file.Size - 1
+		if lastByte >= srcFile.Size {
+			lastByte = srcFile.Size - 1
 		}
 		var err error
 		var uploadOut *s3.UploadPartCopyOutput

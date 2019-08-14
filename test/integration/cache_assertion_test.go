@@ -237,7 +237,7 @@ func (tc testConfig) writeFiles(dir map[string]string) error {
 	time.Sleep(time.Second)
 	for name, contents := range dir {
 		path := base + name
-		if err := tc.mux.Put(context.Background(), path, int64(len(contents)), strings.NewReader(contents)); err != nil {
+		if err := tc.mux.Put(context.Background(), path, int64(len(contents)), strings.NewReader(contents), ""); err != nil {
 			return fmt.Errorf("write %s: %v", path, err)
 		}
 	}

@@ -86,13 +86,13 @@ func (m Mux) Get(ctx context.Context, url, etag string) (io.ReadCloser, reflow.F
 	return bucket.Get(ctx, key, etag)
 }
 
-// Put stores the contents of the provided io.Reader at the provided URL.
-func (m Mux) Put(ctx context.Context, url string, size int64, body io.Reader) error {
+// Put stores the contents of the provided io.Reader at the provided URL and attaches the given contentHash.
+func (m Mux) Put(ctx context.Context, url string, size int64, body io.Reader, contentHash string) error {
 	bucket, key, err := m.Bucket(ctx, url)
 	if err != nil {
 		return err
 	}
-	return bucket.Put(ctx, key, size, body)
+	return bucket.Put(ctx, key, size, body, contentHash)
 }
 
 // Transfer transfers the contents of object in srcurl to dsturl.

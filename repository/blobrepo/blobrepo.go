@@ -104,13 +104,13 @@ func (r *Repository) GetFile(ctx context.Context, id digest.Digest, w io.WriterA
 func (r *Repository) Put(ctx context.Context, body io.Reader) (digest.Digest, error) {
 	dw := reflow.Digester.NewWriter()
 	uploadKey := path.Join(r.Prefix, uploadsPath, newID())
-	err := r.Bucket.Put(ctx, uploadKey, 0, io.TeeReader(body, dw))
+	err := r.Bucket.Put(ctx, uploadKey, 0, io.TeeReader(body, dw), "")
 	if err != nil {
 		return digest.Digest{}, err
 	}
 	defer r.Bucket.Delete(ctx, uploadKey)
 	id := dw.Digest()
-	return id, r.Bucket.Copy(ctx, uploadKey, path.Join(r.Prefix, objectsPath, id.String()))
+	return id, r.Bucket.Copy(ctx, uploadKey, path.Join(r.Prefix, objectsPath, id.String()), id.Hex())
 }
 
 // PutFile installs a file into the repository. PutFile uses the S3 upload manager
@@ -121,7 +121,7 @@ func (r *Repository) PutFile(ctx context.Context, file reflow.File, body io.Read
 		return nil
 	}
 	key := path.Join(r.Prefix, objectsPath, file.ID.String())
-	return r.Bucket.Put(ctx, key, file.Size, body)
+	return r.Bucket.Put(ctx, key, file.Size, body, file.ID.Hex())
 }
 
 // WriteTo is unsupported by the blob repository.

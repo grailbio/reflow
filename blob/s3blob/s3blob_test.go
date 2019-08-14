@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/grailbio/base/digest"
+
 	"github.com/grailbio/base/retry"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -195,15 +197,9 @@ func TestGet(t *testing.T) {
 	}
 }
 
-func TestPut(t *testing.T) {
-	bucket := newTestBucket(t)
-	ctx := context.Background()
-
-	c := content("new content")
-	if err := bucket.Put(ctx, "newkey", 0, bytes.NewReader(c.Data)); err != nil {
-		t.Fatal(err)
-	}
-	rc, file, err := bucket.Get(ctx, "newkey", "")
+func checkObject(t *testing.T, bucket *Bucket, key string, c *testutil.ByteContent, d digest.Digest) {
+	t.Helper()
+	rc, file, err := bucket.Get(context.Background(), key, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,6 +218,37 @@ func TestPut(t *testing.T) {
 	if got, want := file.ETag, c.Checksum(); got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
+	if d.IsZero() && !file.ContentHash.IsZero() {
+		t.Errorf("got non-zero content hash %v, want zero", file.ContentHash)
+	}
+	if !d.IsZero() {
+		if got, want := file.ContentHash, d; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	}
+}
+
+func TestPut(t *testing.T) {
+	bucket := newTestBucket(t)
+	ctx := context.Background()
+
+	c := content("new content")
+	if err := bucket.Put(ctx, "newkey", 0, bytes.NewReader(c.Data), ""); err != nil {
+		t.Fatal(err)
+	}
+	checkObject(t, bucket, "newkey", c, digest.Digest{})
+}
+
+func TestPutWithContentHash(t *testing.T) {
+	bucket := newTestBucket(t)
+	ctx := context.Background()
+
+	c := content("new content")
+	d := reflow.Digester.FromBytes(c.Data)
+	if err := bucket.Put(ctx, "newkey2", 0, bytes.NewReader(c.Data), d.Hex()); err != nil {
+		t.Fatal(err)
+	}
+	checkObject(t, bucket, "newkey2", c, d)
 }
 
 func TestDownload(t *testing.T) {
@@ -334,34 +361,37 @@ func TestCopy(t *testing.T) {
 	bucket := newTestBucket(t)
 	ctx := context.Background()
 	c := content("new content")
-	if err := bucket.Put(ctx, "src", 0, bytes.NewReader(c.Data)); err != nil {
+	d := reflow.Digester.FromBytes(c.Data)
+
+	if err := bucket.Put(ctx, "src_no_hash", 0, bytes.NewReader(c.Data), ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := bucket.Get(ctx, "src", ""); err != nil {
+	checkObject(t, bucket, "src_no_hash", c, digest.Digest{})
+
+	if err := bucket.Put(ctx, "src_with_hash", 0, bytes.NewReader(c.Data), d.Hex()); err != nil {
 		t.Fatal(err)
 	}
-	if err := bucket.Copy(ctx, "src", "dst"); err != nil {
+	checkObject(t, bucket, "src_with_hash", c, d)
+
+	if err := bucket.Copy(ctx, "src_no_hash", "src_no_hash_to_dst_no_hash", ""); err != nil {
 		t.Fatal(err)
 	}
-	rc, file, err := bucket.Get(ctx, "dst", "")
-	if err != nil {
+	checkObject(t, bucket, "src_no_hash_to_dst_no_hash", c, digest.Digest{})
+
+	if err := bucket.Copy(ctx, "src_no_hash", "src_no_hash_to_dst_with_hash", d.Hex()); err != nil {
 		t.Fatal(err)
 	}
-	p, err := ioutil.ReadAll(rc)
-	if err != nil {
+	checkObject(t, bucket, "src_no_hash_to_dst_with_hash", c, d)
+
+	if err := bucket.Copy(ctx, "src_with_hash", "src_with_hash_to_dst1", ""); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := p, c.Data; !bytes.Equal(got, want) {
-		t.Errorf("got %v, want %v", got, want)
+	checkObject(t, bucket, "src_with_hash_to_dst1", c, d)
+
+	if err := bucket.Copy(ctx, "src_with_hash", "src_with_hash_to_dst2", "something_else"); err != nil {
+		t.Fatal(err)
 	}
-	if got, want := file.Size, c.Size(); got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	// ETag generation is technically opaque to us but the s3 test client
-	// uses the content's MD5.
-	if got, want := file.ETag, c.Checksum(); got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
+	checkObject(t, bucket, "src_with_hash_to_dst2", c, d)
 }
 
 // failN returns true n times when fail() is called and then returns false, until its reset.
@@ -415,9 +445,9 @@ func TestCopyMultipart(t *testing.T) {
 		wantErr               bool
 	}{
 		// 100KiB of data, multi-part limit 50KiB, part size 10KiB
-		{testBucket, "dst", 100 << 10, 50 << 10, 10 << 10, false},
+		{testBucket, "dst1", 100 << 10, 50 << 10, 10 << 10, false},
 		// 50KiB of data, multi-part limit 50KiB, part size 10KiB
-		{testBucket, "dst", 50 << 10, 50 << 10, 10 << 10, false},
+		{testBucket, "dst2", 50 << 10, 50 << 10, 10 << 10, false},
 		{errorBucket, "key_badrequest", 100 << 10, 50 << 10, 10 << 10, false},
 		{errorBucket, "key_deadlineexceeded", 100 << 10, 50 << 10, 10 << 10, false},
 		{errorBucket, "key_awsrequesttimeout", 100 << 10, 50 << 10, 10 << 10, false},
@@ -433,13 +463,12 @@ func TestCopyMultipart(t *testing.T) {
 			t.Fatal(err)
 		}
 		c := &testutil.ByteContent{Data: b}
-		if err := tc.bucket.Put(ctx, "src", 0, bytes.NewReader(c.Data)); err != nil {
+		d := reflow.Digester.FromBytes(b)
+		if err := tc.bucket.Put(ctx, "src", 0, bytes.NewReader(c.Data), d.Hex()); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := tc.bucket.Get(ctx, "src", ""); err != nil {
-			t.Fatal(err)
-		}
-		err := tc.bucket.Copy(ctx, "src", tc.dstKey)
+		checkObject(t, tc.bucket, "src", c, d)
+		err := tc.bucket.Copy(ctx, "src", tc.dstKey, "")
 		if tc.wantErr {
 			if err == nil {
 				t.Error("got no error, want error")
@@ -449,19 +478,9 @@ func TestCopyMultipart(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		rc, file, err := tc.bucket.Get(ctx, tc.dstKey, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		p, err := ioutil.ReadAll(rc)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got, want := p, c.Data; !bytes.Equal(got, want) {
-			t.Errorf("got %v, want %v", got, want)
-		}
-		if got, want := file.Size, c.Size(); got != want {
-			t.Errorf("got %v, want %v", got, want)
+		checkObject(t, tc.bucket, tc.dstKey, c, d)
+		if t.Failed() {
+			t.Logf("case: %v", tc)
 		}
 	}
 }

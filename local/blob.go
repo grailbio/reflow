@@ -658,7 +658,7 @@ func (u *upload) Do(ctx context.Context) error {
 	w.Reset()
 	u.Log.Printf("upload %s (%s) to %s%s", u.Key, data.Size(u.Size), u.Bucket.Location(), u.Key)
 	uploadingFiles.Add(1)
-	err = u.Bucket.Put(ctx, u.Key, u.Size, f)
+	err = u.Bucket.Put(ctx, u.Key, u.Size, f, u.ID.Hex())
 	uploadingFiles.Add(-1)
 	if err != nil {
 		u.Log.Printf("upload %s/%s: %v", u.Bucket.Location(), u.Key, err)

@@ -52,7 +52,9 @@ type Bucket interface {
 	// any existing object at the same key.
 	// If the provided size is non-zero, it is used as a hint to manage
 	// concurrency.
-	Put(ctx context.Context, key string, size int64, body io.Reader) error
+	// If a non-empty contentHash is provided, it is stored in the object's metadata.
+	// TODO(swami): Remove ContentHash and pass Headers/Metadata instead.
+	Put(ctx context.Context, key string, size int64, body io.Reader, contentHash string) error
 
 	// Snapshot returns an un-loaded Reflow fileset representing the
 	// contents of the provided prefix. This may then later be used to
@@ -60,7 +62,9 @@ type Bucket interface {
 	Snapshot(ctx context.Context, prefix string) (reflow.Fileset, error)
 
 	// Copy copies key src to key dst in this bucket.
-	Copy(ctx context.Context, src, dst string) error
+	// A non-empty contentHash will be added to dst's metadata only if not already set in src.
+	// TODO(swami): Remove ContentHash and pass Headers/Metadata instead.
+	Copy(ctx context.Context, src, dst, contentHash string) error
 
 	// CopyFrom copies from bucket src and key srcKey into this bucket.
 	CopyFrom(ctx context.Context, srcBucket Bucket, src, dst string) error

@@ -21,6 +21,7 @@ import (
 // Otherwise, a File is said to be a reference, in which case it must
 // contain a source and etag and may contain a ContentHash.
 // Any type of File (resolved or reference) can contain Assertions.
+// TODO(swami): Split into resolved/reference files explicitly.
 type File struct {
 	// The digest of the contents of the file.
 	ID digest.Digest
