@@ -28,6 +28,12 @@ var (
 		&Field{Name: "b", T: String},
 		&Field{Name: "c", T: Tuple(&Field{T: Int}, &Field{T: String})},
 		&Field{Name: "d", T: String})
+	ty3 = Struct(
+		&Field{Name: "a", T: Unit},
+		&Field{Name: "b", T: Unit})
+	ty4 = Struct(
+		&Field{Name: "a", T: String},
+		&Field{Name: "b", T: String})
 
 	mty1 = Module(
 		[]*Field{
@@ -226,6 +232,17 @@ func TestUnify(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	if got, want := Unify(Const, sty4, sty5).Kind, ErrorKind; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestList(t *testing.T) {
+	l := List(ty3)
+	if got, want := l.String(), "[{a, b unit}]"; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	l = List(ty4)
+	if got, want := l.String(), "[{a, b string}]"; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }

@@ -992,7 +992,7 @@ func Unify(maxlevel ConstLevel, ts ...*T) *T {
 		switch t.Kind {
 		default:
 			return Errorf("unknown kind %v", t.Kind)
-		case IntKind, FloatKind, StringKind, BoolKind, FileKind, DirKind:
+		case IntKind, FloatKind, StringKind, BoolKind, FileKind, DirKind, UnitKind:
 			t = Swizzle(t, maxlevel, u)
 		case ErrorKind:
 			return typeError
