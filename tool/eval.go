@@ -170,10 +170,10 @@ func (c *Cmd) evalV1(sess *syntax.Session, e *Eval) error {
 	})
 	var awsSession *session.Session
 	err = c.Config.Instance(&awsSession)
-	r := imageResolver{
-		authenticator: ec2authenticator.New(awsSession),
+	r := ImageResolver{
+		Authenticator: ec2authenticator.New(awsSession),
 	}
-	e.ImageMap, err = r.resolveImages(context.Background(), sess.Images())
+	e.ImageMap, err = r.ResolveImages(context.Background(), sess.Images())
 	return err
 }
 

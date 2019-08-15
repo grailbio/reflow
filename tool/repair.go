@@ -101,7 +101,7 @@ supplied via a CSV batch file as in "reflow runbatch".`
 				}
 				c.Log.Printf("repair: %s", strings.Join(args, " "))
 				// TODO(sbagaria): thread-safe append the resolved canonical images to repair.ImageMap.
-				// Or instead of storing imageMap, store tool.imageResolver instead in EvalConfig.
+				// Or instead of storing imageMap, store tool.ImageResolver instead in EvalConfig.
 				repair.Do(ctx, e.Main())
 				return nil
 			})

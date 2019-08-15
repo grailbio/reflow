@@ -94,7 +94,7 @@ func main() {
 	}
 	cmd.SchemaKeys = infra.Keys{
 		infra2.AWSCreds:  "awscreds",
-		infra2.AWSTool:   fmt.Sprintf("awstool,awstool=grailbio/awstool:latest"),
+		infra2.AWSTool:   "awstool,awstool=grailbio/awstool:latest",
 		infra2.Cache:     "off",
 		infra2.Labels:    "kv",
 		infra2.Log:       "logger",

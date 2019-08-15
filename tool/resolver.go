@@ -22,13 +22,13 @@ import (
 
 // ImageResolver maintains maps of image descriptions to their canonical values
 // (fully qualified registry host, and digest based references)
-type imageResolver struct {
+type ImageResolver struct {
 	// Authenticator will have a nil AWS session if the config does not have
 	// AWS credentials, in which case it is expected that none of the images are
 	// ECR images.
-	authenticator ecrauth.Interface
+	Authenticator ecrauth.Interface
 
-	// Cached ECR credentials from the authenticator, populated only if needed.
+	// Cached ECR credentials from the Authenticator, populated only if needed.
 	ecrCreds *types.AuthConfig
 	authOnce once.Task
 
@@ -36,7 +36,7 @@ type imageResolver struct {
 	// the calls to resolveImage.
 }
 
-func (r *imageResolver) resolveImages(ctx context.Context, images []string) (map[string]string, error) {
+func (r *ImageResolver) ResolveImages(ctx context.Context, images []string) (map[string]string, error) {
 	var mu sync.Mutex
 	imageMap := make(map[string]string)
 	err := traverse.Each(len(images), func(i int) error {
@@ -56,8 +56,8 @@ func (r *imageResolver) resolveImages(ctx context.Context, images []string) (map
 	return imageMap, nil
 }
 
-func (r *imageResolver) resolveImage(ctx context.Context, image string) (string, error) {
-	ecrImage, err := r.authenticator.Authenticates(ctx, image)
+func (r *ImageResolver) resolveImage(ctx context.Context, image string) (string, error) {
+	ecrImage, err := r.Authenticator.Authenticates(ctx, image)
 	if err != nil {
 		return "", err
 	}
@@ -82,13 +82,13 @@ func (r *imageResolver) resolveImage(ctx context.Context, image string) (string,
 	return ref, nil
 }
 
-func (r *imageResolver) authenticate(ctx context.Context) error {
+func (r *ImageResolver) authenticate(ctx context.Context) error {
 	return r.authOnce.Do(func() error {
 		if r.ecrCreds != nil {
 			return nil
 		}
 		r.ecrCreds = &types.AuthConfig{}
-		return r.authenticator.Authenticate(ctx, r.ecrCreds)
+		return r.Authenticator.Authenticate(ctx, r.ecrCreds)
 	})
 }
 

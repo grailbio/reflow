@@ -279,6 +279,7 @@ type instance struct {
 	InstanceTags    map[string]string
 	Labels          pool.Labels
 	Spot            bool
+	Subnet          string
 	InstanceProfile string
 	SecurityGroup   string
 	Region          string
@@ -861,6 +862,7 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 			ImageId:             aws.String(i.AMI),
 			EbsOptimized:        aws.Bool(i.Config.EBSOptimized),
 			InstanceType:        aws.String(i.Config.Type),
+			SubnetId:            aws.String(i.Subnet),
 			BlockDeviceMappings: i.ebsDeviceMappings(),
 			KeyName:             nonemptyString(i.KeyName),
 			UserData:            aws.String(i.userData),
@@ -1019,6 +1021,7 @@ func (i *instance) ec2RunInstance() (string, error) {
 		KeyName:          nonemptyString(i.KeyName),
 		UserData:         aws.String(i.userData),
 		SecurityGroupIds: []*string{aws.String(i.SecurityGroup)},
+		SubnetId:         aws.String(i.Subnet),
 	}
 	i.Log.Debugf("EC2RunInstances %v", params)
 	resv, err := i.EC2.RunInstances(params)

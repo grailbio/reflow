@@ -152,6 +152,10 @@ func (s *SshKey) Init() error {
 	return nil
 }
 
+func (s *SshKey) Flags(flags *flag.FlagSet) {
+	flags.StringVar(&s.Key, "key", "", "public key")
+}
+
 // Config implements infra.Provider
 func (s *SshKey) Config() interface{} {
 	return s
