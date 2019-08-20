@@ -351,6 +351,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 		var schedctx context.Context
 		schedctx, donecancel = context.WithCancel(ctx)
 		wg.Add(1)
+		scheduler.ExportStats()
 		go func() {
 			err := scheduler.Do(schedctx)
 			if err != nil && err != schedctx.Err() {

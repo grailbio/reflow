@@ -108,10 +108,14 @@ func (c *testCluster) Req() <-chan testClusterAllocReq {
 
 func (c *testCluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error) {
 	replyc := make(chan testClusterAllocReply)
-	c.reqs <- testClusterAllocReq{
+	select {
+	case c.reqs <- testClusterAllocReq{
 		Requirements: req,
 		Labels:       labels,
 		Reply:        replyc,
+	}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 	select {
 	case reply := <-replyc:

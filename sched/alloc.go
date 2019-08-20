@@ -72,6 +72,9 @@ type alloc struct {
 
 	idleTime time.Time
 	index    int
+	// id is the alloc id. It is the same as Alloc.ID(). It is present here
+	// so that we can retrieve the id to update the stats after the alloc dies.
+	id string
 }
 
 // Init is called to initialize the alloc from its underlying Reflow alloc.
@@ -79,6 +82,7 @@ func (a *alloc) Init() {
 	a.Available = a.Alloc.Resources()
 	a.Pending = 0
 	a.idleTime = time.Now()
+	a.id = a.Alloc.ID()
 }
 
 func (a *alloc) String() string {

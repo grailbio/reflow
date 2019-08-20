@@ -91,6 +91,7 @@ type Task struct {
 	state TaskState
 	alloc *alloc
 	index int
+	stats *TaskStats
 }
 
 // NewTask returns a new, initialized task. The Task may be populated
@@ -123,6 +124,7 @@ func (t *Task) Wait(ctx context.Context, state TaskState) error {
 func (t *Task) set(state TaskState) {
 	t.mu.Lock()
 	t.state = state
+	t.stats.Update(t)
 	t.cond.Broadcast()
 	t.mu.Unlock()
 }

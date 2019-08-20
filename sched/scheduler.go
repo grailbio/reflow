@@ -27,14 +27,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/grailbio/reflow/repository/blobrepo"
-
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
+	"github.com/grailbio/reflow/repository/blobrepo"
 	"github.com/grailbio/reflow/taskdb"
 	"golang.org/x/sync/errgroup"
 )
@@ -82,6 +81,9 @@ type Scheduler struct {
 	// Labels is the set of labels applied to newly created allocs.
 	Labels pool.Labels
 
+	// Stats is the scheduler stats.
+	Stats *Stats
+
 	submitc chan []*Task
 }
 
@@ -93,6 +95,7 @@ func New() *Scheduler {
 		MaxPendingAllocs: 5,
 		MaxAllocIdleTime: 5 * time.Minute,
 		MinAlloc:         reflow.Resources{"cpu": 1, "mem": 1 << 30, "disk": 10 << 30},
+		Stats:            newStats(),
 	}
 }
 
@@ -104,6 +107,11 @@ func (s *Scheduler) Submit(tasks ...*Task) {
 		task.Log.Debugf("scheduler: task submitted with %v", task.Config)
 	}
 	s.submitc <- tasks
+}
+
+// ExportStats exports scheduler stats as expvars.
+func (s *Scheduler) ExportStats() {
+	s.Stats.publish()
 }
 
 // Do commences scheduling. The scheduler runs until the provided
@@ -178,6 +186,7 @@ func (s *Scheduler) Do(ctx context.Context) error {
 				}
 			}
 		case tasks := <-s.submitc:
+			s.Stats.AddTasks(tasks)
 			for _, task := range tasks {
 				heap.Push(&todo, task)
 			}
@@ -197,18 +206,21 @@ func (s *Scheduler) Do(ctx context.Context) error {
 			case TaskDone:
 				// In this case we're done, and we can forget about the task.
 			}
+			s.Stats.ReturnTask(task, alloc)
 		case alloc := <-notifyc:
 			heap.Remove(&pending, alloc.index)
 			if alloc.Alloc != nil {
 				alloc.Init()
 				heap.Push(&live, alloc)
+				s.Stats.AddAlloc(alloc)
 			}
 		case alloc := <-deadc:
 			// The allocs tasks will be returned with state TaskLost.
 			heap.Remove(&live, alloc.index)
+			s.Stats.MarkAllocDead(alloc)
 		}
 
-		assigned := s.assign(&todo, &live)
+		assigned := s.assign(&todo, &live, s.Stats)
 		for _, task := range assigned {
 			task.Log.Debugf("scheduler: assigning task to alloc %v", task.alloc)
 			nrunning++
@@ -224,7 +236,7 @@ func (s *Scheduler) Do(ctx context.Context) error {
 
 		// We have more to do, and potential to allocate. We mock allocate remaining
 		// tasks to pending allocs, and then allocate any remaining.
-		assigned = s.assign(&todo, &pending)
+		assigned = s.assign(&todo, &pending, nil)
 		req := requirements(todo)
 		for _, task := range assigned {
 			task.alloc.Unassign(task)
@@ -238,16 +250,12 @@ func (s *Scheduler) Do(ctx context.Context) error {
 		alloc := newAlloc()
 		alloc.Requirements = req
 		alloc.Available = req.Min
-		if req.Width > 1 {
-			alloc.Available = nil
-			alloc.Available.Scale(alloc.Available, float64(req.Width))
-		}
 		heap.Push(&pending, alloc)
 		go s.allocate(ctx, alloc, notifyc, deadc)
 	}
 }
 
-func (s *Scheduler) assign(tasks *taskq, allocs *allocq) (assigned []*Task) {
+func (s *Scheduler) assign(tasks *taskq, allocs *allocq, stats *Stats) (assigned []*Task) {
 	var unassigned []*alloc
 	for len(*tasks) > 0 && len(*allocs) > 0 {
 		var (
@@ -263,6 +271,9 @@ func (s *Scheduler) assign(tasks *taskq, allocs *allocq) (assigned []*Task) {
 		}
 		heap.Pop(tasks)
 		alloc.Assign(task)
+		if stats != nil {
+			stats.AssignTask(task, alloc)
+		}
 		assigned = append(assigned, task)
 		heap.Fix(allocs, 0)
 	}

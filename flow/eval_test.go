@@ -1041,7 +1041,7 @@ func (a *testAlloc) Pool() pool.Pool {
 }
 
 func (a *testAlloc) ID() string {
-	panic("not implemented")
+	return fmt.Sprintf("%p", a)
 }
 
 func (a *testAlloc) Inspect(ctx context.Context) (pool.AllocInspect, error) {

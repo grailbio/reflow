@@ -16,7 +16,8 @@ import (
 	"github.com/grailbio/reflow/test/testutil"
 )
 
-func newTestScheduler() (scheduler *sched.Scheduler, cluster *testCluster, repository *testutil.InmemoryRepository, shutdown func()) {
+func newTestScheduler(t *testing.T) (scheduler *sched.Scheduler, cluster *testCluster, repository *testutil.InmemoryRepository, shutdown func()) {
+	t.Helper()
 	repository = testutil.NewInmemoryRepository()
 	cluster = newTestCluster()
 	scheduler = sched.New()
@@ -24,7 +25,6 @@ func newTestScheduler() (scheduler *sched.Scheduler, cluster *testCluster, repos
 	scheduler.Repository = repository
 	scheduler.Cluster = cluster
 	scheduler.MinAlloc = reflow.Resources{}
-	var ctx context.Context
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -51,7 +51,7 @@ func expectExists(t *testing.T, repo reflow.Repository, fs reflow.Fileset) {
 }
 
 func TestSchedulerBasic(t *testing.T) {
-	scheduler, cluster, repo, shutdown := newTestScheduler()
+	scheduler, cluster, repo, shutdown := newTestScheduler(t)
 	defer shutdown()
 	ctx := context.Background()
 	in := randomFileset(repo)
@@ -66,12 +66,37 @@ func TestSchedulerBasic(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	alloc := newTestAlloc(reflow.Resources{"cpu": 25, "mem": 20 << 30})
+	// TODO(pgopal): There is no way to wait for the tasks to be added to the scheduler queue.
+	// Hence we cannot check task stats here.
+	stats := scheduler.Stats.GetStats()
+	if got, want := len(stats.Allocs), 0; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	// pending allocs will not have an entry in stats.Allocs.
+	if got, want := stats.OverallStats.TotalTasks, int64(1); got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+
 	out := randomFileset(alloc.Repository())
 	req.Reply <- testClusterAllocReply{Alloc: alloc, Err: nil}
 
 	// By the time the task is running, it should have all of the dependent objects
 	// in its repository.
 	task.Wait(ctx, sched.TaskRunning)
+	stats = scheduler.Stats.GetStats()
+	if got, want := len(stats.Tasks), 1; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := stats.Tasks[task.ID.String()].State, 2; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := len(stats.Allocs), 1; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	want := sched.OverallStats{TotalTasks: 1, TotalAllocs: 1}
+	if got := stats.OverallStats; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
 	expectExists(t, alloc.Repository(), in)
 
 	// Complete the task and check that all of its output is placed back into
@@ -82,11 +107,25 @@ func TestSchedulerBasic(t *testing.T) {
 	if task.Err != nil {
 		t.Errorf("unexpected task error: %v", task.Err)
 	}
+	stats = scheduler.Stats.GetStats()
+	if got, want := len(stats.Tasks), 1; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := stats.Tasks[task.ID.String()].State, 4; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := len(stats.Allocs), 1; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	want = sched.OverallStats{TotalAllocs: 1, TotalTasks: 1}
+	if got := stats.OverallStats; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
 	expectExists(t, repo, out)
 }
 
 func TestSchedulerAlloc(t *testing.T) {
-	scheduler, cluster, _, shutdown := newTestScheduler()
+	scheduler, cluster, _, shutdown := newTestScheduler(t)
 	defer shutdown()
 	ctx := context.Background()
 
@@ -139,12 +178,6 @@ func TestSchedulerAlloc(t *testing.T) {
 	exec.complete(reflow.Result{}, nil)
 	tasks[1].Wait(ctx, sched.TaskRunning)
 
-	// We should see another request now for the remaining.
-	req = <-cluster.Req()
-	if got, want := req.Requirements, newRequirements(20, 10<<30, 1); !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
-
 	exec = alloc.exec(tasks[0].ID)
 	exec.complete(reflow.Result{}, nil)
 	tasks[3].Wait(ctx, sched.TaskRunning)
@@ -158,7 +191,7 @@ func TestSchedulerAlloc(t *testing.T) {
 }
 
 func TestTaskLost(t *testing.T) {
-	scheduler, cluster, _, shutdown := newTestScheduler()
+	scheduler, cluster, _, shutdown := newTestScheduler(t)
 	defer shutdown()
 	ctx := context.Background()
 
@@ -207,7 +240,7 @@ func TestTaskLost(t *testing.T) {
 	req.Reply <- testClusterAllocReply{Alloc: allocs[1]}
 	singleTask.Wait(ctx, sched.TaskRunning)
 
-	// Fail the alloc. By the tiem we get a new request, the task should
+	// Fail the alloc. By the time we get a new request, the task should
 	// be back in init state.
 	allocs[1].error(errors.E(errors.Fatal, "alloc failed"))
 
