@@ -306,12 +306,16 @@ The columns displayed by listbatch are:
 	}
 }
 
-type inlineSourcer map[string][]byte
+type inlineOrFileSystemSourcer map[string][]byte
 
-func (s inlineSourcer) Source(path string) ([]byte, error) {
+func (s inlineOrFileSystemSourcer) Source(path string) ([]byte, error) {
 	p, ok := s[path]
 	if !ok {
-		return nil, fmt.Errorf("module %s not found", path)
+		var err error
+		p, err = syntax.Filesystem.Source(path)
+		if err != nil {
+			return nil, fmt.Errorf("module %s: %v", path, err)
+		}
 	}
 	return p, nil
 }
@@ -453,7 +457,7 @@ scheduler:
 	if err != nil {
 		log.Fatal(err)
 	}
-	sess = syntax.NewSession(inlineSourcer{
+	sess = syntax.NewSession(inlineOrFileSystemSourcer{
 		"<stdout>.rf":  b.Bytes(),
 		config.Program: prog,
 	})
