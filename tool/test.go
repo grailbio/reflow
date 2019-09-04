@@ -120,7 +120,7 @@ func (c *Cmd) makeTestExecutor(executor **local.Executor) {
 	if err != nil {
 		c.Fatal(err)
 	}
-	var creds credentials.Credentials
+	var creds *credentials.Credentials
 	err = c.Config.Instance(&creds)
 	if err != nil {
 		c.Fatal(err)
@@ -129,7 +129,7 @@ func (c *Cmd) makeTestExecutor(executor **local.Executor) {
 		Client:        client,
 		Dir:           defaultFlowDir,
 		Authenticator: ec2authenticator.New(sess),
-		AWSCreds:      &creds,
+		AWSCreds:      creds,
 		Log:           c.Log.Tee(nil, "executor: "),
 	}
 	(*executor).SetResources(resources)
