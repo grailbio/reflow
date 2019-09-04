@@ -190,6 +190,10 @@ func (e *dockerExec) create(ctx context.Context) (execState, error) {
 			e.hostPath("return") + ":/return",
 		},
 		NetworkMode: container.NetworkMode("host"),
+		// Try to ensure that jobs we control get killed before the reflowlet,
+		// so that we don't lose adjacent tasks unnecessarily and so that
+		// errors are more sensible to the user.
+		OomScoreAdj: 1000,
 	}
 	/*		TODO: introduce strict mode for this
 	if mem := e.Config.Resources.Memory; mem > 0 {

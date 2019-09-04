@@ -825,12 +825,13 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 			OnFailureJobMode=replace-irreversibly
 			{{end}}
 			[Service]
+			OOMScoreAdjust=-1000
 			Type=oneshot
 			ExecStartPre=-/usr/bin/docker stop %n
 			ExecStartPre=-/usr/bin/docker rm %n
 			ExecStartPre=/bin/bash /etc/ecrlogin
 			ExecStartPre=/usr/bin/docker pull {{.image}}
-			ExecStart=/usr/bin/docker run --rm --name %n --net=host \
+			ExecStart=/usr/bin/docker run --oom-score-adj -1000 --rm --name %n --net=host \
 				-e V23_CREDENTIALS=/host/opt/.v23 \
 				-e V23_CREDENTIALS_NO_AGENT=1 \
 				-e V23_CREDENTIALS_NO_LOCK=1 \
