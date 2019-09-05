@@ -151,7 +151,7 @@ func (e *dockerExec) create(ctx context.Context) (execState, error) {
 		}
 		e.Log.Errorf("error ensuring image %s: %v", e.Config.Image, err)
 		if err := retry.Wait(ctx, retryPolicy, retries); err != nil {
-			return execInit, errors.E(errors.Unavailable, "failed to pull image %s: %s", e.Config.Image, err)
+			return execInit, errors.E(errors.Unavailable, fmt.Sprintf("failed to pull image %s: %s", e.Config.Image, err))
 		}
 	}
 	// Map the products to input arguments and volume bindings for
