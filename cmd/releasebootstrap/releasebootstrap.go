@@ -2,6 +2,8 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
+// TODO(dnicolaou) Make releasebootstrap release the bootstrap binary once the
+// reflowlet bootstrap binary is deprecated.
 package main
 
 import (

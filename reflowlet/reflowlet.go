@@ -173,6 +173,9 @@ func (s *Server) ListenAndServe() error {
 		return err
 	}
 	clientConfig, serverConfig, err := tlsa.HTTPS()
+	if err != nil {
+		return err
+	}
 	var creds *credentials.Credentials
 	err = s.Config.Instance(&creds)
 	if err != nil {
@@ -320,7 +323,7 @@ func newExecImageNode(p *local.Pool, repo reflow.Repository) rest.DoFunc {
 				call.Error(fmt.Errorf("execimage POST: %v", err))
 				return
 			}
-			if err := execimage.InstallImage(image, "reflowlet"+d.HexN(7)); err != nil {
+			if err := execimage.InstallImageReflowlet(image, "reflowlet"+d.HexN(7)); err != nil {
 				call.Error(fmt.Errorf("execimage POST: %v", err))
 				return
 			}

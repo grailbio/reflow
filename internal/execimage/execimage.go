@@ -78,10 +78,12 @@ func Digest(r io.Reader) (digest.Digest, error) {
 	return dig, nil
 }
 
-// InstallImage reads a new image from its argument and replaces the current
+// InstallImageReflowlet reads a new image from its argument and replaces the current
 // process with it. As a consequence, all state held by the caller is lost
 // (pending requests, if any, etc) so its up to the caller to manage this interaction.
-func InstallImage(exec io.ReadCloser, prefix string) error {
+// TODO(dnicolaou) remove InstallImageReflowlet once the old reflowlet bootstrap
+//  containing the reflow binary is replaced
+func InstallImageReflowlet(exec io.ReadCloser, prefix string) error {
 	f, err := ioutil.TempFile("", prefix)
 	if err != nil {
 		return err
@@ -103,7 +105,6 @@ func InstallImage(exec io.ReadCloser, prefix string) error {
 	args[0] = path
 	log.Printf("exec %s", strings.Join(args, " "))
 	err = syscall.Exec(path, args, os.Environ())
-	log.Printf("exec %s: %v", strings.Join(args, " "), err)
 	return err
 }
 
