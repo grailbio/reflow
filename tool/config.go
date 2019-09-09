@@ -48,7 +48,7 @@ modified and overriden:
 		for _, p := range v {
 			fmt.Fprintf(b, "%s: %s", k, p.Name)
 			for _, arg := range p.Args {
-				fmt.Fprintf(b, ",%s", arg)
+				fmt.Fprintf(b, ",%s", arg.Name)
 			}
 			b.WriteString("\n")
 			pw := textutil.PrefixLineWriter(b, "	")
@@ -56,7 +56,19 @@ modified and overriden:
 			if _, err := io.WriteString(ww, p.Usage); err != nil {
 				c.Fatal(err)
 			}
+			hw := textutil.NewUTF8WrapWriter(pw, 80)
+			if len(p.Args) > 0 {
+				io.WriteString(hw, "\n")
+			}
+			for _, arg := range p.Args {
+				io.WriteString(hw, fmt.Sprintf("%s: %s", arg.Name, arg.Help))
+				if arg.DefaultValue != "" {
+					io.WriteString(hw, fmt.Sprintf(" (default %q)", arg.DefaultValue))
+				}
+				io.WriteString(hw, "\n")
+			}
 			ww.Flush()
+			hw.Flush()
 			pw.Flush()
 		}
 		b.WriteString("\n")
