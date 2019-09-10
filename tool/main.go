@@ -126,7 +126,7 @@ supplied in order: global flags after the "reflow" command; command
 flags after that command's name. For example, the following turns
 caching off (global) while running a reflow program in local mode:
 
-	reflow run -cache=false -local align.rf
+	reflow run -cache=off -local align.rf
 
 Reflow is configured from a single configuration file. A default
 configuration is built in and may be examined by
