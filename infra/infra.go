@@ -49,7 +49,7 @@ type User string
 
 // Help implements infra.Provider
 func (u *User) Help() string {
-	return "provide a username"
+	return "provide a username (or use OS user by default)"
 }
 
 // Init implements infra.Provider.
