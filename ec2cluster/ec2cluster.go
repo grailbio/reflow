@@ -693,7 +693,6 @@ func (s *state) getEC2State(ctx context.Context) (map[string]*reflowletInstance,
 			for _, inst := range resv.Instances {
 				switch *inst.State.Name {
 				case "shutting-down", "terminated", "stopping", "stopped":
-					s.c.Log.Debugf("instance %s: %s", *inst.InstanceId, *inst.State.Name)
 				default:
 					instances[*inst.InstanceId] = newReflowletInstance(inst)
 				}

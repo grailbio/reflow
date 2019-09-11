@@ -22,6 +22,8 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/grailbio/base/retry"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -356,7 +358,7 @@ func (i *instance) Go(ctx context.Context) {
 			i.NEBS = nmin
 		}
 	}
-	const maxTries = 5
+	const maxTries = 10
 	type stateT int
 	const (
 		// Perform capacity check for EC2 spot.
@@ -378,11 +380,11 @@ func (i *instance) Go(ctx context.Context) {
 		stateDone
 	)
 	var (
-		state stateT
-		id    string
-		dns   string
-		n     int
-		d     = 5 * time.Second
+		state       stateT
+		id          string
+		dns         string
+		n           int
+		retryPolicy = retry.MaxTries(retry.Backoff(5*time.Second, 5*time.Minute, 1.75), maxTries)
 	)
 	// TODO(marius): propagate context to the underlying AWS calls
 	for state < stateDone && ctx.Err() == nil {
@@ -517,12 +519,8 @@ func (i *instance) Go(ctx context.Context) {
 		}
 		if i.err == nil {
 			n = 0
-			d = 5 * time.Second
 			state++
 			continue
-		}
-		if n == maxTries {
-			break
 		}
 		if awserr, ok := i.err.(awserr.Error); ok {
 			switch awserr.Code() {
@@ -568,9 +566,14 @@ func (i *instance) Go(ctx context.Context) {
 			}
 			i.Log.Errorf("error while %s: %v", what, i.err)
 		}
-		time.Sleep(d)
+		if err := retry.Wait(ctx, retryPolicy, n); err != nil {
+			if state == stateWaitReflowlet && errors.Is(errors.TooManyTries, err) {
+				// treat reflowlet timeouts as possibly problematic instance types.
+				i.err = errors.E(errors.Unavailable, errors.Errorf("reflowlet on %s not available: %v", *i.ec2inst.InstanceId, err))
+			}
+			break
+		}
 		n++
-		d *= time.Duration(2)
 		i.Log.Debugf("%s recoverable error (%d/%d): %v", id, n, maxTries, i.err)
 	}
 	if i.err != nil {
