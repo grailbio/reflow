@@ -85,7 +85,7 @@ func (c *Cmd) liveExecInspect(ctx context.Context, n name) (reflow.ExecInspect, 
 		url := constructHTTPUrl(n)
 		resp, err := httpClient.Get(url)
 		if err != nil {
-			c.Log.Errorf("error inspecting exec %q: %s", url, err)
+			c.Log.Debugf("error inspecting exec %q: %s", url, err)
 			return reflow.ExecInspect{}, err
 		}
 		defer resp.Body.Close()

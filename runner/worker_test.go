@@ -35,7 +35,6 @@ func TestWorker(t *testing.T) {
 	eval := flow.NewEval(merge, flow.EvalConfig{
 		Executor:   e,
 		Transferer: &tf,
-		TaskDB:     testutil.NewNopTaskDB(),
 	})
 	e2 := &testutil.Executor{}
 	e2.Have.Scale(testutil.Resources, 2)

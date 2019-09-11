@@ -218,6 +218,7 @@ printed on the console.`
 	if *userFlag != "" && *allUsersFlag {
 		flags.Usage()
 	}
+	q.User = string(*user)
 	switch {
 	case *userFlag != "":
 		q.User = *userFlag
@@ -234,7 +235,7 @@ printed on the console.`
 	}
 	ri, err := c.runInfo(ctx, q, !*allFlag)
 	if err != nil {
-		log.Error(err)
+		c.Log.Debug(err)
 	}
 	var tw tabwriter.Writer
 	tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
@@ -285,16 +286,24 @@ func (c *Cmd) taskInfo(ctx context.Context, q taskdb.Query, liveOnly bool) ([]ta
 				}
 				inspect, err = c.reposExecInspect(gctx, v.Inspect)
 				if err != nil {
-					return err
+					c.Log.Debug(err)
 				}
 			} else {
 				n, err := parseName(v.URI)
 				if err != nil {
 					return err
 				}
+				// TODO(pgopal) Fix this when we can query local execs
+				// Local reflow execs have URI of the form "/<exec id>
+				// We don't support querying exec inspects from live local execs.
+				// When we get the local running using a local reflowlet, we should make this work.
+				if n.Kind != execName {
+					c.Log.Debugf("error: %v is not an exec", n)
+					return nil
+				}
 				inspect, err = c.liveExecInspect(gctx, n)
 				if err != nil {
-					return err
+					c.Log.Debug(err)
 				}
 			}
 			ti[i] = taskInfo{Task: v, ExecInspect: inspect}
@@ -339,7 +348,7 @@ func (c *Cmd) runInfo(ctx context.Context, q taskdb.Query, liveOnly bool) ([]run
 			qu.RunID = run.ID
 			ti, err := c.taskInfo(gctx, qu, liveOnly)
 			if err != nil {
-				log.Error(err)
+				log.Debug(err)
 			}
 			ri[i] = runInfo{Run: run, taskInfo: ti}
 			return nil

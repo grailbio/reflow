@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -156,6 +155,7 @@ func (t *TaskDB) CreateRun(ctx context.Context, id digest.Digest, user string) e
 
 // CreateTask sets a new task in the taskdb with the given taskid, runid and flowid.
 func (t *TaskDB) CreateTask(ctx context.Context, id, runid, flowid digest.Digest, uri string) error {
+	now := time.Now().UTC()
 	input := &dynamodb.PutItemInput{
 		TableName: aws.String(t.TableName),
 		Item: map[string]*dynamodb.AttributeValue{
@@ -185,6 +185,12 @@ func (t *TaskDB) CreateTask(ctx context.Context, id, runid, flowid digest.Digest
 			},
 			colLabels: {
 				SS: aws.StringSlice(t.Labels),
+			},
+			colDate: {
+				S: aws.String(now.Format(dateLayout)),
+			},
+			colKeepalive: {
+				S: aws.String(now.Format(timeLayout)),
 			},
 		},
 	}
@@ -405,13 +411,17 @@ func (t *TaskDB) Tasks(ctx context.Context, query taskdb.Query) ([]taskdb.Task, 
 		queries = t.buildQueries(query, task)
 	}
 	var (
-		count     uint64
-		responses = make([]*dynamodb.QueryOutput, len(queries))
+		responses = make([][]map[string]*dynamodb.AttributeValue, len(queries))
 		err       error
 		errs      []error
 	)
 	err = traverse.Each(len(queries), func(i int) error {
-		for _, query := range queries {
+		var (
+			query   = queries[i]
+			lastKey map[string]*dynamodb.AttributeValue
+		)
+		for {
+			query.ExclusiveStartKey = lastKey
 			resp, err := t.DB.QueryWithContext(ctx, query)
 			if err != nil {
 				if aerr, ok := err.(awserr.Error); ok {
@@ -425,85 +435,92 @@ func (t *TaskDB) Tasks(ctx context.Context, query taskdb.Query) ([]taskdb.Task, 
 				}
 				return err
 			}
-			atomic.AddUint64(&count, uint64(len(resp.Items)))
-			responses[i] = resp
+			responses[i] = append(responses[i], resp.Items...)
+			lastKey = resp.LastEvaluatedKey
+			if lastKey == nil {
+				break
+			}
 		}
 		return nil
 	})
 	if err != nil {
 		return []taskdb.Task{}, err
 	}
-	tasks := make([]taskdb.Task, 0, count)
+	var items []map[string]*dynamodb.AttributeValue
 	for i := range responses {
-		if responses[i] == nil {
-			continue
-		}
-		for _, it := range responses[i].Items {
-			var id, fid, runid, result, stderr, stdout, inspect digest.Digest
+		items = append(items, responses[i]...)
+	}
+	tasks := make([]taskdb.Task, 0, len(items))
+	for _, it := range items {
+		var (
+			id, fid, runid, result, stderr, stdout, inspect digest.Digest
+			keepalive                                       time.Time
+		)
 
-			id, err = digest.Parse(*it[colID].S)
+		id, err = digest.Parse(*it[colID].S)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("parse id %v: %v", *it[colID], err))
+		}
+		if !query.ID.IsZero() && query.ID.IsAbbrev() {
+			if !id.Expands(query.ID) {
+				continue
+			}
+		}
+		fid, err := reflow.Digester.Parse(*it[colFlowID].S)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("parse flowid %v: %v", *it[colFlowID].S, err))
+		}
+		runid, err = digest.Parse(*it[colRunID].S)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("parse runid %v: %v", *it[colRunID].S, err))
+		}
+		if resultID, ok := it[colResultID]; ok {
+			result, err = digest.Parse(*resultID.S)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("parse id %v: %v", *it[colID], err))
+				errs = append(errs, fmt.Errorf("parse resultid %v: %v", *resultID.S, err))
 			}
-			if !query.ID.IsZero() && query.ID.IsAbbrev() {
-				if !id.Expands(query.ID) {
-					continue
-				}
-			}
-			fid, err := reflow.Digester.Parse(*it[colFlowID].S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse flowid %v: %v", *it[colFlowID].S, err))
-			}
-			runid, err = digest.Parse(*it[colRunID].S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse runid %v: %v", *it[colRunID].S, err))
-			}
-			if resultID, ok := it[colResultID]; ok {
-				result, err = digest.Parse(*resultID.S)
-				if err != nil {
-					errs = append(errs, fmt.Errorf("parse resultid %v: %v", *resultID.S, err))
-				}
-			}
-			ka, err := time.Parse(timeLayout, *it[colKeepalive].S)
+		}
+		if _, ok := it[colKeepalive]; ok {
+			keepalive, err = time.Parse(timeLayout, *it[colKeepalive].S)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("parse keepalive %v: %v", *it[colKeepalive].S, err))
 			}
-			st, err := time.Parse(timeLayout, *it[colStartTime].S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse starttime %v: %v", *it[colStartTime].S, err))
-			}
-			if v, ok := it[colStdout]; ok {
-				stdout, err = digest.Parse(*v.S)
-				if err != nil {
-					errs = append(errs, fmt.Errorf("parse stdout %v: %v", *it[colStdout].S, err))
-				}
-			}
-			if v, ok := it[colStderr]; ok {
-				stderr, err = digest.Parse(*v.S)
-				if err != nil {
-					errs = append(errs, fmt.Errorf("parse stderr %v: %v", *it[colStderr].S, err))
-				}
-			}
-			if v, ok := it[colInspect]; ok {
-				inspect, err = digest.Parse(*v.S)
-				if err != nil {
-					errs = append(errs, fmt.Errorf("parse inspect %v: %v", *it[colInspect].S, err))
-				}
-			}
-			uri := *it[colURI].S
-			tasks = append(tasks, taskdb.Task{
-				ID:        id,
-				RunID:     runid,
-				FlowID:    fid,
-				ResultID:  result,
-				URI:       uri,
-				Keepalive: ka,
-				Start:     st,
-				Stdout:    stdout,
-				Stderr:    stderr,
-				Inspect:   inspect,
-			})
 		}
+		st, err := time.Parse(timeLayout, *it[colStartTime].S)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("parse starttime %v: %v", *it[colStartTime].S, err))
+		}
+		if v, ok := it[colStdout]; ok {
+			stdout, err = digest.Parse(*v.S)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("parse stdout %v: %v", *it[colStdout].S, err))
+			}
+		}
+		if v, ok := it[colStderr]; ok {
+			stderr, err = digest.Parse(*v.S)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("parse stderr %v: %v", *it[colStderr].S, err))
+			}
+		}
+		if v, ok := it[colInspect]; ok {
+			inspect, err = digest.Parse(*v.S)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("parse inspect %v: %v", *it[colInspect].S, err))
+			}
+		}
+		uri := *it[colURI].S
+		tasks = append(tasks, taskdb.Task{
+			ID:        id,
+			RunID:     runid,
+			FlowID:    fid,
+			ResultID:  result,
+			URI:       uri,
+			Keepalive: keepalive,
+			Start:     st,
+			Stdout:    stdout,
+			Stderr:    stderr,
+			Inspect:   inspect,
+		})
 	}
 	if len(errs) == 0 {
 		return tasks, nil
@@ -522,71 +539,79 @@ func (t *TaskDB) Tasks(ctx context.Context, query taskdb.Query) ([]taskdb.Task, 
 func (t *TaskDB) Runs(ctx context.Context, query taskdb.Query) ([]taskdb.Run, error) {
 	queries := t.buildQueries(query, run)
 	var (
-		count     uint64
-		responses = make([]*dynamodb.QueryOutput, len(queries))
+		responses = make([][]map[string]*dynamodb.AttributeValue, len(queries))
 		errs      []error
 		err       error
 	)
 	err = traverse.Each(len(queries), func(i int) error {
-		resp, err := t.DB.QueryWithContext(ctx, queries[i])
-		if err != nil {
-			if aerr, ok := err.(awserr.Error); ok {
-				switch aerr.Code() {
-				case "ValidationException":
-					if strings.Contains(aerr.Message(),
-						"The table does not have the specified index") {
-						return errors.E(`index missing: run "reflow migrate"`, err)
+		var (
+			query   = queries[i]
+			lastKey map[string]*dynamodb.AttributeValue
+		)
+		for {
+			query.ExclusiveStartKey = lastKey
+			resp, err := t.DB.QueryWithContext(ctx, query)
+			if err != nil {
+				if aerr, ok := err.(awserr.Error); ok {
+					switch aerr.Code() {
+					case "ValidationException":
+						if strings.Contains(aerr.Message(),
+							"The table does not have the specified index") {
+							return errors.E(`index missing: run "reflow migrate"`, err)
+						}
 					}
 				}
+				return err
 			}
-			return err
+			responses[i] = append(responses[i], resp.Items...)
+			lastKey = resp.LastEvaluatedKey
+			if lastKey == nil {
+				break
+			}
 		}
-		atomic.AddUint64(&count, uint64(len(resp.Items)))
-		responses[i] = resp
 		return nil
 	})
 	if err != nil {
 		return []taskdb.Run{}, err
 	}
-	runs := make([]taskdb.Run, 0, count)
+	var items []map[string]*dynamodb.AttributeValue
 	for i := range responses {
-		if responses[i] == nil {
-			continue
+		items = append(items, responses[i]...)
+	}
+	runs := make([]taskdb.Run, 0, len(items))
+	for _, it := range items {
+		id, err := reflow.Digester.Parse(*it[colID].S)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("parse id %v: %v", *it[colID].S, err))
 		}
-		for _, it := range responses[i].Items {
-			id, err := reflow.Digester.Parse(*it[colID].S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse id %v: %v", *it[colID].S, err))
+		if !query.ID.IsZero() && query.ID.IsAbbrev() {
+			if !id.Expands(query.ID) {
+				continue
 			}
-			if !query.ID.IsZero() && query.ID.IsAbbrev() {
-				if !id.Expands(query.ID) {
-					continue
-				}
-			}
-			l := make(pool.Labels)
-			for _, va := range it[colLabels].SS {
-				vals := strings.Split(*va, "=")
-				if len(vals) != 2 {
-					errs = append(errs, fmt.Errorf("label not well formed: %v", *va))
-					continue
-				}
-				l[vals[0]] = vals[1]
-			}
-			ka, err := time.Parse(timeLayout, *it[colKeepalive].S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse keepalive %v: %v", *it[colKeepalive].S, err))
-			}
-			st, err := time.Parse(timeLayout, *it[colStartTime].S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse starttime %v: %v", *it[colStartTime].S, err))
-			}
-			runs = append(runs, taskdb.Run{
-				ID:        id,
-				Labels:    l,
-				User:      *it["User"].S,
-				Keepalive: ka,
-				Start:     st})
 		}
+		l := make(pool.Labels)
+		for _, va := range it[colLabels].SS {
+			vals := strings.Split(*va, "=")
+			if len(vals) != 2 {
+				errs = append(errs, fmt.Errorf("label not well formed: %v", *va))
+				continue
+			}
+			l[vals[0]] = vals[1]
+		}
+		keepalive, err := time.Parse(timeLayout, *it[colKeepalive].S)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("parse keepalive %v: %v", *it[colKeepalive].S, err))
+		}
+		st, err := time.Parse(timeLayout, *it[colStartTime].S)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("parse starttime %v: %v", *it[colStartTime].S, err))
+		}
+		runs = append(runs, taskdb.Run{
+			ID:        id,
+			Labels:    l,
+			User:      *it["User"].S,
+			Keepalive: keepalive,
+			Start:     st})
 	}
 	if len(errs) == 0 {
 		return runs, nil

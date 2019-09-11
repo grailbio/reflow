@@ -89,7 +89,7 @@ func TestRunner(t *testing.T) {
 			Cluster:    &cluster,
 			Transferer: &transferer,
 			Flow:       op.Exec("image", "blah", resources),
-			EvalConfig: flow.EvalConfig{TaskDB: testutil.NewNopTaskDB()},
+			EvalConfig: flow.EvalConfig{},
 		}
 	)
 	testutil.AssignExecId(nil, r.Flow)

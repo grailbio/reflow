@@ -607,6 +607,9 @@ func (e *Eval) Do(ctx context.Context) error {
 						e.Mutate(f, Incr) // just so the cache write can decr it
 						e.cacheWriteAsync(ctx, f)
 					}
+					if e.TaskDB != nil {
+						e.taskdbWriteAsync(ctx, f)
+					}
 					return nil
 				})
 			}
@@ -1308,6 +1311,12 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 	default:
 		panic(fmt.Sprintf("bug %v", f))
 	}
+	switch f.Op {
+	case Intern, Extern, Exec:
+		if e.TaskDB != nil {
+			e.taskdbWriteAsync(ctx, f)
+		}
+	}
 	if !e.CacheMode.Writing() {
 		e.Mutate(f, Decr)
 		return nil
@@ -1358,6 +1367,32 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) 
 	if err != nil {
 		return err
 	}
+	// Write a mapping for each cache key.
+	g, ctx := errgroup.WithContext(ctx)
+	for i := range keys {
+		key := keys[i]
+		g.Go(func() error {
+			return e.Assoc.Store(ctx, assoc.Fileset, key, id)
+		})
+	}
+	return g.Wait()
+}
+
+func (e *Eval) cacheWriteAsync(ctx context.Context, f *Flow) {
+	bgctx := Background(ctx)
+	go func() {
+		err := e.CacheWrite(bgctx, f, e.repo)
+		if err != nil {
+			e.Log.Errorf("cache write %v: %v", f, err)
+		}
+		bgctx.Complete()
+		e.Mutate(f, Decr)
+	}()
+}
+
+func (e *Eval) taskdbWrite(ctx context.Context, f *Flow) error {
+	var err error
+	g, ctx := errgroup.WithContext(ctx)
 	pid := digest.Digest{}
 	var stdout, stderr digest.Digest
 	if f.Op.External() {
@@ -1379,20 +1414,11 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) 
 			}
 		}
 	}
-
-	// Write a mapping for each cache key.
-	g, ctx := errgroup.WithContext(ctx)
-	for i := range keys {
-		key := keys[i]
-		g.Go(func() error {
-			return e.Assoc.Store(ctx, assoc.Fileset, key, id)
-		})
-	}
 	if e.TaskDB != nil {
 		g.Go(func() error {
 			err := e.TaskDB.SetTaskAttrs(ctx, f.TaskID, stdout, stderr, pid)
 			if err != nil {
-				log.Errorf("taskdb settaskattrs: %v", err)
+				e.Log.Debugf("taskdb settaskattrs: %v", err)
 			}
 			return nil
 		})
@@ -1400,15 +1426,14 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) 
 	return g.Wait()
 }
 
-func (e *Eval) cacheWriteAsync(ctx context.Context, f *Flow) {
+func (e *Eval) taskdbWriteAsync(ctx context.Context, f *Flow) {
 	bgctx := Background(ctx)
 	go func() {
-		err := e.CacheWrite(bgctx, f, e.repo)
+		err := e.taskdbWrite(bgctx, f)
 		if err != nil {
-			e.Log.Errorf("cache write %v: %v", f, err)
+			e.Log.Errorf("taskdb write %v: %v", f, err)
 		}
 		bgctx.Complete()
-		e.Mutate(f, Decr)
 	}()
 }
 
@@ -1744,10 +1769,7 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 
 	// TODO(marius): we should distinguish between fatal and nonfatal errors.
 	// The fatal ones are useless to retry.
-	var (
-		tcancel context.CancelFunc
-		tctx    context.Context
-	)
+
 	for n < numExecTries && s < stateDone {
 		switch s {
 		case statePut:
@@ -1757,20 +1779,24 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 				e.LogFlow(ctx, f)
 			}
 		case stateWait:
+			var (
+				tcancel context.CancelFunc
+				tctx    context.Context
+			)
 			if e.TaskDB != nil {
 				tctx, tcancel = context.WithCancel(ctx)
 				err = e.TaskDB.CreateTask(tctx, f.TaskID, e.RunID, id, x.URI())
 				if err != nil {
-					e.Log.Errorf("taskdb createtask: %v\n", err)
-				} else {
-					go taskdb.Keepalive(tctx, e.TaskDB, f.TaskID)
+					tcancel()
+					e.Log.Debugf("taskdb createtask: %v\n", err)
 				}
+				go taskdb.Keepalive(tctx, e.TaskDB, f.TaskID)
 			}
 			err = x.Wait(ctx)
 			if e.TaskDB != nil {
-				err := e.TaskDB.SetTaskResult(ctx, f.TaskID, x.ID())
+				err := e.TaskDB.SetTaskResult(tctx, f.TaskID, x.ID())
 				if err != nil {
-					e.Log.Errorf("taskdb settaskresult: %v\n", err)
+					e.Log.Debugf("taskdb settaskresult: %v\n", err)
 				}
 				tcancel()
 			}

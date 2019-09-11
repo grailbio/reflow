@@ -78,7 +78,6 @@ func TestSimpleEval(t *testing.T) {
 		Executor: &e,
 		Log:      logger(),
 		Trace:    logger(),
-		TaskDB:   testutil.NewNopTaskDB(),
 	})
 	rc := testutil.EvalAsync(context.Background(), eval)
 	e.Ok(intern, testutil.Files("a/b/c", "a/b/d", "x/y/z"))
@@ -107,7 +106,6 @@ func TestGroupbyMapCollect(t *testing.T) {
 		Executor: &e,
 		Log:      logger(),
 		Trace:    logger(),
-		TaskDB:   testutil.NewNopTaskDB(),
 	})
 	rc := testutil.EvalAsync(context.Background(), eval)
 	e.Ok(intern, testutil.Files("a/one:one", "a/two:two", "a/three:three", "b/1:four", "b/2:five", "c/xxx:six"))
@@ -131,7 +129,6 @@ func TestExecRetry(t *testing.T) {
 		Executor: &e,
 		Log:      logger(),
 		Trace:    logger(),
-		TaskDB:   testutil.NewNopTaskDB(),
 	})
 	rc := testutil.EvalAsync(context.Background(), eval)
 	e.Error(exec, errors.New("failed"))
@@ -161,7 +158,6 @@ func TestSteal(t *testing.T) {
 		Executor: &e,
 		Log:      logger(),
 		Trace:    logger(),
-		TaskDB:   testutil.NewNopTaskDB(),
 	})
 	rc := testutil.EvalAsync(context.Background(), eval)
 	stolen := []*flow.Flow{execs[N-1]}
@@ -214,7 +210,6 @@ func TestCacheWrite(t *testing.T) {
 			BottomUp:   bottomup,
 			Log:        logger(),
 			Trace:      logger(),
-			TaskDB:     testutil.NewNopTaskDB(),
 		})
 		rc := testutil.EvalAsync(context.Background(), eval)
 		var (
@@ -261,7 +256,6 @@ func TestCacheLookup(t *testing.T) {
 		CacheMode:  infra.CacheRead | infra.CacheWrite,
 		Assoc:      testutil.NewInmemoryAssoc(),
 		Repository: testutil.NewInmemoryRepository(),
-		TaskDB:     testutil.NewNopTaskDB(),
 		Transferer: testutil.Transferer,
 		Log:        logger(),
 		Trace:      logger(),
@@ -284,7 +278,6 @@ func TestCacheLookup(t *testing.T) {
 		CacheMode:  infra.CacheRead | infra.CacheWrite,
 		Assoc:      testutil.NewInmemoryAssoc(),
 		Repository: testutil.NewInmemoryRepository(),
-		TaskDB:     testutil.NewNopTaskDB(),
 		Transferer: testutil.Transferer,
 		Log:        logger(),
 		Trace:      logger(),
@@ -448,7 +441,6 @@ func TestCacheLookupBottomup(t *testing.T) {
 		CacheMode:  infra.CacheRead | infra.CacheWrite,
 		Assoc:      testutil.NewInmemoryAssoc(),
 		Repository: testutil.NewInmemoryRepository(),
-		TaskDB:     testutil.NewNopTaskDB(),
 		Transferer: testutil.Transferer,
 		BottomUp:   true,
 		// We set a small cache lookup timeout here to shorten test times.
@@ -804,7 +796,6 @@ func TestCacheLookupMissing(t *testing.T) {
 		Executor:           &e,
 		CacheMode:          infra.CacheRead | infra.CacheWrite,
 		Assoc:              testutil.NewInmemoryAssoc(),
-		TaskDB:             testutil.NewNopTaskDB(),
 		Repository:         repo,
 		Transferer:         testutil.Transferer,
 		BottomUp:           true,
@@ -851,7 +842,6 @@ func TestNoCacheExtern(t *testing.T) {
 			CacheMode:     infra.CacheRead | infra.CacheWrite,
 			Assoc:         testutil.NewInmemoryAssoc(),
 			Repository:    testutil.NewInmemoryRepository(),
-			TaskDB:        testutil.NewNopTaskDB(),
 			Transferer:    testutil.Transferer,
 			BottomUp:      bottomup,
 			NoCacheExtern: true,
@@ -901,7 +891,6 @@ func TestGC(t *testing.T) {
 		GC:       true,
 		Log:      logger(),
 		Trace:    logger(),
-		TaskDB:   testutil.NewNopTaskDB(),
 	})
 	rc := testutil.EvalAsync(context.Background(), eval)
 	files := []string{
