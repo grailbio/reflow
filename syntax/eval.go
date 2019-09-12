@@ -29,6 +29,7 @@ var (
 	errMatch               = errors.New("match error")
 	compareDigest          = reflow.Digester.FromString("grail.com/reflow/syntax.evalEq")
 	one                    = big.NewInt(1)
+	errParam               = errors.New("flag parameters may not depend on other flag parameters")
 )
 
 // Eval evaluates the expression e and returns its value (or error).

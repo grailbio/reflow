@@ -46,6 +46,7 @@ func (c *Cmd) images(ctx context.Context, args ...string) {
 
 	env := sess.Values.Push()
 	if err = m.FlagEnv(programFlags, env, types.NewEnv()); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		programFlags.Usage()
 	}
 	_, err = m.Make(sess, env)

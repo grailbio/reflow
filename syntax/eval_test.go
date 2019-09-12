@@ -248,6 +248,7 @@ func TestEval(t *testing.T) {
 		"testdata/builtin_override.rf",
 		"testdata/reduce.rf",
 		"testdata/fold.rf",
+		"testdata/test_flag_dependence.rf",
 	}
 	RunReflowTests(t, tests)
 }

@@ -1,0 +1,6 @@
+param (
+	a string
+	b string = a + " B"
+)
+
+val Main = b

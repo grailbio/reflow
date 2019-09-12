@@ -9,7 +9,10 @@ import (
 	"flag"
 	"fmt"
 	"math/big"
+	"strconv"
 	"strings"
+
+	"github.com/grailbio/reflow/flow"
 
 	"github.com/grailbio/reflow/internal/scanner"
 	"github.com/grailbio/reflow/types"
@@ -23,6 +26,94 @@ type Param struct {
 	Doc      string
 	Expr     *Expr
 	Required bool
+}
+
+type flagVal struct {
+	kind types.Kind
+	val  values.T
+	// url is only used for dirs and files
+	url string
+	set bool
+}
+
+func (f flagVal) String() string {
+	// Files and dirs must always return their respective URL when String() is called.
+	if f.kind == types.FileKind || f.kind == types.DirKind {
+		return f.url
+	}
+	if f.val == nil {
+		return ""
+	}
+	switch f.kind {
+	case types.StringKind:
+		return f.val.(string)
+	case types.IntKind:
+		return f.val.(*big.Int).String()
+	case types.FloatKind:
+		return f.val.(*big.Float).String()
+	case types.BoolKind:
+		return strconv.FormatBool(f.val.(bool))
+	default:
+		return ""
+	}
+}
+
+func (f *flagVal) Set(value string) error {
+	switch f.kind {
+	case types.StringKind:
+		f.val = value
+	case types.IntKind:
+		var z big.Int
+		v, ok := z.SetString(value, 10)
+		if !ok {
+			return fmt.Errorf("cannot parse %q as integer", value)
+		}
+		f.val = v
+	case types.FloatKind:
+		var z big.Float
+		v, ok := z.SetString(value)
+		if !ok {
+			return fmt.Errorf("cannot parse %q as float", value)
+		}
+		f.val = v
+	case types.BoolKind:
+		v, err := strconv.ParseBool(value)
+		if err != nil {
+			return err
+		}
+		f.val = v
+	case types.FileKind, types.DirKind:
+		ident := "file"
+		if f.kind == types.DirKind {
+			ident = "dir"
+		}
+		e := &Expr{
+			Kind: ExprApply,
+			Left: &Expr{
+				Kind:  ExprIdent,
+				Ident: ident,
+			},
+			Fields: []*FieldExpr{
+				{
+					Expr: &Expr{
+						Kind: ExprLit,
+						Val:  values.T(value),
+					},
+				},
+			},
+		}
+		_, venv := Stdlib()
+		v, err := e.eval(nil, venv, "")
+		if err != nil {
+			return err
+		}
+		f.url = value
+		f.val = v
+	default:
+		panic(f.kind)
+	}
+	f.set = true
+	return nil
 }
 
 // Module abstracts a Reflow module, having the ability to type check
@@ -248,55 +339,51 @@ func (m *ModuleImpl) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error
 				help += " "
 			}
 			if m.fenv.Contains(p.Ident) {
-				v := m.fenv.Value(p.Ident)
+				val := m.fenv.Value(p.Ident)
+				v := flagVal{kind: p.Type.Kind, val: val, set: true}
 				switch p.Type.Kind {
-				case types.StringKind:
-					flags.String(p.Ident, v.(string), help)
-				case types.IntKind:
-					flags.Uint64(p.Ident, v.(*big.Int).Uint64(), help)
-				case types.FloatKind:
-					fl, _ := v.(*big.Float).Float64()
-					flags.Float64(p.Ident, fl, help)
-				case types.BoolKind:
-					flags.Bool(p.Ident, v.(bool), help)
+				case types.StringKind, types.IntKind, types.FloatKind, types.BoolKind:
 				case types.FileKind, types.DirKind:
 					// Hack to sneak in flag values as-defined.
-					// TODO(marius): rethink how injected args interact
-					// with the flag environment and default values. This ought
-					// to be simpler.
-					flags.String(p.Ident, m.flags.Lookup(p.Ident).Value.String(), help)
+					v.url = m.flags.Lookup(p.Ident).Value.String()
 				default:
-					return nil, fmt.Errorf("-%s: flags of type %s not supported (valid types are: string, int, bool)", p.Ident, p.Type)
+					return nil, fmt.Errorf("-%s: flags of type %s not supported (valid types are: string, int, float, bool, file, dir)", p.Ident, p.Type)
 				}
+				flags.Var(&v, p.Ident, help)
 			} else {
 				if p.Type.Kind != types.BoolKind {
 					help += "(required)"
 				}
+				v := flagVal{kind: p.Type.Kind}
 				switch p.Type.Kind {
-				case types.StringKind, types.FileKind, types.DirKind:
-					flags.String(p.Ident, "", help)
-				case types.IntKind:
-					flags.Int(p.Ident, 0, help)
-				case types.FloatKind:
-					flags.Float64(p.Ident, 0.0, help)
-				case types.BoolKind:
-					flags.Bool(p.Ident, false, help)
+				case types.StringKind, types.IntKind, types.FloatKind, types.BoolKind, types.FileKind, types.DirKind:
 				default:
-					return nil, fmt.Errorf("-%s: flags of type %s not supported (valid types are: string, int, bool)", p.Ident, p.Type)
+					return nil, fmt.Errorf("-%s: flags of type %s not supported (valid types are: string, int, float, bool, file, dir)", p.Ident, p.Type)
 				}
+				flags.Var(&v, p.Ident, help)
 			}
-			// Assign error values here, so that we get a type error.
-			env.Bind(p.Ident, fmt.Errorf("%s is undefined; flag parameters may not depend on other flag parameters", p.Ident))
+			// Assign error values here, so that we can handle dependent parameters.
+			env.Bind(p.Ident, errParam)
 		case DeclAssign:
 			// In this case, we have a default value in the flag's environment.
 			tenv := types.NewEnv()
 			p.Pat.BindTypes(tenv, p.Type, types.Never)
-			v, err := p.Expr.eval(sess, env, p.ID(""))
-			if err != nil {
+			val, err := p.Expr.eval(sess, env, p.ID(""))
+			_, isFlow := val.(*flow.Flow)
+			dependentParam := err == errParam
+			if err != nil && !dependentParam {
 				return nil, err
 			}
 			for _, matcher := range p.Pat.Matchers() {
-				v, err := coerceMatch(v, p.Type, p.Pat.Position, matcher.Path())
+				// Create an empty flag value of the flag's type.
+				v := flagVal{kind: p.Type.Kind}
+				// A dependentParam's value cannot be set because it is dependent on the evaluation of another param.
+				// If the param's default value is a flow, do not set its value.
+				if dependentParam || isFlow {
+					flags.Var(&v, matcher.Ident, p.Comment)
+					continue
+				}
+				val, err := coerceMatch(val, p.Type, p.Pat.Position, matcher.Path())
 				if err != nil {
 					return nil, err
 				}
@@ -305,20 +392,16 @@ func (m *ModuleImpl) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error
 				}
 				id := matcher.Ident
 				if m.fenv.Contains(id) {
-					v = m.fenv.Value(id)
+					val = m.fenv.Value(id)
 				}
-				// Bind id so we can have parameters depend on each other.
-				env.Bind(id, v)
-				switch tenv.Type(id).Kind {
-				case types.StringKind:
-					flags.String(id, v.(string), p.Comment)
-				case types.IntKind:
-					flags.Uint64(id, v.(*big.Int).Uint64(), p.Comment)
-				case types.FloatKind:
-					fl, _ := v.(*big.Float).Float64()
-					flags.Float64(id, fl, p.Comment)
-				case types.BoolKind:
-					flags.Bool(id, v.(bool), p.Comment)
+				// Assign error values here, so that we can handle dependent parameters.
+				env.Bind(id, errParam)
+
+				switch v.kind {
+				case types.StringKind, types.IntKind, types.FloatKind, types.BoolKind:
+					v.val = val
+					v.set = true
+					flags.Var(&v, matcher.Ident, p.Comment)
 				case types.FileKind, types.DirKind:
 					if p.Expr.Kind != ExprApply || p.Expr.Left.Kind != ExprIdent || (p.Expr.Left.Ident != "file" && p.Expr.Left.Ident != "dir") {
 						break
@@ -328,13 +411,15 @@ func (m *ModuleImpl) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error
 					if !p.Expr.Fields[0].Type.IsConst(nil) {
 						break
 					}
-					// In this case, we can safely evaluate the field (to a string), and
-					v, err := p.Expr.Fields[0].eval(sess, env, p.ID(""))
+					// In this case, we can safely evaluate the field (to a string). This string is the file/dir url.
+					url, err := p.Expr.Fields[0].eval(sess, env, p.ID(""))
 					if err != nil {
 						// Impossible for const expressions.
 						panic(err)
 					}
-					flags.String(id, v.(string), p.Comment)
+					v.url = url.(string)
+					v.set = true
+					flags.Var(&v, matcher.Ident, p.Comment)
 				}
 			}
 		}
@@ -342,7 +427,7 @@ func (m *ModuleImpl) Flags(sess *Session, env *values.Env) (*flag.FlagSet, error
 	return flags, nil
 }
 
-// FlagEnv adds flags from the FlagSet to value environment venv and
+// FlagEnv adds all flags from the FlagSet to value environment venv and
 // type environment tenv. The FlagSet should be produced by
 // (*Module).Flags.
 func (m *ModuleImpl) FlagEnv(flags *flag.FlagSet, venv *values.Env, tenv *types.Env) error {
@@ -356,8 +441,10 @@ func (m *ModuleImpl) flagEnv(needMandatory bool, flags *flag.FlagSet, venv *valu
 		if t == nil {
 			return
 		}
-		if f.Value.String() == "" && mandatory {
-			if needMandatory {
+		// fv is always set to be type flagVal
+		fv := f.Value.(*flagVal)
+		if !fv.set {
+			if mandatory && needMandatory {
 				errs = append(errs,
 					fmt.Sprintf("missing mandatory flag -%s", f.Name))
 			}

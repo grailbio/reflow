@@ -1,0 +1,39 @@
+val test = make("$/test")
+val strings = make("$/strings")
+
+func eq(x, y string) = x == y
+
+val TestDependence1 = {
+		case1 := make("./flag_dependence1.rf", a := "A")
+		case2 := make("./flag_dependence1.rf", a := "A", b := "B")
+		test.All([
+				eq(case1.Main, "A B"),
+				eq(case2.Main, "B"),
+		])
+}
+
+val TestDependence2 = {
+		case1 := make("./flag_dependence2.rf", a := "A")
+		case2 := make("./flag_dependence2.rf", a := "A", b := "B")
+		case3 := make("./flag_dependence2.rf", b := "B")
+		case4 := make("./flag_dependence2.rf")
+		test.All([
+				eq(case1.Main, "A B"),
+				eq(case2.Main, "B"),
+				eq(case3.Main, "B"),
+				eq(case4.Main, "C B"),
+		])
+}
+
+val TestDependence3 = {
+		case1 := make("./flag_dependence3.rf", a := "A")
+		case2 := make("./flag_dependence3.rf", a := "A", b := "B")
+		case3 := make("./flag_dependence3.rf", b := "B")
+		case4 := make("./flag_dependence3.rf")
+		test.All([
+				eq(case1.Main, "A world"),
+				eq(case2.Main, "B"),
+				eq(case3.Main, "B"),
+				eq(case4.Main, "hello world"),
+		])
+}

@@ -1,0 +1,7 @@
+// params not ascribed to a type
+param (
+	a = "hello"
+	b = a + " world"
+)
+
+val Main = b
