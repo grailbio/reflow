@@ -48,53 +48,83 @@ import (
 const maxConcurrentStreams = 2000
 const defaultFlowDir = "/tmp/flow"
 
-type runConfig struct {
-	localDir       string
-	dir            string
-	local          bool
-	alloc          string
+type commonRunConfig struct {
 	gc             bool
-	trace          bool
-	resources      reflow.Resources
-	resourcesFlag  string
-	cache          bool
 	nocacheextern  bool
 	recomputeempty bool
 	eval           string
 	invalidate     string
-	sched          bool
 	assert         string
 }
 
-func (r *runConfig) Flags(flags *flag.FlagSet) {
-	flags.BoolVar(&r.local, "local", false, "execute flow on the local Docker instance")
-	flags.StringVar(&r.localDir, "localdir", defaultFlowDir, "directory where execution state is stored in local mode")
-	flags.StringVar(&r.dir, "dir", "", "directory where execution state is stored in local mode (alias for local dir for backwards compatibilty)")
-	flags.StringVar(&r.alloc, "alloc", "", "use this alloc to execute program (don't allocate a fresh one)")
+func (r *commonRunConfig) Flags(flags *flag.FlagSet) {
 	flags.BoolVar(&r.gc, "gc", false, "enable garbage collection during evaluation")
-	flags.BoolVar(&r.trace, "trace", false, "trace flow evaluation")
-	flags.StringVar(&r.resourcesFlag, "resources", "", "override offered resources in local mode (JSON formatted reflow.Resources)")
 	flags.BoolVar(&r.nocacheextern, "nocacheextern", false, "don't cache extern ops")
 	flags.BoolVar(&r.recomputeempty, "recomputeempty", false, "recompute empty cache values")
 	flags.StringVar(&r.eval, "eval", "topdown", "evaluation strategy")
 	flags.StringVar(&r.invalidate, "invalidate", "", "regular expression for node identifiers that should be invalidated")
-	flags.BoolVar(&r.sched, "sched", true, "use scalable scheduler instead of work stealing")
 	flags.StringVar(&r.assert, "assert", "never", "policy used to assert cached flow result compatibility (eg: never, exact)")
 }
 
-func (r *runConfig) Err() error {
-	if r.local {
-		r.sched = false
-	}
+func (r *commonRunConfig) Err() error {
 	switch r.eval {
 	case "topdown", "bottomup":
 	default:
 		return fmt.Errorf("invalid evaluation strategy %s", r.eval)
 	}
-	if r.local {
-		if r.sched {
-			return errors.New("-sched cannot be used in local mode")
+	if r.invalidate != "" {
+		_, err := regexp.Compile(r.invalidate)
+		if err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+// Configure stores the runConfig's configuration into the provided
+// EvalConfig.
+func (r *commonRunConfig) Configure(c *flow.EvalConfig, cmd *Cmd) {
+	c.Assert = cmd.asserter(r.assert)
+	c.NoCacheExtern = r.nocacheextern
+	c.GC = r.gc
+	c.RecomputeEmpty = r.recomputeempty
+	c.BottomUp = r.eval == "bottomup"
+	if r.invalidate != "" {
+		re := regexp.MustCompile(r.invalidate)
+		c.Invalidate = func(f *flow.Flow) bool {
+			return re.MatchString(f.Ident)
+		}
+	}
+}
+
+type runConfig struct {
+	localDir      string
+	dir           string
+	local         bool
+	alloc         string
+	trace         bool
+	resources     reflow.Resources
+	resourcesFlag string
+	cache         bool
+	sched         bool
+
+	common commonRunConfig
+}
+
+func (r *runConfig) Flags(flags *flag.FlagSet) {
+	r.common.Flags(flags)
+	flags.BoolVar(&r.local, "local", false, "execute flow on the local Docker instance")
+	flags.StringVar(&r.localDir, "localdir", defaultFlowDir, "directory where execution state is stored in local mode")
+	flags.StringVar(&r.dir, "dir", "", "directory where execution state is stored in local mode (alias for local dir for backwards compatibilty)")
+	flags.StringVar(&r.alloc, "alloc", "", "use this alloc to execute program (don't allocate a fresh one)")
+	flags.BoolVar(&r.trace, "trace", false, "trace flow evaluation")
+	flags.StringVar(&r.resourcesFlag, "resources", "", "override offered resources in local mode (JSON formatted reflow.Resources)")
+	flags.BoolVar(&r.sched, "sched", false, "use scalable scheduler instead of work stealing")
+}
+
+func (r *runConfig) Err() error {
+	if r.local {
+		r.sched = false
 		if r.alloc != "" {
 			return errors.New("-alloc cannot be used in local mode")
 		}
@@ -111,28 +141,7 @@ func (r *runConfig) Err() error {
 	if r.sched && r.alloc != "" {
 		return errors.New("-alloc cannot be used with -sched")
 	}
-	if r.invalidate != "" {
-		_, err := regexp.Compile(r.invalidate)
-		if err != nil {
-			return err
-		}
-	}
 	return nil
-}
-
-// Configure stores the runConfig's configuration into the provided
-// EvalConfig.
-func (r *runConfig) Configure(c *flow.EvalConfig) {
-	c.NoCacheExtern = r.nocacheextern
-	c.GC = r.gc
-	c.RecomputeEmpty = r.recomputeempty
-	c.BottomUp = r.eval == "bottomup"
-	if r.invalidate != "" {
-		re := regexp.MustCompile(r.invalidate)
-		c.Invalidate = func(f *flow.Flow) bool {
-			return re.MatchString(f.Ident)
-		}
-	}
 }
 
 func (c *Cmd) run(ctx context.Context, args ...string) {
@@ -178,12 +187,12 @@ retriable.`
 		InputArgs: flags.Args(),
 	}
 	err := c.Eval(&e)
-	if e.V1 && config.gc {
+	if e.V1 && config.common.gc {
 		log.Errorf("garbage collection disabled for v1 reflows")
-		config.gc = false
-	} else if config.sched && config.gc {
+		config.common.gc = false
+	} else if config.sched && config.common.gc {
 		log.Errorf("garbage collection disabled for with scalable scheduling")
-		config.gc = false
+		config.common.gc = false
 	}
 	if err != nil {
 		c.Fatal(err)
@@ -363,7 +372,6 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 			Snapshotter:        c.blob(),
 			Assoc:              ass,
 			AssertionGenerator: c.assertionGenerator(),
-			Assert:             c.asserter(config.assert),
 			CacheMode:          cache.CacheMode,
 			Transferer:         transferer,
 			Status:             c.Status.Group(runID.Short()),
@@ -377,7 +385,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 		Cluster: cluster,
 		Cmdline: cmdline,
 	}
-	config.Configure(&run.EvalConfig)
+	config.common.Configure(&run.EvalConfig, c)
 	run.ID = runID
 	run.Program = e.Program
 	run.Params = e.Params
@@ -531,14 +539,13 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		Repository:         repo,
 		Assoc:              ass,
 		AssertionGenerator: c.assertionGenerator(),
-		Assert:             c.asserter(config.assert),
 		CacheMode:          cache.CacheMode,
 		Status:             c.Status.Group(runID.Short()),
 		ImageMap:           imageMap,
 		TaskDB:             tdb,
 		RunID:              runID,
 	}
-	config.Configure(&evalConfig)
+	config.common.Configure(&evalConfig, c)
 	if config.trace {
 		evalConfig.Trace = c.Log
 	}

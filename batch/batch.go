@@ -40,7 +40,6 @@ import (
 //go:generate stringer -type=State
 
 const (
-	configPath  = "config.json"
 	statePrefix = "state"
 )
 
@@ -285,6 +284,8 @@ type Batch struct {
 	// Dir is the batch directory in which configuration, state, and log files
 	// are stored.
 	Dir string
+	// ConfigFilename is the name of the configuration file (relative to Dir)
+	ConfigFilename string
 	// Rundir is the directory where run state files are stored.
 	Rundir string
 	// User is the user running the batch; batch runs are named using
@@ -324,7 +325,7 @@ type Batch struct {
 //
 // Init also upgrades old state files.
 func (b *Batch) Init(reset bool) error {
-	f, err := os.Open(filepath.Join(b.Dir, configPath))
+	f, err := os.Open(filepath.Join(b.Dir, b.ConfigFilename))
 	if err != nil {
 		return err
 	}
@@ -436,7 +437,7 @@ func (b *Batch) read() error {
 		run.ID = id
 		run.Args = attrs
 		run.Argv = fields[len(header):]
-		run.Program = b.config.Program
+		run.Program = b.path(b.config.Program)
 		run.Status = b.Status.Start(run.RunID.Short())
 		run.Status.Print("waiting")
 		run.batch = b
