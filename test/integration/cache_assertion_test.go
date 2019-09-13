@@ -59,8 +59,8 @@ func TestCacheAssertions(t *testing.T) {
 	mux := blob.Mux{"s3": s3blob.New(awsSession)}
 
 	for _, tc := range []testConfig{
-		{mux: mux, name: "EvalTopDown", runArgs: []string{"-eval", "topdown"}, local: *local},
-		{mux: mux, name: "EvalBottomUp", runArgs: []string{"-eval", "bottomup"}, local: *local},
+		{mux: mux, name: "EvalTopDown", runArgs: []string{"-sched=false", "-eval", "topdown"}, local: *local},
+		{mux: mux, name: "EvalBottomUp", runArgs: []string{"-sched=false", "-eval", "bottomup"}, local: *local},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {

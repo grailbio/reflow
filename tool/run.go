@@ -78,11 +78,14 @@ func (r *runConfig) Flags(flags *flag.FlagSet) {
 	flags.BoolVar(&r.recomputeempty, "recomputeempty", false, "recompute empty cache values")
 	flags.StringVar(&r.eval, "eval", "topdown", "evaluation strategy")
 	flags.StringVar(&r.invalidate, "invalidate", "", "regular expression for node identifiers that should be invalidated")
-	flags.BoolVar(&r.sched, "sched", false, "use scalable scheduler instead of work stealing")
+	flags.BoolVar(&r.sched, "sched", true, "use scalable scheduler instead of work stealing")
 	flags.StringVar(&r.assert, "assert", "never", "policy used to assert cached flow result compatibility (eg: never, exact)")
 }
 
 func (r *runConfig) Err() error {
+	if r.local {
+		r.sched = false
+	}
 	switch r.eval {
 	case "topdown", "bottomup":
 	default:
