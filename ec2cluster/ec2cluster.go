@@ -426,17 +426,13 @@ func (c *Cluster) loop() {
 				c.Log.Debugf("pending%s %s", pending, strings.Join(s, ", "))
 			}
 		}
-		var total, waiting reflow.Resources
+		var waiting reflow.Resources
 		for _, w := range waiters {
 			waiting.Add(waiting, w.Max())
 		}
-		var totalPrice float64
 		n := 0
-		for i, m := range c.state.InstanceTypeCounts() {
+		for _, m := range c.state.InstanceTypeCounts() {
 			n += m
-			config := c.instanceConfigs[i]
-			total.Add(total, config.Resources)
-			totalPrice += config.Price[c.Region]
 		}
 
 		// First skip waiters that are already getting their resources
@@ -515,9 +511,16 @@ func (c *Cluster) loop() {
 		if needPoll {
 			pollch = time.After(time.Minute)
 		}
-		var counts []string
+		var (
+			counts     []string
+			totalPrice float64
+			total      reflow.Resources
+		)
 		for typ, n := range c.state.InstanceTypeCounts() {
 			counts = append(counts, fmt.Sprintf("%s:%d", typ, n))
+			config := c.instanceConfigs[typ]
+			total.Add(total, config.Resources)
+			totalPrice += config.Price[c.Region] * float64(n)
 		}
 		sort.Strings(counts)
 		c.Status.Printf("%d instances: %s (<=$%.1f/hr), total%s, waiting%s, pending%s",
