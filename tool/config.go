@@ -80,19 +80,9 @@ modified and overriden:
 	if flags.NArg() != 0 {
 		flags.Usage()
 	}
-	var data []byte
-	if *marshalFlag {
-		var err error
-		data, err = c.Config.Marshal(true)
-		if err != nil {
-			c.Fatal(err)
-		}
-	} else {
-		var err error
-		data, err = c.Config.Marshal(false)
-		if err != nil {
-			c.Fatal(err)
-		}
+	data, err := c.Config.Marshal(*marshalFlag)
+	if err != nil {
+		c.Fatal(err)
 	}
 	c.Stdout.Write(data)
 	c.Println()

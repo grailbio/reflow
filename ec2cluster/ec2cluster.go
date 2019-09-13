@@ -180,11 +180,13 @@ func (c *Cluster) Config() interface{} {
 
 // Init implements infra.Provider
 func (c *Cluster) Init(tls *tls.Authority, sess *session.Session, labels pool.Labels, bootstrapimage *infra2.BootstrapImage, reflowVersion *infra2.ReflowVersion, id *infra2.User, logger *log.Logger, sshKey *infra2.SshKey) error {
-	// If InstanceTypes are not defined, include all known types.
+	// If InstanceTypes are not defined, include built-in verified instance types.
 	if len(c.InstanceTypes) == 0 {
-		c.InstanceTypes = make([]string, len(instances.Types))
-		for i := range instances.Types {
-			c.InstanceTypes[i] = instances.Types[i].Name
+		verified := instances.VerifiedByRegion[c.Region]
+		for _, typ := range instances.Types {
+			if !verified[typ.Name].Attempted || verified[typ.Name].Verified {
+				c.InstanceTypes = append(c.InstanceTypes, typ.Name)
+			}
 		}
 		sort.Strings(c.InstanceTypes)
 	}
@@ -270,19 +272,19 @@ func (c *Cluster) initialize() error {
 	c.InstanceTags["managedby"] = "reflow"
 
 	// Construct the set of legal instances and set available disk space.
-	var instances []instanceConfig
+	var configs []instanceConfig
 	c.instanceConfigs = make(map[string]instanceConfig)
 	for _, config := range instanceTypes {
 		config.Resources["disk"] = float64(c.DiskSpace << 30)
 		if c.InstanceTypesMap == nil || c.InstanceTypesMap[config.Type] {
-			instances = append(instances, config)
+			configs = append(configs, config)
 		}
 		c.instanceConfigs[config.Type] = config
 	}
-	if len(instances) == 0 {
+	if len(configs) == 0 {
 		return errors.New("no configured instance types")
 	}
-	c.instanceState = newInstanceState(instances, 5*time.Minute, c.Region)
+	c.instanceState = newInstanceState(configs, 5*time.Minute, c.Region)
 	// TODO(swami):  Pass through a context from somewhere upstream as appropriate.
 	ctx := context.Background()
 	c.state = &state{c: c}
@@ -367,6 +369,53 @@ func (c *Cluster) allocate(ctx context.Context, req reflow.Requirements) <-chan 
 	return w.c
 }
 
+// Probe attempts to instantiate an EC2 instance of the given type and returns a duration and an error.
+// In case of a nil error the duration represents how long it took (single data point) for a usable
+// Reflowlet to come up on that instance type.
+// A non-nil error means that the reflowlet failed to come up on this instance type.  The error
+// could be due to context deadline, in case we gave up waiting for it to come up.
+func (c *Cluster) Probe(ctx context.Context, instanceType string) (time.Duration, error) {
+	config := c.instanceConfigs[instanceType]
+	i := c.newInstance(config, config.Price[c.Region])
+	i.Task = c.Status.Startf("%s", config.Type)
+	i.Go(context.Background())
+	i.ec2TerminateInstance()
+	if i.Err() != nil {
+		i.Task.Printf("%v", i.Err().Error())
+	}
+	i.Task.Done()
+	dur := i.Task.Value().End.Sub(i.Task.Value().Begin)
+	return dur.Round(time.Second), i.Err()
+}
+
+func (c *Cluster) newInstance(config instanceConfig, price float64) *instance {
+	return &instance{
+		HTTPClient:      c.HTTPClient,
+		ReflowConfig:    c.Configuration,
+		Config:          config,
+		Log:             c.Log,
+		Authenticator:   c.Authenticator,
+		EC2:             c.EC2,
+		InstanceTags:    c.InstanceTags,
+		Labels:          c.Labels,
+		Spot:            c.Spot,
+		Subnet:          c.Subnet,
+		InstanceProfile: c.InstanceProfile,
+		SecurityGroup:   c.SecurityGroup,
+		BootstrapImage:  c.BootstrapImage,
+		Price:           price,
+		EBSType:         c.DiskType,
+		EBSSize:         uint64(config.Resources["disk"]) >> 30,
+		NEBS:            c.DiskSlices,
+		AMI:             c.AMI,
+		SshKey:          c.SshKey,
+		KeyName:         c.KeyName,
+		SpotProbeDepth:  c.SpotProbeDepth,
+		Immortal:        c.Immortal,
+		CloudConfig:     c.CloudConfig,
+	}
+}
+
 // loop services requests to expand the cluster's capacity.
 func (c *Cluster) loop() {
 	const maxPending = 5
@@ -377,31 +426,7 @@ func (c *Cluster) loop() {
 		done     = make(chan *instance)
 	)
 	launch := func(config instanceConfig, price float64) {
-		i := &instance{
-			HTTPClient:      c.HTTPClient,
-			ReflowConfig:    c.Configuration,
-			Config:          config,
-			Log:             c.Log,
-			Authenticator:   c.Authenticator,
-			EC2:             c.EC2,
-			InstanceTags:    c.InstanceTags,
-			Labels:          c.Labels,
-			Spot:            c.Spot,
-			Subnet:          c.Subnet,
-			InstanceProfile: c.InstanceProfile,
-			SecurityGroup:   c.SecurityGroup,
-			BootstrapImage:  c.BootstrapImage,
-			Price:           price,
-			EBSType:         c.DiskType,
-			EBSSize:         uint64(config.Resources["disk"]) >> 30,
-			NEBS:            c.DiskSlices,
-			AMI:             c.AMI,
-			SshKey:          c.SshKey,
-			KeyName:         c.KeyName,
-			SpotProbeDepth:  c.SpotProbeDepth,
-			Immortal:        c.Immortal,
-			CloudConfig:     c.CloudConfig,
-		}
+		i := c.newInstance(config, price)
 		i.Task = c.Status.Startf("%s", config.Type)
 		i.Go(context.Background())
 		i.Task.Done()

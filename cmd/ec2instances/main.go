@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/grailbio/reflow/ec2cluster/instances"
 )
 
 var (
@@ -100,6 +102,7 @@ func main() {
 	g.Printf("// Types stores known EC2 instance types.\n")
 	g.Printf("var Types = []Type{\n")
 
+	var acceptedTypes []string
 	for _, e := range entries {
 		var ok bool
 		for _, arch := range e.Arch {
@@ -147,6 +150,7 @@ func main() {
 			log.Printf("excluding instance type %s because it does not support Linux HVM (supported: %s)", e.Type, strings.Join(e.LinuxVirtType, ", "))
 			continue
 		}
+		acceptedTypes = append(acceptedTypes, e.Type)
 		// All current generation instances are EBS optimized by default as per:
 		// https://aws.amazon.com/ec2/pricing/on-demand/
 		// "For Current Generation Instance types, EBS-optimization is enabled by default at no additional cost."
@@ -197,12 +201,23 @@ func main() {
 	}
 	g.Printf("}\n")
 	src := g.Gofmt()
+
+	vgen := instances.VerifiedSrcGenerator{filepath.Base(dir), instances.VerifiedByRegion}
+	vsrc, err := vgen.AddTypes(acceptedTypes).Source()
+	if err != nil {
+		log.Fatal(err)
+	}
 	if *stdout {
 		os.Stdout.Write(src)
+		os.Stdout.Write(vsrc)
 	} else {
 		os.MkdirAll(dir, 0777)
 		path := filepath.Join(dir, "instances.go")
 		if err := ioutil.WriteFile(path, src, 0644); err != nil {
+			log.Fatal(err)
+		}
+		vpath := filepath.Join(dir, "verified.go")
+		if err := ioutil.WriteFile(vpath, vsrc, 0644); err != nil {
 			log.Fatal(err)
 		}
 	}

@@ -104,6 +104,7 @@ var commands = map[string]Func{
 	"collect":      (*Cmd).collect,
 	"http":         (*Cmd).http,
 	"upgrade":      (*Cmd).upgrade,
+	"ec2verify":    (*Cmd).ec2verify,
 }
 
 var intro = `The reflow command helps users run Reflow programs, ExecInspect their

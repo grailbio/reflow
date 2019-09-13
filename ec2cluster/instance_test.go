@@ -23,9 +23,9 @@ func TestInstanceState(t *testing.T) {
 		{reflow.Resources{"mem": 30 << 30, "cpu": 8, "disk": 800 << 30}, "r5.2xlarge"},
 		{reflow.Resources{"mem": 30 << 30, "cpu": 16, "disk": 800 << 30}, "m5.4xlarge"},
 		{reflow.Resources{"mem": 60 << 30, "cpu": 16, "disk": 400 << 30}, "r5.4xlarge"},
-		{reflow.Resources{"mem": 122 << 30, "cpu": 16, "disk": 400 << 30}, "r4.8xlarge"},
+		{reflow.Resources{"mem": 122 << 30, "cpu": 16, "disk": 400 << 30}, "r5a.8xlarge"},
 		{reflow.Resources{"mem": 60 << 30, "cpu": 32, "disk": 1000 << 30}, "c5.9xlarge"},
-		{reflow.Resources{"mem": 120 << 30, "cpu": 32, "disk": 2000 << 30}, "r4.8xlarge"},
+		{reflow.Resources{"mem": 120 << 30, "cpu": 32, "disk": 2000 << 30}, "r5a.8xlarge"},
 	} {
 		for _, spot := range []bool{true, false} {
 			if got, _ := is.MinAvailable(tc.r, spot); got.Type != tc.want {

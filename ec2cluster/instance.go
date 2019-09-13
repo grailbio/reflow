@@ -551,7 +551,7 @@ func (i *instance) Go(ctx context.Context) {
 			// http://docs.aws.amazon.com/AWSEC2/latest/APIReference/errors-overview.html
 			//
 			// TODO(marius): add a separate package for interpreting AWS errors.
-			case "InsufficientCapacity", "InsufficientInstanceCapacity", "InsufficientHostCapacity", "InsufficientReservedInstanceCapacity", "InstanceLimitExceeded":
+			case "InsufficientCapacity", "InsufficientInstanceCapacity", "InsufficientHostCapacity", "InsufficientReservedInstanceCapacity", "InstanceLimitExceeded", "Unsupported":
 				i.err = errors.E(errors.Unavailable, awserr)
 			}
 		}
@@ -1029,6 +1029,24 @@ func (i *instance) ec2HasCapacity(ctx context.Context, n int) (bool, error) {
 		return false, err
 	}
 	return false, fmt.Errorf("expected awserr.Error or context error, got %T", err)
+}
+
+func (i *instance) ec2TerminateInstance() {
+	if i.ec2inst == nil {
+		return
+	}
+	i.Task.Print("terminating...")
+	req := &ec2.TerminateInstancesInput{
+		InstanceIds: aws.StringSlice([]string{*i.ec2inst.InstanceId}),
+	}
+	resp, err := i.EC2.TerminateInstancesWithContext(context.Background(), req)
+	if err != nil {
+		i.Task.Print(err)
+		return
+	}
+	for _, ti := range resp.TerminatingInstances {
+		i.Task.Printf("%s -> %s", *ti.PreviousState.Name, *ti.CurrentState.Name)
+	}
 }
 
 func (i *instance) ec2RunInstance() (string, error) {
