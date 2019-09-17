@@ -35,6 +35,8 @@ import (
 	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
+	bootc "github.com/grailbio/reflow/bootstrap/client"
+	"github.com/grailbio/reflow/bootstrap/common"
 	"github.com/grailbio/reflow/ec2cluster/instances"
 	"github.com/grailbio/reflow/errors"
 	infra2 "github.com/grailbio/reflow/infra"
@@ -42,7 +44,7 @@ import (
 	"github.com/grailbio/reflow/internal/execimage"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
-	"github.com/grailbio/reflow/pool/client"
+	poolc "github.com/grailbio/reflow/pool/client"
 	"gopkg.in/yaml.v2"
 )
 
@@ -55,6 +57,14 @@ import (
 // We reserve 5% for the Reflowlet, and the EC2 overhead appears to
 // be a little shy of 2%.
 const memoryDiscount = 0.05 + 0.02
+
+var (
+	// bootstrapArgs is the arguments passed to the bootstrap image
+	bootstrapArgs = []string{"-config", "/host/etc/reflowconfig"}
+
+	// reflowletArgs is the arguments passed to the reflow binary to run a reflowlet
+	reflowletArgs = append([]string{"serve", "-prefix", "/host", "-ec2cluster"}, bootstrapArgs...)
+)
 
 const (
 	// ebsThroughputPremiumCost defines the higher premium in USD dollars
@@ -104,7 +114,8 @@ var (
 	instanceTypes = map[string]instanceConfig{}
 	localDigest   digest.Digest
 	digestOnce    once.Task
-	uploadOnce    once.Task
+	reflowletOnce once.Task
+	reflowletFile reflow.File
 )
 
 func init() {
@@ -285,7 +296,7 @@ type instance struct {
 	InstanceProfile string
 	SecurityGroup   string
 	Region          string
-	ReflowletImage  string
+	BootstrapImage  string
 	Price           float64
 	EBSType         string
 	EBSSize         uint64
@@ -371,12 +382,15 @@ func (i *instance) Go(ctx context.Context) {
 		stateWaitInstance
 		// Describe the instance via EC2 to get the DNS name.
 		stateDescribeDns
-		// Wait for Reflowlet to become live (and metadata to become available).
+		// Wait for the bootstrap to become live (and metadata to become available).
+		stateWaitBootstrap
+		// Install the reflowlet image.
+		stateInstallImage
+		// Wait for reflowlet to become live (and metadata to become available).
 		stateWaitReflowlet
-		// Describe the instance via EC2 to get updated tags for version and digest.
+		// Describe the instance via EC2 to get an updated version tag.
 		stateDescribeTags
-		// Update the reflowlet image.
-		stateUpdateImage
+
 		stateDone
 	)
 	var (
@@ -446,53 +460,23 @@ func (i *instance) Go(ctx context.Context) {
 					dns = *i.ec2inst.PublicDnsName
 				}
 			}
-		case stateWaitReflowlet:
-			i.Task.Print("waiting for reflowlet to become available")
-			var c *client.Client
-			c, i.err = client.New(fmt.Sprintf("https://%s:9000/v1/", dns), i.HTTPClient, nil /*log.New(os.Stderr, "client: ", 0)*/)
+		case stateWaitBootstrap:
+			i.Task.Print("waiting for bootstrap to become available")
+			var c *bootc.Client
+			c, i.err = bootc.New(fmt.Sprintf("https://%s:9000/v1/", dns), i.HTTPClient, nil)
 			if i.err != nil {
 				i.err = errors.E(errors.Fatal, i.err)
 				break
 			}
 			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			_, i.err = c.Config(ctx)
+			i.err = c.Status(ctx)
 			cancel()
 			if i.err != nil && strings.HasSuffix(i.err.Error(), "connection refused") {
 				i.err = errors.E(errors.Temporary, i.err)
 			}
-		case stateDescribeTags:
-			i.Task.Print("waiting for reflowlet version/digest tags")
-			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			i.ec2inst, i.err = describeInstance(ctx, i.EC2, id)
-			cancel()
-			if i.err != nil {
-				i.err = errors.E(errors.Temporary, "%s: describe instance: %v", id)
-				break
-			}
-			ri := i.Instance()
-			if ri.Version == "" || ri.Digest == "" {
-				i.err = errors.E(errors.Temporary, "version/digest unavailable")
-				break
-			}
-			localDigest, err := imageDigest()
-			if err != nil {
-				i.err = errors.E(errors.Fatal, "parse local digest: %v", err)
-				break
-			}
-			remoteDigest, err := digest.Parse(ri.Digest)
-			if err != nil {
-				i.err = errors.E(errors.Fatal, "parse remote digest: %v", err)
-				break
-			}
-			if remoteDigest == localDigest {
-				// Set the state to be done.
-				state = stateDone
-			} else {
-				i.Log.Debugf("%s: image %s needs update %s", id, remoteDigest.Short(), localDigest.Short())
-			}
-		case stateUpdateImage:
-			i.Task.Print("updating reflowlet image")
-			clnt, err := client.New(fmt.Sprintf("https://%s:9000/v1/", *i.ec2inst.PublicDnsName), i.HTTPClient, nil)
+		case stateInstallImage:
+			i.Task.Print("installing reflowlet image")
+			clnt, err := bootc.New(fmt.Sprintf("https://%s:9000/v1/", *i.ec2inst.PublicDnsName), i.HTTPClient, nil)
 			if err != nil {
 				i.err = errors.E(errors.Fatal, err)
 				break
@@ -504,22 +488,53 @@ func (i *instance) Go(ctx context.Context) {
 				break
 			}
 			ctx2, cancel := context.WithTimeout(ctx, 5*time.Minute)
-			err = uploadImage(ctx2, repo, i.Log)
+			err = getReflowletFile(ctx2, repo, i.Log)
 			cancel()
 			if err != nil {
 				i.err = errors.E(errors.Fatal, err)
 				break
 			}
 			ctx2, cancel = context.WithTimeout(ctx, 10*time.Second)
-			err = clnt.InstallImage(ctx2, localDigest)
+			reflowletimage := common.Image{
+				Path: reflowletFile.Source,
+				Args: reflowletArgs,
+				Name: "reflowlet",
+			}
+			// Once the reflowlet image (a reflow binary) is installed on the instance,
+			// the instance goes from being a bootstrap instance to a reflowlet instance.
+			err = clnt.InstallImage(ctx2, reflowletimage)
 			cancel()
 			if err != nil && !errors.Is(errors.Net, err) {
 				i.err = errors.E(errors.Fatal, err)
 				break
 			}
-			// Reset the state such that the loop continues from stateWaitReflowlet
-			state = stateWaitReflowlet
-			continue
+		case stateWaitReflowlet:
+			i.Task.Print("waiting for reflowlet to become available")
+			var c *poolc.Client
+			c, i.err = poolc.New(fmt.Sprintf("https://%s:9000/v1/", dns), i.HTTPClient, nil)
+			if i.err != nil {
+				i.err = errors.E(errors.Fatal, i.err)
+				break
+			}
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			_, i.err = c.Config(ctx)
+			cancel()
+			if i.err != nil && strings.HasSuffix(i.err.Error(), "connection refused") {
+				i.err = errors.E(errors.Temporary, i.err)
+			}
+		case stateDescribeTags:
+			i.Task.Print("waiting for reflowlet version tag")
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			i.ec2inst, i.err = describeInstance(ctx, i.EC2, id)
+			cancel()
+			if i.err != nil {
+				i.err = errors.E(errors.Temporary, "%s: describe instance: %v", id)
+				break
+			}
+			ri := i.Instance()
+			if ri.Version == "" {
+				i.err = errors.E(errors.Temporary, "version tag unavailable")
+			}
 		default:
 			panic("unknown state")
 		}
@@ -563,12 +578,14 @@ func (i *instance) Go(ctx context.Context) {
 				what = "waiting for instance"
 			case stateDescribeDns:
 				what = "describing instance (dns)"
+			case stateWaitBootstrap:
+				what = "waiting for the bootstrap to load"
+			case stateInstallImage:
+				what = "installing reflowlet image"
 			case stateWaitReflowlet:
-				what = "waiting for reflowlet to be live"
+				what = "waiting for the bootstrap to load"
 			case stateDescribeTags:
-				what = "describing instance (version, digest)"
-			case stateUpdateImage:
-				what = "updating reflowlet image"
+				what = "describing instance (version)"
 			}
 			i.Log.Errorf("error while %s: %v", what, i.err)
 		}
@@ -605,8 +622,8 @@ func describeInstance(ctx context.Context, EC2 ec2iface.EC2API, id string) (*ec2
 	return resp.Reservations[0].Instances[0], nil
 }
 
-func uploadImage(ctx context.Context, repo reflow.Repository, log *log.Logger) error {
-	return uploadOnce.Do(func() error {
+func getReflowletFile(ctx context.Context, repo reflow.Repository, log *log.Logger) error {
+	return reflowletOnce.Do(func() error {
 		if !hasEmbedded() {
 			return execimage.ErrNoEmbeddedImage
 		}
@@ -614,7 +631,7 @@ func uploadImage(ctx context.Context, repo reflow.Repository, log *log.Logger) e
 		if err != nil {
 			return err
 		}
-		if _, err = repo.Stat(ctx, localDigest); err == nil {
+		if reflowletFile, err = repo.Stat(ctx, localDigest); err == nil {
 			return nil
 		}
 		// Image doesn't exist in repo, so upload it.
@@ -631,7 +648,8 @@ func uploadImage(ctx context.Context, repo reflow.Repository, log *log.Logger) e
 		if repoDigest != localDigest {
 			return errors.New("digests mismatch")
 		}
-		return nil
+		reflowletFile, err = repo.Stat(ctx, localDigest)
+		return err
 	})
 }
 
@@ -679,7 +697,6 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 	c.AppendFile(ecrFile)
 
 	// /etc/reflowconfig contains the (YAML) marshaled configuration file
-	// for the reflowlet.
 	b, err := i.ReflowConfig.Marshal(true)
 	if err != nil {
 		return "", err
@@ -816,8 +833,8 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 			ExecStart=/tmp/xray {{.profile}} -l debug`, args{"profile": profile, "aws_access_key_id": akey, "aws_secret_access_key": secret, "aws_session_token": token})})
 	}
 
-	// We merge the user's cloud config before appending the reflowlet unit
-	// so that systemd units can be run before the reflowlet.
+	// We merge the user's cloud config before appending the bootstrap unit
+	// so that system units can be run before the bootstrap.
 	c.Merge(&i.CloudConfig)
 
 	c.AppendUnit(CloudUnit{
@@ -847,8 +864,8 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 			  -v /:/host \
 			  -v /var/run/docker.sock:/var/run/docker.sock \
 			  -v '/etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt' \
-			  {{.image}} serve -prefix /host -ec2cluster  -config /host/etc/reflowconfig
-		`, args{"mortal": !i.Immortal, "image": i.ReflowletImage}),
+			  {{.image}} {{.bootstrapArgs}}
+		`, args{"mortal": !i.Immortal, "image": i.BootstrapImage, "bootstrapArgs": strings.Join(bootstrapArgs, " ")}),
 	})
 	b, err = c.Marshal()
 	if err != nil {

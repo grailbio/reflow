@@ -39,7 +39,7 @@ func New(baseurl string, client *http.Client, log *log.Logger) (*Client, error) 
 	return &Client{Client: rest.NewClient(client, url, log), host: url.Host}, nil
 }
 
-// Status get the status from the servlet
+// Status gets the status from the servlet.
 func (c *Client) Status(ctx context.Context) error {
 	call := c.Call("GET", "status")
 	defer call.Close()

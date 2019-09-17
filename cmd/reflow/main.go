@@ -36,7 +36,11 @@ var version = "broken"
 
 var configFile = os.ExpandEnv("$HOME/.reflow/config.yaml")
 
-const reflowlet = "grailbio/reflowlet:bootstrap"
+// TODO(dnicolaou): Make open source reflow use reflowbootstrap.
+
+// bootstrapimage is the docker URI for the bootstrap image.
+const bootstrapimage = "grailbio/reflowlet:bootstrap"
+
 const intro = `Cluster computing and caching
 
 Additional configuration is required to use a cluster for Reflow
@@ -85,7 +89,7 @@ func main() {
 		infra2.Cluster:    new(runner.Cluster),
 		infra2.Labels:     make(pool.Labels),
 		infra2.Log:        new(log.Logger),
-		infra2.Reflowlet:  new(infra2.ReflowletVersion),
+		infra2.Bootstrap:  new(infra2.BootstrapImage),
 		infra2.Reflow:     new(infra2.ReflowVersion),
 		infra2.Repository: new(reflow.Repository),
 		infra2.Session:    new(session.Session),
@@ -101,7 +105,7 @@ func main() {
 		infra2.Cache:     "off",
 		infra2.Labels:    "kv",
 		infra2.Log:       "logger",
-		infra2.Reflowlet: fmt.Sprintf("reflowletversion,version=%s", reflowlet),
+		infra2.Bootstrap: fmt.Sprintf("bootstrapimage,uri=%s", bootstrapimage),
 		infra2.Reflow:    fmt.Sprintf("reflowversion,version=%s", version),
 		infra2.Session:   "awssession",
 		infra2.SSHKey:    "key",

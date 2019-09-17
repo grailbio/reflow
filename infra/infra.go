@@ -17,7 +17,7 @@ import (
 
 func init() {
 	infra.Register("user", new(User))
-	infra.Register("reflowletversion", new(ReflowletVersion))
+	infra.Register("bootstrapimage", new(BootstrapImage))
 	infra.Register("reflowversion", new(ReflowVersion))
 	infra.Register("key", new(SshKey))
 	infra.Register("off", new(CacheProviderOff))
@@ -40,7 +40,7 @@ const (
 	Log        = "logger"
 	Repository = "repository"
 	Reflow     = "reflow"
-	Reflowlet  = "reflowlet"
+	Bootstrap  = "bootstrap"
 	Session    = "session"
 	SSHKey     = "sshkey"
 	Username   = "user"
@@ -82,16 +82,16 @@ func (u User) User() string {
 	return (string)(u)
 }
 
-// ReflowletVersion is the infrastructure provider for the reflowlet version.
-type ReflowletVersion string
+// BootstrapImage is the Docker URI of the image used for instance bootstrap.
+type BootstrapImage string
 
 // Help implements infra.Provider
-func (r ReflowletVersion) Help() string {
-	return "provide a reflowlet version"
+func (r BootstrapImage) Help() string {
+	return "provide a bootstrap image docker URI"
 }
 
 // Init implements infra.Provider.
-func (r *ReflowletVersion) Init() error {
+func (r *BootstrapImage) Init() error {
 	if *r == "" {
 		*r = "bootstrap"
 	}
@@ -99,12 +99,12 @@ func (r *ReflowletVersion) Init() error {
 }
 
 // Flags implements infra.Provider.
-func (r *ReflowletVersion) Flags(flags *flag.FlagSet) {
-	flags.StringVar((*string)(r), "version", "", "version")
+func (r *BootstrapImage) Flags(flags *flag.FlagSet) {
+	flags.StringVar((*string)(r), "uri", "", "uri")
 }
 
-// Value returns the reflowlet version name.
-func (r *ReflowletVersion) Value() string {
+// Value returns the bootstrap image uri.
+func (r *BootstrapImage) Value() string {
 	return string(*r)
 }
 

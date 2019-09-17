@@ -102,9 +102,9 @@ type Cluster struct {
 	// InstanceTypesMap stores the set of admissible instance types.
 	// If nil, all instance types are permitted.
 	InstanceTypesMap map[string]bool `yaml:"-"`
-	// ReflowletImage is the Docker URI of the image used for instance reflowlets.
+	// BootstrapImage is the Docker URI of the image used for instance bootstrap.
 	// The image must be retrievable by the cluster's authenticator.
-	ReflowletImage string `yaml:"-"`
+	BootstrapImage string `yaml:"-"`
 	// ReflowVersion is the version of reflow binary compatible with this cluster.
 	ReflowVersion string `yaml:"-"`
 	// MaxInstances is the maximum number of concurrent instances permitted.
@@ -152,7 +152,7 @@ type Cluster struct {
 	wait chan *waiter
 }
 
-func validateReflowletImage(ecrApi ecriface.ECRAPI, reflowlet string, log *log.Logger) error {
+func validateBootstrapImage(ecrApi ecriface.ECRAPI, reflowlet string, log *log.Logger) error {
 	matches := ecrURI.FindStringSubmatch(reflowlet)
 	if len(matches) != 3 {
 		log.Debugf("cannot determine repository name and/or image tag from: %s", reflowlet)
@@ -179,7 +179,7 @@ func (c *Cluster) Config() interface{} {
 }
 
 // Init implements infra.Provider
-func (c *Cluster) Init(tls *tls.Authority, sess *session.Session, labels pool.Labels, reflowlet *infra2.ReflowletVersion, reflowVersion *infra2.ReflowVersion, id *infra2.User, logger *log.Logger, sshKey *infra2.SshKey) error {
+func (c *Cluster) Init(tls *tls.Authority, sess *session.Session, labels pool.Labels, bootstrapimage *infra2.BootstrapImage, reflowVersion *infra2.ReflowVersion, id *infra2.User, logger *log.Logger, sshKey *infra2.SshKey) error {
 	// If InstanceTypes are not defined, include all known types.
 	if len(c.InstanceTypes) == 0 {
 		c.InstanceTypes = make([]string, len(instances.Types))
@@ -199,7 +199,7 @@ func (c *Cluster) Init(tls *tls.Authority, sess *session.Session, labels pool.La
 	if reflowVersion.Value() == "" {
 		return errors.New("no version specified in cluster configuration")
 	}
-	if err := validateReflowletImage(ecr.New(sess), string(*reflowlet), logger); err != nil {
+	if err := validateBootstrapImage(ecr.New(sess), string(*bootstrapimage), logger); err != nil {
 		return err
 	}
 
@@ -211,7 +211,7 @@ func (c *Cluster) Init(tls *tls.Authority, sess *session.Session, labels pool.La
 		c.Name = defaultClusterName
 	}
 	c.Labels = labels.Copy()
-	c.ReflowletImage = reflowlet.Value()
+	c.BootstrapImage = bootstrapimage.Value()
 	c.ReflowVersion = string(*reflowVersion)
 	c.SshKey = sshKey.Value()
 	if c.MaxInstances == 0 {
@@ -390,7 +390,7 @@ func (c *Cluster) loop() {
 			Subnet:          c.Subnet,
 			InstanceProfile: c.InstanceProfile,
 			SecurityGroup:   c.SecurityGroup,
-			ReflowletImage:  c.ReflowletImage,
+			BootstrapImage:  c.BootstrapImage,
 			Price:           price,
 			EBSType:         c.DiskType,
 			EBSSize:         uint64(config.Resources["disk"]) >> 30,
@@ -413,7 +413,7 @@ func (c *Cluster) loop() {
 		// Here we try to pack resource requests. First, we order each
 		// request by the "magnitude" of the request (as defined by
 		// (Resources).ScaledDistance) and then greedily pack the requests
-		// until there is no instance type that can accomodate them.
+		// until there is no instance type that can accommodate them.
 		sort.Slice(waiters, func(i, j int) bool {
 			return waiters[i].Min.ScaledDistance(nil) < waiters[j].Min.ScaledDistance(nil)
 		})

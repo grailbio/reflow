@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/grailbio/reflow/test/testutil"
+
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/grailbio/infra"
@@ -225,7 +225,7 @@ func setEquals(t *testing.T, msg string, gots, wants []string) {
 }
 
 func TestClusterInfra(t *testing.T) {
-	skipIfNoCreds(t)
+	testutil.SkipIfNoCreds(t)
 	var schema = infra.Schema{
 		"labels":    make(pool.Labels),
 		"cluster":   new(runner.Cluster),
@@ -233,21 +233,29 @@ func TestClusterInfra(t *testing.T) {
 		"logger":    new(log.Logger),
 		"session":   new(session.Session),
 		"user":      new(infra2.User),
-		"reflowlet": new(infra2.ReflowletVersion),
+		"bootstrap": new(infra2.BootstrapImage),
 		"reflow":    new(infra2.ReflowVersion),
 		"sshkey":    new(infra2.SshKey),
 	}
-	config, err := schema.Make(infra.Keys{
-		"labels":    "kv",
-		"tls":       "tls,file=/tmp/ca",
-		"logger":    "logger",
-		"session":   "awssession",
-		"user":      "user",
-		"reflowlet": "reflowletversion,version=1.2.3",
-		"reflow":    "reflowversion,version=abcdef",
-		"cluster":   "ec2cluster",
-		"sshkey":    "key",
-	})
+	b := `
+        labels: kv
+        tls: tls,file=/tmp/ca
+        logger: logger
+        session: awssession
+        user: user
+        bootstrap: bootstrapimage,uri=1.2.3
+        reflow: reflowversion,version=abcdef
+        cluster: ec2cluster
+        ec2cluster:
+            maxinstances: 1
+            disktype: dt
+            diskspace: 10
+            ami: foo
+            region: bar
+            securitygroup: blah
+        sshkey: key
+        `
+	config, err := schema.Unmarshal([]byte(b))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,25 +274,7 @@ func TestClusterInfra(t *testing.T) {
 	if got, want := ec2cluster.ReflowVersion, "abcdef"; got != want {
 		t.Errorf("got %v, want %v", ec2cluster.Spot, "abcdef")
 	}
-	if got, want := ec2cluster.ReflowletImage, "1.2.3"; got != want {
+	if got, want := ec2cluster.BootstrapImage, "1.2.3"; got != want {
 		t.Errorf("got %v, want %v", ec2cluster.Spot, "1.2.3")
-	}
-}
-
-func skipIfNoCreds(t *testing.T) {
-	t.Helper()
-	provider := &credentials.ChainProvider{
-		VerboseErrors: true,
-		Providers: []credentials.Provider{
-			&credentials.EnvProvider{},
-			&credentials.SharedCredentialsProvider{},
-		},
-	}
-	_, err := provider.Retrieve()
-	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == "NoCredentialProviders" {
-			t.Skip("no credentials in environment; skipping")
-		}
-		t.Fatal(err)
 	}
 }
