@@ -18,6 +18,8 @@ import (
 	"github.com/grailbio/reflow/values"
 )
 
+var errNoExecsToRepeat = errors.E(errors.Precondition, errors.New("no execs to repeat"))
+
 // repeatExecs traverses the given flow DAG, repeats each exec found,
 // compares the results and returns a flow node that
 // returns a list of bool for each repeated exec under the given flow.
@@ -49,7 +51,7 @@ func (r *repeater) Comparer() (*flow.Flow, error) {
 			// to finish before potentially firing off repetitions, but we can definitely make this faster.
 			deps := r.fm.Values()
 			if len(deps) == 0 && r.times > 1 {
-				return &flow.Flow{Op: flow.Val, Err: errors.Recover(errors.New("no execs to repeat"))}
+				return &flow.Flow{Op: flow.Val, Err: errors.Recover(errNoExecsToRepeat)}
 			}
 			return &flow.Flow{
 				Op:         flow.K,
@@ -59,7 +61,7 @@ func (r *repeater) Comparer() (*flow.Flow, error) {
 					result := true
 					for _, v := range vs {
 						tuple := v.(values.Tuple)
-						fmt.Fprintln(os.Stderr, "repeated exec result %s", tuple[0].(string))
+						fmt.Fprintf(os.Stderr, "repeated exec result %s\n", tuple[0].(string))
 						if !tuple[1].(bool) {
 							result = false
 							break

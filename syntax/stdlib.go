@@ -338,7 +338,11 @@ var testDecls = []*Decl{
 		),
 		Mode: ModeDirect,
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
-			f, bi := args[0].(*flow.Flow), args[1].(*big.Int)
+			f, ok := args[0].(*flow.Flow)
+			if !ok {
+				return nil, errors.E(loc.Position, loc.Ident, errNoExecsToRepeat)
+			}
+			bi := args[1].(*big.Int)
 			f, err := repeatExecs(f, int(bi.Int64()))
 			if err != nil {
 				return nil, errors.E(loc.Position, loc.Ident, err)

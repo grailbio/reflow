@@ -263,6 +263,7 @@ func TestEvalErr(t *testing.T) {
 		{"testdata/err2.rf", "panic: panic!"},
 		{"testdata/err3.rf", "testdata/err3.rf:2:7: cannot match list pattern of size 1 with a list of size 2"},
 		{"testdata/err4.rf", "testdata/err4.rf:2:16: cannot reduce empty list"},
+		{"testdata/err5.rf", "testdata/err5.rf:8:29 err5.Test: precondition was not met: no execs to repeat"},
 	} {
 		m, err := sess.Open(c.file)
 		if err != nil {

@@ -1,0 +1,8 @@
+val test = make("$/test")
+
+val NoExec = {
+	val x = 5 + 10
+	x == 15
+}
+
+val Test = test.Assert([test.ExecRepeatAndCheck(NoExec, 3)])
