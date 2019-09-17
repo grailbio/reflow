@@ -31,9 +31,9 @@ type Param struct {
 type flagVal struct {
 	kind types.Kind
 	val  values.T
+	set  bool
 	// url is only used for dirs and files
 	url string
-	set bool
 }
 
 func (f flagVal) String() string {
@@ -114,6 +114,10 @@ func (f *flagVal) Set(value string) error {
 	}
 	f.set = true
 	return nil
+}
+
+func (f flagVal) IsBoolFlag() bool {
+	return f.kind == types.BoolKind
 }
 
 // Module abstracts a Reflow module, having the ability to type check
