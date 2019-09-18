@@ -85,7 +85,8 @@ func (s *Assertions) maybeStore(key AssertionKey, value string) (bool, string) {
 }
 
 // AddFrom adds all key-value pairs from t into s (panics if s is nil)
-// If any key in t, if already existing in s, maps to a different value, an error is returned.
+// If any key in t, if already existing in s, maps to a different value, an error is returned
+// and s will be left in a partially-written state.
 func (s *Assertions) AddFrom(t *Assertions) error {
 	var err error
 	t.rangeOver(func(k AssertionKey, tv string) bool {

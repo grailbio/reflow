@@ -219,8 +219,8 @@ func TestAssertions(t *testing.T) {
 		wantAll.AddFrom(ea)
 	}
 	wantAll.AddFrom(a)
-	gotAll, err := fs.Assertions()
-	if err != nil {
+	gotAll := new(reflow.Assertions)
+	if err := fs.WriteAssertions(gotAll); err != nil {
 		t.Errorf("unexpected %v", err)
 	}
 	if got, want := gotAll, wantAll; !got.Equal(want) {
@@ -234,8 +234,8 @@ func TestAssertions(t *testing.T) {
 	if err := fs.AddAssertions(a); err != nil {
 		t.Errorf("unexpected %v", err)
 	}
-	fsa, err := fs.Assertions()
-	if err != nil {
+	fsa := new(reflow.Assertions)
+	if err := fs.WriteAssertions(fsa); err != nil {
 		t.Errorf("unexpected %v", err)
 	}
 	if got, want := fsa, a; !got.Equal(want) {

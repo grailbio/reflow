@@ -348,6 +348,12 @@ type Flow struct {
 
 	digestOnce sync.Once
 	digest     digest.Digest
+
+	// depAssertions accumulates the assertions from all of this flow's dependencies
+	// and is computed only after its dependencies are done.
+	depsAssertionsOnce sync.Once
+	depsAssertions     *reflow.Assertions
+	depsAssertionsErr  error
 }
 
 // Copy performs a shallow copy of the Flow.
@@ -772,15 +778,22 @@ func (f *Flow) DepAssertions_UnitTestOnly() (*reflow.Assertions, error) {
 // The flows dependencies must already be computed before invoking depAssertions.
 // depAssertions is valid only for Extern, and Exec ops.
 func (f *Flow) depAssertions() (*reflow.Assertions, error) {
+	f.depsAssertionsOnce.Do(f.computeDepAssertions)
+	return f.depsAssertions, f.depsAssertionsErr
+}
+
+func (f *Flow) computeDepAssertions() {
 	switch f.Op {
 	case Extern:
 		if f.Deps[0].Value == nil {
 			break
 		}
-		return f.Deps[0].Value.(reflow.Fileset).Assertions()
+		f.depsAssertions = new(reflow.Assertions)
+		f.depsAssertionsErr = f.Deps[0].Value.(reflow.Fileset).WriteAssertions(f.depsAssertions)
+		return
 	case Exec:
 		f.setArgmap()
-		a := new(reflow.Assertions)
+		f.depsAssertions = new(reflow.Assertions)
 		for i := 0; i < f.NExecArg(); i++ {
 			earg := f.ExecArg(i)
 			if earg.Out {
@@ -789,15 +802,11 @@ func (f *Flow) depAssertions() (*reflow.Assertions, error) {
 			if f.Deps[earg.Index].Value == nil {
 				continue
 			}
-			if fsa, err := f.Deps[earg.Index].Value.(reflow.Fileset).Assertions(); err != nil {
-				return nil, err
-			} else if err = a.AddFrom(fsa); err != nil {
-				return nil, err
+			if f.depsAssertionsErr = f.Deps[earg.Index].Value.(reflow.Fileset).WriteAssertions(f.depsAssertions); f.depsAssertionsErr != nil {
+				return
 			}
 		}
-		return a, nil
 	}
-	return nil, nil
 }
 
 // Digest produces a digest of Flow f. The digest captures the

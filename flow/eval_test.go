@@ -958,14 +958,14 @@ func TestPropagateAssertions(t *testing.T) {
 	internNoFs := op.Intern("url")
 	intern, iFs := op.Intern("url"), fuzz.Fileset(true, true)
 	intern.Value = iFs
-	internA, _ := iFs.Assertions()
+	internA, _ := getAssertions(iFs)
 
 	ec, eFs := op.Exec("image", "cmd1", reflow.Resources{"mem": 10, "cpu": 1, "disk": 110}, intern), fuzz.Fileset(true, true)
 	ec.Value = eFs
-	eA, _ := eFs.Assertions()
+	eA, _ := getAssertions(eFs)
 	ex, exFs := op.Extern("externurl", ec), fuzz.Fileset(true, true)
 	ex.Value = exFs
-	exA, _ := exFs.Assertions()
+	exA, _ := getAssertions(exFs)
 
 	merged := op.Merge(intern, ec)
 
@@ -998,7 +998,8 @@ func TestPropagateAssertions(t *testing.T) {
 		if tt.want == nil {
 			continue
 		}
-		got, err := tt.f.Value.(reflow.Fileset).Assertions()
+
+		got, err := getAssertions(tt.f.Value.(reflow.Fileset))
 		if err != nil {
 			t.Errorf("unexpected: %v", err)
 		}
@@ -1006,6 +1007,12 @@ func TestPropagateAssertions(t *testing.T) {
 			t.Errorf("got %v, want %v", got, tt.want)
 		}
 	}
+}
+
+func getAssertions(fs reflow.Fileset) (*reflow.Assertions, error) {
+	a := new(reflow.Assertions)
+	err := fs.WriteAssertions(a)
+	return a, err
 }
 
 // TestAlloc is used in scheduler tests. As well as implementing

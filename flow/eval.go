@@ -1549,8 +1549,8 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 				e.lookupFailed(f)
 				return nil
 			}
-			fsa, err := fs.Assertions()
-			if err != nil {
+			fsa := new(reflow.Assertions)
+			if err = fs.WriteAssertions(fsa); err != nil {
 				e.lookupFailed(f)
 				return nil
 			}
@@ -1960,9 +1960,7 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 	}
 	// When a flow is done (without errors), add all its assertions to the vector clock.
 	if f.Op.External() && f.State == Done && f.Err == nil {
-		if fsa, err := f.Value.(reflow.Fileset).Assertions(); err != nil {
-			f.Err = errors.Recover(errors.E("fetching assertions", f.Digest(), errors.Temporary, err))
-		} else if err := e.assertions.AddFrom(fsa); err != nil {
+		if err := f.Value.(reflow.Fileset).WriteAssertions(e.assertions); err != nil {
 			f.Err = errors.Recover(errors.E("adding assertions", f.Digest(), errors.Temporary, err))
 		}
 	}

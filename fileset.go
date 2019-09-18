@@ -180,15 +180,16 @@ func (v Fileset) AnyEmpty() bool {
 	return len(v.List) == 0 && len(v.Map) == 0
 }
 
-// Assertions returns union of Assertions in all the Files in this Fileset.
-func (v Fileset) Assertions() (*Assertions, error) {
-	a := new(Assertions)
+// WriteAssertions the union of Assertions in all the Files in this Fileset
+// into the given assertions. If any error is returned,
+// the given Assertions will be left in a partially-written state.
+func (v Fileset) WriteAssertions(a *Assertions) error {
 	for _, f := range v.Files() {
 		if err := a.AddFrom(f.Assertions); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	return a, nil
+	return nil
 }
 
 // AddAssertions adds the given assertions to all files in this Fileset.
