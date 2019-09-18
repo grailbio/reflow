@@ -23,6 +23,7 @@ import (
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/status"
+	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
@@ -1496,6 +1497,7 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 			return
 		}
 	}
+	bg := e.newAssertionsBatchCache()
 	for _, f := range flows {
 		e.step(f, func(f *Flow) error {
 			var (
@@ -1562,7 +1564,7 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 					e.lookupFailed(f)
 					return nil
 				}
-				fsaNew, err := e.refreshAssertions(ctx, fsa)
+				fsaNew, err := e.refreshAssertions(ctx, fsa, bg)
 				if err != nil {
 					e.Log.Debugf("refresh assertions: %v", err)
 					e.lookupFailed(f)
@@ -1613,14 +1615,47 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 	}
 }
 
+// assertionsBatchCache supports caching generated assertions in a batch.
+type assertionsBatchCache struct {
+	ag reflow.AssertionGenerator
+	o  once.Map
+	mu sync.Mutex
+	m  map[reflow.GeneratorKey]*reflow.Assertions
+}
+
+func (e *Eval) newAssertionsBatchCache() *assertionsBatchCache {
+	return &assertionsBatchCache{ag: e.AssertionGenerator, m: make(map[reflow.GeneratorKey]*reflow.Assertions)}
+}
+
+// Generate calls the given AssertionGenerator with the given reflow.GeneratorKey.
+func (g *assertionsBatchCache) Generate(ctx context.Context, ak reflow.GeneratorKey) (*reflow.Assertions, error) {
+	err := g.o.Do(ak, func() error {
+		assertions, err := g.ag.Generate(ctx, ak)
+		if err != nil {
+			return err
+		}
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		g.m[ak] = assertions
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.m[ak], nil
+}
+
 // refreshAssertions returns assertions with current values for each key from the given assertions.
+// If provided, the assertionsBatchCache will be used to generate/cache assertions when necessary.
 // For each AssertionKey, the current value is computed:
 // - from the assertions (if it exists)
-// - by invoking assertion generators for those keys.
-func (e *Eval) refreshAssertions(ctx context.Context, a *reflow.Assertions) (*reflow.Assertions, error) {
-	new, missing := e.assertions.Filter(a)
+// - by invoking assertion generators directly or fetching from the assertionsBatchCache (if provided)
+func (e *Eval) refreshAssertions(ctx context.Context, a *reflow.Assertions, bg *assertionsBatchCache) (*reflow.Assertions, error) {
+	newA, missing := e.assertions.Filter(a)
 	if len(missing) == 0 {
-		return new, nil
+		return newA, nil
 	}
 	missingSet := make(map[reflow.GeneratorKey]bool)
 	var toGenerate []reflow.GeneratorKey
@@ -1632,13 +1667,21 @@ func (e *Eval) refreshAssertions(ctx context.Context, a *reflow.Assertions) (*re
 		}
 	}
 	err := traverse.Each(len(toGenerate), func(i int) error {
-		a, err := e.AssertionGenerator.Generate(ctx, toGenerate[i])
+		var (
+			a   *reflow.Assertions
+			err error
+		)
+		if bg != nil {
+			a, err = bg.Generate(ctx, toGenerate[i])
+		} else {
+			a, err = e.AssertionGenerator.Generate(ctx, toGenerate[i])
+		}
 		if err != nil {
 			return err
 		}
-		return new.AddFrom(a)
+		return newA.AddFrom(a)
 	})
-	return new, err
+	return newA, err
 }
 
 // needTransfer returns the file objects that require transfer from flow f.
@@ -1693,7 +1736,7 @@ func (e *Eval) AssignExecId(ctx context.Context, f *Flow) error {
 	if err != nil {
 		return errors.E("AssignExecID", f.Digest(), err)
 	}
-	state, err := e.refreshAssertions(ctx, assertions)
+	state, err := e.refreshAssertions(ctx, assertions, nil)
 	if err != nil {
 		return errors.E("AssignExecID", f.Digest(), err)
 	}
