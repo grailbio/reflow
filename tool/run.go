@@ -119,7 +119,7 @@ func (r *runConfig) Flags(flags *flag.FlagSet) {
 	flags.StringVar(&r.alloc, "alloc", "", "use this alloc to execute program (don't allocate a fresh one)")
 	flags.BoolVar(&r.trace, "trace", false, "trace flow evaluation")
 	flags.StringVar(&r.resourcesFlag, "resources", "", "override offered resources in local mode (JSON formatted reflow.Resources)")
-	flags.BoolVar(&r.sched, "sched", false, "use scalable scheduler instead of work stealing")
+	flags.BoolVar(&r.sched, "sched", true, "use scalable scheduler instead of work stealing")
 }
 
 func (r *runConfig) Err() error {
