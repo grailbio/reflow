@@ -76,6 +76,8 @@ type TaskStatsFields struct {
 	State int
 	// Error if not nil, is the task error.
 	Error error
+	// RunID is the run the task belongs to.
+	RunID string
 }
 
 // TaskStats is the per task info and stats.
@@ -134,7 +136,7 @@ func (s *Stats) AddTasks(tasks []*Task) {
 	defer s.Mutex.Unlock()
 	s.TotalTasks += int64(len(tasks))
 	for _, t := range tasks {
-		s.Tasks[t.ID.String()] = &TaskStats{TaskStatsFields: TaskStatsFields{Ident: t.Config.Ident, Type: t.Config.Type}}
+		s.Tasks[t.ID.String()] = &TaskStats{TaskStatsFields: TaskStatsFields{Ident: t.Config.Ident, Type: t.Config.Type, RunID: t.RunID.String()}}
 		t.stats = s.Tasks[t.ID.String()]
 	}
 }
