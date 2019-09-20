@@ -12,7 +12,6 @@ package pool
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"os/user"
 	"strings"
@@ -20,10 +19,8 @@ import (
 	"time"
 
 	"github.com/grailbio/base/traverse"
-	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
-	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
 	"golang.org/x/sync/errgroup"
 )
@@ -38,10 +35,6 @@ const (
 
 	pollInterval = 10 * time.Second
 )
-
-func init() {
-	infra.Register("kv", new(KV))
-}
 
 // Alloc represent a resource allocation attached to a single
 // executor, a reservation of resources on a single node.
@@ -86,44 +79,6 @@ func (l Labels) Copy() Labels {
 		m[k] = v
 	}
 	return m
-}
-
-// KV is provider that takes a comma separated key=value list.
-type KV struct {
-	Labels
-	flags string
-}
-
-// Help implements infra.Provider
-func (KV) Help() string {
-	return "comma separated list of key=value labels"
-}
-
-// Flags implements infra.Provider
-func (l *KV) Flags(flags *flag.FlagSet) {
-	flags.StringVar(&l.flags, "labels", "", "key=value,...")
-}
-
-// Init implements infra.Provider
-func (l *KV) Init(user *infra2.User) error {
-	l.Labels = make(Labels)
-	l.Labels["user"] = string(*user)
-	if l.flags != "" {
-		split := strings.Split(l.flags, ",")
-		for _, kv := range split {
-			kvs := strings.Split(kv, "=")
-			if len(kvs) != 2 || len(kvs[0]) == 0 || len(kvs[1]) == 0 {
-				return fmt.Errorf("malformed label: %v", kv)
-			}
-			l.Labels[kvs[0]] = kvs[1]
-		}
-	}
-	return nil
-}
-
-// Instance implements infra.Provider
-func (l *KV) Instance() interface{} {
-	return l
 }
 
 // AllocMeta contains Alloc requester metadata.

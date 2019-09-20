@@ -2,10 +2,14 @@ package infra
 
 import (
 	"flag"
+	"fmt"
 	"io/ioutil"
 	golog "log"
 	"os"
 	"os/user"
+	"strings"
+
+	"github.com/grailbio/reflow/pool"
 
 	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow/log"
@@ -21,6 +25,7 @@ func init() {
 	infra.Register("write", new(CacheProviderWrite))
 	infra.Register("readwrite", new(CacheProviderReadWrite))
 	infra.Register("logger", new(Logger))
+	infra.Register("kv", new(KV))
 }
 
 // Reflow infra schema key names.
@@ -302,4 +307,42 @@ func (l *Logger) Init() error {
 
 func (l *Logger) Flags(flags *flag.FlagSet) {
 	flags.StringVar(&l.level, "level", "info", "level of logging: off, error, info, debug.")
+}
+
+// KV is provider that takes a semicolon separated key=value list.
+type KV struct {
+	pool.Labels
+	flags string
+}
+
+// Help implements infra.Provider
+func (KV) Help() string {
+	return "semicolon separated list of key=value labels"
+}
+
+// Flags implements infra.Provider
+func (l *KV) Flags(flags *flag.FlagSet) {
+	flags.StringVar(&l.flags, "labels", "", "key=value;...")
+}
+
+// Init implements infra.Provider
+func (l *KV) Init(user *User) error {
+	l.Labels = make(pool.Labels)
+	l.Labels["user"] = string(*user)
+	if l.flags != "" {
+		split := strings.Split(l.flags, ";")
+		for _, kv := range split {
+			kvs := strings.Split(kv, "=")
+			if len(kvs) != 2 || len(kvs[0]) == 0 || len(kvs[1]) == 0 {
+				return fmt.Errorf("malformed label: %v", kv)
+			}
+			l.Labels[kvs[0]] = kvs[1]
+		}
+	}
+	return nil
+}
+
+// Instance implements infra.Provider
+func (l *KV) Instance() interface{} {
+	return l
 }
