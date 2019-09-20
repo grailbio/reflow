@@ -384,21 +384,27 @@ func (i *instance) Go(ctx context.Context) {
 		id          string
 		dns         string
 		n           int
-		retryPolicy = retry.MaxTries(retry.Backoff(5*time.Second, 5*time.Minute, 1.75), maxTries)
+		retryPolicy = retry.MaxTries(retry.Backoff(5*time.Second, 30*time.Second, 1.75), maxTries)
 	)
+	spotProbeDepth := i.SpotProbeDepth
 	// TODO(marius): propagate context to the underlying AWS calls
 	for state < stateDone && ctx.Err() == nil {
 		switch state {
 		case stateCapacity:
-			if !i.Spot || i.SpotProbeDepth == 0 {
+			if !i.Spot || spotProbeDepth == 0 {
 				break
 			}
-			i.Task.Print("probing for EC2 capacity")
-			// 20 instances should be a good margin for spot.
+			i.Task.Printf("probing for EC2 capacity (depth=%d)", spotProbeDepth)
 			var ok bool
-			ok, i.err = i.ec2HasCapacity(ctx, i.SpotProbeDepth)
+			ok, i.err = i.ec2HasCapacity(ctx, spotProbeDepth)
 			if i.err == nil && !ok {
 				i.err = errors.E(errors.Unavailable, errors.New("ec2 capacity is likely exhausted"))
+			}
+			// If we are hitting instance limits, try smaller depth immediately.
+			if i.err == errInstanceLimitExceeded && spotProbeDepth > 1 {
+				spotProbeDepth /= 2
+				i.err = nil
+				continue
 			}
 		case stateLaunch:
 			i.Task.Print("launching EC2 instance")
@@ -970,6 +976,8 @@ func (i *instance) ec2WaitForSpotFulfillment(ctx context.Context, spotID string)
 	return w.WaitWithContext(ctx)
 }
 
+var errInstanceLimitExceeded = errors.New("InstanceLimitExceeded")
+
 func (i *instance) ec2HasCapacity(ctx context.Context, n int) (bool, error) {
 	params := &ec2.RunInstancesInput{
 		DryRun:       aws.Bool(true),
@@ -992,6 +1000,8 @@ func (i *instance) ec2HasCapacity(ctx context.Context, n int) (bool, error) {
 			// context errors. In this case, we treat a timeout as a negative
 			// answer.
 			return false, nil
+		case "InstanceLimitExceeded":
+			return false, errInstanceLimitExceeded
 		}
 		return false, awserr
 	} else if err == context.DeadlineExceeded {
