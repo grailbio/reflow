@@ -228,9 +228,15 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 		c.Fatal(err)
 	}
 	var tdb taskdb.TaskDB
+	// TODO(dnicoloau): Add setup-tasktb command to setup a
+	// taskdb for reflow open source.
 	err = c.Config.Instance(&tdb)
 	if err != nil {
-		c.Fatal(err)
+		if err.Error() == "no provider for type taskdb.TaskDB" {
+			c.Log.Debug(err)
+		} else {
+			c.Fatal(err)
+		}
 	}
 	// Set up run transcript and log files.
 	base := c.Runbase(runID)
@@ -473,8 +479,14 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	}
 	var tdb taskdb.TaskDB
 	err = c.Config.Instance(&tdb)
+	// TODO(dnicoloau): Add setup-tasktb command to setup a
+	// taskdb for reflow open source.
 	if err != nil {
-		c.Fatal(err)
+		if err.Error() == "no provider for type taskdb.TaskDB" {
+			c.Log.Debug(err)
+		} else {
+			c.Fatal(err)
+		}
 	}
 	transferer := &repository.Manager{
 		Status:           c.Status.Group("transfers"),

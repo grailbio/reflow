@@ -36,10 +36,8 @@ var version = "broken"
 
 var configFile = os.ExpandEnv("$HOME/.reflow/config.yaml")
 
-// TODO(dnicolaou): Make open source reflow use reflowbootstrap.
-
 // bootstrapimage is the docker URI for the bootstrap image.
-const bootstrapimage = "grailbio/reflowlet:bootstrap"
+const bootstrapimage = "grailbio/reflowbootstrap:reflowbootstrap"
 
 const intro = `Cluster computing and caching
 

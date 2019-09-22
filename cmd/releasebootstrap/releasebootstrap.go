@@ -2,8 +2,6 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-// TODO(dnicolaou) Make releasebootstrap release the bootstrap binary once the
-// reflowlet bootstrap binary is deprecated.
 package main
 
 import (
@@ -17,15 +15,15 @@ import (
 )
 
 var (
-	vflag  = flag.Bool("v", false, "print subcommand output")
-	reflow = flag.String("reflow", "github.com/grailbio/reflow/cmd/reflow", "reflow go get path")
-	repo   = flag.String("repo", "grailbio/reflowlet", "docker repository")
+	vflag           = flag.Bool("v", false, "print subcommand output")
+	reflowbootstrap = flag.String("bootstrap", "github.com/grailbio/reflow/cmd/reflowbootstrap", "bootstrap go get path")
+	repo            = flag.String("repo", "grailbio/reflowbootstrap", "docker repository")
 )
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `usage: releasebootstrap [-repo repo] [-reflow package] [-v]
 
-Releasebootstrap builds a new reflowlet bootstrap binary and pushes it to the reflowlet Docker repository.
+Releasebootstrap builds a new reflow bootstrap binary and pushes it to the reflowbootstrap Docker repository.
 `)
 	flag.PrintDefaults()
 	os.Exit(2)
@@ -35,27 +33,27 @@ func main() {
 	flag.Usage = usage
 	flag.Parse()
 
-	dir, err := ioutil.TempDir("", "reflow")
+	dir, err := ioutil.TempDir("", "reflowbootstrap")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer os.RemoveAll(dir)
 
-	path := filepath.Join(dir, "reflow")
-	ldflags := "-X main.version=bootstrap"
-	cmd := command("go", "build", "-ldflags", ldflags, "-o", path, *reflow)
+	path := filepath.Join(dir, "reflowbootstrap")
+	cmd := command("go", "build", "-o", path, *reflowbootstrap)
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, "GOOS=linux")
 	cmd.Env = append(cmd.Env, "GOARCH=amd64")
-	log.Println("building reflowlet (bootstrap binary)")
+	log.Println("building reflow bootstrap binary")
 	if err := cmd.Run(); err != nil {
 		log.Fatalf("build: %v", err)
 	}
 
 	const dockerfile = `FROM frolvlad/alpine-glibc
-COPY reflow /reflow
-ENTRYPOINT ["/reflow"]
+COPY reflowbootstrap /reflowbootstrap
+ENTRYPOINT ["/reflowbootstrap"]
 `
+
 	dockerfilePath := filepath.Join(dir, "Dockerfile")
 	if err := ioutil.WriteFile(dockerfilePath, []byte(dockerfile), 0666); err != nil {
 		log.Fatal(err)
@@ -67,9 +65,9 @@ ENTRYPOINT ["/reflow"]
 		log.Fatal(err)
 	}
 
-	image := fmt.Sprintf("%s:bootstrap", *repo)
+	image := fmt.Sprintf("%s:reflowbootstrap", *repo)
 	cmd = command("docker", "build", "-t", image, dir)
-	log.Printf("building reflowlet docker image")
+	log.Printf("building reflow bootstrap docker image")
 	if err := cmd.Run(); err != nil {
 		log.Fatalf("build image: %v", err)
 	}

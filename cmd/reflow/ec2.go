@@ -54,7 +54,7 @@ The resulting configuration can be examined with "reflow config".`
 	if err != nil {
 		c.Fatal(err)
 	}
-	pkgPath := "github.com/grailbio/reflow/ec2cluster.Cluster"
+	pkgPath := "ec2cluster"
 	if v, ok := config.Keys[infra.Cluster]; ok {
 		if v.(string) != pkgPath {
 			c.Fatalf("cluster already setup: %v", v)
@@ -64,7 +64,7 @@ The resulting configuration can be examined with "reflow config".`
 
 	if _, ok := config.Keys["tls"]; !ok {
 		path := filepath.Join(filepath.Dir(c.ConfigFile), "reflow.pem")
-		c.SchemaKeys["tls"] = fmt.Sprintf("github.com/grailbio/infra/tls.Authority,file=%v", path)
+		c.SchemaKeys["tls"] = fmt.Sprintf("tls,file=%v", path)
 	}
 	c.SchemaKeys[infra.Cluster] = pkgPath
 	c.Config, err = c.Schema.Make(c.SchemaKeys)

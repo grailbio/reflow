@@ -36,7 +36,7 @@ The resulting configuration can be examined with "reflow config"`
 	if err != nil {
 		c.Fatal(err)
 	}
-	pkgPath := "github.com/grailbio/reflow/repository/s3.Repository"
+	pkgPath := "s3"
 	keys := config.Keys
 	if v, ok := keys["repository"]; ok {
 		parts := strings.Split(v.(string), ",")
