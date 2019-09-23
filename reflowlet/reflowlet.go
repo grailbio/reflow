@@ -21,8 +21,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	dockerclient "github.com/docker/docker/client"
-	"github.com/grailbio/base/digest"
-	"github.com/grailbio/base/errors"
 	"github.com/grailbio/infra"
 	infraaws "github.com/grailbio/infra/aws"
 	infratls "github.com/grailbio/infra/tls"
@@ -30,7 +28,6 @@ import (
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/ec2authenticator"
-	"github.com/grailbio/reflow/internal/execimage"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool/server"
@@ -38,7 +35,7 @@ import (
 	repositoryhttp "github.com/grailbio/reflow/repository/http"
 	"github.com/grailbio/reflow/rest"
 	"golang.org/x/net/http2"
-	yaml "gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v2"
 )
 
 // maxConcurrentStreams is the number of concurrent http/2 streams we
@@ -51,8 +48,7 @@ type Server struct {
 	Schema infra.Schema
 	// SchemaKeys contains the schema providers and flags.
 	SchemaKeys infra.Keys
-	// The server's config.
-	// TODO(marius): move most of what is now flags here into the config.
+	// Config is the server's config.
 	Config infra.Config
 
 	// Addr is the address on which to listen.
@@ -93,7 +89,7 @@ func (s *Server) AddFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&s.HTTPDebug, "httpdebug", false, "turn on HTTP debug logging")
 }
 
-// setTags sets the reflowlet version/digest tags on the EC2 instance (if running on one).
+// setTags sets the reflowlet version tag on the EC2 instance (if running on one).
 // This is based on AWS instance metadata retrievable as per:
 // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html#instancedata-data-retrieval
 func (s *Server) setTags() error {
@@ -110,10 +106,6 @@ func (s *Server) setTags() error {
 		return err
 	}
 	iid := string(b)
-	digest, err := execimage.ImageDigest()
-	if err != nil {
-		return err
-	}
 	var sess *session.Session
 	err = s.Config.Instance(&sess)
 	if err != nil {
@@ -124,7 +116,7 @@ func (s *Server) setTags() error {
 		Resources: []*string{aws.String(iid)},
 		Tags: []*ec2.Tag{
 			{Key: aws.String("reflowlet:version"), Value: aws.String(s.version)},
-			{Key: aws.String("reflowlet:digest"), Value: aws.String(digest.String())}},
+		},
 	}
 	_, err = svc.CreateTags(input)
 	return err
@@ -241,7 +233,7 @@ func (s *Server) ListenAndServe() error {
 	}
 
 	http.Handle("/", rest.Handler(server.NewNode(p), httpLog))
-	// Add the reflowlet version to the config and serve it from an API.
+	// Create a servlet node for this reflowlet's config.
 	cfgNode, err := newConfigNode(s.Config)
 	if err != nil {
 		return fmt.Errorf("read config: %v", err)
@@ -252,7 +244,6 @@ func (s *Server) ListenAndServe() error {
 	if err != nil {
 		return fmt.Errorf("repo: %v", err)
 	}
-	http.Handle("/v1/execimage", rest.DoFuncHandler(newExecImageNode(p, repo), httpLog))
 	server := &http.Server{Addr: s.Addr}
 	if s.Insecure {
 		return server.ListenAndServe()
@@ -293,41 +284,4 @@ func newConfigNode(cfg infra.Config) (rest.DoFunc, error) {
 		}
 		call.Reply(http.StatusOK, string(b))
 	}, nil
-}
-
-func newExecImageNode(p *local.Pool, repo reflow.Repository) rest.DoFunc {
-	return rest.DoFunc(func(ctx context.Context, call *rest.Call) {
-		if !call.Allow("GET", "POST") {
-			return
-		}
-		switch call.Method() {
-		case "GET":
-			dig, err := execimage.ImageDigest()
-			if err != nil {
-				call.Error(fmt.Errorf("execimage GET: %v", err))
-				return
-			}
-			call.Reply(http.StatusOK, dig)
-		case "POST":
-			stopped := p.StopIfIdleFor(0)
-			if !stopped {
-				call.Error(errors.New("reflowlet not idle"))
-				return
-			}
-			var d digest.Digest
-			if err := call.Unmarshal(&d); err != nil {
-				return
-			}
-			image, err := repo.Get(ctx, d)
-			if err != nil {
-				call.Error(fmt.Errorf("execimage POST: %v", err))
-				return
-			}
-			if err := execimage.InstallImageReflowlet(image, "reflowlet"+d.HexN(7)); err != nil {
-				call.Error(fmt.Errorf("execimage POST: %v", err))
-				return
-			}
-			panic("should never reach")
-		}
-	})
 }
