@@ -61,19 +61,19 @@ func TestCanonicalize(t *testing.T) {
 
 func TestPhysicalDigests(t *testing.T) {
 	e1 := op.Exec("image", "cmd1", reflow.Resources{"mem": 10, "cpu": 1, "disk": 110})
-	n := len(e1.PhysicalDigests())
+	n := len(flow.PhysicalDigests(e1))
 	if n != 1 {
 		t.Errorf("expected 1 physical digest; got %d", n)
 	}
 
 	e1.OriginalImage = "image"
-	n = len(e1.PhysicalDigests())
+	n = len(flow.PhysicalDigests(e1))
 	if n != 1 {
 		t.Errorf("expected 1 physical digest; got %d", n)
 	}
 
 	e1.OriginalImage = "origImage"
-	n = len(e1.PhysicalDigests())
+	n = len(flow.PhysicalDigests(e1))
 	if n != 2 {
 		t.Errorf("expected 2 physical digests; got %d", n)
 	}
@@ -149,7 +149,7 @@ func TestDepAssertions(t *testing.T) {
 		{ex1, e1A, false}, {ex2, e2A, false}, {exM, nil, false},
 	}
 	for _, tt := range tests {
-		got, gotE := tt.f.DepAssertions_UnitTestOnly()
+		got, gotE := flow.DepAssertions(tt.f)
 		if tt.we != (gotE != nil) {
 			t.Errorf("(%v).depAssertions() got %v, want error: %v ", tt.f, gotE, tt.we)
 		}

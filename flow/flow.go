@@ -477,7 +477,7 @@ func (f *Flow) String() string {
 // for debugging.
 func (f *Flow) DebugString() string {
 	dstr := f.Digest().Short()
-	for _, d := range f.PhysicalDigests() {
+	for _, d := range f.physicalDigests() {
 		dstr += "/" + d.Short()
 	}
 	b := new(bytes.Buffer)
@@ -768,12 +768,6 @@ func (f *Flow) ExecConfig() reflow.ExecConfig {
 	}
 }
 
-// DepAssertions_UnitTestOnly is an exported version of depAssertions()
-// for the purposes of unit testing only.
-func (f *Flow) DepAssertions_UnitTestOnly() (*reflow.Assertions, error) {
-	return f.depAssertions()
-}
-
 // depAssertions returns the assertions of this flow's dependencies.
 // The flows dependencies must already be computed before invoking depAssertions.
 // depAssertions is valid only for Extern, and Exec ops.
@@ -943,18 +937,18 @@ func (f *Flow) physicalDigest(image string) digest.Digest {
 	return w.Digest()
 }
 
-// PhysicalDigests computes the physical digests of the Flow f,
+// physicalDigests computes the physical digests of the Flow f,
 // reflecting the actual underlying operation to be performed, and
 // not the logical one. If there are multiple representations of
 // the underlying operation, then multiple digests are returned, in
 // the order of most concrete to least concrete.
 //
-// If PhysicalDigests is called on nodes whose dependencies
+// If physicalDigests is called on nodes whose dependencies
 // are not fully resolved (i.e., state Done, contains a Fileset
 // value), or on nodes not of type OpExec, or OpExtern, a nil
 // slice is returned. This is because the physical input values
 // must be available to compute the digest.
-func (f *Flow) PhysicalDigests() []digest.Digest {
+func (f *Flow) physicalDigests() []digest.Digest {
 	switch f.Op {
 	case Extern, Exec:
 	default:
@@ -984,7 +978,7 @@ func (f *Flow) PhysicalDigests() []digest.Digest {
 // CacheKeys returns all the valid cache keys for this flow node.
 // They are returned in order from most concrete to least concrete.
 func (f *Flow) CacheKeys() []digest.Digest {
-	return append(f.PhysicalDigests(), f.Digest())
+	return append(f.physicalDigests(), f.Digest())
 }
 
 // Visitor returns a new FlowVisitor rooted at this node.

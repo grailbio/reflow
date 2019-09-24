@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
@@ -57,12 +58,23 @@ var maxResources = reflow.Resources{
 
 var errUnresolved = errors.New("unresolved fileset")
 
-type testGenerator struct{ valuesBySubject map[string]string }
+type testGenerator struct {
+	valuesBySubject map[string]string
+	mu              sync.Mutex
+	countsByKey     map[reflow.GeneratorKey]int
+}
 
-func (t testGenerator) Generate(ctx context.Context, key reflow.GeneratorKey) (*reflow.Assertions, error) {
+func newTestGenerator(valuesBySubject map[string]string) *testGenerator {
+	return &testGenerator{valuesBySubject: valuesBySubject, countsByKey: make(map[reflow.GeneratorKey]int)}
+}
+
+func (t *testGenerator) Generate(ctx context.Context, key reflow.GeneratorKey) (*reflow.Assertions, error) {
 	if key.Namespace == "error" {
 		return nil, fmt.Errorf("error")
 	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.countsByKey[key] = t.countsByKey[key] + 1
 	return reflow.AssertionsFromMap(map[reflow.AssertionKey]string{reflow.AssertionKey{key.Namespace, key.Subject, "tag"}: t.valuesBySubject[key.Subject]}), nil
 }
 
@@ -321,7 +333,7 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 		Executor:           &e,
 		CacheMode:          infra.CacheRead | infra.CacheWrite,
 		Assoc:              testutil.NewInmemoryAssoc(),
-		AssertionGenerator: testGenerator{map[string]string{"c": "v1"}},
+		AssertionGenerator: newTestGenerator(map[string]string{"c": "v1"}),
 		Assert:             reflow.AssertExact,
 		Repository:         testutil.NewInmemoryRepository(),
 		Transferer:         testutil.Transferer,
@@ -349,7 +361,7 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 		Executor:           &e,
 		CacheMode:          infra.CacheRead | infra.CacheWrite,
 		Assoc:              testutil.NewInmemoryAssoc(),
-		AssertionGenerator: testGenerator{map[string]string{"c": "v1"}},
+		AssertionGenerator: newTestGenerator(map[string]string{"c": "v1"}),
 		Assert:             reflow.AssertExact,
 		Repository:         testutil.NewInmemoryRepository(),
 		Transferer:         testutil.Transferer,
@@ -386,7 +398,7 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 		Executor:           &e,
 		CacheMode:          infra.CacheRead | infra.CacheWrite,
 		Assoc:              testutil.NewInmemoryAssoc(),
-		AssertionGenerator: testGenerator{map[string]string{"c": "v1"}},
+		AssertionGenerator: newTestGenerator(map[string]string{"c": "v1"}),
 		Assert:             reflow.AssertExact,
 		Repository:         testutil.NewInmemoryRepository(),
 		Transferer:         testutil.Transferer,
@@ -554,7 +566,7 @@ func TestCacheLookupBottomupWithAssertions(t *testing.T) {
 		Executor:           &e,
 		CacheMode:          infra.CacheRead | infra.CacheWrite,
 		Assoc:              testutil.NewInmemoryAssoc(),
-		AssertionGenerator: testGenerator{map[string]string{"a": "v1", "b": "v1", "c": "v1"}},
+		AssertionGenerator: newTestGenerator(map[string]string{"a": "v1", "b": "v1", "c": "v1"}),
 		Assert:             reflow.AssertExact,
 		Repository:         testutil.NewInmemoryRepository(),
 		Transferer:         testutil.Transferer,
@@ -625,7 +637,7 @@ func TestCacheLookupBottomupWithAssertExact(t *testing.T) {
 		Executor:           &e,
 		CacheMode:          infra.CacheRead | infra.CacheWrite,
 		Assoc:              testutil.NewInmemoryAssoc(),
-		AssertionGenerator: testGenerator{map[string]string{"a": "va", "b": "vb", "c": "vc"}},
+		AssertionGenerator: newTestGenerator(map[string]string{"a": "va", "b": "vb", "c": "vc"}),
 		Assert:             reflow.AssertExact,
 		Repository:         testutil.NewInmemoryRepository(),
 		Transferer:         testutil.Transferer,
@@ -692,7 +704,7 @@ func TestCacheLookupBottomupWithAssertNever(t *testing.T) {
 		Executor:           &e,
 		CacheMode:          infra.CacheRead | infra.CacheWrite,
 		Assoc:              testutil.NewInmemoryAssoc(),
-		AssertionGenerator: testGenerator{map[string]string{"e": "v1"}},
+		AssertionGenerator: newTestGenerator(map[string]string{"c": "v1"}),
 		Assert:             reflow.AssertNever,
 		Repository:         testutil.NewInmemoryRepository(),
 		Transferer:         testutil.Transferer,
@@ -729,7 +741,7 @@ func TestCacheLookupBottomupWithAssertNever(t *testing.T) {
 		Executor:           &e,
 		CacheMode:          infra.CacheRead | infra.CacheWrite,
 		Assoc:              testutil.NewInmemoryAssoc(),
-		AssertionGenerator: testGenerator{map[string]string{"a": "va", "b": "vb", "c": "vc"}},
+		AssertionGenerator: newTestGenerator(map[string]string{"a": "va", "b": "vb", "c": "vc"}),
 		Assert:             reflow.AssertNever,
 		Repository:         testutil.NewInmemoryRepository(),
 		Transferer:         testutil.Transferer,
@@ -1282,6 +1294,59 @@ func TestSchedulerSubmit(t *testing.T) {
 	// These should now both available.
 	_ = e.Exec(exec1)
 	_ = e.Exec(exec2)
+}
+
+func TestRefreshAssertionBatchCache(t *testing.T) {
+	torefresh := make([]*reflow.Assertions, 100)
+	for i := 0; i < len(torefresh); i++ {
+		torefresh[i] = reflow.AssertionsFromMap(map[reflow.AssertionKey]string{
+			reflow.AssertionKey{"test", "a", "tag"}: fmt.Sprintf("vaold%d", i),
+			reflow.AssertionKey{"test", "b", "tag"}: fmt.Sprintf("vbold%d", i),
+			reflow.AssertionKey{"test", "c", "tag"}: fmt.Sprintf("vcold%d", i),
+		})
+	}
+	want := reflow.AssertionsFromMap(map[reflow.AssertionKey]string{
+		reflow.AssertionKey{"test", "a", "tag"}: "vanew",
+		reflow.AssertionKey{"test", "b", "tag"}: "vbnew",
+		reflow.AssertionKey{"test", "c", "tag"}: "vcnew",
+	})
+
+	tests := []struct {
+		g     *testGenerator
+		cache bool
+		want  int
+	}{
+		{newTestGenerator(map[string]string{"a": "vanew", "b": "vbnew", "c": "vcnew"}), false, len(torefresh)},
+		{newTestGenerator(map[string]string{"a": "vanew", "b": "vbnew", "c": "vcnew"}), true, 1},
+	}
+	for _, tt := range tests {
+		intern := op.Intern("internurl")
+		eval := flow.NewEval(intern, flow.EvalConfig{AssertionGenerator: tt.g})
+		var cache *flow.AssertionsBatchCache
+		if tt.cache {
+			cache = flow.NewAssertionsBatchCache(eval)
+		}
+		err := traverse.Each(len(torefresh), func(i int) error {
+			got, err := flow.RefreshAssertions(context.Background(), eval, torefresh[i], cache)
+			if err != nil {
+				return err
+			}
+			if !reflow.AssertExact(context.Background(), got, want) {
+				return fmt.Errorf("assertions mismatch: %v", got.PrettyDiff(want))
+			}
+			return nil
+		})
+		if err != nil {
+			t.Error(err)
+		}
+		emptyA := new(reflow.Assertions)
+		_, keys := emptyA.Filter(want)
+		for _, k := range keys {
+			if got, want := tt.g.countsByKey[reflow.GeneratorKey{k.Subject, k.Namespace}], tt.want; got != want {
+				t.Errorf("got %d, want %d", got, want)
+			}
+		}
+	}
 }
 
 func flowFiles(files ...string) *flow.Flow {
