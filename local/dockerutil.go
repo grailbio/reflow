@@ -13,16 +13,16 @@ import (
 	"sync"
 	"time"
 
+	"docker.io/go-docker"
+	"docker.io/go-docker/api/types"
 	"github.com/docker/distribution/reference"
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/grailbio/base/retry"
 	"github.com/grailbio/reflow/internal/ecrauth"
 )
 
 // imageExists checks whether an image exists at a Docker client.
-func imageExists(ctx context.Context, client *client.Client, id string) (bool, error) {
+func imageExists(ctx context.Context, client *docker.Client, id string) (bool, error) {
 	ref, err := reference.Parse(id)
 	if err != nil {
 		return false, err
@@ -66,7 +66,7 @@ func imageExists(ctx context.Context, client *client.Client, id string) (bool, e
 }
 
 // pullImage pulls an image (by reference) to a Docker client using an authenticator.
-func pullImage(ctx context.Context, client *client.Client, authenticator ecrauth.Interface, ref string) error {
+func pullImage(ctx context.Context, client *docker.Client, authenticator ecrauth.Interface, ref string) error {
 	var options types.ImagePullOptions
 	if authenticator != nil {
 		if ok, err := authenticator.Authenticates(ctx, ref); ok && err == nil {
@@ -131,13 +131,13 @@ type image struct {
 
 var (
 	clientMu sync.Mutex
-	clientIm = map[*client.Client]map[string]*image{}
+	clientIm = map[*docker.Client]map[string]*image{}
 )
 
 // ensureImage returns nil when the image is known to be present
 // at the given Docker client. ensureImage ensures that there is only
 // one concurrent pull per image, per client.
-func ensureImage(ctx context.Context, client *client.Client, authenticator ecrauth.Interface, ref string) error {
+func ensureImage(ctx context.Context, client *docker.Client, authenticator ecrauth.Interface, ref string) error {
 	clientMu.Lock()
 	images := clientIm[client]
 	if images == nil {

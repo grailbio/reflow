@@ -15,12 +15,12 @@ import (
 	"sync"
 	"time"
 
+	"docker.io/go-docker"
+	"docker.io/go-docker/api/types"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/client"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/errors"
@@ -66,7 +66,7 @@ type Pool struct {
 	Prefix string
 	// Client is the Docker client. We assume that the Docker daemon
 	// runs on the same host from which the pool is managed.
-	Client *client.Client
+	Client *docker.Client
 	// Authenticator is used to authenticate ECR image pulls.
 	Authenticator interface {
 		Authenticates(ctx context.Context, image string) (bool, error)

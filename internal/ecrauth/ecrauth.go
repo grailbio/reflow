@@ -10,7 +10,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/docker/docker/api/types"
+	"docker.io/go-docker/api/types"
 )
 
 // Interface is the interface that is implemented by ECR

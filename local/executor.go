@@ -14,10 +14,10 @@ import (
 	"strings"
 	"sync"
 
+	"docker.io/go-docker"
+	"docker.io/go-docker/api/types"
+	"docker.io/go-docker/api/types/container"
 	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
@@ -68,7 +68,7 @@ type Executor struct {
 	// within it.
 	Dir string
 	// Client is the Docker client used by this executor.
-	Client *client.Client
+	Client *docker.Client
 	// Authenticator is used to pull images that are stored on Amazon's ECR
 	// service.
 	Authenticator ecrauth.Interface
@@ -416,7 +416,7 @@ func (e *Executor) Kill(ctx context.Context) error {
 		respc, errc := e.Client.ContainerWait(ctx, c.ID, container.WaitConditionNotRunning)
 		select {
 		case err := <-errc:
-			if client.IsErrNotFound(err) {
+			if docker.IsErrNotFound(err) {
 				continue
 			}
 		case <-respc:

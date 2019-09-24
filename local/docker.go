@@ -19,10 +19,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/client"
+	"docker.io/go-docker"
+	"docker.io/go-docker/api/types"
+	"docker.io/go-docker/api/types/container"
+	"docker.io/go-docker/api/types/network"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/retry"
@@ -57,7 +57,7 @@ type dockerExec struct {
 	Log *log.Logger
 
 	id      digest.Digest
-	client  *client.Client
+	client  *docker.Client
 	repo    *filerepo.Repository
 	staging filerepo.Repository
 	stdout  *log.Logger
@@ -140,7 +140,7 @@ func (e *dockerExec) containerName() string {
 func (e *dockerExec) create(ctx context.Context) (execState, error) {
 	if _, err := e.client.ContainerInspect(ctx, e.containerName()); err == nil {
 		return execCreated, nil
-	} else if !client.IsErrNotFound(err) {
+	} else if !docker.IsErrNotFound(err) {
 		return execInit, errors.E("ContainerInspect", e.containerName(), kind(err), err)
 	}
 	// TODO: it might be worthwhile doing image pulling as a separate state.
@@ -624,7 +624,7 @@ func (e *dockerExec) Shell(ctx context.Context) (io.ReadWriteCloser, error) {
 		if err != nil {
 			return nil, err
 		}
-		conn, err := e.client.ContainerExecAttach(ctx, response.ID, types.ExecStartCheck{})
+		conn, err := e.client.ContainerExecAttach(ctx, response.ID, types.ExecConfig{})
 		if err != nil {
 			return nil, err
 		}
@@ -804,9 +804,9 @@ func (c *allCloser) Close() error {
 // Kind returns the kind of a docker error.
 func kind(err error) errors.Kind {
 	switch {
-	case client.IsErrNotFound(err):
+	case docker.IsErrNotFound(err):
 		return errors.NotExist
-	case client.IsErrUnauthorized(err):
+	case docker.IsErrUnauthorized(err):
 		return errors.NotAllowed
 	default:
 		// Liberally pick unavailable as the default error, so that lower

@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	dockerclient "github.com/docker/docker/client"
+	"docker.io/go-docker"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/pool"
@@ -25,8 +25,8 @@ const bashImage = "yikaus/alpine-bash"
 
 // NewDockerClientOrSkip returns a local Docker client. The test is
 // marked as skipped if there is no local Docker instance.
-func NewDockerClientOrSkip(t *testing.T) *dockerclient.Client {
-	client, err := dockerclient.NewClient(
+func NewDockerClientOrSkip(t *testing.T) *docker.Client {
+	client, err := docker.NewClient(
 		"unix:///var/run/docker.sock", "1.22", /*client.DefaultVersion*/
 		nil, map[string]string{"user-agent": "reflow"})
 	if err != nil {

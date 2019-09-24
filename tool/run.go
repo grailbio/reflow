@@ -19,9 +19,9 @@ import (
 	"sort"
 	"time"
 
+	"docker.io/go-docker"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
-	dockerclient "github.com/docker/docker/client"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/infra/aws"
@@ -665,12 +665,12 @@ func (c Cmd) blob() blob.Mux {
 	}
 }
 
-func (c Cmd) dockerClient() (*dockerclient.Client, reflow.Resources) {
+func (c Cmd) dockerClient() (*docker.Client, reflow.Resources) {
 	addr := os.Getenv("DOCKER_HOST")
 	if addr == "" {
 		addr = "unix:///var/run/docker.sock"
 	}
-	client, err := dockerclient.NewClient(
+	client, err := docker.NewClient(
 		addr, "1.22", /*client.DefaultVersion*/
 		nil, map[string]string{"user-agent": "reflow"})
 	if err != nil {

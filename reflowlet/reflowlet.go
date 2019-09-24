@@ -16,11 +16,11 @@ import (
 	"syscall"
 	"time"
 
+	"docker.io/go-docker"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
-	dockerclient "github.com/docker/docker/client"
 	"github.com/grailbio/infra"
 	infraaws "github.com/grailbio/infra/aws"
 	infratls "github.com/grailbio/infra/tls"
@@ -147,7 +147,7 @@ func (s *Server) ListenAndServe() error {
 	if addr == "" {
 		addr = "unix:///var/run/docker.sock"
 	}
-	client, err := dockerclient.NewClient(
+	client, err := docker.NewClient(
 		addr, "1.22",
 		nil, map[string]string{"user-agent": "reflow"})
 	if err != nil {

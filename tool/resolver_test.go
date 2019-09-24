@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/docker/docker/api/types"
+	"docker.io/go-docker/api/types"
 )
 
 type nilAuthenticator struct{}

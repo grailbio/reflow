@@ -10,11 +10,11 @@ import (
 	"context"
 	"testing"
 
-	dockerclient "github.com/docker/docker/client"
+	"docker.io/go-docker"
 )
 
-func newDockerClientOrSkip(t *testing.T) *dockerclient.Client {
-	client, err := dockerclient.NewClient(
+func newDockerClientOrSkip(t *testing.T) *docker.Client {
+	client, err := docker.NewClient(
 		"unix:///var/run/docker.sock", "1.22", /*client.DefaultVersion*/
 		nil, map[string]string{"user-agent": "reflow"})
 	if err != nil {

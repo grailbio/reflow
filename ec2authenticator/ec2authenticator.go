@@ -15,9 +15,9 @@ import (
 	"regexp"
 	"strings"
 
+	"docker.io/go-docker/api/types"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecr"
-	"github.com/docker/docker/api/types"
 )
 
 var ecrURI = regexp.MustCompile(`^[0-9]+\.dkr\.ecr\.[a-z0-9-]+\.amazonaws.com/.*$`)
