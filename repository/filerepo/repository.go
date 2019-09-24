@@ -30,7 +30,7 @@ import (
 
 // Repository implements a filesystem-backed Repository.
 type Repository struct {
-	// The root directory for htis repository. This directory contains
+	// The root directory for this repository. This directory contains
 	// all objects.
 	Root string
 
