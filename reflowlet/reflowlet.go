@@ -19,6 +19,7 @@ import (
 	"docker.io/go-docker"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/grailbio/infra"
@@ -90,34 +91,19 @@ func (s *Server) AddFlags(flags *flag.FlagSet) {
 }
 
 // setTags sets the reflowlet version tag on the EC2 instance (if running on one).
-// This is based on AWS instance metadata retrievable as per:
-// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html#instancedata-data-retrieval
-func (s *Server) setTags() error {
+func (s *Server) setTags(sess *session.Session) error {
 	if !s.EC2Cluster {
 		return nil
 	}
-	resp, err := http.Get("http://169.254.169.254/latest/meta-data/instance-id")
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	b, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	iid := string(b)
-	var sess *session.Session
-	err = s.Config.Instance(&sess)
+	msvc := ec2metadata.New(sess)
+	doc, err := msvc.GetInstanceIdentityDocument()
 	if err != nil {
 		return err
 	}
 	svc := ec2.New(sess, &aws.Config{MaxRetries: aws.Int(3)})
 	input := &ec2.CreateTagsInput{
-		Resources: []*string{aws.String(iid)},
-		Tags: []*ec2.Tag{
-			{Key: aws.String("reflowlet:version"), Value: aws.String(s.version)},
-		},
-	}
+		Resources: []*string{aws.String(doc.InstanceID)},
+		Tags:      []*ec2.Tag{{Key: aws.String("reflowlet:version"), Value: aws.String(s.version)}}}
 	_, err = svc.CreateTags(input)
 	return err
 }
@@ -179,7 +165,7 @@ func (s *Server) ListenAndServe() error {
 		return err
 	}
 
-	if err := s.setTags(); err != nil {
+	if err := s.setTags(sess); err != nil {
 		return fmt.Errorf("set tags: %v", err)
 	}
 
