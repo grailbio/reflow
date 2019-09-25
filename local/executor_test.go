@@ -81,6 +81,87 @@ func TestExec(t *testing.T) {
 	if got, want := res, res2; !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
+	// Get gauges and profile
+	i, err := exec.Inspect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gauges := i.Gauges
+	profile := i.Profile
+
+	// Disk and tmp must be nonzero because they are always profiled at least once
+	if got, zero := gauges["disk"], 0.0; got <= zero {
+		t.Fatalf("disk gauge: %v !> %v", got, zero)
+	}
+	if got, zero := gauges["tmp"], 0.0; got <= zero {
+		t.Fatalf("tmp gauge: %v !> %v", got, zero)
+	}
+	if got, zero := profile["disk"].Mean, 0.0; got <= zero {
+		t.Fatalf("disk mean: %v !> %v", got, zero)
+	}
+	if got, zero := profile["tmp"].Mean, 0.0; got <= zero {
+		t.Fatalf("tmp mean: %v !> %v", got, zero)
+	}
+	if got, zero := profile["disk"].Max, 0.0; got <= zero {
+		t.Fatalf("disk max: %v !> %v", got, zero)
+	}
+	if got, zero := profile["tmp"].Max, 0.0; got <= zero {
+		t.Fatalf("tmp max: %v !> %v", got, zero)
+	}
+}
+
+func TestProfileContextTimeOut(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+	x, cleanup := newTestExecutorOrSkip(t, nil)
+	defer cleanup()
+	ctx := context.Background()
+	id := reflow.Digester.FromString("hello world!")
+
+	// execslow sleeps for 45 seconds, which, so ctx (with a 30-second timeout) will time out before
+	// execslow finishes.
+	execslow, err := x.Put(ctx, id, reflow.ExecConfig{
+		Type:  "exec",
+		Image: bashImage,
+		Cmd:   "sleep 45; echo foobar > $tmp/x; cat $tmp/x > $out",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Give it some time to fetch the image, etc.
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	err = execslow.Wait(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i, err := execslow.Inspect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gauges := i.Gauges
+	profile := i.Profile
+
+	// Disk and tmp must be nonzero because they are always profiled at least once
+	if got, zero := gauges["disk"], 0.0; got <= zero {
+		t.Fatalf("disk gauge: %v !> %v", got, zero)
+	}
+	if got, zero := gauges["tmp"], 0.0; got <= zero {
+		t.Fatalf("tmp gauge: %v !> %v", got, zero)
+	}
+	if got, zero := profile["disk"].Mean, 0.0; got <= zero {
+		t.Fatalf("disk mean: %v !> %v", got, zero)
+	}
+	if got, zero := profile["tmp"].Mean, 0.0; got <= zero {
+		t.Fatalf("tmp mean: %v !> %v", got, zero)
+	}
+	if got, zero := profile["disk"].Max, 0.0; got <= zero {
+		t.Fatalf("disk max: %v !> %v", got, zero)
+	}
+	if got, zero := profile["tmp"].Max, 0.0; got <= zero {
+		t.Fatalf("tmp max: %v !> %v", got, zero)
+	}
 }
 
 func TestLocalfile(t *testing.T) {

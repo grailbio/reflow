@@ -319,11 +319,7 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 	profc := make(chan stats)
 	profctx, cancelprof := context.WithCancel(ctx)
 	go func() {
-		stats, err := e.profile(profctx)
-		if err != nil {
-			e.Log.Errorf("profile: %v", err)
-		}
-		profc <- stats
+		profc <- e.profile(profctx)
 	}()
 
 	// The documentation for ContainerWait seems to imply that both channels will
@@ -365,6 +361,11 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 		}
 	}
 	e.Docker, err = e.client.ContainerInspect(ctx, e.containerName())
+
+	// Retrieve the profile before we clean up the results.
+	cancelprof()
+	e.Manifest.Stats = <-profc
+
 	if err != nil {
 		return execInit, errors.E("ContainerInspect", e.containerName(), kind(err), err)
 	}
@@ -374,10 +375,6 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 	if code == 0 && e.Docker.State.ExitCode != 0 {
 		code = int64(e.Docker.State.ExitCode)
 	}
-
-	// Retrieve the profile before we clean up the results.
-	cancelprof()
-	e.Manifest.Stats = <-profc
 
 	finishedAt, err := time.Parse(time.RFC3339Nano, e.Docker.State.FinishedAt)
 	if err != nil {
@@ -430,74 +427,114 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 }
 
 // profile profiles the container and returns a profile when its
-// context is cancelled or when the container stops.
-func (e *dockerExec) profile(ctx context.Context) (stats, error) {
-	// Sample disk usage every minute.
-	// TODO(marius): perform a final disk usage check before returning
-	const diskPeriod = time.Minute
+// context is cancelled or when the container stops. profile profiles
+// the following resources:
+// cpu: CPU load defined as ncpu * deltaCPU / deltaSys.
+// mem: Memory usage in bytes.
+// tmp: Disk usage in the tmp directory in bytes.
+// disk: Total disk usage of the return directory in bytes.
+// Note that profile logs all its errors to e.Log.Error
+// and does not return an error. It simply attempts
+// to profile resources until ctx is cancelled.
+func (e *dockerExec) profile(ctx context.Context) stats {
 	var (
-		lastDiskTime time.Time
-		stats        = make(stats)
-		paths        = map[string]string{"tmp": e.path("tmp"), "disk": e.path("return")}
+		wg     sync.WaitGroup
+		mu     sync.Mutex
+		stats  = make(stats)
+		gauges = make(reflow.Gauges)
+		paths  = map[string]string{"tmp": e.path("tmp"), "disk": e.path("return")}
 	)
-	resp, err := e.client.ContainerStats(ctx, e.containerName(), true /*stream*/)
-	if err != nil {
-		return nil, errors.E("ContainerStats", kind(err), err)
-	}
-	defer resp.Body.Close()
-	dec := json.NewDecoder(resp.Body)
-	gauges := make(reflow.Gauges)
-	for {
-		var v types.StatsJSON
-		if err := dec.Decode(&v); err != nil {
-			if err == io.EOF {
-				return stats, nil
-			}
-			dec = json.NewDecoder(io.MultiReader(dec.Buffered(), resp.Body))
+
+	// Profile the disk usage every minute.
+	wg.Add(1)
+	go func() {
+		// The disk will be profiled whenever ticker.C or ctx.Done() receives a message.
+		// This means that disk will always be profiled at least once, regardless of when
+		// ctx is canceled.
+		defer wg.Done()
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for ctx.Err() == nil {
 			select {
-			case <-time.After(100 * time.Millisecond):
-				continue
+			case <-ticker.C:
 			case <-ctx.Done():
-				return stats, nil
 			}
-		}
-		var (
-			deltaCPU = float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
-			deltaSys = float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
-			// TODO(marius): switch to stats.CPUStats.OnlineCPUs once we update the
-			// Docker client.
-			ncpu = float64(len(v.CPUStats.CPUUsage.PercpuUsage))
-		)
-		if deltaSys > 0 {
-			// We compute the CPU time here by looking at the proportion of
-			// this container's CPU time to total system time. This is normalized
-			// and so needs to be multiplied by the  number of CPUs to get a
-			// portable load number.
-			load := ncpu * deltaCPU / deltaSys
-			stats.Observe("cpu", load)
-			gauges["cpu"] = load
-		}
-
-		// We exclude page cache memory since this is not counted towards
-		// your limits.
-		mem := float64(v.MemoryStats.Usage - v.MemoryStats.Stats["cache"])
-		stats.Observe("mem", mem)
-		gauges["mem"] = mem
-
-		if time.Since(lastDiskTime) >= diskPeriod {
-			for k, path := range paths {
-				n, err := du(path)
+			// Find disk usage in "tmp" and "return" directories.
+			for k, v := range paths {
+				n, err := du(v)
 				if err != nil {
-					e.Log.Errorf("du %s: %v", path, err)
+					e.Log.Errorf("du %s: %v", v, err)
 					continue
 				}
-				gauges[k] = float64(n)
+				mu.Lock()
 				stats.Observe(k, float64(n))
+				gauges[k] = float64(n)
+				mu.Unlock()
 			}
-			lastDiskTime = time.Now()
+
+			mu.Lock()
+			e.Manifest.Gauges = gauges.Snapshot()
+			mu.Unlock()
 		}
-		e.Manifest.Gauges = gauges.Snapshot()
-	}
+	}()
+
+	// Profile CPU and memory.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		resp, err := e.client.ContainerStats(ctx, e.containerName(), true /*stream*/)
+		if err != nil {
+			e.Log.Error(errors.E("ContainerStats", kind(err), err))
+			return
+		}
+		defer resp.Body.Close()
+		dec := json.NewDecoder(resp.Body)
+		for {
+			// CPU and memory stats are obtained from the go-docker API. This means that CPU/memory profiling
+			// is entirely dependent on receiving a valid docker stats JSON. If no valid JSON is received before
+			// ctx is canceled, no profiling data for CPU or memory will be contained in gauges or stats.
+			var v types.StatsJSON
+			if err := dec.Decode(&v); err != nil {
+				if err == io.EOF {
+					return
+				}
+				dec = json.NewDecoder(io.MultiReader(dec.Buffered(), resp.Body))
+				select {
+				case <-time.After(100 * time.Millisecond):
+					continue
+				case <-ctx.Done():
+					return
+				}
+			}
+			var (
+				deltaCPU = float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
+				deltaSys = float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
+				ncpu     = float64(v.CPUStats.OnlineCPUs)
+			)
+
+			mu.Lock()
+			if deltaSys > 0 {
+				// We compute the CPU time here by looking at the proportion of
+				// this container's CPU time to total system time. This is normalized
+				// and so needs to be multiplied by the number of CPUs to get a
+				// portable load number.
+				load := ncpu * deltaCPU / deltaSys
+				stats.Observe("cpu", load)
+				gauges["cpu"] = load
+			}
+			// We exclude page cache memory since this is not counted towards
+			// your limits.
+			mem := float64(v.MemoryStats.Usage - v.MemoryStats.Stats["cache"])
+
+			stats.Observe("mem", mem)
+			gauges["mem"] = mem
+			e.Manifest.Gauges = gauges.Snapshot()
+			mu.Unlock()
+		}
+	}()
+
+	wg.Wait()
+	return stats
 }
 
 // Go runs the exec's state machine. It resumes from the saved state
