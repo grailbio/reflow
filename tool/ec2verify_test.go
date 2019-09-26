@@ -13,24 +13,35 @@ import (
 
 func TestFilterInstanceTypes(t *testing.T) {
 	instanceTypes := []string{"a", "b", "c", "d"}
-	existing := make(map[string]instances.VerifiedStatus)
-	existing["a"] = instances.VerifiedStatus{true, true, 10}
-	existing["b"] = instances.VerifiedStatus{true, false, 70}
-	existing["c"] = instances.VerifiedStatus{false, false, -1}
+	existing := map[string]instances.VerifiedStatus{
+		"a": {true, true, 10},
+		"b": {true, false, 70},
+		"c": {false, false, -1},
+	}
+	for _, tt := range []struct {
+		instanceTypes      []string
+		existing           map[string]instances.VerifiedStatus
+		retry              bool
+		verified, toverify []string
+	}{
+		{instanceTypes, map[string]instances.VerifiedStatus{}, false, []string{}, instanceTypes},
+		{instanceTypes, existing, false, []string{"a"}, []string{"c", "d"}},
+		{instanceTypes, existing, true, []string{"a"}, []string{"b", "c", "d"}},
+		{[]string{"a"}, existing, false, []string{"a"}, []string{"c"}},
+		{[]string{"a"}, existing, true, []string{"a"}, []string{"b", "c"}},
+	} {
+		verified, toverify := instancesToVerify(tt.instanceTypes, tt.existing, tt.retry)
+		if len(tt.verified) == 0 {
+			if len(verified) != 0 {
+				t.Errorf("got %v want %v", verified, tt.verified)
+			}
+		} else if got, want := verified, tt.verified; !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v want %v", got, want)
+		}
 
-	verified, toverify := filterInstanceTypes(instanceTypes, existing, false)
-	if got, want := verified, []string{"a"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("got %v want %v", got, want)
-	}
-	if got, want := toverify, []string{"c", "d"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("got %v want %v", got, want)
-	}
+		if got, want := toverify, tt.toverify; !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v want %v", got, want)
+		}
 
-	verified, toverify = filterInstanceTypes(instanceTypes, existing, true)
-	if got, want := verified, []string{"a"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("got %v want %v", got, want)
-	}
-	if got, want := toverify, []string{"b", "c", "d"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("got %v want %v", got, want)
 	}
 }

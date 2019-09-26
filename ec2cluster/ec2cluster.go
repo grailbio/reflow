@@ -377,10 +377,19 @@ func (c *Cluster) allocate(ctx context.Context, req reflow.Requirements) <-chan 
 func (c *Cluster) Probe(ctx context.Context, instanceType string) (time.Duration, error) {
 	config := c.instanceConfigs[instanceType]
 	i := c.newInstance(config, config.Price[c.Region])
+probe:
 	i.Task = c.Status.Startf("%s", config.Type)
 	i.Go(context.Background())
 	i.ec2TerminateInstance()
 	if i.Err() != nil {
+		// If the error was due to Spot unavailability, try on-demand instead.
+		if err := errors.Recover(i.Err()); i.Spot && errors.Is(errors.Unavailable, err) {
+			i.Task.Printf("spot unavailable, trying on-demand")
+			i.Spot = false
+			i.err = nil
+			i.Task.Done()
+			goto probe
+		}
 		i.Task.Printf("%v", i.Err().Error())
 	}
 	i.Task.Done()

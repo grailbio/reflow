@@ -40,9 +40,9 @@ Optionally, the -package will write out the verified results to a Go file verifi
 		c.Fatalf("not a ec2cluster! - %T", cluster)
 	}
 	existing := instances.VerifiedByRegion[ec.Region]
-	verified, toverify := filterInstanceTypes(ec.InstanceTypes, existing, *retry)
+	verified, toverify := instancesToVerify(ec.InstanceTypes, existing, *retry)
 	if len(toverify) == 0 {
-		c.Printf("no instance types to be verified")
+		c.Stdout.Write([]byte("no instance types to be verified\n"))
 		c.Exit(0)
 	}
 	sort.Strings(toverify)
@@ -115,11 +115,18 @@ func probe(ctx context.Context, cluster *ec2cluster.Cluster, instanceTypes []str
 	return results
 }
 
-// filterInstanceTypes filters the given instance types using an existing mapping of instance types to verification status
-// and returns a list of verified instance types and a list of instance types to be verified.
-// If retry is set, already attempted (but unverified) instance types are also included in toverify.
-func filterInstanceTypes(instanceTypes []string, existing map[string]instances.VerifiedStatus, retry bool) (verified, toverify []string) {
+// instancesToVerify returns a list each of verified and toverify instance types, given
+// a list of instance types and an existing mapping of instance types to verification status.
+// If retry is set, already attempted (but unverified) instance types are also included in toverify
+func instancesToVerify(instanceTypes []string, existing map[string]instances.VerifiedStatus, retry bool) (verified, toverify []string) {
+	set := make(map[string]bool)
 	for _, it := range instanceTypes {
+		set[it] = true
+	}
+	for it := range existing {
+		set[it] = true
+	}
+	for it := range set {
 		vs := existing[it]
 		if !vs.Verified && (!vs.Attempted || retry) {
 			toverify = append(toverify, it)
@@ -128,5 +135,7 @@ func filterInstanceTypes(instanceTypes []string, existing map[string]instances.V
 			verified = append(verified, it)
 		}
 	}
+	sort.Strings(verified)
+	sort.Strings(toverify)
 	return
 }
