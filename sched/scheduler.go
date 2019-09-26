@@ -364,7 +364,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			state = stateDone
 		} else if errors.Is(errors.NotSupported, err) {
 			// If not supported, we fall through to indirect transfer but log a debug message.
-			task.Log.Debugf("scheduler: direct transfer not supported for task %v: %v", task, err)
+			task.Log.Debugf("scheduler: direct transfer not supported for task %s: %v", task.ID, err)
 		} else {
 			// TODO(swami): Direct transfer resulted in an error (but was supported), should we try indirect?
 			task.Err = err
@@ -499,6 +499,11 @@ func (s *Scheduler) directTransfer(ctx context.Context, task *Task) error {
 	}
 
 	fs := task.Config.Args[0].Fileset.Pullup()
+	for _, f := range fs.Files() {
+		if f.IsRef() {
+			return errors.E(errors.NotSupported, errors.New("unresolved files not supported"))
+		}
+	}
 	task.mu.Lock()
 	task.Result.Fileset.Map = map[string]reflow.File{}
 	task.mu.Unlock()
