@@ -58,7 +58,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -87,7 +87,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -145,7 +145,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -209,7 +209,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -242,7 +242,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -310,7 +310,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -434,7 +434,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -456,7 +456,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -612,7 +612,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -665,7 +665,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -691,7 +691,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -804,7 +804,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -830,7 +830,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -926,7 +926,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -955,7 +955,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -981,7 +981,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -1033,7 +1033,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -1141,7 +1141,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -1167,7 +1167,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -1194,7 +1194,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -1298,7 +1298,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -1407,7 +1407,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -1503,7 +1503,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -1536,7 +1536,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -1572,7 +1572,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -1631,7 +1631,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -1686,7 +1686,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -1719,7 +1719,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -1779,7 +1779,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -1815,7 +1815,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -1943,7 +1943,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -1979,7 +1979,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -2094,7 +2094,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -2123,7 +2123,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -2143,7 +2143,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -2329,7 +2329,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -2349,7 +2349,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -2375,7 +2375,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -2401,7 +2401,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -2434,7 +2434,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -2532,7 +2532,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -2565,7 +2565,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -2649,7 +2649,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -2708,7 +2708,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -2767,7 +2767,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -2978,7 +2978,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -3071,7 +3071,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -3142,7 +3142,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -3178,7 +3178,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -3236,7 +3236,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -3270,7 +3270,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -3292,7 +3292,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -3357,7 +3357,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -3444,7 +3444,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -3477,7 +3477,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -3503,7 +3503,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -3615,7 +3615,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -3655,7 +3655,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -3699,7 +3699,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -3725,7 +3725,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -3745,7 +3745,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -3908,7 +3908,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -3941,7 +3941,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -3975,7 +3975,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -4037,7 +4037,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -4130,7 +4130,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -4163,7 +4163,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -4196,7 +4196,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -4229,7 +4229,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -4288,7 +4288,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -4345,7 +4345,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -4371,7 +4371,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -4431,7 +4431,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -4467,7 +4467,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -4537,7 +4537,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -4599,7 +4599,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -4720,7 +4720,7 @@ var Types = []Type{
 		},
 		Generation: "current",
 		Virt:       "HVM",
-		NVMe:       false,
+		NVMe:       true,
 		CPUFeatures: map[string]bool{
 			"intel_avx":  true,
 			"intel_avx2": true,
@@ -4829,7 +4829,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -4875,7 +4875,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -4908,7 +4908,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -4968,7 +4968,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -4988,7 +4988,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -5008,7 +5008,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -5034,7 +5034,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -5114,7 +5114,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -5186,7 +5186,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 	{
@@ -5275,7 +5275,7 @@ var Types = []Type{
 		},
 		Generation:  "current",
 		Virt:        "HVM",
-		NVMe:        false,
+		NVMe:        true,
 		CPUFeatures: map[string]bool{},
 	},
 }

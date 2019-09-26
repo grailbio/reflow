@@ -791,6 +791,12 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 		Name:    "mnt-data.mount",
 		Command: "start",
 		Content: tmpl(`
+			[Unit]
+			Description=mount
+			{{if .mortal}}
+			OnFailure=poweroff.target
+			OnFailureJobMode=replace-irreversibly
+			{{end}}
 			[Mount]
 			What=/dev/{{.name}}
 			Where=/mnt/data

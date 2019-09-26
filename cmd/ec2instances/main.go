@@ -27,6 +27,12 @@ var (
 	stdout = flag.Bool("stdout", false, "print the package to stdout instead of materializing it")
 )
 
+// nitroBasedInstanceTypes contain a list of instance type classes that are nitro-based
+// (and hence expose the EBS volumes as NVMe) as per:
+// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-types.html#ec2-nitro-instances
+// Note: www.ec2instances.info doesn't capture this correctly.
+var nitroBasedInstanceTypes = []string{"c5", "c5d", "c5n", "g4dn", "i3en", "m5", "m5a", "m5ad", "m5d", "r5", "r5a", "r5ad", "r5d", "t3", "t3a", "z1d"}
+
 func usage() {
 	fmt.Fprintf(os.Stderr, `usage: ec2instances dir
 
@@ -48,6 +54,10 @@ func main() {
 	}
 	dir := flag.Arg(0)
 
+	nvmeSet := make(map[string]bool, len(nitroBasedInstanceTypes))
+	for _, c := range nitroBasedInstanceTypes {
+		nvmeSet[c] = true
+	}
 	var body io.Reader
 	if strings.HasPrefix(*url, "file://") {
 		path := strings.TrimPrefix(*url, "file://")
@@ -184,7 +194,11 @@ func main() {
 		g.Printf("	},\n")
 		g.Printf("	Generation: %q,\n", e.Generation)
 		g.Printf("	Virt: %q,\n", virt)
-		g.Printf("	NVMe: %v,\n", strings.HasPrefix(e.Type, "c5.") || strings.HasPrefix(e.Type, "m5."))
+		nvme := false
+		if parts := strings.Split(e.Type, "."); len(parts) == 2 && nvmeSet[parts[0]] {
+			nvme = true
+		}
+		g.Printf("	NVMe: %v,\n", nvme)
 		g.Printf("	CPUFeatures: map[string]bool{\n")
 		if e.IntelAVX {
 			g.Printf("		%q: true,\n", "intel_avx")
