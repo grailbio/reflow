@@ -23,8 +23,9 @@ import (
 )
 
 var (
-	url    = flag.String("url", "http://www.ec2instances.info/instances.json", "the URL from which to fetch instances.json")
-	stdout = flag.Bool("stdout", false, "print the package to stdout instead of materializing it")
+	url      = flag.String("url", "http://www.ec2instances.info/instances.json", "the URL from which to fetch instances.json")
+	stdout   = flag.Bool("stdout", false, "print the package to stdout instead of materializing it")
+	verified = flag.Bool("verified", false, "whether to generate verified.go")
 )
 
 // nitroBasedInstanceTypes contain a list of instance type classes that are nitro-based
@@ -216,23 +217,24 @@ func main() {
 	g.Printf("}\n")
 	src := g.Gofmt()
 
-	vgen := instances.VerifiedSrcGenerator{filepath.Base(dir), instances.VerifiedByRegion}
-	vsrc, err := vgen.AddTypes(acceptedTypes).Source()
-	if err != nil {
-		log.Fatal(err)
-	}
 	if *stdout {
 		os.Stdout.Write(src)
-		os.Stdout.Write(vsrc)
 	} else {
 		os.MkdirAll(dir, 0777)
 		path := filepath.Join(dir, "instances.go")
 		if err := ioutil.WriteFile(path, src, 0644); err != nil {
 			log.Fatal(err)
 		}
-		vpath := filepath.Join(dir, "verified.go")
-		if err := ioutil.WriteFile(vpath, vsrc, 0644); err != nil {
-			log.Fatal(err)
+		if *verified {
+			vgen := instances.VerifiedSrcGenerator{filepath.Base(dir), instances.VerifiedByRegion}
+			vsrc, err := vgen.AddTypes(acceptedTypes).Source()
+			if err != nil {
+				log.Fatal(err)
+			}
+			vpath := filepath.Join(dir, "verified.go")
+			if err := ioutil.WriteFile(vpath, vsrc, 0644); err != nil {
+				log.Fatal(err)
+			}
 		}
 	}
 }
