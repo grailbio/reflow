@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/ec2authenticator"
+	"github.com/grailbio/reflow/ec2cluster/volume"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool/server"
@@ -104,6 +106,21 @@ func (s *Server) setTags(sess *session.Session) error {
 	return err
 }
 
+// setupWatcher sets up a volume watcher for the given path.
+func (s *Server) setupWatcher(ctx context.Context, path string, sess *session.Session) error {
+	logger := log.Std.Tee(nil, fmt.Sprintf("watcher %s: ", path))
+	v, err := volume.NewEbsLvmVolume(sess, logger, path)
+	if err != nil {
+		return fmt.Errorf("create volume for path %s: %v", path, err)
+	}
+	w, err := volume.NewWatcher(ctx, logger, v, volume.DefaultWatcherParams)
+	if err != nil {
+		return err
+	}
+	go w.Watch(ctx)
+	return nil
+}
+
 // ListenAndServe serves the Reflowlet server on the configured address.
 func (s *Server) ListenAndServe() error {
 	addr := os.Getenv("DOCKER_HOST")
@@ -170,6 +187,10 @@ func (s *Server) ListenAndServe() error {
 		return err
 	}
 	if s.EC2Cluster {
+		ctx, cancel := context.WithCancel(context.Background())
+		if err := s.setupWatcher(ctx, filepath.Join(s.Prefix, s.Dir), sess); err != nil {
+			log.Fatal(err)
+		}
 		go func() {
 			const (
 				period = time.Minute
@@ -181,7 +202,10 @@ func (s *Server) ListenAndServe() error {
 			time.Sleep(expiry)
 			for {
 				if p.StopIfIdleFor(expiry) {
-					log.Fatalf("reflowlet idle for %s; shutting down", expiry)
+					log.Printf("reflowlet idle for %s; shutting down", expiry)
+					cancel()
+					// Exit normally
+					os.Exit(0)
 				}
 				time.Sleep(period)
 			}
