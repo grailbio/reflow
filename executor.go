@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -448,6 +449,7 @@ type Exec interface {
 	Shell(ctx context.Context) (io.ReadWriteCloser, error)
 
 	// Promote installs this exec's objects into the alloc's repository.
+	// Promote assumes that the Exec is complete. i.e. Wait returned successfully.
 	Promote(context.Context) error
 }
 
@@ -465,10 +467,16 @@ type Executor interface {
 	// Execs lists all Execs known to the Executor.
 	Execs(ctx context.Context) ([]Exec, error)
 
-	// Load fetches missing files from an un-resolved fileset
-	// into the executor's repository. The resolved fileset is
-	// returned.
-	Load(ctx context.Context, fs Fileset) (Fileset, error)
+	// Load fetches missing files into the executor's repository. Load fetches
+	// resolved files from the specified backing repository and unresolved files
+	// directly from the source. The resolved fileset is returned and is available
+	// on the executor on successful return. The client has to explicitly unload the
+	// files to free them.
+	Load(ctx context.Context, repo *url.URL, fileset Fileset) (Fileset, error)
+
+	// Unload the data from the executor's repository. Any use of the unloaded files
+	// after the successful return of Unload is undefined.
+	Unload(ctx context.Context, fileset Fileset) error
 
 	// Resources indicates the total amount of resources available at the Executor.
 	Resources() Resources

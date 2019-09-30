@@ -12,9 +12,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	golog "log"
 	"math/rand"
+	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -83,6 +86,25 @@ func randomFileset(repo reflow.Repository) reflow.Fileset {
 		f.ID = d
 		f.Size = int64(len(p))
 		fs.Map[path] = f
+	}
+	return fs
+}
+
+func randomRepoFileset(repo reflow.Repository) reflow.Fileset {
+	n := rand.Intn(100) + 1
+	var fs reflow.Fileset
+	fs.Map = make(map[string]reflow.File, n)
+	for i := 0; i < n; i++ {
+		p := make([]byte, rand.Intn(1024)+1)
+		if _, err := rand.Read(p); err != nil {
+			panic(err)
+		}
+		d, err := repo.Put(context.TODO(), bytes.NewReader(p))
+		if err != nil {
+			panic(err)
+		}
+		path := fmt.Sprintf("file%d", i)
+		fs.Map[path] = reflow.File{ID: d, Size: int64(len(p)), Source: repo.URL().String() + "/" + d.String()}
 	}
 	return fs
 }
@@ -199,11 +221,13 @@ type testAlloc struct {
 	repository *testutil.InmemoryRepository
 	resources  reflow.Resources
 
-	mu    sync.Mutex
-	cond  *sync.Cond
-	execs map[digest.Digest]*testExec
-	err   error
-	hung  bool
+	mu         sync.Mutex
+	cond       *sync.Cond
+	execs      map[digest.Digest]*testExec
+	err        error
+	hung       bool
+	refCountMu sync.Mutex
+	refCount   map[digest.Digest]int64
 }
 
 func newTestAlloc(resources reflow.Resources) *testAlloc {
@@ -212,6 +236,7 @@ func newTestAlloc(resources reflow.Resources) *testAlloc {
 		execs:      make(map[digest.Digest]*testExec),
 		resources:  resources,
 		id:         nalloc.Next(),
+		refCount:   make(map[digest.Digest]int64),
 	}
 	alloc.cond = sync.NewCond(&alloc.mu)
 	return alloc
@@ -229,13 +254,78 @@ func (a *testAlloc) Repository() reflow.Repository {
 	return a.repository
 }
 
-func (a *testAlloc) Load(ctx context.Context, fs reflow.Fileset) (reflow.Fileset, error) {
+func (a *testAlloc) Load(ctx context.Context, url *url.URL, fs reflow.Fileset) (reflow.Fileset, error) {
+	a.refCountMu.Lock()
+	defer a.refCountMu.Unlock()
+	var (
+		resolved = make(map[digest.Digest]reflow.File)
+		id       digest.Digest
+		res      reflow.File
+	)
 	for _, file := range fs.Files() {
 		if file.IsRef() {
-			return reflow.Fileset{}, errors.New("unexpected file reference")
+			u, err := url.Parse(file.Source)
+			if err != nil {
+				return reflow.Fileset{}, err
+			}
+			repo := testutil.GetInMemoryRepository(u)
+			id, err = reflow.Digester.Parse(strings.Trim(u.Path, "/"))
+			if err != nil {
+				return reflow.Fileset{}, err
+			}
+			var rc io.ReadCloser
+			if rc, err = repo.Get(ctx, id); err != nil {
+				return reflow.Fileset{}, err
+			}
+			if _, err = a.repository.Put(ctx, rc); err != nil {
+				return reflow.Fileset{}, err
+			}
+			if err = rc.Close(); err != nil {
+				return reflow.Fileset{}, err
+			}
+			res, err = a.repository.Stat(ctx, id)
+			if err != nil {
+				return reflow.Fileset{}, err
+			}
+		} else {
+			id = file.ID
+			repo := testutil.GetInMemoryRepository(url)
+			r, err := repo.Get(ctx, file.ID)
+			if err != nil {
+				return reflow.Fileset{}, err
+			}
+			id, err = a.repository.Put(ctx, r)
+			if err != nil {
+				return reflow.Fileset{}, err
+			}
+			res, err = a.repository.Stat(ctx, id)
+			if err != nil {
+				return reflow.Fileset{}, err
+			}
+		}
+		a.refCount[res.ID]++
+		resolved[file.Digest()] = res
+	}
+	out, ok := fs.Subst(resolved)
+	if !ok {
+		return reflow.Fileset{}, errors.New("unresolved files")
+	}
+	return out, nil
+}
+
+func (a *testAlloc) Unload(ctx context.Context, fs reflow.Fileset) error {
+	a.refCountMu.Lock()
+	defer a.refCountMu.Unlock()
+	for _, file := range fs.Files() {
+		if file.IsRef() {
+			return errors.New("unexpected file reference")
+		}
+		a.refCount[file.ID]--
+		if a.refCount[file.ID] == 0 {
+			a.repository.Delete(ctx, file.ID)
 		}
 	}
-	return fs, nil
+	return nil
 }
 
 func (a *testAlloc) Put(ctx context.Context, id digest.Digest, config reflow.ExecConfig) (reflow.Exec, error) {

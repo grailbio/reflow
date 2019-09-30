@@ -23,6 +23,7 @@ import (
 
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/errors"
@@ -179,6 +180,9 @@ type blobExec struct {
 	// restarts; they can also be restored as zombies.
 	Manifest
 	err error
+
+	x           *Executor
+	promoteOnce once.Task
 }
 
 const (
@@ -493,11 +497,22 @@ func (e *blobExec) Result(ctx context.Context) (reflow.Result, error) {
 	return e.Manifest.Result, nil
 }
 
+// Promote promotes the blob exec data to the executor repository.
 func (e *blobExec) Promote(ctx context.Context) error {
-	if e.transferType == intern {
-		return e.Repository.Vacuum(ctx, &e.staging)
-	}
-	return nil
+	// Promotion moves the objects in the staging repository to the executor's repository.
+	// The first call to Promote moves these objects and ref counts them. Later calls are
+	// a no-op.
+	// TODO(pgopal): Move promote to the exec state machine.
+	return e.promoteOnce.Do(func() error {
+		if e.transferType == intern {
+			res, err := e.Result(ctx)
+			if err != nil {
+				return err
+			}
+			return e.x.promote(ctx, res.Fileset, &e.staging)
+		}
+		return nil
+	})
 }
 
 // Inspect returns exec metadata.

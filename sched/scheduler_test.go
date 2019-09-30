@@ -91,7 +91,9 @@ func TestSchedulerBasic(t *testing.T) {
 
 	// By the time the task is running, it should have all of the dependent objects
 	// in its repository.
-	task.Wait(ctx, sched.TaskRunning)
+	if err := task.Wait(ctx, sched.TaskRunning); err != nil {
+		t.Fatal(err)
+	}
 	stats = scheduler.Stats.GetStats()
 	if got, want := len(stats.Tasks), 1; got != want {
 		t.Fatalf("got %v, want %v", got, want)
@@ -112,7 +114,9 @@ func TestSchedulerBasic(t *testing.T) {
 	// the main repository.
 	exec := alloc.exec(task.ID)
 	exec.complete(reflow.Result{Fileset: out}, nil)
-	task.Wait(ctx, sched.TaskDone)
+	if err := task.Wait(ctx, sched.TaskDone); err != nil {
+		t.Fatal(err)
+	}
 	if task.Err != nil {
 		t.Errorf("unexpected task error: %v", task.Err)
 	}
@@ -166,8 +170,12 @@ func TestSchedulerAlloc(t *testing.T) {
 	alloc := newTestAlloc(reflow.Resources{"cpu": 30, "mem": 30 << 30})
 	req.Reply <- testClusterAllocReply{Alloc: alloc}
 
-	tasks[0].Wait(ctx, sched.TaskRunning)
-	tasks[2].Wait(ctx, sched.TaskRunning)
+	if err := tasks[0].Wait(ctx, sched.TaskRunning); err != nil {
+		t.Fatal(err)
+	}
+	if err := tasks[2].Wait(ctx, sched.TaskRunning); err != nil {
+		t.Fatal(err)
+	}
 	if got, want := tasks[1].State(), sched.TaskInit; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
@@ -185,11 +193,15 @@ func TestSchedulerAlloc(t *testing.T) {
 	// means the scheduler should be able to schedule tasks[1] and tasks[3].
 	exec := alloc.exec(tasks[2].ID)
 	exec.complete(reflow.Result{}, nil)
-	tasks[1].Wait(ctx, sched.TaskRunning)
+	if err := tasks[1].Wait(ctx, sched.TaskRunning); err != nil {
+		t.Fatal(err)
+	}
 
 	exec = alloc.exec(tasks[0].ID)
 	exec.complete(reflow.Result{}, nil)
-	tasks[3].Wait(ctx, sched.TaskRunning)
+	if err := tasks[3].Wait(ctx, sched.TaskRunning); err != nil {
+		t.Fatal(err)
+	}
 
 	// There shouldn't be another one:
 	select {
@@ -247,7 +259,9 @@ func TestTaskLost(t *testing.T) {
 
 	req = <-cluster.Req()
 	req.Reply <- testClusterAllocReply{Alloc: allocs[1]}
-	singleTask.Wait(ctx, sched.TaskRunning)
+	if err := singleTask.Wait(ctx, sched.TaskRunning); err != nil {
+		t.Fatal(err)
+	}
 
 	// Fail the alloc. By the time we get a new request, the task should
 	// be back in init state.
@@ -260,7 +274,9 @@ func TestTaskLost(t *testing.T) {
 
 	// When we recover, the task is reassigned.
 	req.Reply <- testClusterAllocReply{Alloc: newTestAlloc(reflow.Resources{"cpu": 1, "mem": 1})}
-	singleTask.Wait(ctx, sched.TaskRunning)
+	if err := singleTask.Wait(ctx, sched.TaskRunning); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestSchedulerFracCPU(t *testing.T) {
@@ -293,8 +309,10 @@ func TestSchedulerFracCPU(t *testing.T) {
 	req.Reply <- testClusterAllocReply{Alloc: alloc}
 
 	// Run all tasks at once. There should be enough resources in the alloc
-	for _, t := range tasks {
-		t.Wait(ctx, sched.TaskRunning)
+	for _, task := range tasks {
+		if err := task.Wait(ctx, sched.TaskRunning); err != nil {
+			t.Fatal(err)
+		}
 	}
 	select {
 	case <-cluster.Req():
@@ -366,4 +384,92 @@ func TestSchedulerDirectTransferUnsupported(t *testing.T) {
 		t.Errorf("Cluster should have no requests")
 	default:
 	}
+}
+
+func TestSchedulerLoadUnloadFiles(t *testing.T) {
+	scheduler, cluster, repo, shutdown := newTestScheduler(t)
+	defer shutdown()
+	ctx := context.Background()
+	in := randomFileset(repo)
+	expectExists(t, repo, in)
+
+	remote := testutil.NewInmemoryRepository()
+	remotes := randomRepoFileset(remote)
+	refs := reflow.Fileset{Map: make(map[string]reflow.File)}
+	for k := range remotes.Map {
+		v := reflow.File{Source: remotes.Map[k].Source}
+		refs.Map[k] = v
+	}
+
+	task := newTask(10, 10<<30, 0)
+	task.Config.Args = []reflow.Arg{{Fileset: &in}, {Fileset: &refs}}
+
+	scheduler.Submit(task)
+	req := <-cluster.Req()
+	if got, want := req.Requirements, newRequirements(10, 10<<30, 1); !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	alloc := newTestAlloc(reflow.Resources{"cpu": 25, "mem": 20 << 30})
+	// TODO(pgopal): There is no way to wait for the tasks to be added to the scheduler queue.
+	// Hence we cannot check task stats here.
+	stats := scheduler.Stats.GetStats()
+	if got, want := len(stats.Allocs), 0; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	// pending allocs will not have an entry in stats.Allocs.
+	if got, want := stats.OverallStats.TotalTasks, int64(1); got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+
+	out := randomFileset(alloc.Repository())
+	req.Reply <- testClusterAllocReply{Alloc: alloc, Err: nil}
+
+	// By the time the task is running, it should have all of the dependent objects
+	// in its repository.
+	if err := task.Wait(ctx, sched.TaskRunning); err != nil {
+		t.Fatal(err)
+	}
+	expectExists(t, alloc.Repository(), remotes)
+
+	stats = scheduler.Stats.GetStats()
+	if got, want := len(stats.Tasks), 1; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := stats.Tasks[task.ID.String()].State, 2; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := len(stats.Allocs), 1; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	want := sched.OverallStats{TotalTasks: 1, TotalAllocs: 1}
+	if got := stats.OverallStats; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	expectExists(t, alloc.Repository(), in)
+
+	// Complete the task and check that all of its output is placed back into
+	// the main repository.
+	exec := alloc.exec(task.ID)
+	exec.complete(reflow.Result{Fileset: out}, nil)
+	if err := task.Wait(ctx, sched.TaskDone); err != nil {
+		t.Fatal(err)
+	}
+	if task.Err != nil {
+		t.Errorf("unexpected task error: %v", task.Err)
+	}
+	stats = scheduler.Stats.GetStats()
+	if got, want := len(stats.Tasks), 1; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := stats.Tasks[task.ID.String()].State, 4; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := len(stats.Allocs), 1; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	want = sched.OverallStats{TotalAllocs: 1, TotalTasks: 1}
+	if got := stats.OverallStats; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	expectExists(t, repo, out)
 }

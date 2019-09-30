@@ -26,6 +26,7 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/retry"
+	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
@@ -68,7 +69,8 @@ type dockerExec struct {
 
 	// Manifest stores the serializable state of the exec.
 	Manifest
-	err error
+	err         error
+	promoteOnce once.Task
 }
 
 var retryPolicy = retry.MaxTries(retry.Backoff(time.Second, 10*time.Second, 1.5), 5)
@@ -339,6 +341,7 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 	var code int64
 	select {
 	case err := <-errc:
+		cancelprof()
 		return execInit, errors.E("ContainerWait", e.containerName(), kind(err), err)
 	case resp := <-respc:
 		code = resp.StatusCode
@@ -744,8 +747,19 @@ func (e *dockerExec) Result(ctx context.Context) (reflow.Result, error) {
 	return e.Manifest.Result, nil
 }
 
+// Promote promotes the objects in the docker exec repository to the alloc repository.
 func (e *dockerExec) Promote(ctx context.Context) error {
-	return e.repo.Vacuum(ctx, &e.staging)
+	// Promotion moves the objects in the staging repository to the executor's repository.
+	// The first call to Promote moves these objects and ref counts them. Later calls are
+	// a no-op.
+	err := e.promoteOnce.Do(func() error {
+		res, err := e.Result(ctx)
+		if err != nil {
+			return err
+		}
+		return e.Executor.promote(ctx, res.Fileset, &e.staging)
+	})
+	return err
 }
 
 // Kill kills the exec's container and removes it entirely.

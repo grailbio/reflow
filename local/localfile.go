@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/grailbio/base/sync/once"
+
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
@@ -32,13 +34,14 @@ type localfileExec struct {
 
 	staging filerepo.Repository
 
-	id    digest.Digest
-	cfg   reflow.ExecConfig
-	fs    reflow.Fileset
-	mu    sync.Mutex
-	cond  *sync.Cond
-	state execState
-	err   error
+	id          digest.Digest
+	cfg         reflow.ExecConfig
+	fs          reflow.Fileset
+	mu          sync.Mutex
+	cond        *sync.Cond
+	state       execState
+	err         error
+	promoteOnce once.Task
 }
 
 func newLocalfileExec(id digest.Digest, x *Executor, cfg reflow.ExecConfig) *localfileExec {
@@ -98,7 +101,6 @@ func (e *localfileExec) do(ctx context.Context) error {
 	default:
 		return errors.E("exec", e.id, errors.NotSupported, errors.Errorf("unsupported exec type %v", e.cfg.Type))
 	}
-	panic("bug")
 }
 
 // setState sets the current state and error. It broadcasts
@@ -150,8 +152,19 @@ func (e *localfileExec) Result(ctx context.Context) (reflow.Result, error) {
 	return reflow.Result{Fileset: e.fs}, nil
 }
 
+// Promote implements reflow.Executor
 func (e *localfileExec) Promote(ctx context.Context) error {
-	return e.Executor.FileRepository.Vacuum(ctx, &e.staging)
+	// Promotion moves the objects in the staging repository to the executor's repository.
+	// The first call to Promote moves these objects and ref counts them. Later calls are
+	// a no-op.
+	err := e.promoteOnce.Do(func() error {
+		res, err := e.Result(ctx)
+		if err != nil {
+			return err
+		}
+		return e.Executor.promote(ctx, res.Fileset, &e.staging)
+	})
+	return err
 }
 
 func (e *localfileExec) Inspect(ctx context.Context) (reflow.ExecInspect, error) {

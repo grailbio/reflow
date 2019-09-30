@@ -61,6 +61,8 @@ func newS3Test(t *testing.T, bucket, prefix string, transferType string) (exec *
 		URL:  "s3://" + bucket + "/" + prefix,
 	}
 	exec.Init(nil)
+	exec.x = &Executor{FileRepository: repo}
+	_ = exec.x.Start()
 	return
 }
 
@@ -154,20 +156,21 @@ func TestS3ExecInternPrefix(t *testing.T) {
 	if got, want := res2, (reflow.Result{Fileset: val}); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
+
 	if err := s3x.Promote(ctx); err != nil {
 		t.Fatal(err)
 	}
-
-	// Verify that everything is in the repository.
+	// Verify that everything is in the executor repository.
 	for _, file := range val.Map {
 		ok, err := repo.Contains(file.ID)
 		if err != nil {
 			t.Error(err)
 		}
 		if !ok {
-			t.Errorf("repo is missing %v", file.ID)
+			t.Errorf("executor repo is missing %v", file.ID)
 		}
 	}
+
 	// Compare assertions
 	for path := range res2.Fileset.Map {
 		if got, want := res2.Fileset.Map[path].Assertions, val.Map[path].Assertions; !got.Equal(want) {

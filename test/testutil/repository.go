@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
+	"math/rand"
 	"net/url"
 	"reflect"
 	"sync"
@@ -28,14 +30,41 @@ import (
 type InmemoryRepository struct {
 	mu    sync.Mutex
 	files map[digest.Digest][]byte
+	url   *url.URL
 }
+
+var (
+	inmemoryReposMapOnce sync.Once
+	inmemoryReposMu      sync.Mutex
+	inmemoryReposMap     map[string]*InmemoryRepository
+)
 
 // NewInmemoryRepository returns a new repository that stores objects
 // in memory.
 func NewInmemoryRepository() *InmemoryRepository {
-	return &InmemoryRepository{
-		files: map[digest.Digest][]byte{},
+	inmemoryReposMapOnce.Do(func() {
+		inmemoryReposMap = make(map[string]*InmemoryRepository)
+	})
+	host := fmt.Sprintf("%d", rand.Int63())
+	url, err := url.Parse(fmt.Sprint("inmemory://", host))
+	if err != nil {
+		log.Printf("url parse: %v", err)
+		return nil
 	}
+	repo := &InmemoryRepository{
+		files: map[digest.Digest][]byte{},
+		url:   url,
+	}
+	inmemoryReposMu.Lock()
+	inmemoryReposMap[host] = repo
+	inmemoryReposMu.Unlock()
+	return repo
+}
+
+func GetInMemoryRepository(repo *url.URL) *InmemoryRepository {
+	inmemoryReposMu.Lock()
+	defer inmemoryReposMu.Unlock()
+	return inmemoryReposMap[repo.Host]
 }
 
 func (r *InmemoryRepository) get(k digest.Digest) []byte {
@@ -118,7 +147,7 @@ func (r *InmemoryRepository) ReadFrom(_ context.Context, id digest.Digest, u *ur
 
 // URL returns a nil URL.
 func (r *InmemoryRepository) URL() *url.URL {
-	return nil
+	return r.url
 }
 
 // InmemoryRepository is an in-memory repository used for testing which also implements scheduler.blobLocator.

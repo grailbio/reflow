@@ -112,6 +112,12 @@ func (r *Repository) Get(ctx context.Context, id digest.Digest) (io.ReadCloser, 
 	return rc, nil
 }
 
+// Remove removes an object from the repository.
+func (r *Repository) Remove(id digest.Digest) error {
+	_, path := r.Path(id)
+	return os.Remove(path)
+}
+
 // ReadFrom installs an object directly from a foreign repository. If
 // the foreign repository supports supports GetFile, it is used to
 // download directly.
@@ -298,6 +304,22 @@ func (r *Repository) Vacuum(ctx context.Context, repo *Repository) error {
 		}
 	}
 	repo.Collect(ctx, nil) // ignore errors
+	return w.Err()
+}
+
+// Scan invokes handler for each object in the repository.
+func (r *Repository) Scan(ctx context.Context, handler func(digest.Digest) error) error {
+	var w walker
+	w.Init(r)
+	for w.Scan() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := handler(w.Digest())
+		if err != nil {
+			return err
+		}
+	}
 	return w.Err()
 }
 
