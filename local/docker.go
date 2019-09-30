@@ -730,8 +730,9 @@ func (e *dockerExec) Result(ctx context.Context) (reflow.Result, error) {
 	return e.Manifest.Result, nil
 }
 
+// Promote promotes the objects in the docker exec repository to the alloc repository.
 func (e *dockerExec) Promote(ctx context.Context) error {
-	return e.repo.Vacuum(ctx, &e.staging)
+	return e.Executor.Promote(ctx, &e.staging)
 }
 
 // Kill kills the exec's container and removes it entirely.

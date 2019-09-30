@@ -11,6 +11,7 @@ import (
 	"fmt"
 	golog "log"
 	"math"
+	"net/url"
 	"os"
 	"reflect"
 	"strings"
@@ -1081,12 +1082,16 @@ func (a *testAlloc) Allocate(ctx context.Context, req reflow.Requirements, label
 	return a, ctx.Err()
 }
 
-func (a *testAlloc) Load(ctx context.Context, fs reflow.Fileset) (reflow.Fileset, error) {
+func (a *testAlloc) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) (reflow.Fileset, error) {
 	fs, ok := fs.Subst(a.Sub)
 	if !ok {
 		return reflow.Fileset{}, errUnresolved
 	}
 	return fs, nil
+}
+
+func (a *testAlloc) Unload(ctx context.Context, fs reflow.Fileset) error {
+	return nil
 }
 
 // NewTestScheduler starts up a new scheduler intended for testing,

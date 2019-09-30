@@ -234,3 +234,27 @@ func TestVacuum(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+func TestScan(t *testing.T) {
+	r, cleanup := newTestRepository(t)
+	defer cleanup()
+	digests := map[digest.Digest]bool{
+		mustInstall(t, r, "baz"):  true,
+		mustInstall(t, r, "blah"): true,
+	}
+	expected := make(map[digest.Digest]bool)
+	r.Scan(context.Background(), func(d digest.Digest) error {
+		expected[d] = true
+		return nil
+	})
+	for k := range digests {
+		if _, ok := expected[k]; !ok {
+			t.Errorf("expected %v in scanned result", k)
+		}
+	}
+	for k := range expected {
+		if _, ok := digests[k]; !ok {
+			t.Errorf("unexpected %v in scanned result", k)
+		}
+	}
+}
