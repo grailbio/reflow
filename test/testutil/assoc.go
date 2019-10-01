@@ -82,6 +82,6 @@ func (a *inmemoryAssoc) Count(ctx context.Context) (int64, error) {
 
 // Scan calls the handler function for every association in the mapping.
 // Note that the handler function may be called asynchronously from multiple threads.
-func (a *inmemoryAssoc) Scan(ctx context.Context, handler assoc.MappingHandler) error {
+func (a *inmemoryAssoc) Scan(ctx context.Context, kind assoc.Kind, handler assoc.MappingHandler) error {
 	return errors.E("scan", errors.NotSupported)
 }

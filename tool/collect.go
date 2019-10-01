@@ -201,19 +201,20 @@ preceded by ! is negated.
 	liveObjectsNotInRepository := int64(0)
 
 	start := time.Now()
-	err = ass.Scan(ctx, assoc.MappingHandlerFunc(func(k, v digest.Digest, kind assoc.Kind, lastAccessTime time.Time, labels []string) {
+	err = ass.Scan(ctx, assoc.Fileset, assoc.MappingHandlerFunc(func(k digest.Digest, v []digest.Digest, kind assoc.Kind, lastAccessTime time.Time, labels []string) {
 		switch kind {
 		case assoc.Fileset:
 		default:
 			return
 		}
+		d := v[0]
 		checkRepos := func() reflow.Fileset {
 			var (
 				fs  reflow.Fileset
 				err error
 			)
 			for i := 0; i < 5; i++ {
-				err = unmarshal(ctx, repo, v, &fs)
+				err = unmarshal(ctx, repo, d, &fs)
 				if err == nil {
 					break
 				}
@@ -247,7 +248,7 @@ preceded by ! is negated.
 				deadValueFilter.Add(f.ID)
 			}
 			deadKeyFilter.Add(k)
-			deadValueFilter.Add(v)
+			deadValueFilter.Add(d)
 			itemsScannedCount++
 			if itemsScannedCount%10000 == 0 {
 				c.Log.Debugf("Scanned item %d in association", itemsScannedCount)
@@ -267,7 +268,7 @@ preceded by ! is negated.
 				valueFilter.Add(f.ID.Bytes())
 			}
 			keyFilter.Add(k.Bytes())
-			valueFilter.Add(v.Bytes())
+			valueFilter.Add(d.Bytes())
 			liveItemCount++
 		}
 		itemsScannedCount++

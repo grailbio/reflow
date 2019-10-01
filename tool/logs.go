@@ -65,10 +65,10 @@ func (c *Cmd) logs(ctx context.Context, args ...string) {
 			c.Fatal(err)
 		}
 		if len(tasks) == 0 {
-			c.Fatal("no tasks matched id: %v", d.String())
+			c.Fatalf("no tasks matched id: %v", d.String())
 		}
 		if len(tasks) > 1 {
-			c.Fatal("more than one task matched id: %v", d.String())
+			c.Fatalf("more than one task matched id: %v", d.String())
 		}
 		var repo reflow.Repository
 		err = c.Config.Instance(&repo)

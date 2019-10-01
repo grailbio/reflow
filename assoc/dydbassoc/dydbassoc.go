@@ -698,8 +698,13 @@ func (a *Assoc) Count(ctx context.Context) (int64, error) {
 
 // Scan calls the handler function for every association in the mapping.
 // Note that the handler function may be called asynchronously from multiple threads.
-func (a *Assoc) Scan(ctx context.Context, mappingHandler assoc.MappingHandler) error {
+func (a *Assoc) Scan(ctx context.Context, kind assoc.Kind, mappingHandler assoc.MappingHandler) error {
 	scanner := newScanner(a)
+	colname, ok := colmap[kind]
+	if !ok {
+		panic("invalid kind")
+	}
+
 	return scanner.Scan(ctx, ItemsHandlerFunc(func(items Items) error {
 		for _, item := range items {
 			itemAccessTime := int64(0)
@@ -714,11 +719,8 @@ func (a *Assoc) Scan(ctx context.Context, mappingHandler assoc.MappingHandler) e
 			if err != nil {
 				return fmt.Errorf("invalid dynamodb entry %v", item)
 			}
-			if item["Value"] != nil {
-				v, err := reflow.Digester.Parse(*item["Value"].S)
-				if err != nil {
-					return fmt.Errorf("invalid dynamodb entry %v", item)
-				}
+
+			if item[colname] != nil {
 				var labels []string
 				if item["Labels"] != nil {
 					err := dynamodbattribute.Unmarshal(item["Labels"], &labels)
@@ -726,9 +728,31 @@ func (a *Assoc) Scan(ctx context.Context, mappingHandler assoc.MappingHandler) e
 						return fmt.Errorf("invalid label: %v", err)
 					}
 				}
-				mappingHandler.HandleMapping(k, v, assoc.Fileset, time.Unix(itemAccessTime, 0), labels)
-			}
 
+				dbval := *item[colname]
+				var v []digest.Digest
+				switch kind {
+				case assoc.Fileset:
+					d, err := reflow.Digester.Parse(*dbval.S)
+					if err != nil {
+						return fmt.Errorf("invalid digest of kind %v for dynamodb entry %v", kind, item)
+					}
+					v = []digest.Digest{d}
+				case assoc.ExecInspect, assoc.Logs, assoc.Bundle:
+					l := dbval.L
+					for _, val := range l {
+						d, err := reflow.Digester.Parse(*val.S)
+						if err != nil {
+							continue
+						}
+						v = append(v, d)
+					}
+					if v == nil {
+						return fmt.Errorf("no valid digests of kind %v for dynamodb entry %v", kind, item)
+					}
+				}
+				mappingHandler.HandleMapping(k, v, kind, time.Unix(itemAccessTime, 0), labels)
+			}
 		}
 		return nil
 	}))
