@@ -34,3 +34,31 @@ func TestInstanceState(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigureEBS(t *testing.T) {
+	type ebsInfo struct {
+		ebsType string
+		ebsSize uint64
+		nebs    int
+	}
+	for _, tc := range []struct {
+		e, want ebsInfo
+	}{
+		{ebsInfo{"st1", 0, 0}, ebsInfo{"st1", 500, 1}},
+		{ebsInfo{"st1", 100, 2}, ebsInfo{"st1", 500, 1}},
+		{ebsInfo{"st1", 501, 2}, ebsInfo{"st1", 1000, 2}},
+		{ebsInfo{"st1", 1300, 2}, ebsInfo{"st1", 1300, 2}},
+		{ebsInfo{"gp2", 0, 0}, ebsInfo{"gp2", 1, 1}},
+		{ebsInfo{"gp2", 10, 5}, ebsInfo{"gp2", 10, 5}},
+		{ebsInfo{"gp2", 500, 4}, ebsInfo{"gp2", 500, 4}},
+		{ebsInfo{"gp2", 1200, 5}, ebsInfo{"gp2", 1336, 4}},
+		{ebsInfo{"gp2", 2200, 10}, ebsInfo{"gp2", 2338, 7}},
+	} {
+		i := &instance{EBSType: tc.e.ebsType, EBSSize: tc.e.ebsSize, NEBS: tc.e.nebs}
+		i.configureEBS()
+		got := ebsInfo{i.EBSType, i.EBSSize, i.NEBS}
+		if got != tc.want {
+			t.Errorf("given %v: got %v, want %v", tc.e, got, tc.want)
+		}
+	}
+}

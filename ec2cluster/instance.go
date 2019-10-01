@@ -79,15 +79,23 @@ const (
 	// ebsThroughputBenefitPct is the percentage higher EBS throughput we require
 	// to justify paying the premium.
 	ebsThroughputBenefitPct = 50.0
+
+	// gp2MaxThroughputMinSizeGiB is the minimum disk size of a gp2 EBS volume
+	// for maximum throughput.
+	// 334GiB is the smallest disk size that yields maximum throughput, as per
+	// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/EBSVolumeTypes.html
+	gp2MaxThroughputMinSizeGiB = 334
+
+	// gp2PerEBSThresholdGiB is the disk size beyond which we would instead prefer
+	// to have EBS volumes of size gp2MaxThroughputMinSizeGiB to optimize for throughput.
+	gp2PerEBSThresholdGiB = 200
 )
 
-// the smallest acceptable disk sizes per EBS volume type.
+// the smallest acceptable disk sizes (GiB) per EBS volume type.
 var minDiskSizes = map[string]uint64{
 	// EBS does not allow you to create ST1 volumes smaller than 500GiB.
 	"st1": 500,
-	// 334GiB is the smallest disk size that yields maximum throughput, as per
-	// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/EBSVolumeTypes.html
-	"gp2": 335,
+	"gp2": 1,
 }
 
 // instanceConfig represents a instance configuration.
@@ -357,18 +365,7 @@ func (i *instance) Instance() *reflowletInstance {
 // On success (i.Err() == nil), the returned instance is in running state.
 // Launch status is reported to the instance's task, if any.
 func (i *instance) Go(ctx context.Context) {
-	if i.NEBS < 1 {
-		i.NEBS = 1
-	}
-	if min, ok := minDiskSizes[i.EBSType]; ok {
-		if i.EBSSize < min {
-			i.EBSSize = min
-		}
-		nmin := int(i.EBSSize / min)
-		if i.NEBS > nmin {
-			i.NEBS = nmin
-		}
-	}
+	i.configureEBS()
 	const maxTries = 10
 	type stateT int
 	const (
@@ -670,6 +667,27 @@ func imageDigest() (digest.Digest, error) {
 func hasEmbedded() bool {
 	_, err := imageDigest()
 	return err == nil
+}
+
+// configureEBS configures the EBS volume size and number for optimal performance.
+func (i *instance) configureEBS() {
+	if i.NEBS < 1 {
+		i.NEBS = 1
+	}
+	if min, ok := minDiskSizes[i.EBSType]; ok {
+		perEBS := i.EBSSize / uint64(i.NEBS)
+		if i.EBSType == "gp2" && perEBS > gp2PerEBSThresholdGiB {
+			min = gp2MaxThroughputMinSizeGiB
+		}
+		if perEBS < min {
+			perEBS = min
+		}
+		nmin := 1 + int(i.EBSSize/perEBS)
+		if i.NEBS > nmin {
+			i.NEBS = nmin
+		}
+		i.EBSSize = perEBS * uint64(i.NEBS)
+	}
 }
 
 func (i *instance) launch(ctx context.Context) (string, error) {
