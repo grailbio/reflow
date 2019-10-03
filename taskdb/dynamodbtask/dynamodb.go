@@ -25,6 +25,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
+	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/limiter"
@@ -36,6 +37,24 @@ import (
 	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/taskdb"
+)
+
+const (
+	ID4 taskdb.Kind = iota
+	RunID
+	RunID4
+	FlowID
+	ResultID
+	KeepAlive
+	StartTime
+	Stdout
+	Stderr
+	ExecInspect
+	URI
+	Labels
+	User
+	Type
+	Date
 )
 
 func init() {
@@ -85,6 +104,26 @@ const (
 	colUser      = "User"
 	colType      = "Type"
 	colDate      = "Date"
+)
+
+var (
+	colmap = map[taskdb.Kind]string{
+		ID4:         colID4,
+		RunID:       colRunID,
+		RunID4:      colRunID4,
+		FlowID:      colFlowID,
+		ResultID:    colResultID,
+		KeepAlive:   colKeepalive,
+		StartTime:   colStartTime,
+		Stdout:      colStdout,
+		Stderr:      colStderr,
+		ExecInspect: colInspect,
+		URI:         colURI,
+		Labels:      colLabels,
+		User:        colUser,
+		Type:        colType,
+		Date:        colDate,
+	}
 )
 
 // TaskDB implements the dynamodb backed taskdb.TaskDB interface to
@@ -624,4 +663,36 @@ func (t *TaskDB) Runs(ctx context.Context, query taskdb.Query) ([]taskdb.Run, er
 		}
 	}
 	return []taskdb.Run{}, fmt.Errorf("%s", b.String())
+}
+
+func (t *TaskDB) Scan(ctx context.Context, kind taskdb.Kind, mappingHandler taskdb.MappingHandler) error {
+	colname, ok := colmap[kind]
+	if !ok {
+		panic("invalid kind")
+	}
+	scanner := newScanner(t)
+	return scanner.Scan(ctx, ItemsHandlerFunc(func(items Items) error {
+		for _, item := range items {
+			var err error
+			k, err := reflow.Digester.Parse(*item[colID].S)
+			if err != nil {
+				return fmt.Errorf("invalid taskdb entry %v", item)
+			}
+			if item[colname] != nil {
+				v, err := reflow.Digester.Parse(*item[colname].S)
+				if err != nil {
+					return fmt.Errorf("invalid taskdb entry %v", item)
+				}
+				var labels []string
+				if item["Labels"] != nil {
+					err := dynamodbattribute.Unmarshal(item[colLabels], &labels)
+					if err != nil {
+						return fmt.Errorf("invalid label: %v", err)
+					}
+				}
+				mappingHandler.HandleMapping(k, v, kind, labels)
+			}
+		}
+		return nil
+	}))
 }

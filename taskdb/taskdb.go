@@ -14,6 +14,24 @@ import (
 	"github.com/grailbio/reflow/pool"
 )
 
+// Kind describes the kind of mapping.
+type Kind int
+
+// MappingHandlerFunc is a convenience type to avoid having to declare a struct
+// to implement the MappingHandler interface.
+type MappingHandlerFunc func(k, v digest.Digest, kind Kind, labels []string)
+
+// HandleMapping implements the MappingHandler interface.
+func (h MappingHandlerFunc) HandleMapping(k, v digest.Digest, kind Kind, labels []string) {
+	h(k, v, kind, labels)
+}
+
+// MappingHandler is an interface for handling a mapping while scanning.
+type MappingHandler interface {
+	// HandleMapping handles a scanned association.
+	HandleMapping(k, v digest.Digest, kind Kind, labels []string)
+}
+
 // TaskDB is the interface to read/write run and task information to a run db.
 type TaskDB interface {
 	// CreateRun creates a new Run with the provided id and user.
@@ -34,6 +52,9 @@ type TaskDB interface {
 	// could have occurred. The returned slice will still contain information about the runs that did not cause an
 	// error.
 	Tasks(ctx context.Context, query Query) ([]Task, error)
+	// Scan calls the handler function for every association in the mapping.
+	// Note that the handler function may be called asynchronously from multiple threads.
+	Scan(ctx context.Context, kind Kind, handler MappingHandler) error
 }
 
 // Run is the run info stored in the taskdb.

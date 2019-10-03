@@ -35,7 +35,7 @@ func (n nopTaskDB) Keepalive(ctx context.Context, id digest.Digest, keepalive ti
 	return nil
 }
 
-// Runs doesn nothing.
+// Runs does nothing.
 func (n nopTaskDB) Runs(ctx context.Context, query taskdb.Query) ([]taskdb.Run, error) {
 	return []taskdb.Run{}, nil
 
@@ -48,5 +48,10 @@ func (n nopTaskDB) Tasks(ctx context.Context, query taskdb.Query) ([]taskdb.Task
 
 // SetTaskAttrs does nothing.
 func (n nopTaskDB) SetTaskAttrs(ctx context.Context, id, stdout, stderr, inspect digest.Digest) error {
+	return nil
+}
+
+// Scan does nothing.
+func (n nopTaskDB) Scan(ctx context.Context, kind taskdb.Kind, handler taskdb.MappingHandler) error {
 	return nil
 }

@@ -6,7 +6,9 @@ import (
 	"math/rand"
 	"reflect"
 	"regexp"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -14,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/infra"
 	_ "github.com/grailbio/infra/aws"
 	"github.com/grailbio/reflow"
@@ -25,10 +28,18 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var mockTable = "mockTable"
+const mockTable = "mockTable"
+
+type mockEntry struct {
+	Attributes map[string]*dynamodb.AttributeValue
+	Kind       assoc.Kind
+}
 
 type mockdb struct {
 	dynamodbiface.DynamoDBAPI
+	MockStore []mockEntry
+	dbscanned bool
+	muScan    sync.Mutex
 }
 
 func (m *mockdb) BatchGetItemWithContext(ctx aws.Context, input *dynamodb.BatchGetItemInput, options ...request.Option) (*dynamodb.BatchGetItemOutput, error) {
@@ -74,6 +85,27 @@ func (m *mockdb) BatchGetItemWithContext(ctx aws.Context, input *dynamodb.BatchG
 
 func (m *mockdb) UpdateItemWithContext(ctx aws.Context, input *dynamodb.UpdateItemInput, opts ...request.Option) (*dynamodb.UpdateItemOutput, error) {
 	return nil, nil
+}
+
+func (m *mockdb) ScanWithContext(ctx aws.Context, input *dynamodb.ScanInput, opts ...request.Option) (*dynamodb.ScanOutput, error) {
+	m.muScan.Lock()
+	defer m.muScan.Unlock()
+	var output = &dynamodb.ScanOutput{
+		Items: []map[string]*dynamodb.AttributeValue{},
+	}
+	if m.dbscanned {
+		return output, nil
+	}
+	for i, v := range m.MockStore {
+		output.Items = append(output.Items, v.Attributes)
+		if i == len(m.MockStore)-1 {
+			m.dbscanned = true
+		}
+	}
+	count := int64(len(m.MockStore))
+	output.Count = &count
+	output.ScannedCount = &count
+	return output, nil
 }
 
 var kinds = []assoc.Kind{assoc.Fileset, assoc.ExecInspect, assoc.Logs, assoc.Bundle}
@@ -361,5 +393,115 @@ func TestDydbassocInfra(t *testing.T) {
 	}
 	if got, want := dydbassoc.TableName, table; got != want {
 		t.Errorf("got %v, want %v", dydbassoc.TableName, table)
+	}
+}
+
+func TestAssocScan(t *testing.T) {
+	var (
+		ctx = context.Background()
+		db  = &mockdb{}
+		ass = &Assoc{DB: db, TableName: mockTable}
+	)
+	for _, tt := range []struct {
+		kind               assoc.Kind
+		key                digest.Digest
+		val                digest.Digest
+		labels             []string
+		lastAccessTimeUnix string
+	}{
+		{assoc.Fileset, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), []string{"grail:type=reflow", "grail:user=abc@graiobio.com"}, "1571573191"},
+		{assoc.ExecInspect, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), nil, "1572455280"},
+		{assoc.Logs, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), nil, "1572448157"},
+		{assoc.Fileset, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), []string{"grail:type=reflow", "grail:user=def@graiobio.com"}, "1568099519"},
+	} {
+		entry := mockEntry{
+			Attributes: map[string]*dynamodb.AttributeValue{
+				"ID": {S: aws.String(tt.key.String())},
+			},
+		}
+		val := dynamodb.AttributeValue{S: aws.String(tt.val.String())}
+		switch tt.kind {
+		case assoc.Fileset:
+			entry.Attributes[colmap[tt.kind]] = &val
+		case assoc.ExecInspect, assoc.Logs, assoc.Bundle:
+			entry.Attributes[colmap[tt.kind]] = &dynamodb.AttributeValue{
+				L: []*dynamodb.AttributeValue{&val},
+			}
+		}
+		if tt.labels != nil {
+			var labelsEntry dynamodb.AttributeValue
+			for _, v := range tt.labels {
+				labelsEntry.SS = append(labelsEntry.SS, aws.String(v))
+			}
+			entry.Attributes["Labels"] = &labelsEntry
+		}
+		entry.Attributes["LastAccessTime"] = &dynamodb.AttributeValue{N: aws.String(tt.lastAccessTimeUnix)}
+		db.MockStore = append(db.MockStore, entry)
+	}
+	var (
+		numFileSets          = new(int)
+		numExecInspects      = new(int)
+		numLogs              = new(int)
+		numBundles           = new(int)
+		thresholdTime        = time.Unix(1572000000, 0)
+		numPastThresholdTime = 0
+	)
+	for _, tt := range []struct {
+		gotKind             *int
+		wantKind, wantLabel int
+		assocKind           assoc.Kind
+		wantLabels          []string
+	}{
+		{numFileSets, 2, 1, assoc.Fileset, []string{"grail:type=reflow", "grail:user=abc@graiobio.com"}},
+		{numExecInspects, 1, 0, assoc.ExecInspect, nil},
+		{numLogs, 1, 0, assoc.Logs, nil},
+		{numBundles, 0, 0, assoc.Bundle, nil},
+	} {
+		gotLabel := 0
+		err := ass.Scan(ctx, tt.assocKind, assoc.MappingHandlerFunc(func(k digest.Digest, v []digest.Digest, mapkind assoc.Kind, lastAccessTime time.Time, labels []string) {
+			if lastAccessTime.After(thresholdTime) {
+				numPastThresholdTime++
+			}
+			switch mapkind {
+			case assoc.Fileset:
+				*numFileSets++
+			case assoc.ExecInspect:
+				*numExecInspects++
+			case assoc.Logs:
+				*numLogs++
+			case assoc.Bundle:
+				*numBundles++
+			default:
+				return
+			}
+			if tt.wantLabels == nil {
+				return
+			} else if len(tt.wantLabels) != len(labels) {
+				return
+			}
+			numMatch := 0
+			for i := 0; i < len(labels); i++ {
+				if labels[i] == tt.wantLabels[i] {
+					numMatch++
+				}
+			}
+			if numMatch == len(tt.wantLabels) {
+				gotLabel++
+			}
+		}))
+		// Reset db.dbscanned to false so that db can be scanned in the next unit test.
+		db.dbscanned = false
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := *tt.gotKind, tt.wantKind; got != want {
+			t.Errorf("kind %v: got %v, want %v", tt.assocKind, got, want)
+		}
+		if got, want := gotLabel, tt.wantLabel; got != want {
+			t.Errorf("label: got %v, want %v", got, want)
+		}
+	}
+	if got, want := numPastThresholdTime, 2; got != want {
+		t.Errorf("last access time past threshold: got %v, want %v", got, want)
 	}
 }

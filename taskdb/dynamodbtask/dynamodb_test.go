@@ -376,6 +376,11 @@ func TestRunsUnknownError(t *testing.T) {
 	}
 }
 
+type mockEntry struct {
+	Attributes map[string]*dynamodb.AttributeValue
+	Kind       taskdb.Kind
+}
+
 type mockDynamodbQueryTasks struct {
 	dynamodbiface.DynamoDBAPI
 	mu        sync.Mutex
@@ -777,5 +782,125 @@ func TestDydbTaskdbInfra(t *testing.T) {
 
 	if got, want := dynamotaskdb.TableName, table; got != want {
 		t.Errorf("got %v, want %v", dynamotaskdb.TableName, table)
+	}
+}
+
+type mockDynamodbScanTasks struct {
+	dynamodbiface.DynamoDBAPI
+	MockStore []mockEntry
+	dbscanned bool
+	muScan    sync.Mutex
+}
+
+func (m *mockDynamodbScanTasks) ScanWithContext(ctx aws.Context, input *dynamodb.ScanInput, opts ...request.Option) (*dynamodb.ScanOutput, error) {
+	m.muScan.Lock()
+	defer m.muScan.Unlock()
+	var output = &dynamodb.ScanOutput{
+		Items: []map[string]*dynamodb.AttributeValue{},
+	}
+	if m.dbscanned {
+		return output, nil
+	}
+	for i, v := range m.MockStore {
+		output.Items = append(output.Items, v.Attributes)
+		if i == len(m.MockStore)-1 {
+			m.dbscanned = true
+		}
+	}
+	count := int64(len(m.MockStore))
+	output.Count = &count
+	output.ScannedCount = &count
+	return output, nil
+}
+
+func TestTaskDBScan(t *testing.T) {
+	var (
+		ctx    = context.Background()
+		mockdb = &mockDynamodbScanTasks{}
+		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
+	)
+	for _, tt := range []struct {
+		kind   taskdb.Kind
+		key    digest.Digest
+		val    digest.Digest
+		labels []string
+	}{
+		{ExecInspect, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), []string{"grail:type=reflow", "grail:user=abc@graiobio.com"}},
+		{ExecInspect, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), []string{"grail:type=reflow", "grail:user=def@graiobio.com"}},
+		{Stdout, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), nil},
+		{Stderr, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), nil},
+	} {
+		entry := mockEntry{
+			Attributes: map[string]*dynamodb.AttributeValue{
+				colID: {S: aws.String(tt.key.String())},
+			},
+		}
+		entry.Attributes[colmap[tt.kind]] = &dynamodb.AttributeValue{S: aws.String(tt.val.String())}
+		if tt.labels != nil {
+			var labelsEntry dynamodb.AttributeValue
+			for _, v := range tt.labels {
+				labelsEntry.SS = append(labelsEntry.SS, aws.String(v))
+			}
+			entry.Attributes[colLabels] = &labelsEntry
+		}
+		mockdb.MockStore = append(mockdb.MockStore, entry)
+	}
+	var (
+		numExecInspect = new(int)
+		numStdout      = new(int)
+		numStderr      = new(int)
+		numURI         = new(int)
+	)
+	for _, tt := range []struct {
+		gotKind             *int
+		wantKind, wantLabel int
+		taskdbKind          taskdb.Kind
+		wantLabels          []string
+	}{
+		{numExecInspect, 2, 1, ExecInspect, []string{"grail:type=reflow", "grail:user=abc@graiobio.com"}},
+		{numStdout, 1, 0, Stdout, nil},
+		{numStderr, 1, 0, Stderr, nil},
+		{numURI, 0, 0, URI, nil},
+	} {
+		gotLabel := 0
+		err := taskb.Scan(ctx, tt.taskdbKind, taskdb.MappingHandlerFunc(func(k, v digest.Digest, mapkind taskdb.Kind, labels []string) {
+			switch mapkind {
+			case ExecInspect:
+				*numExecInspect++
+			case Stdout:
+				*numStdout++
+			case Stderr:
+				*numStderr++
+			case URI:
+				*numURI++
+			default:
+				return
+			}
+			if tt.wantLabels == nil {
+				return
+			} else if len(tt.wantLabels) != len(labels) {
+				return
+			}
+			numMatch := 0
+			for i := 0; i < len(labels); i++ {
+				if labels[i] == tt.wantLabels[i] {
+					numMatch++
+				}
+			}
+			if numMatch == len(tt.wantLabels) {
+				gotLabel++
+			}
+		}))
+		// Reset db.dbscanned to false so that db can be scanned in the next unit test.
+		mockdb.dbscanned = false
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := *tt.gotKind, tt.wantKind; got != want {
+			t.Errorf("kind %v: got %v, want %v", colmap[tt.taskdbKind], got, want)
+		}
+		if got, want := gotLabel, tt.wantLabel; got != want {
+			t.Errorf("label got %v, want %v", got, want)
+		}
 	}
 }

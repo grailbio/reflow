@@ -1,4 +1,4 @@
-package dydbassoc
+package dynamodbtask
 
 import (
 	"context"
@@ -13,8 +13,8 @@ import (
 
 // scanner lets us scan segments of a dyanamoDB table in parallel
 type scanner struct {
-	// Assoc that we're scanning
-	Assoc *Assoc
+	// TaskDB that we're scanning
+	TaskDB *TaskDB
 	// SegmentCount is the number of segments to break the table into
 	SegmentCount int
 	// MaxAttempts controls how many times in a row a thread will allow transient dynamoDB errors
@@ -23,10 +23,10 @@ type scanner struct {
 }
 
 // newScanner creates a new dynamoDB scanner.
-func newScanner(a *Assoc) *scanner {
+func newScanner(t *TaskDB) *scanner {
 	return &scanner{
-		Assoc:        a,
-		SegmentCount: 50, // Picked a value that seems to give good performance, we may want to make this configurable
+		TaskDB:       t,
+		SegmentCount: 50, // Took value from assoc/dydbassoc.newScanner.
 		MaxAttempts:  5,
 	}
 }
@@ -42,14 +42,14 @@ func (s *scanner) Scan(ctx context.Context, h ItemsHandler) error {
 
 			attempts := 0
 			for {
-				// Limit the number of concurrent calls we make to the database
-				if err := s.Assoc.Limiter.Acquire(groupCtx, 1); err != nil {
+				// Limit the number of concurrent calls we make to the database.
+				if err := s.TaskDB.limiter.Acquire(groupCtx, 1); err != nil {
 					return fmt.Errorf("cannot acquire token for segment %d (%s)", segment, err)
 				}
 
-				// Do the scan
+				// Do the scan.
 				params := &dynamodb.ScanInput{
-					TableName:                aws.String(s.Assoc.TableName),
+					TableName:                aws.String(s.TaskDB.TableName),
 					Segment:                  aws.Int64(int64(segment)),
 					TotalSegments:            aws.Int64(int64(s.SegmentCount)),
 					FilterExpression:         aws.String("attribute_exists(#v)"),
@@ -58,13 +58,13 @@ func (s *scanner) Scan(ctx context.Context, h ItemsHandler) error {
 				if lastEvaluatedKey != nil {
 					params.ExclusiveStartKey = lastEvaluatedKey
 				}
-				resp, err := s.Assoc.DB.ScanWithContext(groupCtx, params)
+				resp, err := s.TaskDB.DB.ScanWithContext(groupCtx, params)
 
-				// Release the token before processing the Items
-				s.Assoc.Limiter.Release(1)
+				// Release the token before processing the Items.
+				s.TaskDB.limiter.Release(1)
 
 				// If we hit an error sleep some number of times and try again,
-				// we may have been rate limited
+				// we may have been rate limited.
 				if err != nil {
 					log.Errorf("error calling dynamodb for segment %d, attempt %d (%s)", segment, attempts, err)
 					attempts++
@@ -75,20 +75,20 @@ func (s *scanner) Scan(ctx context.Context, h ItemsHandler) error {
 					continue
 				}
 
-				// Reset the attempt counter when we get a successful response
+				// Reset the attempt counter when we get a successful response.
 				attempts = 0
 
-				// Call the Handler function with the Items
+				// Call the Handler function with the Items.
 				if err := h.HandleItems(resp.Items); err != nil {
 					return err
 				}
 
-				// We're done if the last evaluated key is empty
+				// We're done if the last evaluated key is empty.
 				if resp.LastEvaluatedKey == nil {
 					return nil
 				}
 
-				// Set last evaluated key
+				// Set last evaluated key.
 				lastEvaluatedKey = resp.LastEvaluatedKey
 			}
 		})
