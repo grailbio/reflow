@@ -779,7 +779,7 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 		`, args{"name": deviceName}),
 		})
 	default:
-		deviceName = "md0"
+		deviceName = "data"
 		devices := make([]string, i.NEBS)
 		for idx := range devices {
 			if i.Config.NVMe {
@@ -793,15 +793,17 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 			Command: "start",
 			Content: tmpl(`
 			[Unit]
-			Description=Format /dev/{{.md}}
+			Description=Format /dev/{{.name}}_group/{{.name}}_vol (after setting up LVM RAID0)
 			After={{range $_, $name :=  .devices}}dev-{{$name}}.device {{end}}
 			Requires={{range $_, $name := .devices}}dev-{{$name}}.device {{end}}
 			[Service]
 			Type=oneshot
 			RemainAfterExit=yes
-			ExecStart=/usr/sbin/mdadm --create --run --verbose /dev/{{.md}} --level=0 --chunk=256 --name=reflow --raid-devices={{.devices|len}} {{range $_, $name := .devices}}/dev/{{$name}} {{end}}
-			ExecStart=/usr/sbin/mkfs.ext4 -F /dev/{{.md}}
-		`, args{"devices": devices, "md": deviceName}),
+			ExecStartPre=/usr/sbin/pvcreate {{range $_, $name := .devices}}/dev/{{$name}} {{end}}
+			ExecStartPre=/usr/sbin/vgcreate {{.name}}_group {{range $_, $name := .devices}}/dev/{{$name}} {{end}}
+			ExecStartPre=/usr/sbin/lvcreate -l 100%%VG --stripes {{.devices|len}} --stripesize 256 -n {{.name}}_vol {{.name}}_group
+			ExecStart=-/usr/sbin/mkfs.ext4 /dev/{{.name}}_group/{{.name}}_vol
+		`, args{"devices": devices, "name": deviceName}),
 		})
 	}
 
@@ -810,13 +812,13 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 		Command: "start",
 		Content: tmpl(`
 			[Unit]
-			Description=mount
+			Description=device /dev/{{.name}}_group/{{.name}}_vol on path /mnt/data
 			{{if .mortal}}
 			OnFailure=poweroff.target
 			OnFailureJobMode=replace-irreversibly
 			{{end}}
 			[Mount]
-			What=/dev/{{.name}}
+			What=/dev/{{.name}}_group/{{.name}}_vol
 			Where=/mnt/data
 			Type=ext4
 			Options=data=writeback
