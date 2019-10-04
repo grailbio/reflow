@@ -191,10 +191,11 @@ func (e ExecInspect) Runtime() time.Duration {
 	if err != nil {
 		return time.Duration(0)
 	}
-	if end.Before(start) {
-		end = time.Now()
-	}
-	return end.Sub(start)
+	var (
+		startSec = start.Truncate(time.Second)
+		endSec   = end.Truncate(time.Second)
+	)
+	return endSec.Sub(startSec)
 }
 
 // Resources describes a set of labeled resources. Each resource is
