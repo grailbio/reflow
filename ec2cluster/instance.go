@@ -756,42 +756,23 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 	c.AppendUnit(CloudUnit{Name: "locksmithd.service", Command: "stop"})
 
 	// Configure the disks.
-	var deviceName string
-	switch i.NEBS {
-	case 0, 1:
-		deviceName = "xvdb"
+	lvmGroupName := "data"
+	deviceName := fmt.Sprintf("%s_group/%s_vol", lvmGroupName, lvmGroupName)
+	if i.NEBS < 1 {
+		i.NEBS = 1
+	}
+	devices := make([]string, i.NEBS)
+	for idx := range devices {
 		if i.Config.NVMe {
-			deviceName = "nvme1n1"
+			devices[idx] = fmt.Sprintf("nvme%dn1", idx+1)
+		} else {
+			devices[idx] = fmt.Sprintf("xvd%c", 'b'+idx)
 		}
-		c.AppendUnit(CloudUnit{
-			Name:    fmt.Sprintf("format-%s.service", deviceName),
-			Command: "start",
-			Content: tmpl(`
-			[Unit]
-			Description=Format /dev/{{.name}}
-			After=dev-{{.name}}.device
-			Requires=dev-{{.name}}.device
-			[Service]
-			Type=oneshot
-			RemainAfterExit=yes
-			ExecStart=/usr/sbin/wipefs -f /dev/{{.name}}
-			ExecStart=/usr/sbin/mkfs.ext4 -F /dev/{{.name}}
-		`, args{"name": deviceName}),
-		})
-	default:
-		deviceName = "data"
-		devices := make([]string, i.NEBS)
-		for idx := range devices {
-			if i.Config.NVMe {
-				devices[idx] = fmt.Sprintf("nvme%dn1", idx+1)
-			} else {
-				devices[idx] = fmt.Sprintf("xvd%c", 'b'+idx)
-			}
-		}
-		c.AppendUnit(CloudUnit{
-			Name:    fmt.Sprintf("format-%s.service", deviceName),
-			Command: "start",
-			Content: tmpl(`
+	}
+	c.AppendUnit(CloudUnit{
+		Name:    fmt.Sprintf("format-%s.service", lvmGroupName),
+		Command: "start",
+		Content: tmpl(`
 			[Unit]
 			Description=Format /dev/{{.name}}_group/{{.name}}_vol (after setting up LVM RAID0)
 			After={{range $_, $name :=  .devices}}dev-{{$name}}.device {{end}}
@@ -803,26 +784,24 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 			ExecStartPre=/usr/sbin/vgcreate {{.name}}_group {{range $_, $name := .devices}}/dev/{{$name}} {{end}}
 			ExecStartPre=/usr/sbin/lvcreate -l 100%%VG --stripes {{.devices|len}} --stripesize 256 -n {{.name}}_vol {{.name}}_group
 			ExecStart=-/usr/sbin/mkfs.ext4 /dev/{{.name}}_group/{{.name}}_vol
-		`, args{"devices": devices, "name": deviceName}),
-		})
-	}
-
+		`, args{"devices": devices, "name": lvmGroupName}),
+	})
 	c.AppendUnit(CloudUnit{
 		Name:    "mnt-data.mount",
 		Command: "start",
 		Content: tmpl(`
 			[Unit]
-			Description=device /dev/{{.name}}_group/{{.name}}_vol on path /mnt/data
+			Description=device /dev/{{.name}} on path /mnt/data
 			{{if .mortal}}
 			OnFailure=poweroff.target
 			OnFailureJobMode=replace-irreversibly
 			{{end}}
 			[Mount]
-			What=/dev/{{.name}}_group/{{.name}}_vol
+			What=/dev/{{.name}}
 			Where=/mnt/data
 			Type=ext4
 			Options=data=writeback
-		`, args{"name": deviceName}),
+		`, args{"mortal": !i.Immortal, "name": deviceName}),
 	})
 
 	var profile, akey, secret, token string
