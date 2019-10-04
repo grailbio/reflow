@@ -50,6 +50,8 @@ const (
 	// minTimeout defines the smallest acceptable timeout.
 	// This helps to give wiggle room for small data transfers.
 	minTimeout = 60 * time.Second
+	// unknownSizeTimeout defines timeout if the size is unknown.
+	unknownSizeTimeout = 5 * time.Minute
 
 	// metaTimeout is used for metadata operations.
 	metaTimeout = 30 * time.Second
@@ -300,6 +302,9 @@ func ctxErr(ctx context.Context, other error) error {
 
 func timeoutPolicy(size int64) retry.Policy {
 	baseTimeout := time.Duration(size/minBPS) * time.Second
+	if size == 0 {
+		baseTimeout = unknownSizeTimeout
+	}
 	if baseTimeout < minTimeout {
 		baseTimeout = minTimeout
 	}
