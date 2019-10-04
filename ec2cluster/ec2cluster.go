@@ -570,6 +570,10 @@ func (c *Cluster) loop() {
 				c.Log.Debugf("instance type %s unavailable in region %s: %v", inst.Config.Type, c.Region, inst.Err())
 				c.instanceState.Unavailable(inst.Config)
 				fallthrough
+			// TODO(swami): Deal with Fatal errors appropriately by propagating them up the stack.
+			// In case of Fatal errors, retrying is going to result in the same error, so its better
+			// to just escalate up the stack and stop trying.
+			// case errors.Is(errors.Fatal, inst.Err()):
 			default:
 				continue
 			}
