@@ -60,10 +60,9 @@ const memoryDiscount = 0.05 + 0.02
 
 var (
 	// bootstrapArgs is the arguments passed to the bootstrap image
-	bootstrapArgs = []string{"-config", "/host/etc/reflowconfig"}
-
+	bootstrapArgs = []string{"-config", "/etc/reflowconfig"}
 	// reflowletArgs is the arguments passed to the reflow binary to run a reflowlet
-	reflowletArgs = append([]string{"serve", "-prefix", "/host", "-ec2cluster"}, bootstrapArgs...)
+	reflowletArgs = append(bootstrapArgs, "serve", "-ec2cluster")
 )
 
 const (
@@ -782,6 +781,28 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 		Content:     gb.String(),
 	})
 
+	// Write the bootstrapping script. It fetches the binary and runs it.
+	c.AppendFile(CloudFile{
+		Permissions: "0755",
+		Path:        "/opt/bin/bootstrap",
+		Owner:       "root",
+		Content: tmpl(`
+		#!/bin/bash
+		set -e
+		bin=/tmp/reflowbootstrap
+		echo "fetching: {{.binary}}"
+		curl -s {{.binary}} >$bin
+		chmod +x $bin
+		export V23_CREDENTIALS=/opt/.v23
+		export V23_CREDENTIALS_NO_LOCK=1
+		export V23_CREDENTIALS_NO_AGENT=1
+		echo "starting: $bin {{.bootstrapArgs}}"
+		$bin {{.bootstrapArgs}} || true
+        sleep 5
+        exit 1
+		`, args{"binary": i.BootstrapImage, "bootstrapArgs": strings.Join(bootstrapArgs, " ")}),
+	})
+
 	// Turn off CoreOS services that would restart or otherwise disrupt
 	// the instances.
 	c.CoreOS.Update.RebootStrategy = "off"
@@ -891,19 +912,8 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 			[Service]
 			OOMScoreAdjust=-1000
 			Type=oneshot
-			ExecStartPre=-/usr/bin/docker stop %n
-			ExecStartPre=-/usr/bin/docker rm %n
-			ExecStartPre=/bin/bash /etc/ecrlogin
-			ExecStartPre=/usr/bin/docker pull {{.image}}
-			ExecStart=/usr/bin/docker run --oom-score-adj -1000 --rm --name %n --net=host \
-				-e V23_CREDENTIALS=/host/opt/.v23 \
-				-e V23_CREDENTIALS_NO_AGENT=1 \
-				-e V23_CREDENTIALS_NO_LOCK=1 \
-			  -v /:/host \
-			  -v /var/run/docker.sock:/var/run/docker.sock \
-			  -v '/etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt' \
-			  {{.image}} {{.bootstrapArgs}}
-		`, args{"mortal": !i.Immortal, "image": i.BootstrapImage, "bootstrapArgs": strings.Join(bootstrapArgs, " ")}),
+			ExecStart=/opt/bin/bootstrap
+		`, args{"mortal": !i.Immortal}),
 	})
 	b, err = c.Marshal()
 	if err != nil {

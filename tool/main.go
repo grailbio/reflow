@@ -64,6 +64,9 @@ type Cmd struct {
 	// progress of the cmd execution.
 	Status *status.Status
 
+	// BootstrapBinary stores the path of the bootstrap binary.
+	BootstrapBinary string
+
 	configFlags    map[string]*string
 	httpFlag       string
 	cpuProfileFlag string
@@ -269,6 +272,16 @@ func (c *Cmd) Main() {
 		c.Fatal(err)
 	}
 
+	var bootstrapimage *infra2.BootstrapImage
+	err = c.Config.Instance(&bootstrapimage)
+	if err != nil {
+		c.Fatal(err)
+	}
+	// Set the bootstrap image to the official image for this distribution
+	if ok := bootstrapimage.Set(c.BootstrapBinary); !ok {
+		c.Log.Printf("using bootstrap image from config %s (instead of built-in one: %s)\n", bootstrapimage.Value(), c.BootstrapBinary)
+	}
+
 	if c.httpFlag != "" {
 		go func() {
 			c.Fatal(http.ListenAndServe(c.httpFlag, nil))
@@ -288,6 +301,7 @@ func (c *Cmd) Main() {
 	}
 
 	c.Log.Debug("reflow version ", c.version())
+	c.Log.Debug("bootstrap binary: ", bootstrapimage.Value())
 
 	// Create a context and cancel it if we receive an interrupt.
 	// The second interrupt we receive results in a hard exit.
@@ -301,11 +315,30 @@ func (c *Cmd) Main() {
 		<-sigc
 		c.Exit(1)
 	}()
-	// Note that the flag package stops parsing flags after the first
-	// non-flag argument (ExecInspect.e., the first argument that does not begin
-	// with "-"); thus flag.Args()[1:] contains all the flags and
-	// arguments for the command in flags.Arg[0].
-	fn(c, ctx, flags.Args()[1:]...)
+
+	// If the command panics, we want to recover, log and exit normally.
+	var perr error
+	func() {
+		defer func() {
+			v := recover()
+			if v == nil {
+				return
+			}
+			if err, ok := v.(error); ok {
+				perr = err
+			} else {
+				perr = fmt.Errorf("panic: %v", v)
+			}
+		}()
+		// Note that the flag package stops parsing flags after the first
+		// non-flag argument (ExecInspect.e., the first argument that does not begin
+		// with "-"); thus flag.Args()[1:] contains all the flags and
+		// arguments for the command in flags.Arg[0].
+		fn(c, ctx, flags.Args()[1:]...)
+	}()
+	if perr != nil {
+		c.Fatal(perr)
+	}
 	c.Exit(0)
 }
 

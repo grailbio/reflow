@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -31,8 +32,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
-	"github.com/aws/aws-sdk-go/service/ecr"
-	"github.com/aws/aws-sdk-go/service/ecr/ecriface"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/infra"
 	"github.com/grailbio/infra/tls"
@@ -102,8 +101,7 @@ type Cluster struct {
 	// InstanceTypesMap stores the set of admissible instance types.
 	// If nil, all instance types are permitted.
 	InstanceTypesMap map[string]bool `yaml:"-"`
-	// BootstrapImage is the Docker URI of the image used for instance bootstrap.
-	// The image must be retrievable by the cluster's authenticator.
+	// BootstrapImage is the URL of the image used for instance bootstrap.
 	BootstrapImage string `yaml:"-"`
 	// ReflowVersion is the version of reflow binary compatible with this cluster.
 	ReflowVersion string `yaml:"-"`
@@ -152,20 +150,30 @@ type Cluster struct {
 	wait chan *waiter
 }
 
-func validateBootstrapImage(ecrApi ecriface.ECRAPI, reflowlet string, log *log.Logger) error {
-	matches := ecrURI.FindStringSubmatch(reflowlet)
-	if len(matches) != 3 {
-		log.Debugf("cannot determine repository name and/or image tag from: %s", reflowlet)
-		return nil
+type header interface {
+	Head(url string) (resp *http.Response, err error)
+}
+
+func validateBootstrap(burl string, h header) error {
+	u, err := url.Parse(burl)
+	if err != nil {
+		return errors.E(errors.Fatal, "bootstrap image", err)
 	}
-	dii := &ecr.DescribeImagesInput{
-		RepositoryName: &matches[1],
-		ImageIds:       []*ecr.ImageIdentifier{{ImageTag: &matches[2]}},
+	if u.Scheme != "https" {
+		return errors.E(errors.Fatal, "bootstrap image", fmt.Errorf("scheme %s not supported: %s", u.Scheme, burl))
 	}
-	if _, err := ecrApi.DescribeImages(dii); err != nil {
-		return fmt.Errorf("required reflowlet image not found on AWS: %v", err)
+	resp, err := h.Head(burl)
+	switch {
+	case err == nil && resp.StatusCode != http.StatusOK:
+		err = errors.E(errors.Fatal, "bootstrap image", fmt.Errorf("HEAD %s: %s", burl, resp.Status))
+	case resp == nil:
+		err = errors.E(errors.Fatal, "bootstrap image", fmt.Errorf("HEAD %s: no response", burl))
+	default:
+		if contentType := resp.Header.Get("Content-Type"); contentType != "binary/octet-stream" {
+			err = errors.E(errors.Fatal, "bootstrap image", fmt.Errorf("Content-Type not supported: %s", contentType))
+		}
 	}
-	return nil
+	return err
 }
 
 // Help implements infra.Provider
@@ -201,10 +209,9 @@ func (c *Cluster) Init(tls *tls.Authority, sess *session.Session, labels pool.La
 	if reflowVersion.Value() == "" {
 		return errors.New("no version specified in cluster configuration")
 	}
-	if err := validateBootstrapImage(ecr.New(sess), string(*bootstrapimage), logger); err != nil {
-		return err
+	if err := validateBootstrap(bootstrapimage.Value(), http.DefaultClient); err != nil {
+		return errors.E(errors.Fatal, fmt.Sprintf("bootstrap image: %s", bootstrapimage.Value()), err)
 	}
-
 	c.EC2 = svc
 	c.Authenticator = ec2authenticator.New(sess)
 	c.HTTPClient = httpClient

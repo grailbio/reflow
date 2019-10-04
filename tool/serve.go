@@ -8,7 +8,6 @@ import (
 	"context"
 	"flag"
 
-	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/reflowlet"
 )
 
@@ -29,15 +28,14 @@ the configuration is typically sealed, containing both configuration information
 as well as credentials to access various services.
 `
 	)
-	server := reflowlet.NewServer(c.Version)
+	server := reflowlet.NewServer(c.Version, c.Config)
 	server.AddFlags(flags)
-	c.Parse(flags, args, help, "serve [-ec2cluster] -config path")
-
-	// Make sure that we always shut down with a non-zero exit code,
-	// so that systemd considers the process failed.
-	defer c.Exit(1)
-	server.SchemaKeys = c.SchemaKeys
-	server.Schema = c.Schema
+	c.Parse(flags, args, help, "serve [-ec2cluster]")
 	go reflowlet.IgnoreSigpipe()
-	log.Fatal(server.ListenAndServe())
+	// Shutdown the server if the context is done.
+	go func() {
+		<-ctx.Done()
+		server.Shutdown()
+	}()
+	c.Fatal(server.ListenAndServe())
 }

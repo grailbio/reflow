@@ -9,7 +9,6 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"os/signal"
@@ -36,7 +35,6 @@ import (
 	repositoryhttp "github.com/grailbio/reflow/repository/http"
 	"github.com/grailbio/reflow/rest"
 	"golang.org/x/net/http2"
-	"gopkg.in/yaml.v2"
 )
 
 // maxConcurrentStreams is the number of concurrent http/2 streams we
@@ -45,10 +43,6 @@ const maxConcurrentStreams = 20000
 
 // A Server is a reflow server, exposing a local pool over an HTTP server.
 type Server struct {
-	// Schema is the infra schema.
-	Schema infra.Schema
-	// SchemaKeys contains the schema providers and flags.
-	SchemaKeys infra.Keys
 	// Config is the server's config.
 	Config infra.Config
 
@@ -67,21 +61,23 @@ type Server struct {
 	// HTTPDebug determines whether HTTP debug logging is turned on.
 	HTTPDebug bool
 
+	// server is the underlying HTTP server
+	server *http.Server
+
 	configFlag string
 
 	// version of the reflowlet instance.
 	version string
 }
 
-// NewServer returns a new server with specified version.
-func NewServer(version string) *Server {
-	return &Server{version: version}
+// NewServer returns a new server with specified version and config.
+func NewServer(version string, config infra.Config) *Server {
+	return &Server{version: version, Config: config}
 }
 
 // AddFlags adds flags configuring various Reflowlet parameters to
 // the provided FlagSet.
 func (s *Server) AddFlags(flags *flag.FlagSet) {
-	flags.StringVar(&s.configFlag, "config", "", "the Reflow configuration file")
 	flags.StringVar(&s.Addr, "addr", ":9000", "HTTPS server address")
 	flags.StringVar(&s.Prefix, "prefix", "", "prefix used for directory lookup")
 	flags.BoolVar(&s.Insecure, "insecure", false, "listen on HTTP, not HTTPS")
@@ -110,25 +106,6 @@ func (s *Server) setTags(sess *session.Session) error {
 
 // ListenAndServe serves the Reflowlet server on the configured address.
 func (s *Server) ListenAndServe() error {
-	if s.configFlag != "" {
-		b, err := ioutil.ReadFile(s.configFlag)
-		if err != nil {
-			return err
-		}
-		keys := make(infra.Keys)
-		if err := yaml.Unmarshal(b, keys); err != nil {
-			return fmt.Errorf("config %v: %v", s.configFlag, err)
-		}
-		for k, v := range keys {
-			s.SchemaKeys[k] = v
-		}
-	}
-
-	var err error
-	s.Config, err = s.Schema.Make(s.SchemaKeys)
-	if err != nil {
-		return err
-	}
 	addr := os.Getenv("DOCKER_HOST")
 	if addr == "" {
 		addr = "unix:///var/run/docker.sock"
@@ -230,16 +207,20 @@ func (s *Server) ListenAndServe() error {
 	if err != nil {
 		return fmt.Errorf("repo: %v", err)
 	}
-	server := &http.Server{Addr: s.Addr}
+	s.server = &http.Server{Addr: s.Addr}
 	if s.Insecure {
-		return server.ListenAndServe()
+		return s.server.ListenAndServe()
 	}
 	serverConfig.ClientAuth = tls.RequireAndVerifyClientCert
-	server.TLSConfig = serverConfig
-	http2.ConfigureServer(server, &http2.Server{
+	s.server.TLSConfig = serverConfig
+	http2.ConfigureServer(s.server, &http2.Server{
 		MaxConcurrentStreams: maxConcurrentStreams,
 	})
-	return server.ListenAndServeTLS("", "")
+	return s.server.ListenAndServeTLS("", "")
+}
+
+func (s *Server) Shutdown() {
+	s.server.Shutdown(context.Background())
 }
 
 // IgnoreSigpipe consumes (and ignores) SIGPIPE signals. As of Go

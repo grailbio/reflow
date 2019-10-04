@@ -9,10 +9,9 @@ import (
 	"os/user"
 	"strings"
 
-	"github.com/grailbio/reflow/pool"
-
 	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/pool"
 )
 
 func init() {
@@ -82,12 +81,12 @@ func (u User) User() string {
 	return (string)(u)
 }
 
-// BootstrapImage is the Docker URI of the image used for instance bootstrap.
+// BootstrapImage is the URL of the image used for instance bootstrap.
 type BootstrapImage string
 
 // Help implements infra.Provider
 func (r BootstrapImage) Help() string {
-	return "provide a bootstrap image docker URI"
+	return "provide a bootstrap image URL"
 }
 
 // Init implements infra.Provider.
@@ -106,6 +105,16 @@ func (r *BootstrapImage) Flags(flags *flag.FlagSet) {
 // Value returns the bootstrap image uri.
 func (r *BootstrapImage) Value() string {
 	return string(*r)
+}
+
+// Set sets this BootstrapImage's value with the given one (if different)
+// but only if its current value is "bootstrap".  Returns true if the value was set.
+func (r *BootstrapImage) Set(image string) bool {
+	if *r != "bootstrap" && string(*r) != image {
+		return false
+	}
+	*r = BootstrapImage(image)
+	return true
 }
 
 // ReflowVersion is the infrastructure provider for the reflow version.

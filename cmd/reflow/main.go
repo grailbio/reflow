@@ -36,8 +36,8 @@ var version = "broken"
 
 var configFile = os.ExpandEnv("$HOME/.reflow/config.yaml")
 
-// bootstrapimage is the docker URI for the bootstrap image.
-const bootstrapimage = "grailbio/reflowbootstrap:reflowbootstrap"
+// bootstrapimage is the URL of the bootstrap binary (hosted on a publicly accessible S3 path)
+const bootstrapimage = "https://grail-public-bin.s3-us-west-2.amazonaws.com/linux/amd64/reflowbootstrap0.1"
 
 const intro = `Cluster computing and caching
 
@@ -64,9 +64,6 @@ See the following for more details:
 	reflow setup-dynamodb-assoc -help`
 
 func main() {
-	// TODO(swami):  Don't marshal reflowlet and version in the config
-	// because they shouldn't be changeable by the user once bootstrapping is rolled out.
-
 	cmd := &tool.Cmd{
 		// Turn caching off by default. This way we can run a vanilla Reflow
 		// binary in local mode without any additional configuration.
@@ -103,13 +100,16 @@ func main() {
 		infra2.Cache:     "off",
 		infra2.Labels:    "kv",
 		infra2.Log:       "logger",
-		infra2.Bootstrap: fmt.Sprintf("bootstrapimage,uri=%s", bootstrapimage),
+		infra2.Bootstrap: "bootstrapimage,uri=bootstrap",
+		infra2.Reflow:    fmt.Sprintf("reflowversion,version=%s", version),
 		infra2.Session:   "awssession",
 		infra2.SSHKey:    "key",
 		infra2.TLS:       "tls,file=/tmp/ca.reflow",
 		infra2.Username:  "user",
 		infra2.Tracer:    "xray",
 	}
+	cmd.BootstrapBinary = bootstrapimage
 	cmd.Flags().Parse(os.Args[1:])
+
 	cmd.Main()
 }

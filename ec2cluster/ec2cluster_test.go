@@ -7,6 +7,7 @@ package ec2cluster
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -237,13 +238,19 @@ func TestClusterInfra(t *testing.T) {
 		"reflow":    new(infra2.ReflowVersion),
 		"sshkey":    new(infra2.SshKey),
 	}
-	b := `
+
+	for _, tt := range []struct {
+		b            string
+		name, rv, bi string
+		spot         bool
+	}{
+		{`
         labels: kv
         tls: tls,file=/tmp/ca
         logger: logger
         session: awssession
         user: user
-        bootstrap: bootstrapimage,uri=1.2.3
+        bootstrap: bootstrapimage,uri=https://some_s3_path
         reflow: reflowversion,version=abcdef
         cluster: ec2cluster
         ec2cluster:
@@ -254,27 +261,81 @@ func TestClusterInfra(t *testing.T) {
             region: bar
             securitygroup: blah
         sshkey: key
-        `
-	config, err := schema.Unmarshal([]byte(b))
-	if err != nil {
-		t.Fatal(err)
+        `,
+			"default", "abcdef", "https://some_s3_path", false},
+		{`
+        labels: kv
+        tls: tls,file=/tmp/ca
+        logger: logger
+        session: awssession
+        user: user
+        reflow: reflowversion,version=abcdef
+        cluster: ec2cluster
+        ec2cluster:
+            maxinstances: 1
+            disktype: dt
+            diskspace: 10
+            ami: foo
+            region: bar
+            securitygroup: blah
+        sshkey: key
+        `,
+			"default", "abcdef", "bootstrap", false},
+	} {
+		config, err := schema.Unmarshal([]byte(tt.b))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var cluster runner.Cluster
+		config.Must(&cluster)
+		ec2cluster, ok := cluster.(*Cluster)
+		if !ok {
+			t.Fatalf("%v is not an ec2cluster", reflect.TypeOf(cluster))
+		}
+		if got, want := ec2cluster.Name, tt.name; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		if got, want := ec2cluster.Spot, tt.spot; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		if got, want := ec2cluster.ReflowVersion, tt.rv; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		if got, want := ec2cluster.BootstrapImage, tt.bi; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
 	}
-	var cluster runner.Cluster
-	config.Must(&cluster)
-	ec2cluster, ok := cluster.(*Cluster)
-	if !ok {
-		t.Fatalf("%v is not an ec2cluster", reflect.TypeOf(cluster))
+}
+
+func TestValidateBootstrap(t *testing.T) {
+	for _, tc := range []struct {
+		burl      string
+		h         header
+		wantError bool
+	}{
+		{"", nil, true},
+		{"619867110810.dkr.ecr.us-west-2.amazonaws.com/reflowbootstrap:reflowbootstrap", nil, true},
+		{"http://path_to_bootstrap", nil, true},
+		{"https://path_to_bootstrap", &mockHeader{err: fmt.Errorf("test error")}, true},
+		{"https://path_to_bootstrap", &mockHeader{resp: &http.Response{StatusCode: http.StatusForbidden}}, true},
+		{"https://path_to_bootstrap", &mockHeader{resp: &http.Response{StatusCode: http.StatusOK, Header: map[string][]string{"Content-Type": {"text/plain"}}}}, true},
+		{"https://path_to_bootstrap", &mockHeader{resp: &http.Response{StatusCode: http.StatusOK, Header: map[string][]string{"Content-Type": {"binary/octet-stream"}}}}, false},
+	} {
+		got := validateBootstrap(tc.burl, tc.h)
+		if tc.wantError != (got != nil) {
+			t.Errorf("validateBootstrap(%s): got: %v want: %v", tc.burl, got, tc.wantError)
+		}
 	}
-	if got, want := ec2cluster.Name, "default"; got != want {
-		t.Errorf("got %v, want %v", ec2cluster.Name, "default")
+}
+
+type mockHeader struct {
+	resp *http.Response
+	err  error
+}
+
+func (e *mockHeader) Head(url string) (resp *http.Response, err error) {
+	if e.err != nil {
+		return nil, e.err
 	}
-	if got, want := ec2cluster.Spot, false; got != want {
-		t.Errorf("got %v, want %v", ec2cluster.Spot, false)
-	}
-	if got, want := ec2cluster.ReflowVersion, "abcdef"; got != want {
-		t.Errorf("got %v, want %v", ec2cluster.Spot, "abcdef")
-	}
-	if got, want := ec2cluster.BootstrapImage, "1.2.3"; got != want {
-		t.Errorf("got %v, want %v", ec2cluster.Spot, "1.2.3")
-	}
+	return e.resp, nil
 }
