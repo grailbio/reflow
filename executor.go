@@ -195,11 +195,11 @@ func (e ExecInspect) Runtime() time.Duration {
 	if err != nil {
 		return time.Duration(0)
 	}
-	var (
-		startSec = start.Truncate(time.Second)
-		endSec   = end.Truncate(time.Second)
-	)
-	return endSec.Sub(startSec)
+	diff := end.Sub(start)
+	if diff < time.Duration(0) {
+		diff = time.Duration(0)
+	}
+	return diff
 }
 
 // Resources describes a set of labeled resources. Each resource is
