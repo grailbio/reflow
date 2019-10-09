@@ -148,7 +148,7 @@ func (s *Server) ListenAndServe() error {
 	if err != nil {
 		return err
 	}
-	var tlsa *infratls.Authority
+	var tlsa infratls.Certs
 	err = s.Config.Instance(&tlsa)
 	if err != nil {
 		return err

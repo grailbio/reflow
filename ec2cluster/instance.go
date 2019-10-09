@@ -13,6 +13,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"sort"
@@ -762,23 +763,11 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Compress file so that we are below the 16KB limit for user data.
-	var gb bytes.Buffer
-	gw := gzip.NewWriter(&gb)
-	_, err = gw.Write(b)
-	if err != nil {
-		return "", err
-	}
-	err = gw.Close()
-	if err != nil {
-		return "", err
-	}
 	c.AppendFile(CloudFile{
 		Path:        "/etc/reflowconfig",
 		Permissions: "0644",
 		Owner:       "root",
-		Encoding:    "gzip",
-		Content:     gb.String(),
+		Content:     string(b),
 	})
 
 	// Write the bootstrapping script. It fetches the binary and runs it.
@@ -919,11 +908,45 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	i.userData = base64.StdEncoding.EncodeToString(b)
+	// Compress file so that we are below the 16KB limit for user data.
+	var gb bytes.Buffer
+	b64e := base64.NewEncoder(base64.StdEncoding, &gb)
+	ctr := byteCounter{writer: b64e}
+	gw := gzip.NewWriter(&ctr)
+	_, err = gw.Write(b)
+	if err != nil {
+		return "", err
+	}
+	err = gw.Close()
+	if err != nil {
+		return "", err
+	}
+	err = b64e.Close()
+	if err != nil {
+		return "", err
+	}
+	if ctr.count > 16<<10 {
+		return "", errors.New(fmt.Sprintf("size of userdata > 16384: %v ", ctr.count))
+	}
+	i.userData = gb.String()
 	if i.Spot {
 		return i.ec2RunSpotInstance(ctx)
 	}
 	return i.ec2RunInstance()
+}
+
+type byteCounter struct {
+	count  int64
+	writer io.Writer
+}
+
+func (b *byteCounter) Write(p []byte) (n int, err error) {
+	n, err = b.writer.Write(p)
+	if err != nil {
+		return
+	}
+	b.count += int64(n)
+	return
 }
 
 func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {

@@ -187,7 +187,7 @@ func (c *Cluster) Config() interface{} {
 }
 
 // Init implements infra.Provider
-func (c *Cluster) Init(tls *tls.Authority, sess *session.Session, labels pool.Labels, bootstrapimage *infra2.BootstrapImage, reflowVersion *infra2.ReflowVersion, id *infra2.User, logger *log.Logger, sshKey *infra2.SshKey) error {
+func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels, bootstrapimage *infra2.BootstrapImage, reflowVersion *infra2.ReflowVersion, id *infra2.User, logger *log.Logger, sshKey *infra2.SshKey) error {
 	// If InstanceTypes are not defined, include built-in verified instance types.
 	if len(c.InstanceTypes) == 0 {
 		verified := instances.VerifiedByRegion[c.Region]

@@ -230,7 +230,7 @@ func TestClusterInfra(t *testing.T) {
 	var schema = infra.Schema{
 		"labels":    make(pool.Labels),
 		"cluster":   new(runner.Cluster),
-		"tls":       new(tls.Authority),
+		"tls":       new(tls.Certs),
 		"logger":    new(log.Logger),
 		"session":   new(session.Session),
 		"user":      new(infra2.User),

@@ -90,7 +90,7 @@ func main() {
 		infra2.Repository: new(reflow.Repository),
 		infra2.Session:    new(session.Session),
 		infra2.SSHKey:     new(infra2.SshKey),
-		infra2.TLS:        new(tls.Authority),
+		infra2.TLS:        new(tls.Certs),
 		infra2.Username:   new(infra2.User),
 		infra2.Tracer:     new(trace.Tracer),
 		infra2.TaskDB:     new(taskdb.TaskDB),

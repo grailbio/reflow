@@ -77,7 +77,7 @@ func (c *Cmd) Cluster(status *status.Group) runner.Cluster {
 }
 
 func (c *Cmd) httpClient() (*http.Client, error) {
-	var ca *tls.Authority
+	var ca tls.Certs
 	err := c.Config.Instance(&ca)
 	if err != nil {
 		c.Fatal(err)

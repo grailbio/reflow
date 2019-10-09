@@ -34,7 +34,7 @@ var (
 		infra2.Log:      new(log.Logger),
 		infra2.Session:  new(session.Session),
 		infra2.SSHKey:   new(infra2.SshKey),
-		infra2.TLS:      new(infratls.Authority),
+		infra2.TLS:      new(infratls.Certs),
 	}
 	// DefaultSchemaKeys defines the default infra keys for the Bootstrap server.
 	DefaultSchemaKeys = infra.Keys{
@@ -71,7 +71,7 @@ func RunServer(schema infra.Schema, schemaKeys infra.Keys, configFile, addr stri
 	if err = config.Instance(&sess); err != nil {
 		log.Fatal(err)
 	}
-	var tlsa *infratls.Authority
+	var tlsa infratls.Certs
 	if err = config.Instance(&tlsa); err != nil {
 		log.Fatal(err)
 	}
