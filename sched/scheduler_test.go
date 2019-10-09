@@ -253,3 +253,43 @@ func TestTaskLost(t *testing.T) {
 	req.Reply <- testClusterAllocReply{Alloc: newTestAlloc(reflow.Resources{"cpu": 1, "mem": 1})}
 	singleTask.Wait(ctx, sched.TaskRunning)
 }
+
+func TestSchedulerFracCPU(t *testing.T) {
+	scheduler, cluster, _, shutdown := newTestScheduler(t)
+	ctx := context.Background()
+	defer shutdown()
+
+	// 10 tasks, each with 1/10 of a CPU. Check to see if they all fit on an alloc with 1 CPU
+	tasks := make([]*sched.Task, 10)
+	for i := range tasks {
+		tasks[i] = newTask(0.1, 1<<30, 0)
+	}
+	scheduler.Submit(tasks...)
+	req := <-cluster.Req()
+	if got, want := req.Requirements, newRequirements(0.1, 1<<30, 10); !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	//There shouldn't be another one:
+	select {
+	case <-cluster.Req():
+		t.Error("too many requests")
+	default:
+	}
+	for i, task := range tasks {
+		if got, want := task.State(), sched.TaskInit; got != want {
+			t.Errorf("task %d: got %v, want %v", i, got, want)
+		}
+	}
+	alloc := newTestAlloc(reflow.Resources{"cpu": 1, "mem": 10 << 30})
+	req.Reply <- testClusterAllocReply{Alloc: alloc}
+
+	// Run all tasks at once. There should be enough resources in the alloc
+	for _, t := range tasks {
+		t.Wait(ctx, sched.TaskRunning)
+	}
+	select {
+	case <-cluster.Req():
+		t.Errorf("Cluster should have no requests")
+	default:
+	}
+}

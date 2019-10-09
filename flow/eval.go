@@ -44,7 +44,7 @@ const (
 	// The minimum amount of memory we allocate for an exec.
 	minExecMemory = 500 << 20
 	// The minimum number of CPUs we allocate for an exec.
-	minExecCPU = 1
+	minExecCPU = 0.1
 
 	numExecTries = 5
 
