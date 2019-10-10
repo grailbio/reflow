@@ -108,6 +108,28 @@ func TestExec(t *testing.T) {
 	if got, zero := profile["tmp"].Max, 0.0; got <= zero {
 		t.Fatalf("tmp max: %v !> %v", got, zero)
 	}
+	if got, zero := profile["disk"].N, int64(0); got <= zero {
+		t.Fatalf("disk N: %v !> %v", got, zero)
+	}
+	if got, zero := profile["tmp"].N, int64(0); got <= zero {
+		t.Fatalf("tmp N: %v !> %v", got, zero)
+	}
+
+	// Disk and tmp variance must be 0 because disk and tmp can only be profiled once in 45 seconds
+	if got, want := profile["disk"].Var, 0.0; got != want {
+		t.Fatalf("disk variance: %v != %v", got, want)
+	}
+	if got, want := profile["tmp"].Var, 0.0; got != want {
+		t.Fatalf("tmp variance: %v != %v", got, want)
+	}
+
+	// Disk and tmp profiles must have nonzero First and Last times
+	if profile["disk"].First.IsZero() || profile["disk"].Last.IsZero() {
+		t.Fatalf("disk First and Last times must not be zero if profiling has occurred.")
+	}
+	if profile["tmp"].First.IsZero() || profile["tmp"].Last.IsZero() {
+		t.Fatalf("tmp First and Last times must not be zero if profiling has occurred.")
+	}
 }
 
 func TestProfileContextTimeOut(t *testing.T) {
@@ -161,6 +183,28 @@ func TestProfileContextTimeOut(t *testing.T) {
 	}
 	if got, zero := profile["tmp"].Max, 0.0; got <= zero {
 		t.Fatalf("tmp max: %v !> %v", got, zero)
+	}
+	if got, zero := profile["disk"].N, int64(0); got <= zero {
+		t.Fatalf("disk N: %v !> %v", got, zero)
+	}
+	if got, zero := profile["tmp"].N, int64(0); got <= zero {
+		t.Fatalf("tmp N: %v !> %v", got, zero)
+	}
+
+	// Disk and tmp variance must be 0 because disk and tmp can only be profiled once in 45 seconds
+	if got, want := profile["disk"].Var, 0.0; got != want {
+		t.Fatalf("disk variance: %v != %v", got, want)
+	}
+	if got, want := profile["tmp"].Var, 0.0; got != want {
+		t.Fatalf("tmp variance: %v != %v", got, want)
+	}
+
+	// Disk and tmp profiles must have nonzero First and Last times
+	if profile["disk"].First.IsZero() || profile["disk"].Last.IsZero() {
+		t.Fatalf("disk First and Last times must not be zero if profiling has occurred.")
+	}
+	if profile["tmp"].First.IsZero() || profile["tmp"].Last.IsZero() {
+		t.Fatalf("tmp First and Last times must not be zero if profiling has occurred.")
 	}
 }
 

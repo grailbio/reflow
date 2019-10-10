@@ -127,8 +127,12 @@ func (e ExecConfig) String() string {
 	return s
 }
 
-// Profile stores keyed statistical summaries (currently: mean, max).
-type Profile map[string]struct{ Max, Mean float64 }
+// Profile stores keyed statistical summaries (currently: mean, max, N).
+type Profile map[string]struct {
+	Max, Mean, Var float64
+	N              int64
+	First, Last    time.Time
+}
 
 func (p Profile) String() string {
 	var keys []string
@@ -141,7 +145,7 @@ func (p Profile) String() string {
 		if i > 0 {
 			b.WriteString("; ")
 		}
-		fmt.Fprintf(&b, "%s: mean %v max %v", k, p[k].Mean, p[k].Max)
+		fmt.Fprintf(&b, "%s: mean %v max %v N %v var %v", k, p[k].Mean, p[k].Max, p[k].N, p[k].Var)
 	}
 	return b.String()
 }
