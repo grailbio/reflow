@@ -80,6 +80,8 @@ modified and overriden:
 	if flags.NArg() != 0 {
 		flags.Usage()
 	}
+	// Do not marshal the key for reflow version.
+	delete(c.Config.Keys, "reflow")
 	data, err := c.Config.Marshal(*marshalFlag)
 	if err != nil {
 		c.Fatal(err)

@@ -104,7 +104,6 @@ func main() {
 		infra2.Labels:    "kv",
 		infra2.Log:       "logger",
 		infra2.Bootstrap: fmt.Sprintf("bootstrapimage,uri=%s", bootstrapimage),
-		infra2.Reflow:    fmt.Sprintf("reflowversion,version=%s", version),
 		infra2.Session:   "awssession",
 		infra2.SSHKey:    "key",
 		infra2.TLS:       "tls,file=/tmp/ca.reflow",

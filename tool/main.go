@@ -24,6 +24,7 @@ import (
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow/flow"
+	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
 	"gopkg.in/yaml.v2"
 )
@@ -259,7 +260,9 @@ func (c *Cmd) Main() {
 		}
 		c.SchemaKeys[k] = *v
 	}
-	c.SchemaKeys["logger"] = c.SchemaKeys["logger"].(string) + "," + fmt.Sprintf("level=%v", c.logFlag)
+	c.SchemaKeys["logger"] = fmt.Sprintf("logger,level=%v", c.logFlag)
+	// Set the reflow version to always match the version of the binary, regardless of the provided configuration.
+	c.SchemaKeys[infra2.Reflow] = fmt.Sprintf("reflowversion,version=%s", c.Version)
 	var err error
 	c.Config, err = c.Schema.Make(c.SchemaKeys)
 	if err != nil {
