@@ -58,6 +58,8 @@ type WatcherParams struct {
 	FastThresholdDuration time.Duration
 }
 
+// Watcher has the capability of watching a volume and resizing it if and when necessary
+// based on configured set of parameters.
 type Watcher struct {
 	vol Volume
 	wp  WatcherParams

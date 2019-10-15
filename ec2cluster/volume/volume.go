@@ -184,10 +184,12 @@ func (v *ebsLvmVolume) SetSize(ctx context.Context, newSize data.Size) error {
 	if err != nil {
 		return err
 	}
+	if newSize == currSize {
+		return nil
+	}
 	if newSize < currSize {
 		return errors.E(errors.NotSupported, fmt.Sprintf("reducing size %s -> %s", currSize, newSize))
 	}
-
 	perVolSize := data.Size(int64(newSize) / int64(len(v.ebsVolIds)))
 	limits := minMaxByType[v.ebsVolType]
 	if perVolSize < limits.min {
