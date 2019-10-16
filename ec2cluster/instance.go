@@ -433,14 +433,12 @@ func (i *instance) Go(ctx context.Context) {
 				i.Log.Debugf("launched %sinstance %v: %s%s", spot, id, i.Config.Type, i.Config.Resources)
 			}
 		case stateTag:
-			var tags []*ec2.Tag
-			for k, v := range i.InstanceTags {
-				tags = append(tags, &ec2.Tag{Key: aws.String(k), Value: aws.String(v)})
+			vids, err := getVolumeIds(i.EC2, id)
+			if err != nil {
+				i.Log.Errorf("get attached volumes %s: %v", id, err)
 			}
-			for k, v := range i.Labels {
-				tags = append(tags, &ec2.Tag{Key: aws.String(k), Value: aws.String(v)})
-			}
-			_, i.err = i.EC2.CreateTags(&ec2.CreateTagsInput{Resources: []*string{aws.String(id)}, Tags: tags})
+			_, i.err = i.EC2.CreateTags(&ec2.CreateTagsInput{
+				Resources: append([]*string{aws.String(id)}, aws.StringSlice(vids)...), Tags: i.getTags()})
 		case stateWaitInstance:
 			i.Task.Print("waiting for instance to become ready")
 			i.err = i.EC2.WaitUntilInstanceRunning(&ec2.DescribeInstancesInput{
@@ -667,6 +665,41 @@ func imageDigest() (digest.Digest, error) {
 func hasEmbedded() bool {
 	_, err := imageDigest()
 	return err == nil
+}
+
+// getVolumeIds gets the IDs of the volumes currently attached (or attaching) to the given EC2 instance.
+func getVolumeIds(api ec2iface.EC2API, instanceId string) ([]string, error) {
+	req := &ec2.DescribeVolumesInput{
+		Filters: []*ec2.Filter{
+			{Name: aws.String("attachment.instance-id"), Values: aws.StringSlice([]string{instanceId})},
+		},
+	}
+	resp, err := api.DescribeVolumes(req)
+	if err != nil {
+		return nil, err
+	}
+	var vids []string
+	for _, v := range resp.Volumes {
+		for _, a := range v.Attachments {
+			vid, state := aws.StringValue(v.VolumeId), aws.StringValue(a.State)
+			if aws.StringValue(a.InstanceId) == instanceId &&
+				(state == ec2.AttachmentStatusAttached || state == ec2.AttachmentStatusAttaching) {
+				vids = append(vids, vid)
+			}
+		}
+	}
+	return vids, nil
+}
+
+// getTags gets the EC2 tags for the instance.
+func (i *instance) getTags() (tags []*ec2.Tag) {
+	for k, v := range i.InstanceTags {
+		tags = append(tags, &ec2.Tag{Key: aws.String(k), Value: aws.String(v)})
+	}
+	for k, v := range i.Labels {
+		tags = append(tags, &ec2.Tag{Key: aws.String(k), Value: aws.String(v)})
+	}
+	return
 }
 
 // configureEBS configures the EBS volume size and number for optimal performance.
