@@ -29,9 +29,10 @@ func repeatExecs(f *flow.Flow, n int) (*flow.Flow, error) {
 }
 
 type repeater struct {
-	root  *flow.Flow
-	times int
-	fm    *flowMap
+	root     *flow.Flow
+	times    int
+	fm       *flowMap
+	nSkipped int
 }
 
 // Comparer collects an aggregate flow node that combines the result of comparing
@@ -51,6 +52,10 @@ func (r *repeater) Comparer() (*flow.Flow, error) {
 			// to finish before potentially firing off repetitions, but we can definitely make this faster.
 			deps := r.fm.Values()
 			if len(deps) == 0 && r.times > 1 {
+				if r.nSkipped > 0 {
+					fmt.Fprintf(os.Stderr, "no repeated execs (%d were skipped)\n", r.nSkipped)
+					return &flow.Flow{Op: flow.Val, FlowDigest: values.Digest(true, types.Bool), Value: true}
+				}
 				return &flow.Flow{Op: flow.Val, Err: errors.Recover(errNoExecsToRepeat)}
 			}
 			return &flow.Flow{
@@ -62,10 +67,7 @@ func (r *repeater) Comparer() (*flow.Flow, error) {
 					for _, v := range vs {
 						tuple := v.(values.Tuple)
 						fmt.Fprintf(os.Stderr, "repeated exec result %s\n", tuple[0].(string))
-						if !tuple[1].(bool) {
-							result = false
-							break
-						}
+						result = result && tuple[1].(bool)
 					}
 					return &flow.Flow{Op: flow.Val, FlowDigest: values.Digest(result, types.Bool), Value: result}
 				},
@@ -76,6 +78,7 @@ func (r *repeater) Comparer() (*flow.Flow, error) {
 
 // collect recursively finds exec nodes and collects flow nodes representing
 // the repetition and result comparison for each of them.
+// Execs flagged as 'nondeterministic' are skipped.
 func (r *repeater) collect(f *flow.Flow) {
 	for i := range f.Deps {
 		r.collect(f.Deps[i])
@@ -89,6 +92,11 @@ func (r *repeater) collect(f *flow.Flow) {
 		}
 	}
 	fr := repeatAndCompare(f, r.times)
+	// Skip non-deterministic execs
+	if f.NonDeterministic {
+		r.nSkipped++
+		return
+	}
 	if fr != nil {
 		r.fm.Put(f, fr)
 	}
@@ -96,14 +104,9 @@ func (r *repeater) collect(f *flow.Flow) {
 
 // repeatAndCompare returns a flow which compares the result of the given flow
 // with n-1 duplicates of it, if applicable, or returns nil.
-// Only applies to execs that aren't flagged as 'nondeterministic'.
 func repeatAndCompare(f *flow.Flow, n int) *flow.Flow {
 	// Skip non-execs
 	if f.Op != flow.Exec {
-		return nil
-	}
-	// Skip non-deterministic execs
-	if f.NonDeterministic {
 		return nil
 	}
 	groupId := f.Digest().Short()

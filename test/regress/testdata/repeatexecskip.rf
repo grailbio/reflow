@@ -1,0 +1,14 @@
+// This tests test.ExecRepeatAndCheck functionality.
+
+val test = make("$/test")
+
+func CatCopyRand(in file) =
+		exec(image := "ubuntu", mem := 10*MiB, nondeterministic := true) (out file) {"
+		echo $RANDOM > {{out}}
+				cat {{in}} >> {{out}}
+		"}
+
+@requires(cpu := 1)
+val Main = test.Assert([
+	test.ExecRepeatAndCheck(CatCopyRand(file("localfile://testdata/repeatexec.rf")), 3),
+])
