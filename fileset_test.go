@@ -6,6 +6,7 @@ package reflow_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"encoding/json"
@@ -194,6 +195,63 @@ func TestSubst(t *testing.T) {
 			if file.IsRef() {
 				t.Errorf("unexpected reference file %v", file)
 			}
+		}
+	}
+}
+
+func TestDiff(t *testing.T) {
+	for _, tt := range []struct {
+		a, b  reflow.Fileset
+		wantD bool
+		want  string
+	}{
+		{v1, v1, false, ""},
+		{vlist, vlist, false, ""},
+		{
+			reflow.Fileset{List: []reflow.Fileset{vlist, v2}, Map: map[string]reflow.File{"foo": file1}},
+			reflow.Fileset{List: []reflow.Fileset{vlist, v2}, Map: map[string]reflow.File{"foo": file1}},
+			false, "",
+		},
+		{
+			vlist, v1, true,
+			`
+"bar" = void -> fcde2b2e
+"foo" = void -> 2c26b46b
+[0]:val<bar=fcde2b2e, ...6B> -> empty
+[1]:val<a/b/c=d76a7b72, ...8B> -> empty`,
+		},
+		{
+			v1, v2, true,
+			`
+"a/b/c" = void -> d76a7b72
+"foo" = 2c26b46b -> void`,
+		},
+		{
+			reflow.Fileset{List: []reflow.Fileset{v1, v2}, Map: map[string]reflow.File{"foo": file1}},
+			reflow.Fileset{List: []reflow.Fileset{v2, v1}},
+			true,
+			`
+"foo" = 2c26b46b -> void
+  [0]:"a/b/c" = void -> d76a7b72
+  [0]:"foo" = 2c26b46b -> void
+  [1]:"a/b/c" = d76a7b72 -> void
+  [1]:"foo" = void -> 2c26b46b`,
+		},
+	} {
+		got, gotD := tt.a.Diff(tt.b)
+		if tt.wantD != gotD {
+			t.Errorf("got %v, want %v", gotD, tt.wantD)
+		}
+		if want := strings.TrimPrefix(tt.want, "\n"); got != want {
+			t.Errorf("got %s, want %s", got, want)
+		}
+	}
+	const N = 100
+	fuzz := testutil.NewFuzz(nil)
+	for i := 0; i < N; i++ {
+		fs := fuzz.FilesetDeep(5)
+		if diffStr, diff := fs.Diff(fs); diff || diffStr != "" {
+			t.Errorf("got different, want no different:\n%v", diffStr)
 		}
 	}
 }

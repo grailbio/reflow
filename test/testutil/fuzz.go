@@ -84,6 +84,12 @@ func (f *Fuzz) Fileset(refok, aok bool) reflow.Fileset {
 	return f.fileset(0, refok, aok)
 }
 
+// FilesetDeep returns a random fileset of the given depth.
+// The returned fileset contains only resolved files and no assertions.
+func (f *Fuzz) FilesetDeep(depth int) reflow.Fileset {
+	return f.fileset(0, false, false)
+}
+
 func (f *Fuzz) fileset(depth int, refok, aok bool) (fs reflow.Fileset) {
 	if f.Float64() < math.Pow(0.5, float64(depth+1)) {
 		n := f.Intn(10) + 1

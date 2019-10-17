@@ -126,21 +126,33 @@ func repeatAndCompare(f *flow.Flow, n int) *flow.Flow {
 		Deps:       deps,
 		FlowDigest: reflow.Digester.FromString("grail.com/reflow/syntax.repeat.repeatAndCompare"),
 		K: func(vs []values.T) *flow.Flow {
-			vdm := make(map[digest.Digest]bool)
-			vds := make([]string, len(vs))
-			for vi, v := range vs {
-				// TODO(swami): Compare filesets deeply and provide meaningful errors
-				vd := values.Digest(v, types.Fileset)
-				vdm[vd] = true
-				vds[vi] = vd.String()
+			var alldiffs []string
+			fs0 := vs[0].(reflow.Fileset)
+			for vi, v := range vs[1:] {
+				var diffs []string
+				fs := v.(reflow.Fileset)
+				seen := make(map[int]bool)
+				n := f.NExecArg()
+				for i := 0; i < n; i++ {
+					earg := f.ExecArg(i)
+					if !earg.Out || seen[earg.Index] {
+						continue
+					}
+					a, b := fs0.List[earg.Index], fs.List[earg.Index]
+					if diff, hasDiff := a.Diff(b); hasDiff {
+						diffs = append(diffs, fmt.Sprintf("%s %s", f.Argstrs[i], diff))
+					}
+					seen[earg.Index] = true
+				}
+				if len(diffs) > 0 {
+					alldiffs = append(alldiffs, fmt.Sprintf("repeat 0 vs repeat %d:\n%s", vi+1, strings.Join(diffs, "\n")))
+				}
 			}
-			var result values.Tuple
-			if len(vdm) > 1 {
-				result = values.Tuple{fmt.Sprintf("%s(%s): %d unique values:\n%s\n%s",
-					f.Ident, groupId, len(vdm), f.Position, strings.Join(vds, "\n")), false}
-			} else {
-				result = values.Tuple{fmt.Sprintf("%s(%s): all same", f.Ident, groupId), true}
+			res, b := "all same", true
+			if len(alldiffs) > 0 {
+				res, b = fmt.Sprintf("%s\n%s", f.Position, strings.Join(alldiffs, "\n")), false
 			}
+			result := values.Tuple{fmt.Sprintf("%s(%s): %s", f.Ident, groupId, res), b}
 			return &flow.Flow{
 				Op:         flow.Val,
 				FlowDigest: values.Digest(result, types.Tuple(&types.Field{T: types.String}, &types.Field{T: types.Bool})),

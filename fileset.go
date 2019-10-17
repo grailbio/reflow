@@ -430,6 +430,67 @@ func (v Fileset) pullup(m map[string]File) {
 	}
 }
 
+// Diff deep-compares the values two filesets assuming they have the same structure
+// and returns a pretty-diff of the differences (if any) and a boolean if they are different.
+func (v Fileset) Diff(w Fileset) (string, bool) {
+	return diffdepth(v, w, "", 0)
+}
+
+func diffdepth(a, b Fileset, prefix string, depth int) (string, bool) {
+	var diffs []string
+	set := make(map[string]struct{})
+	for k := range a.Map {
+		set[k] = struct{}{}
+	}
+	for k := range b.Map {
+		set[k] = struct{}{}
+	}
+	list := make([]string, len(set))
+	i := 0
+	for k := range set {
+		list[i] = k
+		i++
+	}
+	sort.Strings(list)
+	prefix = strings.Repeat("  ", depth) + prefix
+	for _, k := range list {
+		av, aok := a.Map[k]
+		bv, bok := b.Map[k]
+		switch {
+		case aok && bok && av.Digest() != bv.Digest():
+			diffs = append(diffs, fmt.Sprintf("%s\"%s\" = %s -> %s", prefix, k, av.Short(), bv.Short()))
+		case aok && !bok:
+			diffs = append(diffs, fmt.Sprintf("%s\"%s\" = %s -> %s", prefix, k, av.Short(), "void"))
+		case !aok && bok:
+			diffs = append(diffs, fmt.Sprintf("%s\"%s\" = %s -> %s", prefix, k, "void", bv.Short()))
+		}
+	}
+	n := len(a.List)
+	if n < len(b.List) {
+		n = len(b.List)
+	}
+	for i := 0; i < n; i++ {
+		var fsa, fsb Fileset
+		if i < len(a.List) {
+			fsa = a.List[i]
+		}
+		if i < len(b.List) {
+			fsb = b.List[i]
+		}
+		switch {
+		case fsa.Empty() && !fsb.Empty():
+			diffs = append(diffs, fmt.Sprintf("[%d]:empty -> %s", i, fsb.Short()))
+		case !fsa.Empty() && fsb.Empty():
+			diffs = append(diffs, fmt.Sprintf("[%d]:%s -> empty", i, fsa.Short()))
+		case !fsa.Empty() && !fsb.Empty():
+			if d, ok := diffdepth(fsa, fsb, fmt.Sprintf("[%d]:", i), depth+1); ok {
+				diffs = append(diffs, d)
+			}
+		}
+	}
+	return strings.Join(diffs, "\n"), len(diffs) > 0
+}
+
 func maybeComma(b *strings.Builder) {
 	if b.Len() > 0 {
 		b.WriteString(", ")
