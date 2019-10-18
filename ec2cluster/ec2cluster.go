@@ -553,7 +553,9 @@ func (c *Cluster) loop() {
 		for typ, n := range c.state.InstanceTypeCounts() {
 			counts = append(counts, fmt.Sprintf("%s:%d", typ, n))
 			config := c.instanceConfigs[typ]
-			total.Add(total, config.Resources)
+			var r reflow.Resources
+			r.Scale(config.Resources, float64(n))
+			total.Add(total, r)
 			totalPrice += config.Price[c.Region] * float64(n)
 		}
 		sort.Strings(counts)
