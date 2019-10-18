@@ -116,6 +116,7 @@ type Executor struct {
 	refCountsCond *sync.Cond
 	deadObjects   map[digest.Digest]bool
 	gcing         chan struct{}
+	oomTracker    *oomTracker
 }
 
 type refCount struct {
@@ -145,6 +146,10 @@ func (e *Executor) Start() error {
 	e.execs = map[digest.Digest]exec{}
 	e.refCounts = make(map[digest.Digest]refCount)
 	e.ctx, e.cancel = context.WithCancel(context.Background())
+	// Monitor /dev/kmsg for OOMs.
+	e.oomTracker = newOOMTracker()
+	go e.oomTracker.Monitor(e.ctx, e.Log)
+
 	if e.FileRepository == nil {
 		e.FileRepository = &filerepo.Repository{Root: filepath.Join(e.Prefix, e.Dir, objectsDir)}
 	}

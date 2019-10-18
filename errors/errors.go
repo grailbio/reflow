@@ -71,6 +71,8 @@ const (
 	Net
 	// Precondition indicates that a precondition was not met.
 	Precondition
+	// OOM indicates a out-of-memory error.
+	OOM
 
 	maxKind
 )
@@ -110,6 +112,8 @@ func (k Kind) String() string {
 		return "network error"
 	case Precondition:
 		return "precondition was not met"
+	case OOM:
+		return "OOM error"
 	}
 }
 
@@ -130,6 +134,7 @@ var kind2string = [maxKind]string{
 	Invalid:            "Invalid",
 	Net:                "Net",
 	Precondition:       "Precondition",
+	OOM:                "OOM",
 }
 
 var string2kind = map[string]Kind{
@@ -149,6 +154,7 @@ var string2kind = map[string]Kind{
 	"Invalid":            Invalid,
 	"Net":                Net,
 	"Precondition":       Precondition,
+	"OOM":                OOM,
 }
 
 // Error defines a Reflow error. It is used to indicate an error

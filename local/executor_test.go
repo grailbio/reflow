@@ -17,14 +17,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/grailbio/reflow/log"
-
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/testblob"
 	"github.com/grailbio/reflow/internal/walker"
+	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/repository/filerepo"
 	"github.com/grailbio/testutil"

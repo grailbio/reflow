@@ -26,6 +26,7 @@ const (
 type Manifest struct {
 	Type  execType
 	State execState
+	PID   int
 
 	Created time.Time
 

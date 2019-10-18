@@ -271,6 +271,7 @@ func (e *dockerExec) start(ctx context.Context) (execState, error) {
 	}
 	var err error
 	e.Docker, err = e.client.ContainerInspect(ctx, e.containerName())
+	e.Manifest.PID = e.Docker.State.Pid
 	if err != nil {
 		e.Log.Errorf("error inspecting container %q: %v", e.containerName(), err)
 	}
@@ -406,12 +407,14 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 			"exec", e.id, errors.Temporary,
 			errors.New("container returned in running state; docker daemon likely shutting down"))
 	// The remaining appear to be true completions.
-	case code == 137 || e.Docker.State.OOMKilled:
-		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.Temporary, errors.New("killed by the OOM killer")))
 	case code == 0:
 		if err := e.install(ctx); err != nil {
 			return execInit, err
 		}
+	// Note: /dev/kmsg only exists on linux. If the container is running on a non-linux machine isOOMSystem will
+	// always return false.
+	case e.Docker.State.OOMKilled || e.isOOMSystem():
+		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.OOM, errors.New("killed by the OOM killer")))
 	default:
 		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.Errorf("exited with code %d", code)))
 	}
@@ -852,4 +855,26 @@ func kind(err error) errors.Kind {
 		// This is always safe to do, but may cause extra work.
 		return errors.Unavailable
 	}
+}
+
+// isOOMSystem checks to see if the docker exec was killed by the
+// OOM Killer.
+func (e *dockerExec) isOOMSystem() bool {
+	const dockerFmt = "2006-01-02T15:04:05.999999999Z"
+	if bootTime.IsZero() {
+		return false
+	}
+	start, err := time.Parse(dockerFmt, e.Docker.State.StartedAt)
+	if err != nil {
+		return false
+	}
+	end, err := time.Parse(dockerFmt, e.Docker.State.FinishedAt)
+	if err != nil {
+		return false
+	}
+	oomTime, ok := e.Executor.oomTracker.LastOOMKill(e.Manifest.PID)
+	if !ok {
+		return false
+	}
+	return oomTime.After(start) && !end.Before(oomTime)
 }
