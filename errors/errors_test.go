@@ -115,4 +115,7 @@ func TestIs(t *testing.T) {
 			t.Errorf("got %v, want %v", got, want)
 		}
 	}
+	if got, want := Is(OOM, nil), false; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
 }

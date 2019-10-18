@@ -273,11 +273,19 @@ func (c *Cmd) Main() {
 		c.Fatal(err)
 	}
 
-	var bootstrapimage *infra2.BootstrapImage
+	var (
+		bootstrapimage *infra2.BootstrapImage
+		dockerconfig   *infra2.DockerConfig
+	)
 	err = c.Config.Instance(&bootstrapimage)
 	if err != nil {
 		c.Fatal(err)
 	}
+	err = c.Config.Instance(&dockerconfig)
+	if err != nil {
+		c.Fatal(err)
+	}
+
 	// Set the bootstrap image to the official image for this distribution
 	if ok := bootstrapimage.Set(c.BootstrapBinary); !ok {
 		c.Log.Printf("using bootstrap image from config %s (instead of built-in one: %s)\n", bootstrapimage.Value(), c.BootstrapBinary)

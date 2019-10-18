@@ -578,7 +578,7 @@ func (i *instance) Go(ctx context.Context) {
 			case stateInstallImage:
 				what = "installing reflowlet image"
 			case stateWaitReflowlet:
-				what = "waiting for the bootstrap to load"
+				what = "waiting for the reflowlet to load"
 			case stateDescribeTags:
 				what = "describing instance (version)"
 			}

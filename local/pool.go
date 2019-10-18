@@ -83,6 +83,8 @@ type Pool struct {
 	// Log
 	Log *log.Logger
 
+	HardMemLimit bool
+
 	mu        sync.Mutex
 	allocs    map[string]*alloc // the set of active allocs
 	resources reflow.Resources  // the total amount of available resources
@@ -440,6 +442,7 @@ func (p *Pool) newAlloc(id string, keepalive time.Duration) *alloc {
 		AWSCreds:      p.AWSCreds,
 		Blob:          p.Blob,
 		Log:           p.Log.Tee(nil, id+": "),
+		HardMemLimit:  p.HardMemLimit,
 	}
 
 	// TODO(pgopal) - Get this info from Config.

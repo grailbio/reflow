@@ -91,6 +91,9 @@ type Executor struct {
 	// default implementation when (*Executor).Start is called.
 	FileRepository *filerepo.Repository
 
+	// HardMemLimit restricts an exec's memory limit to the exec's resource requirements
+	HardMemLimit bool
+
 	Blob blob.Mux
 
 	// remoteStream is the client used to write logs to a remote cloud

@@ -52,6 +52,12 @@ const (
 
 	// printAllTasks can be set to aid testing and debugging.
 	printAllTasks = false
+
+	// maxOOMRetries is the maximum number of times a task can be retried due to an OOM.
+	maxOOMRetries = 3
+
+	// memMultiplier is the increase in memory that will be allocated to a task which OOMs.
+	memMultiplier = 1.5
 )
 
 const defaultCacheLookupTimeout = 20 * time.Minute
@@ -591,29 +597,32 @@ func (e *Eval) Do(ctx context.Context) error {
 				task.Log = e.Log.Prefixf("task %s: ", f.Digest().Short())
 				tasks = append(tasks, task)
 				e.step(f, func(f *Flow) error {
-					if err := task.Wait(ctx, sched.TaskRunning); err != nil {
+					if err := e.taskWait(f, task, ctx); err != nil {
 						return err
 					}
-					// Grab the task's exec so that it can be logged properly.
-					f.Exec = task.Exec
-					e.LogFlow(ctx, f)
-					if err := task.Wait(ctx, sched.TaskDone); err != nil {
-						return err
+					// Retry OOMs if needed.
+					for retries := 0; retries < maxOOMRetries && task.Result.Err != nil && errors.Is(errors.OOM, task.Result.Err); retries++ {
+						e.Log.Printf("run %v: OOM: re-submitting (%v/%v)", f.Digest().Short(), retries+1, maxOOMRetries)
+						e.Mutate(f, Unreserve(task.Config.Resources))
+						task.Restart()
+						// TODO(dnicolaou) Get amount of memory at OOM from /dev/kmsg multiply that by memMultiplier to
+						// reallocate memory.
+						// TODO(dnicolaou) Set maximum amount of allocatable memory as the memory of the largest allowed
+						// instance type.
+						task.Config.Resources["mem"] *= memMultiplier
+						// Change TaskID so that if the task is resubmitted to the same alloc,
+						// it will be recomputed.
+						task.TaskID = reflow.Digester.Rand(nil)
+						e.Mutate(f, Reserve(task.Config.Resources))
+						e.Scheduler.Submit(task)
+						if err := e.taskWait(f, task, ctx); err != nil {
+							return err
+						}
 					}
-					// The task's inspect is populated by the scheduler before marking
-					// the task as complete.
-					f.Inspect = task.Inspect
-					if task.Err != nil {
-						e.Mutate(f, task.Err, Done)
-					} else {
-						e.Mutate(f, task.Result.Err, task.Result.Fileset, Propagate, Done)
-					}
-					if e.CacheMode.Writing() {
+					// Write to the cache only if a task was successfully completed.
+					if e.CacheMode.Writing() && task.Err == nil && task.Result.Err == nil {
 						e.Mutate(f, Incr) // just so the cache write can decr it
 						e.cacheWriteAsync(ctx, f)
-					}
-					if e.TaskDB != nil {
-						e.taskdbWriteAsync(ctx, f)
 					}
 					return nil
 				})
@@ -2317,6 +2326,29 @@ func (e *Eval) LogFlow(ctx context.Context, f *Flow) {
 	} else {
 		e.Log.Debug(b.String())
 	}
+}
+
+// taskWait waits for a task to finish running and updates the flow, cache, and taskdb accordingly.
+func (e *Eval) taskWait(f *Flow, task *sched.Task, ctx context.Context) error {
+	if err := task.Wait(ctx, sched.TaskRunning); err != nil {
+		return err
+	}
+	// Grab the task's exec so that it can be logged properly.
+	f.Exec = task.Exec
+	e.LogFlow(ctx, f)
+	if err := task.Wait(ctx, sched.TaskDone); err != nil {
+		return err
+	}
+	f.Inspect = task.Inspect
+	if task.Err != nil {
+		e.Mutate(f, task.Err, Done)
+	} else {
+		e.Mutate(f, task.Result.Err, task.Result.Fileset, Propagate, Done)
+	}
+	if e.TaskDB != nil {
+		e.taskdbWriteAsync(ctx, f)
+	}
+	return nil
 }
 
 func accumulate(flows []*Flow) (int, string) {

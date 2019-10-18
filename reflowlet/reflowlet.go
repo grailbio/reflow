@@ -167,7 +167,16 @@ func (s *Server) ListenAndServe() error {
 	if err != nil {
 		return err
 	}
-
+	var (
+		dockerconfig *infra2.DockerConfig
+		hardMemLimit bool
+	)
+	err = s.Config.Instance(&dockerconfig)
+	if err != nil {
+		return err
+	} else if dockerconfig.Value() == "hard" {
+		hardMemLimit = true
+	}
 	if err := s.setTags(sess); err != nil {
 		return fmt.Errorf("set tags: %v", err)
 	}
@@ -190,7 +199,8 @@ func (s *Server) ListenAndServe() error {
 		Blob: blob.Mux{
 			"s3": s3blob.New(sess),
 		},
-		Log: log.Std.Tee(nil, "executor: "),
+		Log:          log.Std.Tee(nil, "executor: "),
+		HardMemLimit: hardMemLimit,
 	}
 	if err := p.Start(); err != nil {
 		return err

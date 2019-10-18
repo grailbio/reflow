@@ -94,6 +94,7 @@ func main() {
 		infra2.Username:   new(infra2.User),
 		infra2.Tracer:     new(trace.Tracer),
 		infra2.TaskDB:     new(taskdb.TaskDB),
+		infra2.Docker:     new(infra2.DockerConfig),
 	}
 	cmd.SchemaKeys = infra.Keys{
 		infra2.AWSCreds:  "awscreds",
@@ -109,6 +110,7 @@ func main() {
 		infra2.TLS:       "tls,file=/tmp/ca.reflow",
 		infra2.Username:  "user",
 		infra2.Tracer:    "xray",
+		infra2.Docker:    "docker,memlimit=soft",
 	}
 	cmd.BootstrapBinary = bootstrapimage
 	cmd.Flags().Parse(os.Args[1:])

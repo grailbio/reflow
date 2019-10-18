@@ -31,6 +31,9 @@ as well as credentials to access various services.
 	server := reflowlet.NewServer(c.Version, c.Config)
 	server.AddFlags(flags)
 	c.Parse(flags, args, help, "serve [-ec2cluster]")
+	if flags.NArg() > 0 {
+		flags.Usage()
+	}
 	go reflowlet.IgnoreSigpipe()
 	// Shutdown the server if the context is done.
 	go func() {

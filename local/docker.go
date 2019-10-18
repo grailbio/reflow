@@ -195,11 +195,21 @@ func (e *dockerExec) create(ctx context.Context) (execState, error) {
 		// errors are more sensible to the user.
 		OomScoreAdj: 1000,
 	}
-	/*		TODO: introduce strict mode for this
-	if mem := e.Config.Resources.Memory; mem > 0 {
+
+	// Restrict docker memory usage if specified by the user.
+	// If the docker container memory limit (the cgroup limit) is exceeded
+	// before the OOM Killer kills the process, the following message
+	// is recorded in /dev/kmsg:
+	// Memory cgroup out of memory: Kill process <pid>
+	// If MemorySwap is not set to be equal Memory, the container will be
+	// able to swap up to twice the amount of memory set in the memory limit.
+	// In order to ensure that Memory is set to a hard limit, MemorySwap is also
+	// set equal to memory.
+	if mem := e.Config.Resources["mem"]; mem > 0 && e.Executor.HardMemLimit {
 		hostConfig.Resources.Memory = int64(mem)
+		hostConfig.Resources.MemorySwap = int64(mem)
 	}
-	*/
+
 	env := []string{
 		"tmp=/tmp",
 		"TMPDIR=/tmp",
@@ -872,6 +882,13 @@ func (e *dockerExec) isOOMSystem() bool {
 	if err != nil {
 		return false
 	}
+	// TODO(dnicolaou): find another method to track OOMs that does not have a race condition
+	// between monitoring and checking.
+	// Sleep for 100 ms to minimize the chance that the oomTracker checks for an
+	// OOM before an OOM has been recorded by the oomTracker. This is a temporary fix
+	// until a better solution can be found for tracking OOMs that does not have a race
+	// condition.
+	time.Sleep(100 * time.Millisecond)
 	oomTime, ok := e.Executor.oomTracker.LastOOMKill(e.Manifest.PID)
 	if !ok {
 		return false

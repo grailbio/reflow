@@ -27,6 +27,7 @@ func init() {
 	infra.Register("logger", new(Logger))
 	infra.Register("kv", new(KV))
 	infra.Register("reflowletconfig", new(ReflowletConfig))
+	infra.Register("docker", new(DockerConfig))
 }
 
 // Reflow infra schema key names.
@@ -49,6 +50,7 @@ const (
 	TLS        = "tls"
 	Tracer     = "tracer"
 	TaskDB     = "taskdb"
+	Docker     = "docker"
 )
 
 // User is the infrastructure provider for username.
@@ -424,7 +426,33 @@ func (rp *ReflowletConfig) Init() error {
 	return nil
 }
 
-// Instance implements infra.Provider
+// Instance implements infra.Provider.
 func (rp *ReflowletConfig) InstanceConfig() interface{} {
 	return rp
+}
+
+// DockerConfig sets the docker memory limit to either be hard or soft.
+type DockerConfig string
+
+// Help implements infra.Provider.
+func (m DockerConfig) Help() string {
+	return "set hard/soft memory limits for docker containers"
+}
+
+// Init implements infra.Provider.
+func (m *DockerConfig) Init() error {
+	if m.Value() != "soft" && m.Value() != "hard" {
+		return fmt.Errorf("invalid memlimit: %v: memlimit is soft or hard only", m.Value())
+	}
+	return nil
+}
+
+// Flags implements infra.Provider.
+func (m *DockerConfig) Flags(flags *flag.FlagSet) {
+	flags.StringVar((*string)(m), "memlimit", "soft", "memlimit")
+}
+
+// Value returns the docker memory limit mode.
+func (m *DockerConfig) Value() string {
+	return string(*m)
 }
