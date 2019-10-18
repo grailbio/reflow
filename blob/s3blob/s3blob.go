@@ -43,8 +43,9 @@ const (
 	s3concurrency     = 100
 	defaultS3MinLimit = 500
 	defaultS3MaxLimit = 2000
-	// Use a higher limit for S3 HeadObject calls since they are relatively light-weight operations.
-	defaultS3HeadMaxLimit = 5000
+	// Use a lower limit for S3 HeadObject calls since, while they are relatively light-weight operations,
+	// doing too many of them concurrently seems to slow them all down.
+	defaultS3HeadMaxLimit = 1000
 	defaultMaxRetries     = 3
 
 	// minBPS defines the lowest acceptable transfer rate.
