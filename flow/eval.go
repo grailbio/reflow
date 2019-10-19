@@ -1619,12 +1619,11 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 type assertionsBatchCache struct {
 	ag reflow.AssertionGenerator
 	o  once.Map
-	mu sync.Mutex
-	m  map[reflow.GeneratorKey]*reflow.Assertions
+	m  sync.Map // map[reflow.GeneratorKey]*reflow.Assertions
 }
 
 func (e *Eval) newAssertionsBatchCache() *assertionsBatchCache {
-	return &assertionsBatchCache{ag: e.AssertionGenerator, m: make(map[reflow.GeneratorKey]*reflow.Assertions)}
+	return &assertionsBatchCache{ag: e.AssertionGenerator}
 }
 
 // Generate calls the given AssertionGenerator with the given reflow.GeneratorKey.
@@ -1634,17 +1633,14 @@ func (g *assertionsBatchCache) Generate(ctx context.Context, ak reflow.Generator
 		if err != nil {
 			return err
 		}
-		g.mu.Lock()
-		defer g.mu.Unlock()
-		g.m[ak] = assertions
+		g.m.Store(ak, assertions)
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.m[ak], nil
+	v, _ := g.m.Load(ak)
+	return v.(*reflow.Assertions), nil
 }
 
 // refreshAssertions returns assertions with current values for each key from the given assertions.
