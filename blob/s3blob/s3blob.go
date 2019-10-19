@@ -43,7 +43,9 @@ const (
 	s3concurrency     = 100
 	defaultS3MinLimit = 500
 	defaultS3MaxLimit = 2000
-	defaultMaxRetries = 3
+	// Use a higher limit for S3 HeadObject calls since they are relatively light-weight operations.
+	defaultS3HeadMaxLimit = 5000
+	defaultMaxRetries     = 3
 
 	// minBPS defines the lowest acceptable transfer rate.
 	minBPS = 1 << 20
@@ -160,19 +162,20 @@ func newS3RetryPolicy() retry.Policy {
 }
 
 // NewS3AdmitPolicy returns a default admit.RetryPolicy useful for S3 operations.
-func newS3AdmitPolicy() admit.RetryPolicy {
+func newS3AdmitPolicy(maxLim int, varname string) admit.RetryPolicy {
 	rp := retry.MaxTries(retry.Jitter(retry.Backoff(500*time.Millisecond, time.Minute, 1.5), 0.5), defaultMaxRetries)
-	c := admit.ControllerWithRetry(defaultS3MinLimit, defaultS3MaxLimit, rp)
-	admit.EnableVarExport(c, "s3ops")
+	c := admit.ControllerWithRetry(defaultS3MinLimit, maxLim, rp)
+	admit.EnableVarExport(c, varname)
 	return c
 }
 
 // Bucket represents an s3 bucket; it implements blob.Bucket.
 type Bucket struct {
-	bucket   string
-	client   s3iface.S3API
-	admitter admit.RetryPolicy
-	retrier  retry.Policy
+	bucket       string
+	client       s3iface.S3API
+	admitter     admit.RetryPolicy
+	fileAdmitter admit.RetryPolicy
+	retrier      retry.Policy
 
 	// s3ObjectCopySizeLimit is the max size of object for a single PUT Object Copy request.
 	s3ObjectCopySizeLimit int64
@@ -183,8 +186,14 @@ type Bucket struct {
 // NewBucket returns a new S3 bucket that uses the provided client
 // for SDK calls. NewBucket is primarily intended for testing.
 func NewBucket(name string, client s3iface.S3API) *Bucket {
-	return &Bucket{name, client, newS3AdmitPolicy(), newS3RetryPolicy(),
-		defaultS3ObjectCopySizeLimit, defaultS3MultipartCopyPartSize}
+	return &Bucket{
+		name, client,
+		newS3AdmitPolicy(defaultS3MaxLimit, "s3data"),
+		newS3AdmitPolicy(defaultS3HeadMaxLimit, "s3head"),
+		newS3RetryPolicy(),
+		defaultS3ObjectCopySizeLimit,
+		defaultS3MultipartCopyPartSize,
+	}
 }
 
 // File returns metadata for the provided key.
@@ -192,7 +201,7 @@ func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 	var resp *s3.HeadObjectOutput
 	var err error
 	for retries := 0; ; retries++ {
-		err = admit.Retry(ctx, b.admitter, 1, func() error {
+		err = admit.Retry(ctx, b.fileAdmitter, 1, func() error {
 			var err error
 			ctx, cancel := context.WithTimeout(ctx, metaTimeout)
 			defer cancel()
@@ -272,7 +281,7 @@ func (s *scanner) Key() string {
 // provided prefix.
 func (b *Bucket) Scan(prefix string) blob.Scanner {
 	return &scanner{
-		S3Walker: &s3walker.S3Walker{S3: b.client, Bucket: b.bucket, Prefix: prefix, Policy: b.admitter},
+		S3Walker: &s3walker.S3Walker{S3: b.client, Bucket: b.bucket, Prefix: prefix, Policy: b.fileAdmitter},
 		bucket:   b.bucket,
 	}
 }
