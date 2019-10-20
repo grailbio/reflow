@@ -204,13 +204,22 @@ at the usage site.
   can return a number of files and directories.
   The following exec runs <code>echo hello world</code> inside of the
   <code>ubuntu</code> image, placing its output in a file. It reserves
-  1 CPU and 100 MiB of memory.
+  1 CPU and 100 MiB of memory. While an exec is not limited to the resources it reserves, it is not recommended for an exec to use significantly more resources than it reserves.
   <pre>
 exec(image := "ubuntu", cpu := 1, mem := 100*MiB) (out file) {"
 	echo hello world >{{out}}
 "}
 </pre>
-  (This exec has type <code>file</code>.)
+  (This exec has type <code>file</code>.) Note that it is possible to allocate fractional cpu (with a mimimum cpu of 0.1) and that the units of disk and memory are bytes. In order to make allocation disk and memory easier, the following constants are provided:
+  <p/>
+  KiB (2<sup>10</sup> bytes)
+  <br />
+  MiB (2<sup>20</sup> bytes)
+  <br />
+  GiB (2<sup>30</sup> bytes)
+  <br />
+  TiB (2<sup>40</sup> bytes)
+
   <p/>
   Execs can return multiple files or directories. The following defines a function that
   produces a pair of files from two input files to <a href="http://bedtools.readthedocs.io/en/latest/">bedtools</a>:
@@ -491,7 +500,12 @@ Params may be grouped together; the above is equivalent to:
 
 	// Declarations begin here.
 
-Parameters may then be used like any other value in the module.
+Parameters may then be used like any other value in the module. Params can also depend on each other. For example:
+
+	param (
+		sample string
+		filename = sample + ".zip"
+	)
 
 We use `make` to instantiate a module. Make takes
 the module's path as its first argument, and then a set of declarations
