@@ -637,7 +637,7 @@ func (m *ModuleImpl) Params() []Param {
 					},
 				})
 			}
-			if len(pat.Matchers()) > 0 {
+			if pat.Kind != PatIgnore {
 				param.Ident = fmt.Sprint(pat)
 				params = append(params, param)
 			}
