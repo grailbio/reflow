@@ -268,7 +268,7 @@ func Stdlib() (*types.Env, *values.Env) {
 	}
 	define("KiB", "one kibibyte", types.Int, big.NewInt(1<<10))
 	define("MiB", "one mebibyte", types.Int, big.NewInt(1<<20))
-	define("GiB", "one gigibyte", types.Int, big.NewInt(1<<30))
+	define("GiB", "one gibibyte", types.Int, big.NewInt(1<<30))
 	define("TiB", "one tebibyte", types.Int, big.NewInt(1<<40))
 
 	return tenv, venv
