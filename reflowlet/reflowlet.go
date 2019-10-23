@@ -30,6 +30,7 @@ import (
 	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/ec2cluster/volume"
+	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool/server"
@@ -107,13 +108,17 @@ func (s *Server) setTags(sess *session.Session) error {
 }
 
 // setupWatcher sets up a volume watcher for the given path.
-func (s *Server) setupWatcher(ctx context.Context, path string, sess *session.Session) error {
+func (s *Server) setupWatcher(ctx context.Context, sess *session.Session, path string, vw infra2.VolumeWatcher) error {
+	if vw == (infra2.VolumeWatcher{}) {
+		log.Print("volume watcher not configured, skipping\n")
+		return nil
+	}
 	logger := log.Std.Tee(nil, fmt.Sprintf("watcher %s: ", path))
 	v, err := volume.NewEbsLvmVolume(sess, logger, path)
 	if err != nil {
 		return fmt.Errorf("create volume for path %s: %v", path, err)
 	}
-	w, err := volume.NewWatcher(ctx, logger, v, volume.DefaultWatcherParams)
+	w, err := volume.NewWatcher(ctx, logger, v, vw)
 	if err != nil {
 		return err
 	}
@@ -133,7 +138,11 @@ func (s *Server) ListenAndServe() error {
 	if err != nil {
 		return err
 	}
-
+	var rc *infra2.ReflowletConfig
+	err = s.Config.Instance(&rc)
+	if err != nil {
+		return err
+	}
 	var sess *session.Session
 	err = s.Config.Instance(&sess)
 	if err != nil {
@@ -188,21 +197,18 @@ func (s *Server) ListenAndServe() error {
 	}
 	if s.EC2Cluster {
 		ctx, cancel := context.WithCancel(context.Background())
-		if err := s.setupWatcher(ctx, filepath.Join(s.Prefix, s.Dir), sess); err != nil {
+		if err := s.setupWatcher(ctx, sess, filepath.Join(s.Prefix, s.Dir), rc.VolumeWatcher); err != nil {
 			log.Fatal(err)
 		}
 		go func() {
-			const (
-				period = time.Minute
-				expiry = 10 * time.Minute
-			)
+			const period = time.Minute
 			// Always give the instance an expiry period to receive work,
 			// then check periodically if the instance has been idle for more
 			// than the expiry time.
-			time.Sleep(expiry)
+			time.Sleep(rc.MaxIdleDuration)
 			for {
-				if p.StopIfIdleFor(expiry) {
-					log.Printf("reflowlet idle for %s; shutting down", expiry)
+				if p.StopIfIdleFor(rc.MaxIdleDuration) {
+					log.Printf("reflowlet idle for %s; shutting down", rc.MaxIdleDuration)
 					cancel()
 					// Exit normally
 					os.Exit(0)

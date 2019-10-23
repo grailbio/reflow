@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/grailbio/reflow/log"
-
 	"github.com/grailbio/base/data"
+	"github.com/grailbio/reflow/infra"
+	"github.com/grailbio/reflow/log"
 )
 
 var (
 	errTest           = fmt.Errorf("test error")
-	testWatcherParams = WatcherParams{
+	testWatcherParams = infra.VolumeWatcher{
 		LowThresholdPct:       50.0,
 		HighThresholdPct:      75.0,
 		WatcherSleepDuration:  100 * time.Millisecond,

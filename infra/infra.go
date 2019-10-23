@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/user"
 	"strings"
+	"time"
 
 	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow/log"
@@ -25,6 +26,7 @@ func init() {
 	infra.Register("readwrite", new(CacheProviderReadWrite))
 	infra.Register("logger", new(Logger))
 	infra.Register("kv", new(KV))
+	infra.Register("reflowletconfig", new(ReflowletConfig))
 }
 
 // Reflow infra schema key names.
@@ -39,6 +41,7 @@ const (
 	Log        = "logger"
 	Repository = "repository"
 	Reflow     = "reflow"
+	Reflowlet  = "reflowlet"
 	Bootstrap  = "bootstrap"
 	Session    = "session"
 	SSHKey     = "sshkey"
@@ -354,4 +357,74 @@ func (l *KV) Init(user *User) error {
 // Instance implements infra.Provider
 func (l *KV) Instance() interface{} {
 	return l
+}
+
+// VolumeWatcher represents the set of parameters that govern the behavior of a volume watcher.
+// Every WatcherSleepDuration, the watcher will check the disk usage and keep track of the
+// last time at which the usage was below the LowThresholdPct. If the disk usage goes
+// above HighThresholdPct, then a resize is triggered.  The volume size will be increased to
+// 2x the current size unless the time taken to go from below LowThresholdPct to above HighThresholdPct
+// was within FastThresholdDuration, in which case the size will be increased to 4x the current size.
+// Once the underlying volume is resized, a filesystem resize will be attempted every ResizeSleepDuration
+// until success.
+type VolumeWatcher struct {
+	// LowThresholdPct defines how full the filesystem needs to be
+	// to trigger the low threshold.
+	LowThresholdPct float64 `yaml:"lowthresholdpct,omitempty"`
+
+	// HighThresholdPct defines how full the filesystem needs to be
+	// to trigger the high threshold.
+	// The time it takes for the filesystem to fill from low threshold to high threshold
+	// selects between a lower (time is longer) or higher (time is shorter)
+	// amount of extra space to get added to the volume.
+	HighThresholdPct float64 `yaml:"highthresholdpct,omitempty"`
+
+	// WatcherSleepDuration is the frequency with which to check
+	// whether disk are full over threshold and need resizing
+	WatcherSleepDuration time.Duration `yaml:"watchersleepduration,omitempty"`
+
+	// ResizeSleepDuration is the frequency with which to attempt
+	// resizing the volume and filesystem once we've hit above HighThresholdPct
+	ResizeSleepDuration time.Duration `yaml:"resizesleepduration,omitempty"`
+
+	// FastThresholdDuration is the time duration within which if the disk usage
+	// went from below LowThresholdPct to above HighThresholdPct, then
+	// we quadruple the disk size (otherwise we just double)
+	FastThresholdDuration time.Duration `yaml:"fastthresholdduration,omitempty"`
+}
+
+// ReflowletConfig is a provider for reflowlet configuration parameters which control its behavior.
+type ReflowletConfig struct {
+	// MaxIdleDuration is the maximum duration the reflowlet will be idle waiting to receive work after which it dies.
+	MaxIdleDuration time.Duration `yaml:"maxidleduration,omitempty"`
+	// VolumeWatcher defines a set of parameters for the volume watcher on the reflowlet.
+	VolumeWatcher VolumeWatcher `yaml:"volumewatcher,omitempty"`
+}
+
+var DefaultReflowletConfig = ReflowletConfig{
+	MaxIdleDuration: 10 * time.Minute,
+	VolumeWatcher:   DefaultVolumeWatcher,
+}
+
+// DefaultVolumeWatcher are a default set of volume watcher parameters which will double the disk size
+// if the disk usage >75%, or quadruple if the usage went from <55% to >75% within 24 hours.
+var DefaultVolumeWatcher = VolumeWatcher{
+	LowThresholdPct:       55.0,
+	HighThresholdPct:      75.0,
+	WatcherSleepDuration:  10 * time.Minute,
+	ResizeSleepDuration:   10 * time.Second,
+	FastThresholdDuration: 24 * time.Hour,
+}
+
+// Init implements infra.Provider.
+func (rp *ReflowletConfig) Init() error {
+	if rp == nil || *rp == (ReflowletConfig{}) {
+		*rp = DefaultReflowletConfig
+	}
+	return nil
+}
+
+// Instance implements infra.Provider
+func (rp *ReflowletConfig) InstanceConfig() interface{} {
+	return rp
 }
