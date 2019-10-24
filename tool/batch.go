@@ -31,7 +31,9 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/runner"
+	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/syntax"
+	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/wg"
 )
@@ -134,6 +136,23 @@ flags override any parameters in the batch sample file.
 	if err != nil {
 		c.Fatal(err)
 	}
+
+	var tdb taskdb.TaskDB
+	err = c.Config.Instance(&tdb)
+	if err != nil {
+		c.Log.Debugf("taskdb: %v", err)
+	}
+
+	var (
+		scheduler  *sched.Scheduler
+		donecancel func()
+		wg         wg.WaitGroup
+	)
+	if config.Sched {
+		scheduler, donecancel, err = NewScheduler(c.Config, &wg, nil, c.Status)
+		c.must(err)
+	}
+
 	b := &batch.Batch{
 		EvalConfig: flow.EvalConfig{
 			Log:                c.Log,
@@ -143,6 +162,8 @@ flags override any parameters in the batch sample file.
 			AssertionGenerator: assg,
 			CacheMode:          cache.CacheMode,
 			Transferer:         transferer,
+			TaskDB:             tdb,
+			Scheduler:          scheduler,
 		},
 		Args:    flags.Args(),
 		Rundir:  c.rundir(),
@@ -183,11 +204,13 @@ flags override any parameters in the batch sample file.
 			run.State.Reset()
 		}
 	}
-	var wg wg.WaitGroup
 	ctx, bgcancel := flow.WithBackground(ctx, &wg)
 	err = b.Run(ctx)
 	if err != nil {
 		c.Log.Errorf("batch failed with error %v", err)
+	}
+	if donecancel != nil {
+		donecancel()
 	}
 	c.WaitForBackgroundTasks(&wg, 20*time.Minute)
 	bgcancel()

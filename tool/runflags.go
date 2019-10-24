@@ -27,6 +27,8 @@ type CommonRunFlags struct {
 	Invalidate string
 	// Assert is the policy used to assert cached flow result compatibility. e.g. never, exact.
 	Assert string
+	// Use scalable scheduler instead of the work stealer mode.
+	Sched bool
 }
 
 // Flags adds the common run flags to the provided flagset.
@@ -37,6 +39,7 @@ func (r *CommonRunFlags) Flags(flags *flag.FlagSet) {
 	flags.StringVar(&r.EvalStrategy, "eval", "topdown", "evaluation strategy")
 	flags.StringVar(&r.Invalidate, "invalidate", "", "regular expression for node identifiers that should be invalidated")
 	flags.StringVar(&r.Assert, "assert", "never", "policy used to Assert cached flow result compatibility (eg: never, exact)")
+	flags.BoolVar(&r.Sched, "sched", true, "use scalable scheduler instead of work stealing")
 }
 
 // Err checks if the flag values are consistent and valid.
@@ -92,7 +95,6 @@ type RunFlags struct {
 	// Resources overrides the resources reflow is permitted to use in local mode (instead of using up the entire machine).
 	Resources reflow.Resources
 	Cache     bool
-	Sched     bool
 	Pred      bool
 
 	resourcesFlag string
@@ -109,7 +111,6 @@ func (r *RunFlags) Flags(flags *flag.FlagSet) {
 	flags.StringVar(&r.Alloc, "alloc", "", "use this alloc to execute program (don't allocate a fresh one)")
 	flags.BoolVar(&r.Trace, "trace", false, "trace flow evaluation")
 	flags.StringVar(&r.resourcesFlag, "resources", "", "override offered resources in local mode (JSON formatted reflow.Resources)")
-	flags.BoolVar(&r.Sched, "sched", true, "use scalable scheduler instead of work stealing")
 	flags.BoolVar(&r.Pred, "pred", false, "use predictor to optimize resource usage. sched must also be true for the predictor to be used")
 }
 
