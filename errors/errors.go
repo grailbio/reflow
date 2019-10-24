@@ -23,10 +23,10 @@ import (
 	goerrors "errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 
 	"github.com/grailbio/base/digest"
-	"github.com/grailbio/reflow/log"
 )
 
 // Separator is inserted between chained errors while rendering.
@@ -226,8 +226,7 @@ func E(args ...interface{}) error {
 		// and, URI for other things?
 		default:
 			_, file, line, _ := runtime.Caller(1)
-			log.Printf("errors.E: bad call (type %T) from %s:%d: %v", arg, file, line, args)
-			return Errorf("unknown type %T, value %v in error call", arg, arg)
+			e.Arg = append(e.Arg, fmt.Sprintf("illegal (%T %v from %s:%d)", arg, arg, filepath.Base(file), line))
 		}
 	}
 	if e.Err == nil {

@@ -92,6 +92,13 @@ func TestError(t *testing.T) {
 	}
 }
 
+func TestErrorUnsupportedArg(t *testing.T) {
+	e := E("open", "x://google.com", 10, New(`scheme "x" not recognized`))
+	if got, want := e.Error(), `open x://google.com illegal (int 10 from errors_test.go:96): scheme "x" not recognized`; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
 type isTemporary bool
 
 func (t isTemporary) Error() string   { return "maybe a temporary error" }
