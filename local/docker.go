@@ -221,7 +221,7 @@ func (e *dockerExec) create(ctx context.Context) (execState, error) {
 			// We mark this as temporary, because most of the time it is.
 			// TODO(marius): can we get better error classification from
 			// the AWS SDK?
-			return execInit, errors.E("run", e.ID, errors.Temporary, err)
+			return execInit, errors.E("run", e.id, errors.Temporary, err)
 		}
 		// TODO(marius): region?
 		env = append(env, "AWS_ACCESS_KEY_ID="+creds.AccessKeyID)
