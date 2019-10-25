@@ -86,6 +86,9 @@ type ExecConfig struct {
 	// exec: the docker image used to perform an exec
 	Image string
 
+	// The docker image that is specified by the user
+	OriginalImage string
+
 	// exec: the Sprintf-able command that is to be run inside of the
 	// Docker image.
 	Cmd string
