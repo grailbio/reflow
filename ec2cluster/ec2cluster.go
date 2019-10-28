@@ -471,11 +471,6 @@ func (c *Cluster) loop() {
 		for _, w := range waiters {
 			waiting.Add(waiting, w.Max())
 		}
-		n := 0
-		for _, m := range c.state.InstanceTypeCounts() {
-			n += m
-		}
-
 		// First skip waiters that are already getting their resources
 		// satisfied.
 		//
@@ -534,6 +529,7 @@ func (c *Cluster) loop() {
 			}
 			todo = append(todo, best)
 		}
+		n := c.state.InstancesCount()
 		if needMore && len(todo) == 0 {
 			c.Log.Print("resource requirements are unsatisfiable by current instance selection")
 			needPoll = true
@@ -557,13 +553,15 @@ func (c *Cluster) loop() {
 			totalPrice float64
 			total      reflow.Resources
 		)
-		for typ, n := range c.state.InstanceTypeCounts() {
-			counts = append(counts, fmt.Sprintf("%s:%d", typ, n))
+		n = 0
+		for typ, ntyp := range c.state.InstanceTypeCounts() {
+			counts = append(counts, fmt.Sprintf("%s:%d", typ, ntyp))
 			config := c.instanceConfigs[typ]
 			var r reflow.Resources
-			r.Scale(config.Resources, float64(n))
+			r.Scale(config.Resources, float64(ntyp))
 			total.Add(total, r)
-			totalPrice += config.Price[c.Region] * float64(n)
+			totalPrice += config.Price[c.Region] * float64(ntyp)
+			n += ntyp
 		}
 		sort.Strings(counts)
 		c.Status.Printf("%d instances: %s (<=$%.1f/hr), total%s, waiting%s, pending%s",
@@ -691,6 +689,13 @@ func (s *state) InstanceTypeCounts() map[string]int {
 		instanceTypes[*instance.inst.InstanceType]++
 	}
 	return instanceTypes
+}
+
+// InstancesCount returns total number of instances (across all instance types) present in the cluster pool.
+func (s *state) InstancesCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.pool)
 }
 
 // Sync reconciles immediately and waits till its complete.
