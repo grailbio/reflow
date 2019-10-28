@@ -227,6 +227,13 @@ func setEquals(t *testing.T, msg string, gots, wants []string) {
 
 func TestClusterInfra(t *testing.T) {
 	testutil.SkipIfNoCreds(t)
+	const bootstrapImage = "https://some_s3_path"
+	validateBootstrap = func(burl string, _ header) error {
+		if burl != bootstrapImage {
+			return fmt.Errorf("got %v, want %v", burl, bootstrapImage)
+		}
+		return nil
+	}
 	var schema = infra.Schema{
 		"labels":    make(pool.Labels),
 		"cluster":   new(runner.Cluster),
@@ -240,9 +247,9 @@ func TestClusterInfra(t *testing.T) {
 	}
 
 	for _, tt := range []struct {
-		b            string
-		name, rv, bi string
-		spot         bool
+		b        string
+		name, rv string
+		spot     bool
 	}{
 		{`
         labels: kv
@@ -250,7 +257,7 @@ func TestClusterInfra(t *testing.T) {
         logger: logger
         session: awssession
         user: user
-        bootstrap: bootstrapimage,uri=https://some_s3_path
+        bootstrap: bootstrapimage,uri=` + bootstrapImage + `
         reflow: reflowversion,version=abcdef
         cluster: ec2cluster
         ec2cluster:
@@ -262,25 +269,7 @@ func TestClusterInfra(t *testing.T) {
             securitygroup: blah
         sshkey: key
         `,
-			"default", "abcdef", "https://some_s3_path", false},
-		{`
-        labels: kv
-        tls: tls,file=/tmp/ca
-        logger: logger
-        session: awssession
-        user: user
-        reflow: reflowversion,version=abcdef
-        cluster: ec2cluster
-        ec2cluster:
-            maxinstances: 1
-            disktype: dt
-            diskspace: 10
-            ami: foo
-            region: bar
-            securitygroup: blah
-        sshkey: key
-        `,
-			"default", "abcdef", "bootstrap", false},
+			"default", "abcdef", false},
 	} {
 		config, err := schema.Unmarshal([]byte(tt.b))
 		if err != nil {
@@ -301,9 +290,6 @@ func TestClusterInfra(t *testing.T) {
 		if got, want := ec2cluster.ReflowVersion, tt.rv; got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
-		if got, want := ec2cluster.BootstrapImage, tt.bi; got != want {
-			t.Errorf("got %v, want %v", got, want)
-		}
 	}
 }
 
@@ -321,7 +307,7 @@ func TestValidateBootstrap(t *testing.T) {
 		{"https://path_to_bootstrap", &mockHeader{resp: &http.Response{StatusCode: http.StatusOK, Header: map[string][]string{"Content-Type": {"text/plain"}}}}, true},
 		{"https://path_to_bootstrap", &mockHeader{resp: &http.Response{StatusCode: http.StatusOK, Header: map[string][]string{"Content-Type": {"binary/octet-stream"}}}}, false},
 	} {
-		got := validateBootstrap(tc.burl, tc.h)
+		got := defaultValidateBootstrap(tc.burl, tc.h)
 		if tc.wantError != (got != nil) {
 			t.Errorf("validateBootstrap(%s): got: %v want: %v", tc.burl, got, tc.wantError)
 		}

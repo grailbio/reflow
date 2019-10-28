@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -57,7 +56,8 @@ const (
 	defaultClusterName  = "default"
 )
 
-var ecrURI = regexp.MustCompile(`^[0-9]+\.dkr\.ecr\.[a-z0-9-]+\.amazonaws.com/(.*):(.*)$`)
+// validateBootstrap is func for validating the bootstrap image
+var validateBootstrap = defaultValidateBootstrap
 
 // A Cluster implements a runner.Cluster backed by EC2.  The cluster expands
 // with demand.  Instances are configured so that they shut down when they
@@ -154,7 +154,7 @@ type header interface {
 	Head(url string) (resp *http.Response, err error)
 }
 
-func validateBootstrap(burl string, h header) error {
+func defaultValidateBootstrap(burl string, h header) error {
 	u, err := url.Parse(burl)
 	if err != nil {
 		return errors.E(errors.Fatal, "bootstrap image", err)
