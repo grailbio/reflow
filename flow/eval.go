@@ -2035,7 +2035,11 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 	case Running, Execing:
 		switch f.Op {
 		case Extern:
-			status = fmt.Sprintf("%s %s", f.URL, data.Size(f.Deps[0].Value.(reflow.Fileset).Size()))
+			var sz string
+			if fs, ok := f.Deps[0].Value.(reflow.Fileset); ok {
+				sz = fmt.Sprintf(" %s", data.Size(fs.Size()))
+			}
+			status = fmt.Sprintf("%s%s", f.URL, sz)
 		case Intern:
 			status = fmt.Sprintf("%s", f.URL)
 		case Exec:
