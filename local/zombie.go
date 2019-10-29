@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -118,12 +117,8 @@ func (z *zombie) Execs(ctx context.Context) ([]reflow.Exec, error) {
 	return execs, nil
 }
 
-func (z *zombie) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) (reflow.Fileset, error) {
+func (z *zombie) Load(ctx context.Context, fs reflow.Fileset) (reflow.Fileset, error) {
 	return reflow.Fileset{}, errors.E("load", errors.NotSupported, errZombieExec)
-}
-
-func (z *zombie) Unload(ctx context.Context, fs reflow.Fileset) error {
-	return errors.E("unload", errors.NotSupported, errZombieExec)
 }
 
 type zombieExec struct {

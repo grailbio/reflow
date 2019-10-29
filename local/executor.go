@@ -8,20 +8,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"docker.io/go-docker"
 	"docker.io/go-docker/api/types"
 	"docker.io/go-docker/api/types/container"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/grailbio/base/digest"
-	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/errors"
@@ -107,44 +104,16 @@ type Executor struct {
 	cancel context.CancelFunc
 	ctx    context.Context
 
-	mu    sync.Mutex
-	dead  bool                   // tells whether the executor is dead
-	execs map[digest.Digest]exec // the set of execs managed by this executor.
-	// reference count of the objects in the executor repository.
-	refCountsMu   sync.Mutex
-	refCounts     map[digest.Digest]refCount
-	refCountsCond *sync.Cond
-	deadObjects   map[digest.Digest]bool
-	gcing         chan struct{}
-	oomTracker    *oomTracker
-}
-
-type refCount struct {
-	count          int64
-	lastAccessTime time.Time
-}
-
-func (e *Executor) incr(id digest.Digest) {
-	e.refCountsMu.Lock()
-	saved := e.refCounts[id]
-	e.refCounts[id] = refCount{count: saved.count + 1, lastAccessTime: time.Now()}
-	e.refCountsMu.Unlock()
-}
-
-func (e *Executor) decr(id digest.Digest) {
-	e.refCountsMu.Lock()
-	saved := e.refCounts[id]
-	e.refCounts[id] = refCount{saved.count - 1, saved.lastAccessTime}
-	e.refCountsMu.Unlock()
+	mu         sync.Mutex
+	dead       bool                   // tells whether the executor is dead
+	execs      map[digest.Digest]exec // the set of execs managed by this executor.
+	oomTracker *oomTracker
 }
 
 // Start initializes the executor and recovers previously stored
 // state. It re-initializes all stored execs.
 func (e *Executor) Start() error {
-	e.refCountsCond = sync.NewCond(&e.refCountsMu)
-	e.deadObjects = make(map[digest.Digest]bool)
 	e.execs = map[digest.Digest]exec{}
-	e.refCounts = make(map[digest.Digest]refCount)
 	e.ctx, e.cancel = context.WithCancel(context.Background())
 	// Monitor /dev/kmsg for OOMs.
 	e.oomTracker = newOOMTracker()
@@ -347,156 +316,44 @@ func (e *Executor) Remove(ctx context.Context, id digest.Digest) error {
 	return nil
 }
 
-// Unload decrements the reference count of the fileset objects. If any object's reference
-// count is 0, then unload marks it for deletion. A GC goroutine separately collects these
-// marked objects. The returned channel is closed when the GC is complete.
-func (e *Executor) unload(ctx context.Context, fs reflow.Fileset) (done <-chan struct{}, err error) {
-	files := fs.Files()
-	e.refCountsMu.Lock()
-	for _, f := range files {
-		d := f.Digest()
-		r := e.refCounts[d]
-		e.refCounts[d] = refCount{count: r.count - 1, lastAccessTime: r.lastAccessTime}
-		if e.refCounts[d].count < 0 {
-			panic(fmt.Sprintf("unload: negative ref count: %v", f.Digest()))
-		}
-		if e.refCounts[d].count == 0 {
-			e.deadObjects[d] = true
-		}
-	}
-	if e.gcing != nil {
-		done = e.gcing
-		e.refCountsMu.Unlock()
-		return
-	}
-	e.gcing = make(chan struct{})
-	done = e.gcing
-	e.refCountsMu.Unlock()
-	go func() {
-		e.refCountsMu.Lock()
-		defer e.refCountsMu.Unlock()
-		for len(e.deadObjects) > 0 {
-			for id := range e.deadObjects {
-				e.refCountsMu.Unlock()
-				if err := e.FileRepository.Remove(id); err != nil {
-					e.Log.Errorf("unload dead collect: %v", err)
-				}
-				e.refCountsMu.Lock()
-				delete(e.deadObjects, id)
-				e.refCountsCond.Broadcast()
-			}
-		}
-		close(e.gcing)
-		e.gcing = nil
-	}()
-	return
-}
-
-// Unload unloads the fileset from the executor repository. When the fileset's reference count drops to zero,
-// the executor may choose to remove the fileset from its repository.
-func (e *Executor) Unload(ctx context.Context, fs reflow.Fileset) error {
-	_, err := e.unload(ctx, fs)
-	return err
-}
-
-// Promote promotes the objects in the specified repository to the executor's repository.
-func (e *Executor) Promote(ctx context.Context, repo *filerepo.Repository) error {
-	var objects []digest.Digest
-	err := repo.Scan(ctx, func(id digest.Digest) error {
-		objects = append(objects, id)
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	for _, object := range objects {
-		e.incr(object)
-	}
-	return e.FileRepository.Vacuum(ctx, repo)
-}
-
-// Load loads the fileset into the executor repository. If the fileset is resolved, it is loaded from the
-// specified backing repository. Else the file is loaded from its source.
-func (e *Executor) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) (reflow.Fileset, error) {
+func (e *Executor) Load(ctx context.Context, fs reflow.Fileset) (reflow.Fileset, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	g, ctx := errgroup.WithContext(ctx)
 	var (
 		mu       sync.Mutex
 		resolved = make(map[digest.Digest]reflow.File)
 		files    = fs.Files()
-		tempRepo filerepo.Repository
-		err      error
 	)
-	tempRepo.Root, err = ioutil.TempDir(e.FileRepository.Root, "temp-load")
-	defer os.RemoveAll(tempRepo.Root)
-	if err != nil {
-		return reflow.Fileset{}, err
-	}
-	err = traverse.Each(len(files), func(i int) error {
+	for i := range files {
 		file := files[i]
 		if !file.IsRef() {
-			e.incr(file.Digest())
-			// TODO(pgopal): change ReadFrom to return (reflow.File, error).
-			err := e.FileRepository.ReadFrom(ctx, file.Digest(), repo)
-			if err != nil {
-				e.decr(file.Digest())
-				return err
-			}
-			var res reflow.File
-			if res, err = e.FileRepository.Stat(ctx, file.Digest()); err != nil {
-				return err
-			}
-			mu.Lock()
-			resolved[file.Digest()] = res
-			mu.Unlock()
-			return nil
+			continue
 		}
-		incr := false
-		// The following line could race with the GC operation that could be deleting the file.
-		// If the file is being deleted by GC (e.deadObjects[digest] = true), we wait for GC to signal us before
-		// we proceed. Once we are signalled, we first increment the ref count, and then check if the file is present
-		// (possibly loaded by another racing load).If the file is not present, we go ahead and load it from the source.
-		res, err := fileFromRepo(ctx, e.FileRepository, file)
-		if err == nil {
-			d := res.Digest()
-			e.refCountsMu.Lock()
-			for e.deadObjects[d] {
-				e.refCountsCond.Wait()
-			}
-			r := e.refCounts[d]
-			e.refCounts[d] = refCount{count: r.count + 1, lastAccessTime: r.lastAccessTime}
-			e.refCountsMu.Unlock()
-			_, err = fileFromRepo(ctx, e.FileRepository, file)
-			incr = true
-		}
-		if err != nil {
+		g.Go(func() error {
 			bucket, key, err := e.Blob.Bucket(ctx, file.Source)
 			if err != nil {
 				return err
 			}
-			dl := download{
-				Bucket: bucket,
-				Key:    key,
-				File:   file,
-				Log:    e.Log,
-			}
-			res, err = dl.Do(ctx, &tempRepo)
+			res, err := fileFromRepo(ctx, e.FileRepository, file)
 			if err != nil {
-				return err
+				dl := download{
+					Bucket: bucket,
+					Key:    key,
+					File:   file,
+					Log:    e.Log,
+				}
+				res, err = dl.Do(ctx, e.FileRepository)
 			}
-			if !incr {
-				e.incr(res.Digest())
+			if err == nil {
+				mu.Lock()
+				resolved[file.Digest()] = res
+				mu.Unlock()
 			}
-		}
-		mu.Lock()
-		resolved[file.Digest()] = res
-		mu.Unlock()
-		return nil
-	})
-	if err != nil {
-		return reflow.Fileset{}, err
+			return err
+		})
 	}
-	if err := e.FileRepository.Vacuum(ctx, &tempRepo); err != nil {
+	if err := g.Wait(); err != nil {
 		return reflow.Fileset{}, err
 	}
 	x, ok := fs.Subst(resolved)

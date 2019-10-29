@@ -1,4 +1,4 @@
-// Copyright 2017 GRAIL, Inc. All rights reserved.
+// Copyright 2016 GRAIL, Inc. All rights reserved.
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
@@ -110,12 +110,6 @@ func (r *Repository) Get(ctx context.Context, id digest.Digest) (io.ReadCloser, 
 		return nil, errors.E("get", r.Root, id, err)
 	}
 	return rc, nil
-}
-
-// Remove removes an object from the repository.
-func (r *Repository) Remove(id digest.Digest) error {
-	_, path := r.Path(id)
-	return os.Remove(path)
 }
 
 // ReadFrom installs an object directly from a foreign repository. If
@@ -304,22 +298,6 @@ func (r *Repository) Vacuum(ctx context.Context, repo *Repository) error {
 		}
 	}
 	repo.Collect(ctx, nil) // ignore errors
-	return w.Err()
-}
-
-// Scan invokes handler for each object in the repository.
-func (r *Repository) Scan(ctx context.Context, handler func(digest.Digest) error) error {
-	var w walker
-	w.Init(r)
-	for w.Scan() {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		err := handler(w.Digest())
-		if err != nil {
-			return err
-		}
-	}
 	return w.Err()
 }
 

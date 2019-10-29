@@ -8,13 +8,10 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"math/rand"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 
-	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/local/testutil"
@@ -43,45 +40,29 @@ var (
 
 type testAlloc struct {
 	pool.Alloc
-	files map[digest.Digest]bool
 }
 
 func (*testAlloc) Inspect(ctx context.Context) (pool.AllocInspect, error) {
 	return pool.AllocInspect{}, nil
 }
 
-func (t *testAlloc) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) (reflow.Fileset, error) {
+func (*testAlloc) Load(ctx context.Context, fs reflow.Fileset) (reflow.Fileset, error) {
 	if fs.N() != 1 || !fs.Map["."].Equal(testFile) {
 		return reflow.Fileset{}, errors.New("unexpected fileset")
 	}
 	file := fs.Map["."]
 	file.ID = testDigest
 	fs.Map["."] = file
-	t.files[testDigest] = true
 	return fs, nil
-}
-
-func (t *testAlloc) Unload(ctx context.Context, fs reflow.Fileset) error {
-	file := fs.Map["."]
-	if _, ok := t.files[file.ID]; !ok {
-		return errors.New(fmt.Sprintf("%v not loaded", file.ID))
-	}
-	delete(t.files, file.ID)
-	return nil
 }
 
 type testPool struct {
 	pool.Pool
-	testalloc pool.Alloc
 }
 
 func (t *testPool) Alloc(ctx context.Context, id string) (pool.Alloc, error) {
 	if id == "testalloc" {
-		if t.testalloc != nil {
-			return t.testalloc, nil
-		}
-		t.testalloc = &testAlloc{files: make(map[digest.Digest]bool)}
-		return t.testalloc, nil
+		return new(testAlloc), nil
 	}
 	return nil, errors.E(errors.NotExist)
 }
@@ -98,7 +79,7 @@ func TestClientServerLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fs, err := alloc.Load(ctx, nil, reflow.Fileset{Map: map[string]reflow.File{".": testFile}})
+	fs, err := alloc.Load(ctx, reflow.Fileset{Map: map[string]reflow.File{".": testFile}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,13 +91,5 @@ func TestClientServerLoad(t *testing.T) {
 	expect := reflow.Fileset{Map: map[string]reflow.File{".": resolved}}
 	if got, want := fs, expect; !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
-	}
-	err = alloc.Unload(ctx, fs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = alloc.Unload(ctx, fs)
-	if expected := errors.New(fmt.Sprintf("%v not loaded", testDigest)); err.Error() != expected.Error() {
-		t.Fatal("expected: ", expected, " got:", err)
 	}
 }

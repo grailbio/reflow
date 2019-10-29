@@ -6,7 +6,6 @@ package pool
 
 import (
 	"context"
-	"net/url"
 	"testing"
 	"time"
 
@@ -24,15 +23,12 @@ func (idAlloc) Put(ctx context.Context, id digest.Digest, exec reflow.ExecConfig
 func (idAlloc) Get(ctx context.Context, id digest.Digest) (reflow.Exec, error) {
 	panic("not implemented")
 }
-func (idAlloc) Remove(ctx context.Context, id digest.Digest) error { panic("not implemented") }
-func (idAlloc) Execs(ctx context.Context) ([]reflow.Exec, error)   { panic("not implemented") }
-func (idAlloc) Load(context.Context, *url.URL, reflow.Fileset) (reflow.Fileset, error) {
-	panic("not implemented")
-}
-func (idAlloc) Unload(context.Context, reflow.Fileset) error { panic("not implemented") }
-func (idAlloc) Resources() reflow.Resources                  { panic("not implemented") }
-func (idAlloc) Repository() reflow.Repository                { panic("not implemented") }
-func (idAlloc) Pool() Pool                                   { panic("not implemented") }
+func (idAlloc) Remove(ctx context.Context, id digest.Digest) error           { panic("not implemented") }
+func (idAlloc) Execs(ctx context.Context) ([]reflow.Exec, error)             { panic("not implemented") }
+func (idAlloc) Load(context.Context, reflow.Fileset) (reflow.Fileset, error) { panic("not implemented") }
+func (idAlloc) Resources() reflow.Resources                                  { panic("not implemented") }
+func (idAlloc) Repository() reflow.Repository                                { panic("not implemented") }
+func (idAlloc) Pool() Pool                                                   { panic("not implemented") }
 func (idAlloc) Keepalive(ctx context.Context, interval time.Duration) (time.Duration, error) {
 	panic("not implemented")
 }

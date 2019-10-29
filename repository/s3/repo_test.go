@@ -21,9 +21,9 @@ func TestS3RepositoryInfra(t *testing.T) {
 		"repository": new(reflow.Repository),
 	}
 	config, err := schema.Make(infra.Keys{
-		"session":    "awssession",
-		"logger":     "logger",
-		"repository": fmt.Sprintf("s3,bucket=%v", bucket),
+		"session":    "github.com/grailbio/infra/aws.Session",
+		"logger":     "github.com/grailbio/reflow/log.Logger",
+		"repository": fmt.Sprintf("github.com/grailbio/reflow/repository/s3.Repository,bucket=%v", bucket),
 	})
 	if err != nil {
 		t.Fatal(err)

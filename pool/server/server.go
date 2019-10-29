@@ -155,35 +155,16 @@ func (n allocNode) Walk(ctx context.Context, call *rest.Call, path string) rest.
 			if !call.Allow("POST") {
 				return
 			}
-			arg := struct {
-				Fileset reflow.Fileset
-				SrcUrl  *url.URL
-			}{}
-			if call.Unmarshal(&arg) != nil {
+			var fs reflow.Fileset
+			if call.Unmarshal(&fs) != nil {
 				return
 			}
-			fs, err := n.a.Load(ctx, arg.SrcUrl, arg.Fileset)
+			fs, err := n.a.Load(ctx, fs)
 			if err != nil {
 				call.Error(err)
 				return
 			}
 			call.Reply(http.StatusOK, fs)
-		})
-	case "unload":
-		return rest.DoFunc(func(ctx context.Context, call *rest.Call) {
-			if !call.Allow("POST") {
-				return
-			}
-			var fs reflow.Fileset
-			if call.Unmarshal(&fs) != nil {
-				return
-			}
-			err := n.a.Unload(ctx, fs)
-			if err != nil {
-				call.Error(err)
-				return
-			}
-			call.Reply(http.StatusOK, "unloaded")
 		})
 	default:
 		return nil

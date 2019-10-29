@@ -296,15 +296,10 @@ func (a *clientAlloc) Execs(ctx context.Context) ([]reflow.Exec, error) {
 	return execs, nil
 }
 
-// Load loads the fileset into the alloc repository.
-func (a *clientAlloc) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) (reflow.Fileset, error) {
+func (a *clientAlloc) Load(ctx context.Context, fs reflow.Fileset) (reflow.Fileset, error) {
 	call := a.Call("POST", "allocs/%s/load", a.id)
 	defer call.Close()
-	arg := struct {
-		Fileset reflow.Fileset
-		SrcUrl  *url.URL
-	}{fs, repo}
-	code, err := call.DoJSON(ctx, arg)
+	code, err := call.DoJSON(ctx, fs)
 	if err != nil {
 		return reflow.Fileset{}, errors.E("load", a.ID(), err)
 	}
@@ -314,20 +309,6 @@ func (a *clientAlloc) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset
 	fs = reflow.Fileset{}
 	err = call.Unmarshal(&fs)
 	return fs, err
-}
-
-// Unload unloads the fileset from the alloc repository.
-func (a *clientAlloc) Unload(ctx context.Context, fs reflow.Fileset) error {
-	call := a.Call("POST", "allocs/%s/unload", a.id)
-	defer call.Close()
-	code, err := call.DoJSON(ctx, fs)
-	if err != nil {
-		return errors.E("unload", a.ID(), err)
-	}
-	if code != http.StatusOK {
-		return call.Error()
-	}
-	return nil
 }
 
 type clientExec struct {

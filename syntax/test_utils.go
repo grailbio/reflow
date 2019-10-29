@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"math"
-	"net/url"
 	"strings"
 	"testing"
 
@@ -110,10 +109,6 @@ func (e nopexecutor) Repository() reflow.Repository {
 	return e.repo
 }
 
-func (nopexecutor) Load(context.Context, *url.URL, reflow.Fileset) (reflow.Fileset, error) {
-	panic("not implemented")
-}
-
-func (nopexecutor) Unload(context.Context, reflow.Fileset) error {
+func (nopexecutor) Load(context.Context, reflow.Fileset) (reflow.Fileset, error) {
 	panic("not implemented")
 }

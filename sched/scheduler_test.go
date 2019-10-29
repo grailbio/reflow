@@ -11,7 +11,6 @@ import (
 
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/test/testutil"
@@ -293,90 +292,4 @@ func TestSchedulerFracCPU(t *testing.T) {
 		t.Errorf("Cluster should have no requests")
 	default:
 	}
-}
-
-func TestSchedulerLoadUnloadFiles(t *testing.T) {
-	scheduler, cluster, repo, shutdown := newTestScheduler(t)
-	defer shutdown()
-	ctx := context.Background()
-	in := randomFileset(repo)
-	expectExists(t, repo, in)
-
-	remote := testutil.NewInmemoryRepository()
-	log.Printf("alloc repos: %v", repo.URL().String())
-	log.Printf("remote repos: %v", remote.URL().String())
-	remotes := randomFileset(remote)
-	refs := reflow.Fileset{Map: make(map[string]reflow.File)}
-	for k := range remotes.Map {
-		v := reflow.File{Source: remotes.Map[k].Source}
-		refs.Map[k] = v
-	}
-
-	task := newTask(10, 10<<30, 0)
-	task.Config.Args = []reflow.Arg{{Fileset: &in}, {Fileset: &refs}}
-
-	scheduler.Submit(task)
-	req := <-cluster.Req()
-	if got, want := req.Requirements, newRequirements(10, 10<<30, 1); !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	alloc := newTestAlloc(reflow.Resources{"cpu": 25, "mem": 20 << 30})
-	// TODO(pgopal): There is no way to wait for the tasks to be added to the scheduler queue.
-	// Hence we cannot check task stats here.
-	stats := scheduler.Stats.GetStats()
-	if got, want := len(stats.Allocs), 0; got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	// pending allocs will not have an entry in stats.Allocs.
-	if got, want := stats.OverallStats.TotalTasks, int64(1); got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
-
-	out := randomFileset(alloc.Repository())
-	req.Reply <- testClusterAllocReply{Alloc: alloc, Err: nil}
-
-	// By the time the task is running, it should have all of the dependent objects
-	// in its repository.
-	task.Wait(ctx, sched.TaskRunning)
-	expectExists(t, alloc.Repository(), remotes)
-
-	stats = scheduler.Stats.GetStats()
-	if got, want := len(stats.Tasks), 1; got != want {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	if got, want := stats.Tasks[task.ID.String()].State, 2; got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	if got, want := len(stats.Allocs), 1; got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	want := sched.OverallStats{TotalTasks: 1, TotalAllocs: 1}
-	if got := stats.OverallStats; got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	expectExists(t, alloc.Repository(), in)
-
-	// Complete the task and check that all of its output is placed back into
-	// the main repository.
-	exec := alloc.exec(task.ID)
-	exec.complete(reflow.Result{Fileset: out}, nil)
-	task.Wait(ctx, sched.TaskDone)
-	if task.Err != nil {
-		t.Errorf("unexpected task error: %v", task.Err)
-	}
-	stats = scheduler.Stats.GetStats()
-	if got, want := len(stats.Tasks), 1; got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	if got, want := stats.Tasks[task.ID.String()].State, 4; got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	if got, want := len(stats.Allocs), 1; got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	want = sched.OverallStats{TotalAllocs: 1, TotalTasks: 1}
-	if got := stats.OverallStats; got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	expectExists(t, repo, out)
 }

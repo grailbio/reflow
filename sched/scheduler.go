@@ -222,7 +222,7 @@ func (s *Scheduler) Do(ctx context.Context) error {
 
 		assigned := s.assign(&todo, &live, s.Stats)
 		for _, task := range assigned {
-			task.Log.Debugf("scheduler: assigning task %v to alloc %v", task.ID.Short(), task.alloc)
+			task.Log.Debugf("scheduler: assigning task to alloc %v", task.alloc)
 			nrunning++
 			go s.run(task, returnc)
 		}
@@ -312,13 +312,13 @@ type execState int
 
 const (
 	stateLoad execState = iota
+	stateTransferIn
 	statePut
 	stateWait
 	statePromote
 	stateInspect
 	stateResult
 	stateTransferOut
-	stateUnload
 	stateDone
 )
 
@@ -328,6 +328,8 @@ func (e execState) String() string {
 		panic("bad state")
 	case stateLoad:
 		return "loading"
+	case stateTransferIn:
+		return "transferring input"
 	case statePut:
 		return "submitting"
 	case stateWait:
@@ -340,8 +342,6 @@ func (e execState) String() string {
 		return "retrieving result"
 	case stateTransferOut:
 		return "transferring output"
-	case stateUnload:
-		return "unloading"
 	case stateDone:
 		return "complete"
 	}
@@ -387,7 +387,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 				i, arg := i, arg
 				g.Go(func() error {
 					task.Log.Debugf("loading %v", *arg.Fileset)
-					fs, err := alloc.Load(ctx, s.Repository.URL(), *arg.Fileset)
+					fs, err := alloc.Load(ctx, *arg.Fileset)
 					if err != nil {
 						return err
 					}
@@ -397,6 +397,15 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 				})
 			}
 			err = g.Wait()
+		case stateTransferIn:
+			task.set(TaskStaging)
+			fs := reflow.Fileset{List: make([]reflow.Fileset, 0, len(task.Config.Args))}
+			for _, arg := range task.Config.Args {
+				if arg.Fileset != nil {
+					fs.List = append(fs.List, *arg.Fileset)
+				}
+			}
+			err = s.Transferer.Transfer(ctx, alloc.Repository(), s.Repository, fs.Files()...)
 		case statePut:
 			x, err = alloc.Put(ctx, task.ID, task.Config)
 		case stateWait:
@@ -428,28 +437,16 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		case stateTransferOut:
 			files := task.Result.Fileset.Files()
 			err = s.Transferer.Transfer(ctx, s.Repository, alloc.Repository(), files...)
-		case stateUnload:
-			var unload reflow.Fileset
-			for _, arg := range task.Config.Args {
-				if arg.Fileset != nil {
-					unload.List = append(unload.List, *arg.Fileset)
-				}
-			}
-			unload.List = append(unload.List, task.Result.Fileset)
-			err = alloc.Unload(ctx, unload)
-			if err == nil {
-				task.Log.Debugf("unloaded %v ", unload)
-			}
 		}
 		if err == nil {
-			task.Log.Debugf("scheduler: %s %s", task.ID.Short(), state)
+			task.Log.Debugf("scheduler: %s", state)
 			n = 0
 			state++
 		} else if err == ctx.Err() {
 			break
 		} else {
 			// TODO(marius): terminate early on NotSupported, Invalid
-			task.Log.Debugf("scheduler: %s %s: %s; try %d", task.ID.Short(), state, err, n+1)
+			task.Log.Debugf("scheduler: %s: %s; try %d", state, err, n+1)
 			n++
 		}
 	}
