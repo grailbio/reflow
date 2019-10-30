@@ -687,6 +687,7 @@ func (e *dockerExec) Inspect(ctx context.Context) (reflow.ExecInspect, error) {
 	if err != nil {
 		inspect.Error = errors.Recover(err)
 	}
+	inspect.ExecError = e.Manifest.Result.Err
 	switch state {
 	case execUnstarted, execInit:
 		inspect.State = "initializing"

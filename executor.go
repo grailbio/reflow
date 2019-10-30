@@ -179,8 +179,10 @@ type ExecInspect struct {
 	Gauges Gauges
 	// Commands running from top, for live inspection.
 	Commands []string
-
-	Docker types.ContainerJSON // Docker inspect output.
+	// Docker inspect output.
+	Docker types.ContainerJSON
+	// ExecError stores exec result errors.
+	ExecError *errors.Error `json:",omitempty"`
 }
 
 // Runtime computes the exec's runtime based on Docker's timestamps.
