@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/base/traverse"
@@ -274,6 +276,12 @@ type Eval struct {
 	muGC                    sync.RWMutex
 	writers                 *writer
 	writersMu               sync.Mutex
+
+	// marshalLimiter is the number concurrent of marshal/unmarshaling of cached filesets to do.
+	// In case of large batch jobs, loading too many of them in parallel causes OOMs,
+	// so we limit how many we load concurrently.
+	// TODO(swami): Better solution is to use a more optimized file format (instead of JSON).
+	marshalLimiter *limiter.Limiter
 }
 
 // NewEval creates and initializes a new evaluator using the provided
@@ -292,16 +300,19 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 	}
 
 	e := &Eval{
-		EvalConfig: config,
-		root:       root.Canonicalize(config.Config),
-		assertions: new(reflow.Assertions),
-		needch:     make(chan reflow.Requirements),
-		errors:     make(chan error),
-		returnch:   make(chan *Flow, 1024),
-		newStealer: make(chan *Stealer),
-		wakeupch:   make(chan bool, 1),
-		pending:    newWorkingset(),
+		EvalConfig:     config,
+		root:           root.Canonicalize(config.Config),
+		assertions:     new(reflow.Assertions),
+		needch:         make(chan reflow.Requirements),
+		errors:         make(chan error),
+		returnch:       make(chan *Flow, 1024),
+		newStealer:     make(chan *Stealer),
+		wakeupch:       make(chan bool, 1),
+		pending:        newWorkingset(),
+		marshalLimiter: limiter.New(),
 	}
+	// Limit the number of concurrent marshal/unmarshal to the number of CPUs we have.
+	e.marshalLimiter.Release(runtime.NumCPU())
 
 	if config.Executor != nil {
 		e.repo = config.Executor.Repository()
@@ -1364,7 +1375,9 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) 
 	if err := e.Transferer.Transfer(ctx, e.Repository, repo, fs.Files()...); err != nil {
 		return err
 	}
+	_ = e.marshalLimiter.Acquire(ctx, 1)
 	id, err := marshal(ctx, e.Repository, fs)
+	e.marshalLimiter.Release(1)
 	if err != nil {
 		return err
 	}
@@ -1514,7 +1527,9 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 					}
 					continue
 				}
+				_ = e.marshalLimiter.Acquire(ctx, 1)
 				err = unmarshal(ctx, e.Repository, res.Digest, &fs)
+				e.marshalLimiter.Release(1)
 				if err == nil {
 					e.Log.Debugf("cache.Lookup flow: %s (%s) result from key: %s\n", f.Digest().Short(), f.Ident, key.Short())
 					fsid = res.Digest
