@@ -70,6 +70,7 @@ type Cmd struct {
 	configFlags    map[string]*string
 	httpFlag       string
 	cpuProfileFlag string
+	memProfileFlag string
 	logFlag        string
 
 	onexits []func()
@@ -293,7 +294,23 @@ func (c *Cmd) Main() {
 			c.Fatal(err)
 		}
 		pprof.StartCPUProfile(file)
-		c.onexit(pprof.StopCPUProfile)
+		c.onexit(func() {
+			pprof.StopCPUProfile()
+			_ = file.Close()
+		})
+	}
+	if c.memProfileFlag != "" {
+		file, err := os.Create(c.memProfileFlag)
+		if err != nil {
+			c.Fatal(err)
+		}
+		c.onexit(func() {
+			runtime.GC() // get up-to-date statistics
+			if err := pprof.WriteHeapProfile(file); err != nil {
+				c.Errorf("WriteHeapProfile: %v", err)
+			}
+			_ = file.Close()
+		})
 	}
 
 	if err := increaseFDRlimit(); err != nil {
@@ -402,6 +419,7 @@ func (c *Cmd) Flags() *flag.FlagSet {
 		c.flags.StringVar(&c.ConfigFile, "config", c.DefaultConfigFile, "path to configuration file; otherwise use default (builtin) config")
 		c.flags.StringVar(&c.httpFlag, "http", "", "run a diagnostic HTTP server on this port")
 		c.flags.StringVar(&c.cpuProfileFlag, "cpuprofile", "", "capture a CPU profile and deposit it to the provided path")
+		c.flags.StringVar(&c.memProfileFlag, "memprofile", "", "capture a Memory profile and deposit it to the provided path")
 		c.flags.StringVar(&c.logFlag, "log", "info", "set the log level: off, error, info, debug")
 		// Add flags to override configuration.
 		c.configFlags = make(map[string]*string)
