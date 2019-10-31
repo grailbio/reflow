@@ -6,10 +6,13 @@ package sched_test
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/blob"
+	"github.com/grailbio/reflow/blob/testblob"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/sched"
@@ -19,10 +22,16 @@ import (
 func newTestScheduler(t *testing.T) (scheduler *sched.Scheduler, cluster *testCluster, repository *testutil.InmemoryRepository, shutdown func()) {
 	t.Helper()
 	repository = testutil.NewInmemoryRepository()
+	scheduler, cluster, shutdown = newTestSchedulerWithRepo(t, repository)
+	return
+}
+
+func newTestSchedulerWithRepo(t *testing.T, repo reflow.Repository) (scheduler *sched.Scheduler, cluster *testCluster, shutdown func()) {
+	t.Helper()
 	cluster = newTestCluster()
 	scheduler = sched.New()
 	scheduler.Transferer = testutil.Transferer
-	scheduler.Repository = repository
+	scheduler.Repository = repo
 	scheduler.Cluster = cluster
 	scheduler.MinAlloc = reflow.Resources{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -287,6 +296,61 @@ func TestSchedulerFracCPU(t *testing.T) {
 	for _, t := range tasks {
 		t.Wait(ctx, sched.TaskRunning)
 	}
+	select {
+	case <-cluster.Req():
+		t.Errorf("Cluster should have no requests")
+	default:
+	}
+}
+
+func TestSchedulerDirectTransfer(t *testing.T) {
+	repo := testutil.NewInmemoryLocatorRepository()
+	scheduler, _, shutdown := newTestSchedulerWithRepo(t, repo)
+	blb := testblob.New("test")
+	scheduler.Mux = blob.Mux{"test": blb}
+	defer shutdown()
+	ctx := context.Background()
+	in := randomFileset(repo)
+	expectExists(t, repo, in)
+	for _, f := range in.Files() {
+		loc := fmt.Sprintf("test://bucketin/objects/%s", f.ID)
+		repo.SetLocation(f.ID, loc)
+		rc, _ := repo.Get(ctx, f.ID)
+		_ = scheduler.Mux.Put(ctx, loc, f.Size, rc, "")
+	}
+	task := newTask(1, 10<<20, 0)
+	task.Config.Args = []reflow.Arg{{Fileset: &in}}
+	task.Config.Type = "extern"
+	task.Config.URL = "test://bucketout/"
+
+	scheduler.Submit(task)
+	_ = task.Wait(ctx, sched.TaskDone)
+}
+
+func TestSchedulerDirectTransferUnsupported(t *testing.T) {
+	scheduler, cluster, repo, shutdown := newTestScheduler(t)
+	defer shutdown()
+	ctx := context.Background()
+	in := randomFileset(repo)
+	expectExists(t, repo, in)
+	task := newTask(1, 10<<20, 0)
+	task.Config.Args = []reflow.Arg{{Fileset: &in}}
+	task.Config.Type = "extern"
+	task.Config.URL = "test://bucketout/"
+
+	scheduler.Submit(task)
+	// Scheduler's repository doesn't implement blobLocator,
+	// so the direct transfer fails with unsupported error.
+	_ = task.Wait(ctx, sched.TaskLost)
+	if !errors.Is(errors.NotSupported, task.Err) {
+		t.Fatal("task must fail with unsupported")
+	}
+
+	allocs := []*testAlloc{newTestAlloc(reflow.Resources{"cpu": 2, "mem": 2})}
+	req := <-cluster.Req()
+	req.Reply <- testClusterAllocReply{Alloc: allocs[0]}
+
+	_ = task.Wait(ctx, sched.TaskRunning)
 	select {
 	case <-cluster.Req():
 		t.Errorf("Cluster should have no requests")

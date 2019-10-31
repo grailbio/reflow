@@ -28,12 +28,12 @@ import (
 	"time"
 
 	"github.com/grailbio/base/data"
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
-	"github.com/grailbio/reflow/repository/blobrepo"
 	"github.com/grailbio/reflow/taskdb"
 	"golang.org/x/sync/errgroup"
 )
@@ -46,6 +46,11 @@ type Cluster interface {
 	// error. The requirement's width is used as a hint to size allocs
 	// efficiently.
 	Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error)
+}
+
+// blobLocator defines an interface for locating blobs.
+type blobLocator interface {
+	Location(ctx context.Context, id digest.Digest) (string, error)
 }
 
 // A Scheduler is responsible for managing a set of tasks and allocs,
@@ -188,6 +193,10 @@ func (s *Scheduler) Do(ctx context.Context) error {
 		case tasks := <-s.submitc:
 			s.Stats.AddTasks(tasks)
 			for _, task := range tasks {
+				if task.Config.Type == "extern" && !task.nonDirectTransfer {
+					go s.directTransfer(ctx, task)
+					continue
+				}
 				heap.Push(&todo, task)
 			}
 		case task := <-returnc:
@@ -358,19 +367,6 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		tcancel context.CancelFunc
 		tctx    context.Context
 	)
-	if task.Config.Type == "extern" {
-		// Attempt direct transfer.
-		if err := s.directTransfer(ctx, task); err == nil {
-			state = stateDone
-		} else if errors.Is(errors.NotSupported, err) {
-			// If not supported, we fall through to indirect transfer but log a debug message.
-			task.Log.Debugf("scheduler: direct transfer not supported for task %s: %v", task.ID, err)
-		} else {
-			// TODO(swami): Direct transfer resulted in an error (but was supported), should we try indirect?
-			task.Err = err
-			state = stateDone
-		}
-	}
 	// TODO(marius): we should distinguish between fatal and nonfatal errors.
 	// The fatal ones are useless to retry.
 	for n < numExecTries && state < stateDone {
@@ -459,6 +455,33 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 	returnc <- task
 }
 
+func (s *Scheduler) directTransfer(ctx context.Context, task *Task) {
+	if s.TaskDB != nil {
+		err := s.TaskDB.CreateTask(ctx, task.TaskID, task.RunID, task.ID, "local")
+		if err != nil {
+			s.Log.Errorf("taskdb createtask: %v", err)
+		} else {
+			tctx, tcancel := context.WithCancel(ctx)
+			defer tcancel()
+			go func() { _ = taskdb.Keepalive(tctx, s.TaskDB, task.TaskID) }()
+		}
+	}
+	task.set(TaskRunning)
+	task.Err = s.doDirectTransfer(ctx, task)
+	if task.Err != nil && errors.Is(errors.NotSupported, task.Err) {
+		task.nonDirectTransfer = true
+		task.set(TaskLost)
+		s.submitc <- []*Task{task}
+		return
+	}
+	task.set(TaskDone)
+	if s.TaskDB != nil && task.Result.Err == nil {
+		if err := s.TaskDB.SetTaskResult(ctx, task.TaskID, task.Result.Fileset.Digest()); err != nil {
+			s.Log.Errorf("taskdb settaskresult: %v", err)
+		}
+	}
+}
+
 func requirements(tasks []*Task) reflow.Requirements {
 	// TODO(marius): We should revisit this requirements model and how
 	// it interacts with the underlying cluster providers. Specifically,
@@ -477,10 +500,10 @@ func requirements(tasks []*Task) reflow.Requirements {
 	return req
 }
 
-// directTransfer attempts to do a direct transfer for externs.
+// doDirectTransfer attempts to do a direct transfer for externs.
 // Direct transfers are supported only if the scheduler's Repository
 // and the destination repository are both blob stores.
-func (s *Scheduler) directTransfer(ctx context.Context, task *Task) error {
+func (s *Scheduler) doDirectTransfer(ctx context.Context, task *Task) error {
 	if task.Config.Type != "extern" {
 		panic("direct transfers only supported for extern")
 	}
@@ -488,8 +511,8 @@ func (s *Scheduler) directTransfer(ctx context.Context, task *Task) error {
 		return errors.E(errors.Precondition,
 			errors.Errorf("unexpected args (must be 1, but was %d): %v", len(task.Config.Args), task.Config.Args))
 	}
-	// Check if the scheduler's repository supports blobrepo.Locator.
-	fileLocator, ok := s.Repository.(blobrepo.Locator)
+	// Check if the scheduler's repository supports blobLocator.
+	fileLocator, ok := s.Repository.(blobLocator)
 	if !ok {
 		return errors.E(errors.NotSupported, errors.New("scheduler repository does not support locating blobs"))
 	}
@@ -537,5 +560,6 @@ func (s *Scheduler) directTransfer(ctx context.Context, task *Task) error {
 			return err
 		})
 	}
-	return g.Wait()
+	task.Result.Err = errors.Recover(g.Wait())
+	return nil
 }

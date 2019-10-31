@@ -121,6 +121,36 @@ func (r *InmemoryRepository) URL() *url.URL {
 	return nil
 }
 
+// InmemoryRepository is an in-memory repository used for testing which also implements scheduler.blobLocator.
+type InmemoryLocatorRepository struct {
+	*InmemoryRepository
+	locations map[digest.Digest]string
+}
+
+// NewInmemoryLocatorRepository returns a new repository that stores objects
+// in memory.
+func NewInmemoryLocatorRepository() *InmemoryLocatorRepository {
+	return &InmemoryLocatorRepository{
+		InmemoryRepository: NewInmemoryRepository(),
+		locations:          map[digest.Digest]string{},
+	}
+}
+
+func (r *InmemoryLocatorRepository) SetLocation(k digest.Digest, loc string) {
+	r.mu.Lock()
+	r.locations[k] = loc
+	r.mu.Unlock()
+}
+
+// Implement scheduler.blobLocator
+func (r *InmemoryLocatorRepository) Location(ctx context.Context, id digest.Digest) (string, error) {
+	loc := r.locations[id]
+	if loc == "" {
+		return "", errors.E(errors.NotExist, fmt.Errorf("unknown %v", id))
+	}
+	return loc, nil
+}
+
 // RepositoryCallKind indicates the type of repository call.
 type RepositoryCallKind int
 

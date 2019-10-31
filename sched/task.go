@@ -92,6 +92,9 @@ type Task struct {
 	alloc *alloc
 	index int
 	stats *TaskStats
+
+	// nonDirectTransfer represents a task which cannot be executed as a direct transfer.
+	nonDirectTransfer bool
 }
 
 // NewTask returns a new, initialized task. The Task may be populated
