@@ -1585,12 +1585,12 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 					e.lookupFailed(f)
 					return nil
 				}
-				if e.Log.At(log.DebugLevel) {
-					if diff := fsa.PrettyDiff(fsaNew); diff != "" {
-						e.Log.Debugf("flow %s assertions diff:\n%s\n", f.Digest().Short(), diff)
-					}
-				}
 				if !e.Assert(ctx, fsa, fsaNew) {
+					if e.Log.At(log.DebugLevel) {
+						if diff := fsa.PrettyDiff(fsaNew); diff != "" {
+							e.Log.Debugf("flow %s assertions diff:\n%s\n", f.Digest().Short(), diff)
+						}
+					}
 					e.lookupFailed(f)
 					return nil
 				}
