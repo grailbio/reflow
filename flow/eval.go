@@ -308,7 +308,7 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 	e := &Eval{
 		EvalConfig:     config,
 		root:           root.Canonicalize(config.Config),
-		assertions:     new(reflow.Assertions),
+		assertions:     reflow.NewAssertions(),
 		needch:         make(chan reflow.Requirements),
 		errors:         make(chan error),
 		returnch:       make(chan *Flow, 1024),
@@ -1568,28 +1568,23 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 				e.lookupFailed(f)
 				return nil
 			}
-			fsa := new(reflow.Assertions)
-			if err = fs.WriteAssertions(fsa); err != nil {
-				e.lookupFailed(f)
-				return nil
-			}
 			// If the cached fileset has viable non-empty assertions, assert them.
-			if !fsa.IsEmpty() {
+			if a, size := reflow.NonEmptyAssertions(fs.Assertions()...); size > 0 {
 				// Check if the assertions are internally consistent for the cached fileset.
-				if err = e.assertionsConsistent(f, fsa); err != nil {
+				if err = e.assertionsConsistent(f, a); err != nil {
 					e.Log.Debugf("assertions consistent: %v", err)
 					e.lookupFailed(f)
 					return nil
 				}
-				fsaNew, err := e.refreshAssertions(ctx, fsa, bg)
+				anew, err := e.refreshAssertions(ctx, a, bg)
 				if err != nil {
 					e.Log.Debugf("refresh assertions: %v", err)
 					e.lookupFailed(f)
 					return nil
 				}
-				if !e.Assert(ctx, fsa, fsaNew) {
+				if !e.Assert(ctx, a, anew) {
 					if e.Log.At(log.DebugLevel) {
-						if diff := fsa.PrettyDiff(fsaNew); diff != "" {
+						if diff := reflow.PrettyDiff(a, anew); diff != "" {
 							e.Log.Debugf("flow %s assertions diff:\n%s\n", f.Digest().Short(), diff)
 						}
 					}
@@ -1636,15 +1631,15 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 type assertionsBatchCache struct {
 	ag reflow.AssertionGenerator
 	o  once.Map
-	m  sync.Map // map[reflow.GeneratorKey]*reflow.Assertions
+	m  sync.Map // map[reflow.AssertionKey]*reflow.Assertions
 }
 
 func (e *Eval) newAssertionsBatchCache() *assertionsBatchCache {
 	return &assertionsBatchCache{ag: e.AssertionGenerator}
 }
 
-// Generate calls the given AssertionGenerator with the given reflow.GeneratorKey.
-func (g *assertionsBatchCache) Generate(ctx context.Context, ak reflow.GeneratorKey) (*reflow.Assertions, error) {
+// Generate calls the given AssertionGenerator with the given reflow.AssertionKey.
+func (g *assertionsBatchCache) Generate(ctx context.Context, ak reflow.AssertionKey) (*reflow.Assertions, error) {
 	err := g.o.Do(ak, func() error {
 		assertions, err := g.ag.Generate(ctx, ak)
 		if err != nil {
@@ -1660,41 +1655,38 @@ func (g *assertionsBatchCache) Generate(ctx context.Context, ak reflow.Generator
 	return v.(*reflow.Assertions), nil
 }
 
-// refreshAssertions returns assertions with current values for each key from the given assertions.
+// refreshAssertions returns assertions with current properties for each subject in the given assertions.
 // If provided, the assertionsBatchCache will be used to generate/cache assertions when necessary.
-// For each AssertionKey, the current value is computed:
+// For each subject, the current value is computed:
 // - from the assertions (if it exists)
 // - by invoking assertion generators directly or fetching from the assertionsBatchCache (if provided)
-func (e *Eval) refreshAssertions(ctx context.Context, a *reflow.Assertions, bg *assertionsBatchCache) (*reflow.Assertions, error) {
-	newA, missing := e.assertions.Filter(a)
-	if len(missing) == 0 {
-		return newA, nil
+func (e *Eval) refreshAssertions(ctx context.Context, list []*reflow.Assertions, bg *assertionsBatchCache) ([]*reflow.Assertions, error) {
+	var refreshed []*reflow.Assertions
+	var toGenerate []reflow.AssertionKey
+	for _, a := range list {
+		newA, missing := e.assertions.Filter(a)
+		refreshed = append(refreshed, newA)
+		toGenerate = append(toGenerate, missing...)
 	}
-	missingSet := make(map[reflow.GeneratorKey]bool)
-	var toGenerate []reflow.GeneratorKey
-	for _, m := range missing {
-		key := reflow.GeneratorKey{m.Subject, m.Namespace}
-		if _, ok := missingSet[key]; !ok {
-			missingSet[key] = true
-			toGenerate = append(toGenerate, key)
-		}
+	if len(toGenerate) == 0 {
+		refreshed, _ = reflow.NonEmptyAssertions(refreshed...)
+		return refreshed, nil
 	}
-	err := traverse.Each(len(toGenerate), func(i int) error {
-		var (
-			a   *reflow.Assertions
-			err error
-		)
+	genAs := make([]*reflow.Assertions, len(toGenerate))
+	if err := traverse.Each(len(toGenerate), func(i int) error {
+		var err error
 		if bg != nil {
-			a, err = bg.Generate(ctx, toGenerate[i])
+			genAs[i], err = bg.Generate(ctx, toGenerate[i])
 		} else {
-			a, err = e.AssertionGenerator.Generate(ctx, toGenerate[i])
+			genAs[i], err = e.AssertionGenerator.Generate(ctx, toGenerate[i])
 		}
-		if err != nil {
-			return err
-		}
-		return newA.AddFrom(a)
-	})
-	return newA, err
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	refreshed = append(refreshed, genAs...)
+	refreshed, _ = reflow.NonEmptyAssertions(refreshed...)
+	return refreshed, nil
 }
 
 // needTransfer returns the file objects that require transfer from flow f.
@@ -1745,11 +1737,11 @@ func (e *Eval) transfer(ctx context.Context, f *Flow) error {
 // assignExecId assigns an Exec ID appropriate for the given Flow
 // by merging its digest with the assertions it depends on.
 func (e *Eval) assignExecId(ctx context.Context, f *Flow) error {
-	assertions, err := f.depAssertions()
+	as, err := e.refreshAssertions(ctx, f.depAssertions(), nil)
 	if err != nil {
 		return errors.E("AssignExecID", f.Digest(), err)
 	}
-	state, err := e.refreshAssertions(ctx, assertions, nil)
+	state, err := reflow.MergeAssertions(as...)
 	if err != nil {
 		return errors.E("AssignExecID", f.Digest(), err)
 	}
@@ -1757,27 +1749,21 @@ func (e *Eval) assignExecId(ctx context.Context, f *Flow) error {
 	return nil
 }
 
-// assertionsConsistent checks whether the assertions are consistent for
-// the given flow if the given fileset were the output of that flow.
+// assertionsConsistent checks whether the given set of assertions
+// are consistent with the given flow's dependencies.
 //
-// assertionsConsistent should be called only after the flow's dependencies
+// assertionsConsistent is valid only for Intern, Extern, and Exec ops
+// and should be called only after the flow's dependencies
 // are done, for it to return a meaningful result.
-//
-// assertionsConsistent is valid only for Intern, Extern, and Exec ops.
-func (e *Eval) assertionsConsistent(f *Flow, a *reflow.Assertions) error {
+func (e *Eval) assertionsConsistent(f *Flow, list []*reflow.Assertions) error {
 	if !f.Op.External() {
 		return nil
 	}
-	assertions := new(reflow.Assertions)
 	// Add assertions of dependencies of flow.
-	depAssertions, err := f.depAssertions()
-	if err != nil {
-		return err
-	}
-	if err = assertions.AddFrom(depAssertions); err != nil {
-		return err
-	}
-	return assertions.AddFrom(a)
+	as := f.depAssertions()
+	as = append(as, list...)
+	_, err := reflow.MergeAssertions(as...)
+	return err
 }
 
 // propagateAssertions propagates assertions from this flow's dependencies (if any)
@@ -1792,12 +1778,7 @@ func (e *Eval) propagateAssertions(f *Flow) error {
 	if !ok {
 		return nil
 	}
-	// Add all input assertions to the result Fileset.
-	a, err := f.depAssertions()
-	if err != nil {
-		return err
-	}
-	return fs.AddAssertions(a)
+	return fs.AddAssertions(f.depAssertions()...)
 }
 
 // exec performs and waits for an exec with the given config.
@@ -2016,7 +1997,8 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 	}
 	// When a flow is done (without errors), add all its assertions to the vector clock.
 	if f.Op.External() && f.State == Done && f.Err == nil {
-		if err := f.Value.(reflow.Fileset).WriteAssertions(e.assertions); err != nil {
+		err := e.assertions.AddFrom(f.Value.(reflow.Fileset).Assertions()...)
+		if err != nil {
 			f.Err = errors.Recover(errors.E("adding assertions", f.Digest(), errors.Temporary, err))
 		}
 	}

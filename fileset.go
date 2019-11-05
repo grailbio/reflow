@@ -180,35 +180,34 @@ func (v Fileset) AnyEmpty() bool {
 	return len(v.List) == 0 && len(v.Map) == 0
 }
 
-// WriteAssertions the union of Assertions in all the Files in this Fileset
-// into the given assertions. If any error is returned,
-// the given Assertions will be left in a partially-written state.
-func (v Fileset) WriteAssertions(a *Assertions) error {
-	for _, f := range v.Files() {
-		if err := a.AddFrom(f.Assertions); err != nil {
-			return err
-		}
+// Assertions returns a list of all Assertions across all the Files in this Fileset
+func (v Fileset) Assertions() []*Assertions {
+	files := v.Files()
+	fas := make([]*Assertions, len(files))
+	for i, f := range files {
+		fas[i] = f.Assertions
 	}
-	return nil
+	return fas
 }
 
 // AddAssertions adds the given assertions to all files in this Fileset.
-func (v *Fileset) AddAssertions(as *Assertions) error {
-	if as.IsEmpty() {
+func (v *Fileset) AddAssertions(as ...*Assertions) error {
+	as, size := NonEmptyAssertions(as...)
+	if size == 0 {
 		return nil
 	}
 	for _, fs := range v.List {
-		return fs.AddAssertions(as)
+		return fs.AddAssertions(as...)
 	}
 	for k := range v.Map {
 		f := v.Map[k]
 		if f.Assertions == nil {
-			f.Assertions = new(Assertions)
-			v.Map[k] = f
+			f.Assertions = NewAssertions()
 		}
-		if err := f.Assertions.AddFrom(as); err != nil {
+		if err := f.Assertions.AddFrom(as...); err != nil {
 			return err
 		}
+		v.Map[k] = f
 	}
 	return nil
 }

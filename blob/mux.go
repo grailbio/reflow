@@ -124,7 +124,7 @@ func (m Mux) Snapshot(ctx context.Context, url string) (reflow.Fileset, error) {
 }
 
 // Generate implements the AssertionGenerator interface for the blob namespace.
-func (m Mux) Generate(ctx context.Context, key reflow.GeneratorKey) (*reflow.Assertions, error) {
+func (m Mux) Generate(ctx context.Context, key reflow.AssertionKey) (*reflow.Assertions, error) {
 	if key.Namespace != AssertionsNamespace {
 		return nil, fmt.Errorf("unsupported namespace: %v", key.Namespace)
 	}
@@ -152,15 +152,16 @@ func Assertions(f reflow.File) *reflow.Assertions {
 	if f.Source == "" {
 		return nil
 	}
-	m := make(map[reflow.AssertionKey]string)
+	gk := reflow.AssertionKey{f.Source, AssertionsNamespace}
+	m := make(map[string]string, 3)
 	if f.ETag != "" {
-		m[reflow.AssertionKey{AssertionsNamespace, f.Source, "etag"}] = f.ETag
+		m["etag"] = f.ETag
 	}
 	if !f.LastModified.IsZero() {
-		m[reflow.AssertionKey{AssertionsNamespace, f.Source, "last-modified"}] = f.LastModified.String()
+		m["last-modified"] = f.LastModified.String()
 	}
 	if f.Size > 0 {
-		m[reflow.AssertionKey{AssertionsNamespace, f.Source, "size"}] = strconv.FormatInt(f.Size, 10)
+		m["size"] = strconv.FormatInt(f.Size, 10)
 	}
-	return reflow.AssertionsFromMap(m)
+	return reflow.AssertionsFromEntry(gk, m)
 }

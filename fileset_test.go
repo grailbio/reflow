@@ -24,23 +24,24 @@ var (
 	file2 = reflow.File{ID: reflow.Digester.FromString("bar"), Size: 3}
 	file3 = reflow.File{
 		ID: reflow.Digester.FromString("a/b/c"), Size: 5,
-		Assertions: reflow.AssertionsFromMap(map[reflow.AssertionKey]string{{"n", "a/b/c", "tag"}: "v"})}
+		Assertions: reflow.AssertionsFromEntry(reflow.AssertionKey{"a/b/c", "n"}, map[string]string{"tag": "v"}),
+	}
 
-	v1 = reflow.Fileset{Map: map[string]reflow.File{
+	fs1 = reflow.Fileset{Map: map[string]reflow.File{
 		"foo": file1,
 		"bar": file2,
 	}}
-	v2 = reflow.Fileset{Map: map[string]reflow.File{
+	fs2 = reflow.Fileset{Map: map[string]reflow.File{
 		"a/b/c": file3,
 		"bar":   file2,
 	}}
-	vlist = reflow.Fileset{List: []reflow.Fileset{v1, v2}}
+	vlist = reflow.Fileset{List: []reflow.Fileset{fs1, fs2}}
 )
 
 const vlistSHA256 = "sha256:d60e67ce9e89548b502a5ad7968e99caed0d388f0a991b906f41a7ba65adb31f"
 
 func TestValueDigest(t *testing.T) {
-	if v1.Digest() == v2.Digest() {
+	if fs1.Digest() == fs2.Digest() {
 		t.Errorf("did not w v1, v2 to have same digest")
 	}
 	if got, want := vlist.Digest().String(), vlistSHA256; got != want {
@@ -121,9 +122,15 @@ func TestEqual(t *testing.T) {
 
 func TestEqual2(t *testing.T) {
 	fid := reflow.Digester.FromString("foo")
-	f1 := reflow.File{ID: fid, Assertions: reflow.AssertionsFromMap(map[reflow.AssertionKey]string{{"t", "s1", "tag"}: "v"})}
-	f2 := reflow.File{ID: fid, Assertions: reflow.AssertionsFromMap(map[reflow.AssertionKey]string{{"t", "s2", "tag"}: "v"})}
-	fempty := reflow.File{ID: fid, Assertions: reflow.AssertionsFromMap(map[reflow.AssertionKey]string{})}
+	f1 := reflow.File{
+		ID:         fid,
+		Assertions: reflow.AssertionsFromEntry(reflow.AssertionKey{"s1", "t"}, map[string]string{"tag": "v"}),
+	}
+	f2 := reflow.File{
+		ID:         fid,
+		Assertions: reflow.AssertionsFromEntry(reflow.AssertionKey{"s2", "t"}, map[string]string{"tag": "v"}),
+	}
+	fempty := reflow.File{ID: fid, Assertions: aempty}
 	fnil := reflow.File{ID: fid}
 	f3, f3dup := reflow.File{Source: "same_source", ETag: "etag"}, reflow.File{Source: "same_source", ETag: "etag"}
 	f3mid := reflow.File{Source: "same_source", ETag: "etag", ContentHash: reflow.Digester.FromString("mid")}
@@ -208,15 +215,15 @@ func TestDiff(t *testing.T) {
 		wantD bool
 		want  string
 	}{
-		{v1, v1, false, ""},
+		{fs1, fs1, false, ""},
 		{vlist, vlist, false, ""},
 		{
-			reflow.Fileset{List: []reflow.Fileset{vlist, v2}, Map: map[string]reflow.File{"foo": file1}},
-			reflow.Fileset{List: []reflow.Fileset{vlist, v2}, Map: map[string]reflow.File{"foo": file1}},
+			reflow.Fileset{List: []reflow.Fileset{vlist, fs2}, Map: map[string]reflow.File{"foo": file1}},
+			reflow.Fileset{List: []reflow.Fileset{vlist, fs2}, Map: map[string]reflow.File{"foo": file1}},
 			false, "",
 		},
 		{
-			vlist, v1, true,
+			vlist, fs1, true,
 			`
 "bar" = void -> fcde2b2e
 "foo" = void -> 2c26b46b
@@ -224,14 +231,14 @@ func TestDiff(t *testing.T) {
 [1]:val<a/b/c=d76a7b72, ...8B> -> empty`,
 		},
 		{
-			v1, v2, true,
+			fs1, fs2, true,
 			`
 "a/b/c" = void -> d76a7b72
 "foo" = 2c26b46b -> void`,
 		},
 		{
-			reflow.Fileset{List: []reflow.Fileset{v1, v2}, Map: map[string]reflow.File{"foo": file1}},
-			reflow.Fileset{List: []reflow.Fileset{v2, v1}},
+			reflow.Fileset{List: []reflow.Fileset{fs1, fs2}, Map: map[string]reflow.File{"foo": file1}},
+			reflow.Fileset{List: []reflow.Fileset{fs2, fs1}},
 			true,
 			`
 "foo" = 2c26b46b -> void
@@ -262,26 +269,33 @@ func TestDiff(t *testing.T) {
 func TestAssertions(t *testing.T) {
 	fuzz := testutil.NewFuzz(nil)
 	fs := fuzz.Fileset(true, true)
-	a := reflow.AssertionsFromMap(map[reflow.AssertionKey]string{{"t", "s1", "tag"}: "v", {"t", "s2", "tag"}: "v"})
+	a := reflow.AssertionsFromMap(map[reflow.AssertionKey]map[string]string{
+		{"s1", "t"}: {"tag": "v"},
+		{"s2", "t"}: {"tag": "v"},
+	})
 	existingByPath := make(map[string]*reflow.Assertions)
 	for _, f := range fs.Files() {
 		existingByPath[f.Source] = f.Assertions
 	}
-	fs.AddAssertions(a)
+	_ = fs.AddAssertions(a)
 
-	wantAll := reflow.AssertionsFromMap(map[reflow.AssertionKey]string{})
+	wantAll := reflow.NewAssertions()
 	for _, f := range fs.Files() {
 		ea := existingByPath[f.Source]
 		got, want := f.Assertions, ea
-		want.AddFrom(a)
+		if err := want.AddFrom(a); err != nil {
+			t.Error(err)
+		}
 		if !got.Equal(want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
-		wantAll.AddFrom(ea)
+		if err := wantAll.AddFrom(ea); err != nil {
+			t.Error(err)
+		}
 	}
-	wantAll.AddFrom(a)
-	gotAll := new(reflow.Assertions)
-	if err := fs.WriteAssertions(gotAll); err != nil {
+	_ = wantAll.AddFrom(a)
+	gotAll, err := reflow.MergeAssertions(fs.Assertions()...)
+	if err != nil {
 		t.Errorf("unexpected %v", err)
 	}
 	if got, want := gotAll, wantAll; !got.Equal(want) {
@@ -290,13 +304,13 @@ func TestAssertions(t *testing.T) {
 
 	src := "some/random/file"
 	file := reflow.File{Source: "some/random/file", ETag: "etag", Size: int64(len(src))}
-	a = reflow.AssertionsFromMap(map[reflow.AssertionKey]string{{"test", src, "etag"}: "etag"})
+	a = reflow.AssertionsFromEntry(reflow.AssertionKey{src, "test"}, map[string]string{"etag": "etag"})
 	fs = reflow.Fileset{Map: map[string]reflow.File{src: file}}
 	if err := fs.AddAssertions(a); err != nil {
 		t.Errorf("unexpected %v", err)
 	}
-	fsa := new(reflow.Assertions)
-	if err := fs.WriteAssertions(fsa); err != nil {
+	fsa, err := reflow.MergeAssertions(fs.Assertions()...)
+	if err != nil {
 		t.Errorf("unexpected %v", err)
 	}
 	if got, want := fsa, a; !got.Equal(want) {
@@ -318,11 +332,14 @@ func createFilesets(nfs, nfiles, depth int) []reflow.Fileset {
 
 func createAssertions(n int) *reflow.Assertions {
 	fuzz := testutil.NewFuzz(nil)
-	m := make(map[reflow.AssertionKey]string, n)
+	m := make(map[reflow.AssertionKey]map[string]string, n)
 	for i := 0; i < n; i++ {
-		m[reflow.AssertionKey{"namespace", "subject-" + fuzz.StringMinLen(80, ""), "object1"}] = "value-" + fuzz.String("")
-		m[reflow.AssertionKey{"namespace", "subject-" + fuzz.StringMinLen(80, ""), "object2"}] = "value-" + fuzz.String("")
-		m[reflow.AssertionKey{"namespace", "subject-" + fuzz.StringMinLen(80, ""), "object3"}] = "value-" + fuzz.String("")
+		gk := reflow.AssertionKey{Subject: "subject-" + fuzz.StringMinLen(80, ""), Namespace: "namespace"}
+		m[gk] = map[string]string{
+			"object1": "value-" + fuzz.String(""),
+			"object2": "value-" + fuzz.String(""),
+			"object3": "value-" + fuzz.String(""),
+		}
 	}
 	return reflow.AssertionsFromMap(m)
 }
@@ -348,7 +365,7 @@ func BenchmarkFileset(b *testing.B) {
 			name string
 			fn   func() error
 		}{
-			{"writeassertions", func() error { return fs.WriteAssertions(new(reflow.Assertions)) }},
+			{"writeassertions", func() error { _, err := reflow.MergeAssertions(fs.Assertions()...); return err }},
 			{"addassertions", func() error { return fs.AddAssertions(a) }},
 		} {
 			s, nums := s, nums

@@ -74,8 +74,9 @@ func (f *Fuzz) File(refok, wantAssertions bool) reflow.File {
 	}
 	if wantAssertions {
 		file.Source = fmt.Sprintf("s3://%s/%s", f.String(""), f.String("/"))
-		file.Assertions = reflow.AssertionsFromMap(map[reflow.AssertionKey]string{
-			reflow.AssertionKey{"blob", file.Source, "etag"}: fmt.Sprintf("etag%d", f.Intn(10))})
+		file.Assertions = reflow.AssertionsFromEntry(
+			reflow.AssertionKey{file.Source, "blob"},
+			map[string]string{"etag": fmt.Sprintf("etag%d", f.Intn(10))})
 	}
 	return file
 }

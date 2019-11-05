@@ -34,18 +34,14 @@ func TestEqual(t *testing.T) {
 		{
 			types.File,
 			reflow.File{
-				ID:   reflow.Digester.FromString("same contents"),
-				Size: 54321,
-				Assertions: reflow.AssertionsFromMap(map[reflow.AssertionKey]string{
-					reflow.AssertionKey{"namespace", "subject", "object"}: "value",
-				}),
+				ID:         reflow.Digester.FromString("same contents"),
+				Size:       54321,
+				Assertions: reflow.AssertionsFromEntry(reflow.AssertionKey{"subject", "namespace"}, map[string]string{"object": "value"}),
 			},
 			reflow.File{
-				ID:   reflow.Digester.FromString("same contents"),
-				Size: 54321,
-				Assertions: reflow.AssertionsFromMap(map[reflow.AssertionKey]string{
-					reflow.AssertionKey{"namespace2", "subject2", "object2"}: "different value",
-				}),
+				ID:         reflow.Digester.FromString("same contents"),
+				Size:       54321,
+				Assertions: reflow.AssertionsFromEntry(reflow.AssertionKey{"subject2", "namespace2"}, map[string]string{"object2": "different value"}),
 			},
 			true,
 		},

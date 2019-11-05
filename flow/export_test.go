@@ -15,7 +15,7 @@ func PhysicalDigests(f *Flow) []digest.Digest {
 	return f.physicalDigests()
 }
 
-func DepAssertions(f *Flow) (*reflow.Assertions, error) {
+func DepAssertions(f *Flow) []*reflow.Assertions {
 	return f.depAssertions()
 }
 
@@ -25,6 +25,6 @@ func NewAssertionsBatchCache(e *Eval) *AssertionsBatchCache {
 	return e.newAssertionsBatchCache()
 }
 
-func RefreshAssertions(ctx context.Context, e *Eval, a *reflow.Assertions, cache *AssertionsBatchCache) (*reflow.Assertions, error) {
+func RefreshAssertions(ctx context.Context, e *Eval, a []*reflow.Assertions, cache *AssertionsBatchCache) ([]*reflow.Assertions, error) {
 	return e.refreshAssertions(ctx, a, cache)
 }
