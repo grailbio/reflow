@@ -5,6 +5,9 @@
 package reflow_test
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -301,5 +304,134 @@ func TestAssertions(t *testing.T) {
 	}
 	if got, want := fs.Map[src].Assertions, a; !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func createFilesets(nfs, nfiles, depth int) []reflow.Fileset {
+	fuzz := testutil.NewFuzz(nil)
+	fss := make([]reflow.Fileset, nfs)
+	for i := 0; i < nfs; i++ {
+		fss[i] = fuzz.FilesetDeep(nfiles, depth, false, true)
+	}
+	return fss
+}
+
+func createAssertions(n int) *reflow.Assertions {
+	fuzz := testutil.NewFuzz(nil)
+	m := make(map[reflow.AssertionKey]string, n)
+	for i := 0; i < n; i++ {
+		m[reflow.AssertionKey{"namespace", "subject-" + fuzz.String(""), "object1"}] = "value-" + fuzz.String("")
+		m[reflow.AssertionKey{"namespace", "subject-" + fuzz.String(""), "object2"}] = "value-" + fuzz.String("")
+		m[reflow.AssertionKey{"namespace", "subject-" + fuzz.String(""), "object3"}] = "value-" + fuzz.String("")
+	}
+	return reflow.AssertionsFromMap(m)
+}
+
+var benchCombinations = []struct{ nfiles, nass int }{
+	{1, 100000},
+	{1, 10000},
+	{1, 1000},
+	{10, 10000},
+	{100, 1000},
+}
+
+func BenchmarkFileset(b *testing.B) {
+	fuzz := testutil.NewFuzz(nil)
+	for _, nums := range []struct{ nfiles, nass int }{
+		{1, 100000},
+		{1000, 10000},
+		{100000, 1000},
+	} {
+		fs := fuzz.FilesetDeep(nums.nfiles, 0, false, false)
+		a := createAssertions(nums.nass)
+		for _, s := range []struct {
+			name string
+			fn   func() error
+		}{
+			{"writeassertions", func() error { return fs.WriteAssertions(new(reflow.Assertions)) }},
+			{"addassertions", func() error { return fs.AddAssertions(a) }},
+		} {
+			s, nums := s, nums
+			b.Run(fmt.Sprintf("%s-nfiles-%d-nass-%d", s.name, nums.nfiles, nums.nass), func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					if err := s.fn(); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+		}
+	}
+}
+
+func BenchmarkMarshal(b *testing.B) {
+	fuzz := testutil.NewFuzz(nil)
+	for _, nums := range benchCombinations {
+		fs := fuzz.FilesetDeep(nums.nfiles, 0, false, false)
+		a := createAssertions(nums.nass)
+		if err := fs.AddAssertions(a); err != nil {
+			b.Fatal(err)
+		}
+		want, err := json.Marshal(fs)
+		if err != nil {
+			b.Fatal(err)
+		}
+		for _, s := range []struct {
+			name       string
+			marshaller func(v interface{}) ([]byte, error)
+		}{
+			{"json-std-lib", json.Marshal},
+		} {
+			s, nums := s, nums
+			b.Run(fmt.Sprintf("%s-nfiles-%d-nass-%d", s.name, nums.nfiles, nums.nass), func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					got, err := s.marshaller(fs)
+					if err != nil {
+						b.Fatal(err)
+					}
+					if !bytes.Equal(got, want) {
+						b.Error("mismatch")
+					}
+				}
+			})
+		}
+	}
+}
+
+func BenchmarkUnmarshal(b *testing.B) {
+	fuzz := testutil.NewFuzz(nil)
+	for _, nums := range benchCombinations {
+		fs := fuzz.FilesetDeep(nums.nfiles, 0, false, false)
+		a := createAssertions(nums.nass)
+		if err := fs.AddAssertions(a); err != nil {
+			b.Fatal(err)
+		}
+		fssb, err := json.Marshal(fs)
+		if err != nil {
+			b.Fatal(err)
+		}
+		r := bytes.NewReader(fssb)
+		for _, s := range []struct {
+			name string
+			// unmarshaller func(data []byte, v interface{}) error
+			decode func(r io.Reader, v interface{}) error
+		}{
+			{"json-std-lib", func(r io.Reader, v interface{}) error {
+				return json.NewDecoder(r).Decode(v)
+			}},
+		} {
+			s, nums := s, nums
+			b.Run(fmt.Sprintf("%s-nfiles-%d-nass-%d", s.name, nums.nfiles, nums.nass), func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					var gotfs reflow.Fileset
+					if err := s.decode(r, &gotfs); err != nil && err != io.EOF {
+						b.Fatal(err)
+					}
+					if got, want := gotfs, fs; !got.Equal(want) {
+						b.Error("mismatch")
+					}
+					r.Reset(fssb)
+				}
+			})
+		}
 	}
 }
