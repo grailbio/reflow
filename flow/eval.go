@@ -583,13 +583,6 @@ func (e *Eval) Do(ctx context.Context) error {
 					break
 				}
 				e.Mutate(f, Execing, Reserve(f.Resources))
-				if err := e.AssignExecId(ctx, f); err != nil {
-					go func() {
-						e.Mutate(f, err, Done)
-						e.returnch <- f
-					}()
-					break
-				}
 				task := sched.NewTask()
 				task.ID = f.ExecId
 				task.RunID = e.RunID
@@ -1740,9 +1733,9 @@ func (e *Eval) transfer(ctx context.Context, f *Flow) error {
 	return errors.E(errors.Unavailable, "cache.Transfer", err)
 }
 
-// AssignExecId assigns an Exec ID appropriate for the given Flow
+// assignExecId assigns an Exec ID appropriate for the given Flow
 // by merging its digest with the assertions it depends on.
-func (e *Eval) AssignExecId(ctx context.Context, f *Flow) error {
+func (e *Eval) assignExecId(ctx context.Context, f *Flow) error {
 	assertions, err := f.depAssertions()
 	if err != nil {
 		return errors.E("AssignExecID", f.Digest(), err)
@@ -2008,7 +2001,7 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 	e.muGC.RUnlock()
 	// Assign an ExecId for Execing (external) flows.
 	if f.Op.External() && f.State == Execing {
-		if err := e.AssignExecId(context.Background(), f); err != nil {
+		if err := e.assignExecId(context.Background(), f); err != nil {
 			f.Err = errors.Recover(errors.E("assign execid", f.Digest(), errors.Temporary, err))
 		}
 	}
