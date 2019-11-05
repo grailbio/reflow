@@ -249,7 +249,7 @@ func TestDiff(t *testing.T) {
 	const N = 100
 	fuzz := testutil.NewFuzz(nil)
 	for i := 0; i < N; i++ {
-		fs := fuzz.FilesetDeep(5)
+		fs := fuzz.FilesetDeep(fuzz.Intn(10)+1, 5, false, false)
 		if diffStr, diff := fs.Diff(fs); diff || diffStr != "" {
 			t.Errorf("got different, want no different:\n%v", diffStr)
 		}

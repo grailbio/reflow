@@ -79,28 +79,25 @@ func (f *Fuzz) File(refok, wantAssertions bool) reflow.File {
 
 // Fileset returns a random fileset. If refok is true, then
 // the returned fileset may contain reference files.  If aok
-//// is true, then the returned fileset will contain assertions.
+// is true, then the returned fileset will contain assertions.
 func (f *Fuzz) Fileset(refok, aok bool) reflow.Fileset {
-	return f.fileset(0, refok, aok)
+	return f.fileset(f.Intn(10)+1, 0, refok, aok)
 }
 
-// FilesetDeep returns a random fileset of the given depth.
-// The returned fileset contains only resolved files and no assertions.
-func (f *Fuzz) FilesetDeep(depth int) reflow.Fileset {
-	return f.fileset(0, false, false)
+// FilesetDeep returns a random fileset of the given depth and number of files.
+func (f *Fuzz) FilesetDeep(n, depth int, refok, aok bool) reflow.Fileset {
+	return f.fileset(n, 0, refok, aok)
 }
 
-func (f *Fuzz) fileset(depth int, refok, aok bool) (fs reflow.Fileset) {
+func (f *Fuzz) fileset(numfiles, depth int, refok, aok bool) (fs reflow.Fileset) {
 	if f.Float64() < math.Pow(0.5, float64(depth+1)) {
-		n := f.Intn(10) + 1
-		fs.List = make([]reflow.Fileset, n)
+		fs.List = make([]reflow.Fileset, f.Intn(5)+1)
 		for i := range fs.List {
-			fs.List[i] = f.fileset(depth+1, refok, aok)
+			fs.List[i] = f.fileset(numfiles, depth+1, refok, aok)
 		}
 	} else {
-		n := f.Intn(10) + 1
 		fs.Map = make(map[string]reflow.File)
-		for i := 0; i < n; i++ {
+		for i := 0; i < numfiles; i++ {
 			fs.Map[f.String("/")] = f.File(refok, aok)
 		}
 	}
