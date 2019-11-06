@@ -34,20 +34,23 @@ var genes = []string{
 	"EPCAM", "MLH1", "MSH2", "MSH6", "PMS2", "STK11",
 }
 
-// String returns a random string comprising gene names separated
-// by the provided separator.
-func (f *Fuzz) String(sep string) string {
-	var (
-		b strings.Builder
-		n = f.Intn(5) + 1
-	)
-	for i := 0; i < n; i++ {
-		if i > 0 {
+// StringMinLen returns a random string comprising gene names
+// of at least minlen length separated by the provided separator.
+func (f *Fuzz) StringMinLen(minlen int, sep string) string {
+	var b strings.Builder
+	for b.Len() < minlen {
+		if b.Len() > 0 {
 			b.WriteString(sep)
 		}
 		b.WriteString(genes[f.Intn(len(genes))])
 	}
 	return b.String()
+}
+
+// String returns a random string comprising gene names separated
+// by the provided separator.
+func (f *Fuzz) String(sep string) string {
+	return f.StringMinLen(f.Intn(20)+1, sep)
 }
 
 // Digest returns a random Reflow digest.

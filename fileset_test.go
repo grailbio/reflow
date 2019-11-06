@@ -320,9 +320,9 @@ func createAssertions(n int) *reflow.Assertions {
 	fuzz := testutil.NewFuzz(nil)
 	m := make(map[reflow.AssertionKey]string, n)
 	for i := 0; i < n; i++ {
-		m[reflow.AssertionKey{"namespace", "subject-" + fuzz.String(""), "object1"}] = "value-" + fuzz.String("")
-		m[reflow.AssertionKey{"namespace", "subject-" + fuzz.String(""), "object2"}] = "value-" + fuzz.String("")
-		m[reflow.AssertionKey{"namespace", "subject-" + fuzz.String(""), "object3"}] = "value-" + fuzz.String("")
+		m[reflow.AssertionKey{"namespace", "subject-" + fuzz.StringMinLen(80, ""), "object1"}] = "value-" + fuzz.String("")
+		m[reflow.AssertionKey{"namespace", "subject-" + fuzz.StringMinLen(80, ""), "object2"}] = "value-" + fuzz.String("")
+		m[reflow.AssertionKey{"namespace", "subject-" + fuzz.StringMinLen(80, ""), "object3"}] = "value-" + fuzz.String("")
 	}
 	return reflow.AssertionsFromMap(m)
 }
