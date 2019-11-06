@@ -55,7 +55,7 @@ func RunServer(schema infra.Schema, schemaKeys infra.Keys, configFile, addr stri
 		}
 		keys := make(infra.Keys)
 		if err := yaml.Unmarshal(b, keys); err != nil {
-			log.Fatal("config %v: %v", configFile, err)
+			log.Fatalf("config %v: %v", configFile, err)
 		}
 		for k, v := range keys {
 			schemaKeys[k] = v
