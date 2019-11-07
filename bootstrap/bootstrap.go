@@ -141,7 +141,9 @@ func newExecImageNode(m *blob.Mux) rest.DoFunc {
 			return
 		}
 		var image common.Image
+		log.Debugf("execing image...")
 		if err := call.Unmarshal(&image); err != nil {
+			call.Error(fmt.Errorf("unmarshal execimage %v", err))
 			return
 		}
 		rc, _, err := m.Get(ctx, image.Path, "")

@@ -489,12 +489,13 @@ func (i *instance) Go(ctx context.Context) {
 				i.err = errors.E(errors.Fatal, err)
 				break
 			}
-			ctx2, cancel = context.WithTimeout(ctx, 10*time.Second)
+			ctx2, cancel = context.WithTimeout(ctx, 1*time.Minute)
 			reflowletimage := common.Image{
 				Path: reflowletFile.Source,
 				Args: reflowletArgs,
 				Name: "reflowlet",
 			}
+			i.Log.Debugf("installing reflowlet image %v", reflowletimage)
 			// Once the reflowlet image (a reflow binary) is installed on the instance,
 			// the instance goes from being a bootstrap instance to a reflowlet instance.
 			err = clnt.InstallImage(ctx2, reflowletimage)
