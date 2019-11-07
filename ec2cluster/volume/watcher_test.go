@@ -94,19 +94,19 @@ func TestWatcher(t *testing.T) {
 	}{
 		{
 			&testVolume{size: data.GiB, duPct: 40.0},
-			data.GiB, data.GiB, 3, 0, 0, 3, 0,
+			data.GiB, data.GiB, 4, 0, 0, 4, 0,
 		},
 		{
 			&testVolume{size: data.GiB, duPct: 80.0, ready: false, reason: "test"},
-			data.GiB, data.GiB, 2, 0, 3, 2, 0,
+			data.GiB, data.GiB, 3, 0, 3, 3, 0,
 		},
 		{
 			&testVolume{size: data.GiB, duPct: 80.0, ready: true, rfsErr: errTest},
-			2 * data.GiB, data.GiB, 3, 1, 1, 2, 2,
+			2 * data.GiB, data.GiB, 4, 1, 1, 3, 2,
 		},
 		{
 			&testVolume{size: data.GiB, duPct: 80.0, ready: true},
-			2 * data.GiB, 2 * data.GiB, 4, 1, 1, 2, 1,
+			2 * data.GiB, 2 * data.GiB, 5, 1, 1, 3, 1,
 		},
 	} {
 		w, err := NewWatcher(context.Background(), log.Std, tt.v, testWatcherParams)

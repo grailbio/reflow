@@ -413,8 +413,8 @@ var DefaultReflowletConfig = ReflowletConfig{
 var DefaultVolumeWatcher = VolumeWatcher{
 	LowThresholdPct:       55.0,
 	HighThresholdPct:      75.0,
-	WatcherSleepDuration:  10 * time.Minute,
-	ResizeSleepDuration:   10 * time.Second,
+	WatcherSleepDuration:  1 * time.Minute,
+	ResizeSleepDuration:   5 * time.Second,
 	FastThresholdDuration: 24 * time.Hour,
 }
 

@@ -144,7 +144,9 @@ func (v *ebsLvmVolume) init() error {
 // GetSize returns the sum of the size of all EBS volumes for the current instance.
 func (v *ebsLvmVolume) GetSize(ctx context.Context) (data.Size, error) {
 	req := &ec2.DescribeVolumesInput{VolumeIds: aws.StringSlice(v.ebsVolIds)}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	resp, err := v.ec2.DescribeVolumesWithContext(ctx, req)
+	cancel()
 	if err != nil {
 		return 0, err
 	}
@@ -161,7 +163,9 @@ func (v *ebsLvmVolume) GetSize(ctx context.Context) (data.Size, error) {
 // IsReadyForVolumeModification checks to see if there is a still active
 // volume modification involving the given volumeId.
 func (v *ebsLvmVolume) ReadyToModify(ctx context.Context) (bool, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	mstate, err := v.getModificationState(ctx)
+	cancel()
 	if err != nil {
 		return false, "", err
 	}
@@ -230,7 +234,9 @@ func (v *ebsLvmVolume) SetSize(ctx context.Context, newSize data.Size) error {
 					VolumeId: aws.String(modVols[idx]),
 					Size:     aws.Int64(perVolSizeGiB),
 				}
-				_, errs[idx] = v.ec2.ModifyVolumeWithContext(ctx, req)
+				ctx2, cancel := context.WithTimeout(ctx, 10*time.Second)
+				_, errs[idx] = v.ec2.ModifyVolumeWithContext(ctx2, req)
+				cancel()
 				return nil
 			})
 			var failed []string
@@ -245,7 +251,9 @@ func (v *ebsLvmVolume) SetSize(ctx context.Context, newSize data.Size) error {
 			}
 		case stateGetModificationStatus:
 			stateStr = fmt.Sprintf("get modification status (%s)", strings.Join(v.ebsVolIds, ", "))
-			mstates, err = v.getModificationState(ctx)
+			ctx2, cancel := context.WithTimeout(ctx, 10*time.Second)
+			mstates, err = v.getModificationState(ctx2)
+			cancel()
 		case stateCheckModificationStatus:
 			stateStr = fmt.Sprintf("checking modification status (%v)", mstates)
 			var reasons []string

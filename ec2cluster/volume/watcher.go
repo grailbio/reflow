@@ -48,28 +48,37 @@ func (w *Watcher) Watch(ctx context.Context) {
 
 	var (
 		state                  stateT
-		vSize                  data.Size
+		oldSize                data.Size
 		lastBelowThresholdTime = time.Now()
-		iterWait               = w.w.WatcherSleepDuration
+		iter                   = time.NewTicker(w.w.WatcherSleepDuration)
 	)
+
+	sz, err := w.v.GetSize(ctx)
+	if err != nil {
+		w.log.Error(err)
+	}
+	pct, err := w.v.Usage()
+	if err != nil {
+		w.log.Error(err)
+	}
+	w.log.Printf("started watching (volume size: %s, used: %.2f%%)", sz, pct)
 
 	for {
 		select {
 		case <-ctx.Done():
 			w.log.Debugf("exiting")
 			return
-		case <-time.After(iterWait):
+		case <-iter.C:
 		}
 
 		switch state {
 		case stateWatch:
-			sz, err := w.v.GetSize(ctx)
+			sz, err = w.v.GetSize(ctx)
 			if err != nil {
 				w.log.Error(err)
 				break
 			}
-			vSize = sz
-			pct, err := w.v.Usage()
+			pct, err = w.v.Usage()
 			if err != nil {
 				w.log.Error(err)
 				break
@@ -90,9 +99,10 @@ func (w *Watcher) Watch(ctx context.Context) {
 			ago := time.Since(lastBelowThresholdTime).Round(time.Second)
 			w.log.Printf("%s: above high threshold (%.2f%% > %.2f%%) and was below low threshold %s ago",
 				prefix, pct, w.w.HighThresholdPct, ago)
-			// Now we are going to resize, so reduce the wait duration to 1 minute
+			// Now we are going to resize, so reduce the wait duration
 			// so that we keep re-attempting quickly in case of failures.
-			iterWait = w.w.ResizeSleepDuration
+			iter.Stop()
+			iter = time.NewTicker(w.w.ResizeSleepDuration)
 			state = stateResizeVolume
 		case stateResizeVolume:
 			w.log.Printf("resizing volume")
@@ -113,6 +123,7 @@ func (w *Watcher) Watch(ctx context.Context) {
 			}
 			w.log.Printf("attempting size increase by %dX", incFactor)
 			currSize, err := w.v.GetSize(ctx)
+			oldSize = currSize
 			if err != nil {
 				w.log.Error(err)
 				break
@@ -132,12 +143,13 @@ func (w *Watcher) Watch(ctx context.Context) {
 				w.log.Errorf("resize filesystem: %v", err)
 				break
 			}
-			sz, err := w.v.GetSize(ctx)
+			sz, err = w.v.GetSize(ctx)
 			if err != nil {
 				w.log.Errorf("cannot get volume size (after resizeFS): %v", err)
 			}
-			w.log.Printf("successfully increased filesystem size %s -> %s", vSize, sz)
-			iterWait = w.w.WatcherSleepDuration
+			w.log.Printf("successfully increased filesystem size %s -> %s", oldSize, sz)
+			iter.Stop()
+			iter = time.NewTicker(w.w.WatcherSleepDuration)
 			state = stateWatch
 		}
 	}
