@@ -206,7 +206,7 @@ func (w *worker) do(ctx context.Context, f *flow.Flow) (err error) {
 					if err != nil {
 						log.Debugf("taskdb createtask: %v\n", err)
 					} else {
-						go taskdb.Keepalive(tctx, w.Eval.TaskDB, f.TaskID)
+						go func() { _ = taskdb.Keepalive(tctx, w.Eval.TaskDB, f.TaskID) }()
 					}
 				}
 				f.Exec = x

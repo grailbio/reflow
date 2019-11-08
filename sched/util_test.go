@@ -46,13 +46,13 @@ func (c *counter) NextID() digest.Digest {
 	return reflow.Digester.New(b)
 }
 
-var ntask, nalloc counter
+var nalloc counter
 
 func newTask(cpu, mem float64, priority int) *sched.Task {
 	task := sched.NewTask()
-	task.ID = ntask.NextID()
 	task.Priority = priority
 	task.Config.Resources = reflow.Resources{"cpu": cpu, "mem": mem}
+	task.ID = reflow.Digester.Rand(nil)
 	if *logTasks {
 		out := golog.New(os.Stderr, fmt.Sprintf("task %s (%s): ", task.ID.Short(), task.Config.Resources), golog.LstdFlags)
 		task.Log = log.New(out, log.DebugLevel)

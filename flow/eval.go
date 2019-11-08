@@ -597,18 +597,19 @@ func (e *Eval) Do(ctx context.Context) error {
 					}
 					// Retry OOMs if needed.
 					for retries := 0; retries < maxOOMRetries && task.Result.Err != nil && errors.Is(errors.OOM, task.Result.Err); retries++ {
-						// Increase the flow's reserved resources
+						// Increase the flow's reserved resources and generate a new ExecId
 						// TODO(dnicolaou) Get amount of memory at OOM from /dev/kmsg multiply that by memMultiplier to
 						// reallocate memory.
 						newReserved := reflow.Resources{}
 						newReserved.Set(f.Reserved)
 						newReserved["mem"] *= memMultiplier
+						// Set f.ExecId to the zero digest so that Eval.Mutate() will generate a new random ExecId. Once f.ExecId
+						// is no longer required for the scheduler mode tests in eval_test.go, this will no longer be necessary.
+						// See TODO in Eval.Mutate() for more inforamtion.
+						f.ExecId = digest.Digest{}
 						e.Mutate(f, Unreserve(f.Reserved), Reserve(newReserved), Execing)
-						// Hack to update TaskID.
-						// TODO(dnicolaou): Deprecate TaskID from scheduler mode
-						f.TaskID = reflow.Digester.Rand(nil)
 						task = e.newTask(f)
-						e.Log.Printf("task %v: OOM: re-submitting with %v of memory (%v/%v)", task.ID, data.Size(task.Config.Resources["mem"]), retries+1, maxOOMRetries)
+						e.Log.Printf("flow %s: OOM: re-submitting task %s with %v of memory (%v/%v)", task.FlowID.Short(), task.ID.Short(), data.Size(task.Config.Resources["mem"]), retries+1, maxOOMRetries)
 						e.Scheduler.Submit(task)
 						if err := e.taskWait(f, task, ctx); err != nil {
 							return err
@@ -1827,12 +1828,11 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 					tcancel()
 					e.Log.Debugf("taskdb createtask: %v\n", err)
 				}
-				go taskdb.Keepalive(tctx, e.TaskDB, f.TaskID)
+				go func() { _ = taskdb.Keepalive(tctx, e.TaskDB, f.TaskID) }()
 			}
 			err = x.Wait(ctx)
 			if e.TaskDB != nil {
-				err := e.TaskDB.SetTaskResult(tctx, f.TaskID, x.ID())
-				if err != nil {
+				if err := e.TaskDB.SetTaskResult(tctx, f.TaskID, x.ID()); err != nil {
 					e.Log.Debugf("taskdb settaskresult: %v\n", err)
 				}
 				tcancel()
@@ -1989,10 +1989,20 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 		}
 	}
 	e.muGC.RUnlock()
-	// Assign an ExecId for Execing (external) flows.
+	// Assign an ExecId for Execing (external) flows. In the scheduler case, f.ExecId is a random digest and is only set
+	// if the digest is its zero value.
 	if f.Op.External() && f.State == Execing {
-		if err := e.assignExecId(context.Background(), f); err != nil {
-			f.Err = errors.Recover(errors.E("assign execid", f.Digest(), errors.Temporary, err))
+		switch {
+		case e.Scheduler == nil:
+			if err := e.assignExecId(context.Background(), f); err != nil {
+				f.Err = errors.Recover(errors.E("assign execid", f.Digest(), errors.Temporary, err))
+			}
+		// TODO(dnicolaou): Remove ExecId from scheduler mode once eval_test.go scheduler tests no longer
+		// require ExecId to keep track of execs and their respective tasks. f.ExecId.IsZero() check exists
+		// to ensure that eval_test.go scheduler tests will pass because in these tests, each flow is provided
+		// an ExecId that must remain unchanged.
+		case e.Scheduler != nil && f.ExecId.IsZero():
+			f.ExecId = reflow.Digester.Rand(nil)
 		}
 	}
 	// When a flow is done (without errors), add all its assertions to the vector clock.
@@ -2328,7 +2338,7 @@ func (e *Eval) taskWait(f *Flow, task *sched.Task, ctx context.Context) error {
 		e.Mutate(f, task.Result.Err, task.Result.Fileset, Propagate, Done)
 	}
 	if e.TaskDB != nil {
-		e.taskdbWriteAsync(ctx, f.Op, task.Inspect, task.Exec, task.TaskID)
+		e.taskdbWriteAsync(ctx, f.Op, task.Inspect, task.Exec, task.ID)
 	}
 	return nil
 }
@@ -2337,7 +2347,7 @@ func (e *Eval) newTask(f *Flow) *sched.Task {
 	t := sched.NewTask()
 	t.ID = f.ExecId
 	t.RunID = e.RunID
-	t.TaskID = f.TaskID
+	t.FlowID = f.Digest()
 	t.Config = f.ExecConfig()
 	t.Log = e.Log.Prefixf("task %s: ", f.Digest().Short())
 	return t

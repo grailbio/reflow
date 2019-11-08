@@ -306,6 +306,8 @@ type Flow struct {
 	// The exec id assigned to this node which is used to submit the flow to an executor.
 	// This is different from the flow's digest, should be set only by the evaluator
 	// because it encompasses assertions of the flow's dependencies (See Eval.assignExecId).
+	// TODO(dnicolaou): Remove ExecId from scheduler mode once ExecId no longer required by scheduler
+	// tests in eval_test.go.
 	ExecId digest.Digest
 
 	// Cached stores whether the flow was retrieved from cache.
@@ -317,7 +319,10 @@ type Flow struct {
 	// Inspect stores an exec's inspect output.
 	Inspect reflow.ExecInspect
 
-	// Task id of this flow.
+	// TaskID is the identifier used to store this flow's Task representation in TaskDB.
+	// This is only used for non-scheduler mode because in scheduler mode,
+	// the corresponding task object will contain the relevant identifier.
+	// TODO(dnicolaou): Remove TaskID once nonscheduler mode is removed.
 	TaskID digest.Digest
 
 	Tracked bool

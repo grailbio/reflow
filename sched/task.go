@@ -82,8 +82,8 @@ type Task struct {
 
 	// RunID that created this task.
 	RunID digest.Digest
-	// TaskID is the unique identifier for this task
-	TaskID digest.Digest
+	// FlowID is the digest (flow.Digest) of the flow for which this task was created.
+	FlowID digest.Digest
 
 	mu   sync.Mutex
 	cond *ctxsync.Cond

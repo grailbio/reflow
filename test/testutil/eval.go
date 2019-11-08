@@ -31,7 +31,7 @@ func EvalAsync(ctx context.Context, e *flow.Eval) <-chan EvalResult {
 	//	e.Logger = log.New(os.Stderr, "", 0)
 	go func() {
 		var wg sync.WaitGroup
-		ctx, _ := flow.WithBackground(ctx, &wg)
+		ctx, _ = flow.WithBackground(ctx, &wg)
 		var r EvalResult
 		r.Err = e.Do(ctx)
 		if r.Err == nil {

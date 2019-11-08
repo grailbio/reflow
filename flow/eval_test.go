@@ -1181,7 +1181,7 @@ func TestScheduler(t *testing.T) {
 	intern := op.Intern("internurl")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
 	extern := op.Extern("externurl", exec)
-	testutil.AssignExecId(nil, intern, exec, extern)
+	testutil.AssignExecIdRandom(intern, exec, extern)
 
 	eval := flow.NewEval(extern, config)
 	rc := testutil.EvalAsync(context.Background(), eval)
@@ -1221,7 +1221,7 @@ func TestSnapshotter(t *testing.T) {
 	intern := op.Intern("s3://bucket/prefix")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
 	extern := op.Extern("externurl", exec)
-	testutil.AssignExecId(nil, intern, exec, extern)
+	testutil.AssignExecIdRandom(intern, exec, extern)
 
 	eval := flow.NewEval(extern, config)
 	rc := testutil.EvalAsync(context.Background(), eval)
@@ -1255,7 +1255,7 @@ func TestResolverFail(t *testing.T) {
 	intern := op.Intern("s3://bucket/prefix")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
 	extern := op.Extern("externurl", exec)
-	testutil.AssignExecId(nil, intern, exec, extern)
+	testutil.AssignExecIdRandom(intern, exec, extern)
 
 	eval := flow.NewEval(extern, config)
 	rc := testutil.EvalAsync(context.Background(), eval)
@@ -1288,7 +1288,7 @@ func TestLoadFail(t *testing.T) {
 	intern := op.Intern("s3://bucket/prefix")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
 	extern := op.Extern("externurl", exec)
-	testutil.AssignExecId(nil, intern, exec, extern)
+	testutil.AssignExecIdRandom(intern, exec, extern)
 
 	eval := flow.NewEval(extern, config)
 	rc := testutil.EvalAsync(context.Background(), eval)
@@ -1308,7 +1308,7 @@ func TestSchedulerSubmit(t *testing.T) {
 	exec2 := op.Exec("image", "command2", testutil.Resources, intern)
 	merged := op.Pullup(exec1, exec2)
 	extern := op.Extern("externurl", merged)
-	testutil.AssignExecId(nil, intern, exec1, exec2, merged, extern)
+	testutil.AssignExecIdRandom(intern, exec1, exec2, merged, extern)
 
 	wa := newWaitAssoc()
 	config.Assoc = wa

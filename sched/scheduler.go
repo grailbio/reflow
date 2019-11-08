@@ -404,20 +404,18 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		case stateWait:
 			if s.TaskDB != nil {
 				tctx, tcancel = context.WithCancel(ctx)
-				err := s.TaskDB.CreateTask(tctx, task.TaskID, task.RunID, task.ID, x.URI())
-				if err != nil {
-					s.Log.Errorf("taskdb createtask: %v", err)
+				if taskdbErr := s.TaskDB.CreateTask(tctx, task.ID, task.RunID, task.FlowID, x.URI()); taskdbErr != nil {
+					s.Log.Errorf("taskdb createtask: %v", taskdbErr)
 				} else {
-					go taskdb.Keepalive(tctx, s.TaskDB, task.TaskID)
+					go func() { _ = taskdb.Keepalive(tctx, s.TaskDB, task.ID) }()
 				}
 			}
 			task.Exec = x
 			task.set(TaskRunning)
 			err = x.Wait(ctx)
 			if s.TaskDB != nil {
-				err := s.TaskDB.SetTaskResult(tctx, task.TaskID, x.ID())
-				if err != nil {
-					s.Log.Errorf("taskdb settaskresult: %v", err)
+				if taskdbErr := s.TaskDB.SetTaskResult(tctx, task.ID, x.ID()); taskdbErr != nil {
+					s.Log.Errorf("taskdb settaskresult: %v", taskdbErr)
 				}
 				tcancel()
 			}
@@ -476,13 +474,12 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 
 func (s *Scheduler) directTransfer(ctx context.Context, task *Task) {
 	if s.TaskDB != nil {
-		err := s.TaskDB.CreateTask(ctx, task.TaskID, task.RunID, task.ID, "local")
-		if err != nil {
+		if err := s.TaskDB.CreateTask(ctx, task.ID, task.RunID, task.FlowID, "local"); err != nil {
 			s.Log.Errorf("taskdb createtask: %v", err)
 		} else {
 			tctx, tcancel := context.WithCancel(ctx)
 			defer tcancel()
-			go func() { _ = taskdb.Keepalive(tctx, s.TaskDB, task.TaskID) }()
+			go func() { _ = taskdb.Keepalive(tctx, s.TaskDB, task.ID) }()
 		}
 	}
 	task.set(TaskRunning)
@@ -495,7 +492,7 @@ func (s *Scheduler) directTransfer(ctx context.Context, task *Task) {
 	}
 	task.set(TaskDone)
 	if s.TaskDB != nil && task.Result.Err == nil {
-		if err := s.TaskDB.SetTaskResult(ctx, task.TaskID, task.Result.Fileset.Digest()); err != nil {
+		if err := s.TaskDB.SetTaskResult(ctx, task.ID, task.Result.Fileset.Digest()); err != nil {
 			s.Log.Errorf("taskdb settaskresult: %v", err)
 		}
 	}

@@ -323,7 +323,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 		if err != nil {
 			c.Log.Debugf("error writing run to taskdb: %v", err)
 		} else {
-			go taskdb.Keepalive(tctx, tdb, runID)
+			go func() { _ = taskdb.Keepalive(tctx, tdb, runID) }()
 		}
 	}
 
@@ -511,7 +511,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		if err != nil {
 			c.Log.Debugf("taskdb createrun: %v\n", err)
 		} else {
-			go taskdb.Keepalive(tctx, tdb, runID)
+			go func() { _ = taskdb.Keepalive(tctx, tdb, runID) }()
 		}
 	}
 

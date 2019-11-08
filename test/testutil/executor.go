@@ -287,12 +287,19 @@ func (e *Executor) Error(f *flow.Flow, err error) {
 	e.Exec(f).Error(err)
 }
 
-// AssignExecId assigns ExecIDs for the given set of flows using the given assertions.
+// AssignExecId assigns ExecIds for the given set of flows using the given assertions.
 func AssignExecId(a *reflow.Assertions, flows ...*flow.Flow) {
 	if a == nil {
 		a = new(reflow.Assertions)
 	}
 	for _, f := range flows {
 		f.ExecId = reflow.Digester.FromDigests(f.Digest(), a.Digest())
+	}
+}
+
+// AssignExecIdRandom assigns random ExecIds for the given set of flows.
+func AssignExecIdRandom(flows ...*flow.Flow) {
+	for _, f := range flows {
+		f.ExecId = reflow.Digester.Rand(nil)
 	}
 }
