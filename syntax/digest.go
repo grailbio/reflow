@@ -21,7 +21,7 @@ var (
 
 func init() {
 	for i := range exprDigest {
-		reflow.Digester.FromBytes([]byte{byte(i)})
+		exprDigest[i] = reflow.Digester.FromBytes([]byte{byte(i)})
 	}
 	for i := range nDigest {
 		nDigest[i] = reflow.Digester.FromBytes([]byte{byte(i)})
