@@ -15,14 +15,10 @@ import (
 )
 
 var (
-	exprDigest [maxExpr]digest.Digest
-	nDigest    [32]digest.Digest
+	nDigest [32]digest.Digest
 )
 
 func init() {
-	for i := range exprDigest {
-		exprDigest[i] = reflow.Digester.FromBytes([]byte{byte(i)})
-	}
 	for i := range nDigest {
 		nDigest[i] = reflow.Digester.FromBytes([]byte{byte(i)})
 	}
