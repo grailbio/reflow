@@ -65,6 +65,7 @@ func newRequirements(cpu, mem float64, width int) reflow.Requirements {
 }
 
 func randomFileset(repo reflow.Repository) reflow.Fileset {
+	fuzz := testutil.NewFuzz(nil)
 	n := rand.Intn(100) + 1
 	var fs reflow.Fileset
 	fs.Map = make(map[string]reflow.File, n)
@@ -78,7 +79,10 @@ func randomFileset(repo reflow.Repository) reflow.Fileset {
 			panic(err)
 		}
 		path := fmt.Sprintf("file%d", i)
-		fs.Map[path] = reflow.File{ID: d, Size: int64(len(p))}
+		f := fuzz.File(false, true)
+		f.ID = d
+		f.Size = int64(len(p))
+		fs.Map[path] = f
 	}
 	return fs
 }
@@ -124,8 +128,6 @@ func (c *testCluster) Allocate(ctx context.Context, req reflow.Requirements, lab
 		return nil, ctx.Err()
 	}
 }
-
-type testExecState int
 
 type testExec struct {
 	reflow.Exec

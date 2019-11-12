@@ -977,7 +977,6 @@ func TestPropagateAssertions(t *testing.T) {
 	eA, _ := getAssertions(eFs)
 	ex, exFs := op.Extern("externurl", ec), fuzz.Fileset(true, true)
 	ex.Value = exFs
-	exA, _ := getAssertions(exFs)
 
 	merged := op.Merge(intern, ec)
 
@@ -992,18 +991,13 @@ func TestPropagateAssertions(t *testing.T) {
 	ieA.AddFrom(internA)
 	ieA.AddFrom(eA)
 
-	fullA := new(reflow.Assertions)
-	fullA.AddFrom(internA)
-	fullA.AddFrom(eA)
-	fullA.AddFrom(exA)
-
 	tests := []struct {
 		f    *flow.Flow
 		want *reflow.Assertions
 	}{
 		{merged, nil}, {internNoFs, nil},
 		{intern, internA},
-		{ec, ieA}, {ex, fullA},
+		{ec, ieA}, {ex, nil},
 	}
 	for _, tt := range tests {
 		eval.Mutate(tt.f, flow.Propagate)

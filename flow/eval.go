@@ -1783,9 +1783,9 @@ func (e *Eval) assertionsConsistent(f *Flow, a *reflow.Assertions) error {
 // propagateAssertions propagates assertions from this flow's dependencies (if any)
 // to its output.  This must be called after the flow is computed but before
 // it is marked as Done.
-// propagateAssertions is valid only for Intern, Extern, and Exec ops.
+// propagateAssertions is valid only for Intern and Exec ops.
 func (e *Eval) propagateAssertions(f *Flow) error {
-	if !f.Op.External() {
+	if !f.Op.External() || f.Op == Extern {
 		return nil
 	}
 	fs, ok := f.Value.(reflow.Fileset)

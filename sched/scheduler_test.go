@@ -325,6 +325,16 @@ func TestSchedulerDirectTransfer(t *testing.T) {
 
 	scheduler.Submit(task)
 	_ = task.Wait(ctx, sched.TaskDone)
+
+	infs, outfs := in.Pullup(), task.Result.Fileset.Pullup()
+	if got, want := infs.Size(), outfs.Size(); got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	for k, inf := range infs.Map {
+		if got, want := outfs.Map[k].Assertions, inf.Assertions; !got.Equal(want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	}
 }
 
 func TestSchedulerDirectTransferUnsupported(t *testing.T) {
