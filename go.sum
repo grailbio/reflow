@@ -117,10 +117,6 @@ github.com/grailbio/base v0.0.0-20190703175603-85a816db02fd h1:C83jKU2IQSwK6iViX
 github.com/grailbio/base v0.0.0-20190703175603-85a816db02fd/go.mod h1:TlZqDhsSO4kvsXUdL5YUQhW1KvlsyfwMQh3SSrUB5bs=
 github.com/grailbio/infra v0.0.0-20190703181726-1a3f7bfef78a h1:as5hBm0KEcDikS1F5VLOzDPUqeevtZPqfhHxmQosqmk=
 github.com/grailbio/infra v0.0.0-20190703181726-1a3f7bfef78a/go.mod h1:NrkGWV1o2WIisERmWIqZDVzMcLC7ze7csRMheQobbOI=
-github.com/grailbio/testutil v0.0.0-20190109212408-dbe52faee1b0/go.mod h1:eufccQYHRmdAUarmhHgulqZUFWQ7YhHohLFQ/cLRSUY=
-github.com/grailbio/testutil v0.0.0-20190127023142-d3ae812e9a0e/go.mod h1:2qNoyDzypzYqR8rwIQFnqcL7tZM9iGck0oN9+T1jzbE=
-github.com/grailbio/testutil v0.0.0-20190703174854-d9797572c8d2 h1:/DadVU9U5wh6qdI0PNwkF0UZnnxzeCfqu6wb28rLWSs=
-github.com/grailbio/testutil v0.0.0-20190703174854-d9797572c8d2/go.mod h1:i+zjObs7WShJsMQUmHJUQWPsTZXrBzQuR+1+Jj/JP1Y=
 github.com/grailbio/v23/factories/grail v0.0.0-20190119012339-40e7f427c0fd/go.mod h1:9cQ/mFcQkU4yvvfM7Zmzy/cGu7gINSfbF8I3dNKOPS4=
 github.com/grailbio/v23/factories/grail v0.0.0-20190703174257-dea14edab192 h1:v3zUcbIPR2708WoEmcQoKpbERp5qkpqOXyG42A+X598=
 github.com/grailbio/v23/factories/grail v0.0.0-20190703174257-dea14edab192/go.mod h1:M4kMYbDAQCWDJUaLiDUO44JShT4Efc4Tngwm/tCzqjU=
