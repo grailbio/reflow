@@ -1533,7 +1533,7 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 				err = unmarshal(ctx, e.Repository, res.Digest, &fs)
 				e.marshalLimiter.Release(1)
 				if err == nil {
-					e.Log.Debugf("cache.Lookup flow: %s (%s) result from key: %s\n", f.Digest().Short(), f.Ident, key.Short())
+					e.Log.Debugf("cache.Lookup flow: %s (%s) result from key: %s\n", f.Digest().Short(), f.Ident, res.Digest)
 					fsid = res.Digest
 					break
 				}
