@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	golog "log"
 	"math"
@@ -40,6 +41,7 @@ import (
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/sched"
+	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/trace"
 	"github.com/grailbio/reflow/types"
@@ -192,6 +194,7 @@ retriable.`
 	if flags.NArg() == 0 {
 		flags.Usage()
 	}
+	file, args := flags.Arg(0), flags.Args()[1:]
 	e := Eval{
 		InputArgs: flags.Args(),
 	}
@@ -212,11 +215,11 @@ retriable.`
 	if !config.sched && e.Main().Requirements().Equal(reflow.Requirements{}) && e.Main().Op != flow.Val {
 		c.Fatal("Main requirements unspecified; add a @requires annotation")
 	}
-	c.runCommon(ctx, config, e)
+	c.runCommon(ctx, config, e, file, args)
 }
 
 // runCommon is the helper function used by run commands.
-func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
+func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval, file string, args []string) {
 	// In the case where a flow is immediate, we print the result and quit.
 	if e.Main().Op == flow.Val {
 		c.Println(sprintval(e.Main().Value, e.MainType()))
@@ -309,6 +312,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	}
 
 	tctx, tcancel := context.WithCancel(ctx)
+	defer tcancel()
 	if tdb != nil {
 		var user *infra.User
 		errTDB := c.Config.Instance(&user)
@@ -320,6 +324,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 			c.Log.Debugf("error writing run to taskdb: %v", errTDB)
 		} else {
 			go func() { _ = taskdb.Keepalive(tctx, tdb, runID) }()
+			go func() { _ = c.uploadBundle(tctx, repo, tdb, runID, e, file, args) }()
 		}
 	}
 
@@ -430,10 +435,6 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	}
 	c.WaitForBackgroundTasks(&wg, 10*time.Minute)
 	bgcancel()
-	cancel()
-	if tcancel != nil {
-		tcancel()
-	}
 	if run.Err != nil {
 		if errors.Is(errors.Eval, run.Err) {
 			// Error that occured during evaluation. Probably not recoverable.
@@ -555,6 +556,39 @@ func (c *Cmd) rundir() string {
 	return rundir
 }
 
+// uploadBundle generates a bundle and updates taskdb with its digest. If the bundle does not already exist in taskdb,
+// uploadBundle caches it.
+func (c *Cmd) uploadBundle(ctx context.Context, repo reflow.Repository, tdb taskdb.TaskDB, id digest.Digest, e Eval, file string, args []string) error {
+	var (
+		bundleId digest.Digest
+		rc       io.ReadCloser
+		err      error
+		tmpName  string
+	)
+
+	if ext := filepath.Ext(file); ext == ".rfx" {
+		rc, bundleId, err = getBundle(file)
+	} else {
+		rc, bundleId, tmpName, err = makeBundle(e.Bundle)
+		if err == nil {
+			defer os.Remove(tmpName)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+
+	if _, err = repo.Stat(ctx, bundleId); errors.Is(errors.NotExist, err) {
+		bundleId, err = repo.Put(ctx, rc)
+		if err != nil {
+			return err
+		}
+	}
+	c.Log.Debugf("created bundle %s with args: %v\n", bundleId.String(), args)
+	return tdb.SetRunAttrs(ctx, id, bundleId, args)
+}
+
 // runbase returns the base path for the run with the provided name
 func (c Cmd) Runbase(id digest.Digest) string {
 	return filepath.Join(c.rundir(), id.Hex())
@@ -633,4 +667,34 @@ func (c Cmd) dockerClient() (*docker.Client, reflow.Resources) {
 		"disk": 1e13, // Assume 10TB. TODO(marius): real disk management
 	}
 	return client, resources
+}
+
+func getBundle(file string) (io.ReadCloser, digest.Digest, error) {
+	dw := reflow.Digester.NewWriter()
+	f, err := os.Open(file)
+	if err != nil {
+		return nil, digest.Digest{}, err
+	}
+	if _, err = io.Copy(dw, f); err != nil {
+		return nil, digest.Digest{}, err
+	}
+	if _, err = f.Seek(0, io.SeekStart); err != nil {
+		return nil, digest.Digest{}, err
+	}
+	return f, dw.Digest(), nil
+}
+
+func makeBundle(b *syntax.Bundle) (io.ReadCloser, digest.Digest, string, error) {
+	dw := reflow.Digester.NewWriter()
+	f, err := ioutil.TempFile("", "")
+	if err != nil {
+		return nil, digest.Digest{}, "", err
+	}
+	if err = b.Write(io.MultiWriter(dw, f)); err != nil {
+		return nil, digest.Digest{}, "", err
+	}
+	if _, err = f.Seek(0, io.SeekStart); err != nil {
+		return nil, digest.Digest{}, "", err
+	}
+	return f, dw.Digest(), f.Name(), nil
 }
