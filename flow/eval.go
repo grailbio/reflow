@@ -58,6 +58,10 @@ const (
 
 	// memMultiplier is the increase in memory that will be allocated to a task which OOMs.
 	memMultiplier = 1.5
+
+	// memSuggestThreshold is the minimum fraction of allocated memory an exec can use before a suggestion is
+	// displayed to use less memory.
+	memSuggestThreshold = 0.6
 )
 
 const defaultCacheLookupTimeout = 20 * time.Minute
@@ -686,6 +690,7 @@ func (e *Eval) LogSummary(log *log.Logger) {
 		Runtime                 stats
 		CPU, Memory, Disk, Temp stats
 		Transfer                data.Size
+		Requested               reflow.Resources
 	}
 	stats := map[string]aggregate{}
 
@@ -723,6 +728,7 @@ func (e *Eval) LogSummary(log *log.Logger) {
 			a.Memory.Add(v.Inspect.Profile["mem"].Max / (1 << 30))
 			a.Disk.Add(v.Inspect.Profile["disk"].Max / (1 << 30))
 			a.Temp.Add(v.Inspect.Profile["tmp"].Max / (1 << 30))
+			a.Requested = v.Inspect.Config.Resources
 		}
 		if d := v.Inspect.Runtime().Minutes(); d > 0 {
 			a.Runtime.Add(d)
@@ -737,28 +743,34 @@ func (e *Eval) LogSummary(log *log.Logger) {
 	fmt.Fprintf(&b, "total n=%d time=%s\n", n, round(e.totalTime))
 	var tw tabwriter.Writer
 	tw.Init(newPrefixWriter(&b, "\t"), 4, 4, 1, ' ', 0)
-	fmt.Fprintln(&tw, "ident\tn\tncache\ttransfer\truntime(m)\tcpu\tmem(GiB)\tdisk(GiB)\ttmp(GiB)")
+	fmt.Fprintln(&tw, "ident\tn\tncache\ttransfer\truntime(m)\tcpu\tmem(GiB)\tdisk(GiB)\ttmp(GiB)\trequested")
 	idents := make([]string, 0, len(stats))
 	for ident := range stats {
 		idents = append(idents, ident)
 	}
 	sort.Strings(idents)
+	var warningIdents []string
 	for _, ident := range idents {
 		stats := stats[ident]
 		fmt.Fprintf(&tw, "%s\t%d\t%d\t%s", ident, stats.N, stats.Ncache, stats.Transfer)
 		if stats.CPU.N() > 0 {
-			fmt.Fprintf(&tw, "\t%s\t%s\t%s\t%s\t%s",
+			fmt.Fprintf(&tw, "\t%s\t%s\t%s\t%s\t%s\t%s",
 				stats.Runtime.Summary("%.0f"),
 				stats.CPU.Summary("%.1f"),
 				stats.Memory.Summary("%.1f"),
 				stats.Disk.Summary("%.1f"),
 				stats.Temp.Summary("%.1f"),
+				stats.Requested,
 			)
+			if memRatio := stats.Memory.Mean() / stats.Requested["mem"]; memRatio <= memSuggestThreshold {
+				warningIdents = append(warningIdents, ident)
+			}
 		} else {
 			fmt.Fprint(&tw, "\t\t\t\t\t")
 		}
 		fmt.Fprint(&tw, "\n")
 	}
+	fmt.Fprintf(&tw, "warning: reduce memory requirements for over-allocating execs: %s", strings.Join(warningIdents, ", "))
 	tw.Flush()
 	log.Printf(b.String())
 }
