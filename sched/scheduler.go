@@ -303,7 +303,7 @@ func (s *Scheduler) allocate(ctx context.Context, alloc *alloc, notify, dead cha
 	}
 	alloc.Context, alloc.Cancel = context.WithCancel(ctx)
 	notify <- alloc
-	err = pool.Keepalive(alloc.Context, nil, alloc.Alloc)
+	err = pool.Keepalive(alloc.Context, s.Log, alloc.Alloc)
 	alloc.Cancel()
 	if err != nil && err == ctx.Err() {
 		var cancel func()
@@ -382,12 +382,12 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 				}
 				i, arg := i, arg
 				g.Go(func() error {
-					task.Log.Debugf("loading %v", *arg.Fileset)
+					task.Log.Debugf("loading %s", (*arg.Fileset).Short())
 					fs, err := alloc.Load(ctx, *arg.Fileset)
 					if err != nil {
 						return err
 					}
-					task.Log.Debugf("loaded %v", fs)
+					task.Log.Debugf("loaded %s", fs.Short())
 					task.Config.Args[i].Fileset = &fs
 					return nil
 				})
@@ -401,6 +401,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 					fs.List = append(fs.List, *arg.Fileset)
 				}
 			}
+			task.Log.Debugf("transferring %s", fs.Short())
 			err = s.Transferer.Transfer(ctx, alloc.Repository(), s.Repository, fs.Files()...)
 		case statePut:
 			x, err = alloc.Put(ctx, task.ID, task.Config)
