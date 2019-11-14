@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"io/ioutil"
 	"os"
 	"strconv"
@@ -63,7 +64,7 @@ func (o *oomTracker) monitor(ctx context.Context, log *log.Logger, logPath strin
 	for scan.Scan() {
 		o.maybeRecordOOM(scan.Text(), bootTime, log)
 	}
-	if scan.Err() != os.ErrClosed && log != nil {
+	if !errors.Is(scan.Err(), os.ErrClosed) {
 		log.Errorf("error encountered while scanning %v for OOMs: %v", logPath, scan.Err())
 	}
 }
