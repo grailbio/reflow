@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/reflow/ec2authenticator"
@@ -154,6 +155,11 @@ func (c *Cmd) evalV1(sess *syntax.Session, e *Eval) error {
 		c.Exit(2)
 	}
 	flags.Parse(args)
+	if flags.NArg() > 0 {
+		err = fmt.Errorf("unrecognized parameters: %s", strings.Join(flags.Args(), " "))
+		fmt.Fprintln(os.Stderr, err)
+		flags.Usage()
+	}
 	env := sess.Values.Push()
 	if err := m.FlagEnv(flags, env, types.NewEnv()); err != nil {
 		fmt.Fprintln(os.Stderr, err)
