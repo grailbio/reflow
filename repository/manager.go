@@ -181,7 +181,7 @@ func (m *Manager) Transfer(ctx context.Context, dst, src reflow.Repository, file
 	var err error
 	files, err = m.NeedTransfer(ctx, dst, files...)
 	if err != nil {
-		return err
+		return errors.E("needtransfer", err)
 	}
 	if src == dst {
 		if len(files) > 0 {
@@ -248,12 +248,13 @@ func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, file
 		total.N++
 	}
 	start := time.Now()
-	g, ctx := errgroup.WithContext(ctx)
+	g1, g1ctx := errgroup.WithContext(ctx)
+	g2, g2ctx := errgroup.WithContext(ctx)
 	for i := range files {
 		file := files[i]
 		transfer, claimed := m.claim(dst, src, file)
 		if !claimed {
-			g.Go(func() error {
+			g2.Go(func() error {
 				// TODO(marius): this approach may tie together unrelated
 				// contexts; if one is cancelled, the other dependent transfers
 				// are also cancelled even though their contexts would permit the
@@ -261,26 +262,32 @@ func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, file
 				select {
 				case <-transfer.C:
 					return transfer.Err
-				case <-ctx.Done():
-					return ctx.Err()
+				case <-g2ctx.Done():
+					return g2ctx.Err()
 				}
 			})
 			continue
 		}
 		m.updateStats(src, dst, waiting, stat{file.Size, 1})
-		if err := lx.Acquire(ctx, 1); err != nil {
+		if err := lx.Acquire(g1ctx, 1); err != nil {
 			m.done(dst, src, file, err)
+			if err != nil {
+				return errors.E("lx.acquire", err)
+			}
 			return err
 		}
-		if err := ly.Acquire(ctx, 1); err != nil {
+		if err := ly.Acquire(g1ctx, 1); err != nil {
 			lx.Release(1)
 			m.done(dst, src, file, err)
+			if err != nil {
+				return errors.E("ly.acquire", err)
+			}
 			return err
 		}
-		g.Go(func() error {
+		g1.Go(func() error {
 			stat := stat{file.Size, 1}
 			m.updateStats(src, dst, transferring, stat)
-			err := Transfer(ctx, dst, src, file.ID)
+			err := Transfer(g1ctx, dst, src, file.ID)
 			if err != nil {
 				err = errors.E("transfer", file.ID, err)
 			}
@@ -291,7 +298,11 @@ func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, file
 			return err
 		})
 	}
-	err := g.Wait()
+	err := g1.Wait()
+	if err != nil {
+		return err
+	}
+	err = g2.Wait()
 	if err != nil {
 		return err
 	}

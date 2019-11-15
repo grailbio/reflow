@@ -69,7 +69,7 @@ func Transfer(ctx context.Context, dst, src reflow.Repository, id digest.Digest)
 			return nil
 		case errors.Is(errors.NotSupported, err):
 		default:
-			return err
+			return errors.E(err, "readfrom")
 		}
 	}
 	if u := dst.URL(); u != nil {
@@ -79,7 +79,7 @@ func Transfer(ctx context.Context, dst, src reflow.Repository, id digest.Digest)
 			return nil
 		case errors.Is(errors.NotSupported, err):
 		default:
-			return err
+			return errors.E(err, "writeto")
 		}
 	}
 	log.Printf("local transfer %v %v %v", dst.URL(), src.URL(), id)
