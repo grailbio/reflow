@@ -712,12 +712,14 @@ func (a *Assoc) Scan(ctx context.Context, kind assoc.Kind, mappingHandler assoc.
 			if item["LastAccessTime"] != nil {
 				itemAccessTime, err = strconv.ParseInt(*item["LastAccessTime"].N, 10, 64)
 				if err != nil {
-					return fmt.Errorf("invalid dynamodb entry %v", item)
+					log.Errorf("invalid dynamodb entry %v", item)
+					continue
 				}
 			}
 			k, err := reflow.Digester.Parse(*item["ID"].S)
 			if err != nil {
-				return fmt.Errorf("invalid dynamodb entry %v", item)
+				log.Errorf("invalid dynamodb entry %v", item)
+				continue
 			}
 
 			if item[colname] != nil {
@@ -725,7 +727,8 @@ func (a *Assoc) Scan(ctx context.Context, kind assoc.Kind, mappingHandler assoc.
 				if item["Labels"] != nil {
 					err := dynamodbattribute.Unmarshal(item["Labels"], &labels)
 					if err != nil {
-						return fmt.Errorf("invalid label: %v", err)
+						log.Errorf("invalid label: %v", err)
+						continue
 					}
 				}
 
@@ -735,7 +738,8 @@ func (a *Assoc) Scan(ctx context.Context, kind assoc.Kind, mappingHandler assoc.
 				case assoc.Fileset:
 					d, err := reflow.Digester.Parse(*dbval.S)
 					if err != nil {
-						return fmt.Errorf("invalid digest of kind %v for dynamodb entry %v", kind, item)
+						log.Errorf("invalid digest of kind %v for dynamodb entry %v", kind, item)
+						continue
 					}
 					v = []digest.Digest{d}
 				case assoc.ExecInspect, assoc.Logs, assoc.Bundle:
@@ -748,7 +752,8 @@ func (a *Assoc) Scan(ctx context.Context, kind assoc.Kind, mappingHandler assoc.
 						v = append(v, d)
 					}
 					if v == nil {
-						return fmt.Errorf("no valid digests of kind %v for dynamodb entry %v", kind, item)
+						log.Errorf("no valid digests of kind %v for dynamodb entry %v", kind, item)
+						continue
 					}
 				}
 				mappingHandler.HandleMapping(k, v, kind, time.Unix(itemAccessTime, 0), labels)

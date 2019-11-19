@@ -35,6 +35,7 @@ import (
 	"github.com/grailbio/reflow/assoc/dydbassoc"
 	"github.com/grailbio/reflow/errors"
 	infra2 "github.com/grailbio/reflow/infra"
+	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/taskdb"
 )
@@ -676,21 +677,29 @@ func (t *TaskDB) Scan(ctx context.Context, kind taskdb.Kind, mappingHandler task
 			var err error
 			k, err := reflow.Digester.Parse(*item[colID].S)
 			if err != nil {
-				return fmt.Errorf("invalid taskdb entry %v", item)
+				log.Errorf("invalid taskdb entry %v", item)
+				continue
 			}
+			if item[colType] == nil {
+				log.Errorf("invalid taskdb entry %v", item)
+				continue
+			}
+			taskType := *item[colType].S
 			if item[colname] != nil {
 				v, err := reflow.Digester.Parse(*item[colname].S)
 				if err != nil {
-					return fmt.Errorf("invalid taskdb entry %v", item)
+					log.Errorf("invalid taskdb entry %v", item)
+					continue
 				}
 				var labels []string
-				if item["Labels"] != nil {
+				if item[colLabels] != nil {
 					err := dynamodbattribute.Unmarshal(item[colLabels], &labels)
 					if err != nil {
-						return fmt.Errorf("invalid label: %v", err)
+						log.Errorf("invalid label: %v", err)
+						continue
 					}
 				}
-				mappingHandler.HandleMapping(k, v, kind, labels)
+				mappingHandler.HandleMapping(k, v, kind, taskType, labels)
 			}
 		}
 		return nil

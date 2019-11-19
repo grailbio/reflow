@@ -19,17 +19,17 @@ type Kind int
 
 // MappingHandlerFunc is a convenience type to avoid having to declare a struct
 // to implement the MappingHandler interface.
-type MappingHandlerFunc func(k, v digest.Digest, kind Kind, labels []string)
+type MappingHandlerFunc func(k, v digest.Digest, kind Kind, taskType string, labels []string)
 
 // HandleMapping implements the MappingHandler interface.
-func (h MappingHandlerFunc) HandleMapping(k, v digest.Digest, kind Kind, labels []string) {
-	h(k, v, kind, labels)
+func (h MappingHandlerFunc) HandleMapping(k, v digest.Digest, kind Kind, taskType string, labels []string) {
+	h(k, v, kind, taskType, labels)
 }
 
 // MappingHandler is an interface for handling a mapping while scanning.
 type MappingHandler interface {
 	// HandleMapping handles a scanned association.
-	HandleMapping(k, v digest.Digest, kind Kind, labels []string)
+	HandleMapping(k, v digest.Digest, kind Kind, taskType string, labels []string)
 }
 
 // TaskDB is the interface to read/write run and task information to a run db.

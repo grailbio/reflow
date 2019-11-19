@@ -820,19 +820,22 @@ func TestTaskDBScan(t *testing.T) {
 		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
 	)
 	for _, tt := range []struct {
-		kind   taskdb.Kind
-		key    digest.Digest
-		val    digest.Digest
-		labels []string
+		kind     taskdb.Kind
+		key      digest.Digest
+		val      digest.Digest
+		taskType string
+		labels   []string
 	}{
-		{ExecInspect, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), []string{"grail:type=reflow", "grail:user=abc@graiobio.com"}},
-		{ExecInspect, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), []string{"grail:type=reflow", "grail:user=def@graiobio.com"}},
-		{Stdout, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), nil},
-		{Stderr, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), nil},
+		{ExecInspect, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), "task", []string{"grail:type=reflow", "grail:user=abc@graiobio.com"}},
+		{ExecInspect, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), "task", []string{"grail:type=reflow", "grail:user=def@graiobio.com"}},
+		{ExecInspect, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), "run", []string{"grail:type=reflow", "grail:user=abc@graiobio.com"}},
+		{Stdout, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), "run", nil},
+		{Stderr, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), "run", nil},
 	} {
 		entry := mockEntry{
 			Attributes: map[string]*dynamodb.AttributeValue{
-				colID: {S: aws.String(tt.key.String())},
+				colID:   {S: aws.String(tt.key.String())},
+				colType: {S: aws.String(tt.taskType)},
 			},
 		}
 		entry.Attributes[colmap[tt.kind]] = &dynamodb.AttributeValue{S: aws.String(tt.val.String())}
@@ -855,15 +858,19 @@ func TestTaskDBScan(t *testing.T) {
 		gotKind             *int
 		wantKind, wantLabel int
 		taskdbKind          taskdb.Kind
+		wantType            string
 		wantLabels          []string
 	}{
-		{numExecInspect, 2, 1, ExecInspect, []string{"grail:type=reflow", "grail:user=abc@graiobio.com"}},
-		{numStdout, 1, 0, Stdout, nil},
-		{numStderr, 1, 0, Stderr, nil},
-		{numURI, 0, 0, URI, nil},
+		{numExecInspect, 2, 1, ExecInspect, "task", []string{"grail:type=reflow", "grail:user=abc@graiobio.com"}},
+		{numStdout, 1, 0, Stdout, "run", nil},
+		{numStderr, 1, 0, Stderr, "run", nil},
+		{numURI, 0, 0, URI, "run", nil},
 	} {
 		gotLabel := 0
-		err := taskb.Scan(ctx, tt.taskdbKind, taskdb.MappingHandlerFunc(func(k, v digest.Digest, mapkind taskdb.Kind, labels []string) {
+		err := taskb.Scan(ctx, tt.taskdbKind, taskdb.MappingHandlerFunc(func(k, v digest.Digest, mapkind taskdb.Kind, taskType string, labels []string) {
+			if taskType != tt.wantType {
+				return
+			}
 			switch mapkind {
 			case ExecInspect:
 				*numExecInspect++
