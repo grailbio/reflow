@@ -216,6 +216,11 @@ func (s *Scheduler) Do(ctx context.Context) error {
 				// In this case we're done, and we can forget about the task.
 			}
 			s.Stats.ReturnTask(task, alloc)
+			// Tasks failing due to network errors imply that the alloc is unusable.
+			if errors.Is(errors.Net, task.Err) {
+				heap.Remove(&live, alloc.index)
+				alloc.index = -1
+			}
 		case alloc := <-notifyc:
 			heap.Remove(&pending, alloc.index)
 			if alloc.Alloc != nil {
@@ -225,7 +230,9 @@ func (s *Scheduler) Do(ctx context.Context) error {
 			}
 		case alloc := <-deadc:
 			// The allocs tasks will be returned with state TaskLost.
-			heap.Remove(&live, alloc.index)
+			if alloc.index != -1 {
+				heap.Remove(&live, alloc.index)
+			}
 			s.Stats.MarkAllocDead(alloc)
 		}
 
@@ -459,7 +466,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		}
 	}
 	task.Err = err
-	if err != nil && err == ctx.Err() {
+	if err != nil && (err == ctx.Err() || errors.Restartable(err)) {
 		task.set(TaskLost)
 	} else {
 		task.set(TaskDone)

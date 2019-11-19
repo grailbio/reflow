@@ -279,6 +279,49 @@ func TestTaskLost(t *testing.T) {
 	}
 }
 
+func TestTaskNetError(t *testing.T) {
+	scheduler, cluster, _, shutdown := newTestScheduler(t)
+	defer shutdown()
+	ctx := context.Background()
+
+	tasks := []*sched.Task{
+		newTask(1, 1, 0),
+		newTask(1, 1, 0),
+		newTask(3, 3, 0),
+	}
+	scheduler.Submit(tasks...)
+	allocs := []*testAlloc{
+		newTestAlloc(reflow.Resources{"cpu": 2, "mem": 2}),
+		newTestAlloc(reflow.Resources{"cpu": 5, "mem": 5}),
+	}
+	req := <-cluster.Req()
+	req.Reply <- testClusterAllocReply{Alloc: allocs[0]}
+
+	// Wait for two of the tasks (which will fit in the first alloc) to be allocated.
+	tasks[0].Wait(ctx, sched.TaskRunning)
+	tasks[1].Wait(ctx, sched.TaskRunning)
+
+	if tasks[2].State() != sched.TaskInit {
+		t.Fatal("inconsistent state")
+	}
+
+	// Return the second (bigger) alloc and wait for the third task to be allocated.
+	req = <-cluster.Req()
+	req.Reply <- testClusterAllocReply{Alloc: allocs[1]}
+	tasks[2].Wait(ctx, sched.TaskRunning)
+
+	// Fail one of the tasks in the first alloc with a Network Error.
+	exec := allocs[0].exec(tasks[0].ID)
+	exec.complete(reflow.Result{}, errors.E(errors.Net, "test network error"))
+	// Wait for it to be rescheduled on the second alloc.
+	tasks[0].Wait(ctx, sched.TaskRunning)
+	// Confirm its on the second alloc (will hang if not).
+	allocs[1].exec(tasks[0].ID)
+	// Confirm the other task is still on the first alloc.
+	tasks[1].Wait(ctx, sched.TaskRunning)
+	allocs[0].exec(tasks[1].ID)
+}
+
 func TestSchedulerFracCPU(t *testing.T) {
 	scheduler, cluster, _, shutdown := newTestScheduler(t)
 	ctx := context.Background()
