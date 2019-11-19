@@ -362,7 +362,7 @@ func (s *Assertions) Short() string {
 	if s.IsEmpty() {
 		return "empty"
 	}
-	return fmt.Sprintf("%d (%s)", s.size(), s.Digest().Short())
+	return fmt.Sprintf("#%d", s.size())
 }
 
 // String returns a full, human-readable string representing the assertions.

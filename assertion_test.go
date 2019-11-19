@@ -384,7 +384,7 @@ func TestAssertionsString(t *testing.T) {
 		sh, f string
 	}{
 		{nil, "empty", "empty"}, {aempty, "empty", "empty"},
-		{a1, "2 (91ff89b8)", "blob s3://bucket/hello etag=v1, docker ubuntu version=v2"},
+		{a1, "#2", "blob s3://bucket/hello etag=v1, docker ubuntu version=v2"},
 	}
 	for _, tt := range tests {
 		if got, want := tt.as.Short(), tt.sh; got != want {
