@@ -7,6 +7,7 @@ package local
 import (
 	"context"
 	"crypto/md5"
+	goerrors "errors"
 	"expvar"
 	"fmt"
 	"math/rand"
@@ -16,9 +17,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
-
 	"github.com/aws/aws-sdk-go/service/s3"
-
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/s3blob"
@@ -88,6 +87,15 @@ func executeAndGetResult(ctx context.Context, t *testing.T, s3 *blobExec) reflow
 		t.Fatal(err)
 	}
 	return res
+}
+
+func executeAndGetResultAndError(ctx context.Context, t *testing.T, s3 *blobExec) (reflow.Result, error) {
+	t.Helper()
+	go s3.Go(ctx)
+	if err := s3.Wait(ctx); err != nil {
+		return reflow.Result{}, err
+	}
+	return s3.Result(ctx)
 }
 
 type file struct {
@@ -176,6 +184,45 @@ func TestS3ExecInternPrefix(t *testing.T) {
 		if got, want := res2.Fileset.Map[path].Assertions, val.Map[path].Assertions; !got.Equal(want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
+	}
+}
+
+func TestS3ExecInternPrefixError(t *testing.T) {
+	const (
+		bucket = "testbucket"
+		prefix = "prefix/"
+	)
+	s3x, client, _, cleanup := newS3Test(t, bucket, prefix, intern)
+	defer cleanup()
+
+	files := []file{
+		getFile("a", true),
+		getFile("a/b", true),
+	}
+	for _, file := range files {
+		client.SetFile(prefix+file.path, []byte(file.path), file.sha256)
+	}
+	clientErr := errors.New("failed")
+	client.Err = func(api string, input interface{}) error {
+		if api != "GetObjectRequest" {
+			return nil
+		}
+		return clientErr
+	}
+	ctx := context.Background()
+	res, err := executeAndGetResultAndError(ctx, t, s3x)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedErr := errors.E(intern, "s3://testbucket/prefix/", errors.E("s3blob.Download", "testbucket", "prefix/a", clientErr))
+	if res.Err == nil {
+		t.Fatal(fmt.Sprintf("expected error %v, got nil", expectedErr))
+	}
+	if goerrors.Is(res.Err, expectedErr) {
+		t.Fatal(fmt.Sprintf("expected error %v, got %v", expectedErr, res.Err))
+	}
+	if got, want := res.Fileset, (reflow.Fileset{}); !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
 

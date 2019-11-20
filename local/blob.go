@@ -339,7 +339,10 @@ func (e *blobExec) doIntern(ctx context.Context) error {
 
 	if !strings.HasSuffix(prefix, "/") {
 		file, err := bucket.File(ctx, prefix)
-		if found, err := fileFromRepo(ctx, e.Repository, file); err == nil {
+		if err != nil {
+			return err
+		}
+		if found, ferr := fileFromRepo(ctx, e.Repository, file); ferr == nil {
 			file = found
 		} else {
 			dl := download{
@@ -348,10 +351,10 @@ func (e *blobExec) doIntern(ctx context.Context) error {
 				File:   file,
 				Log:    e.log,
 			}
-			file, err = dl.Do(ctx, &e.staging)
-		}
-		if err != nil {
-			return err
+			file, ferr = dl.Do(ctx, &e.staging)
+			if ferr != nil {
+				return ferr
+			}
 		}
 		atomic.AddUint64(&e.transferredSize, uint64(file.Size))
 		e.mu.Lock()
@@ -359,7 +362,6 @@ func (e *blobExec) doIntern(ctx context.Context) error {
 		e.mu.Unlock()
 		return nil
 	}
-
 	rw := newRateExporter(internRate)
 	defer rw.Done()
 	scan := bucket.Scan(prefix)
@@ -384,9 +386,9 @@ func (e *blobExec) doIntern(ctx context.Context) error {
 					Log:    e.log,
 				}
 				file, err = dl.Do(ctx, &e.staging)
-			}
-			if err != nil {
-				return err
+				if err != nil {
+					return err
+				}
 			}
 			atomic.AddUint64(&e.transferredSize, uint64(file.Size))
 			e.mu.Lock()
