@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"os/signal"
@@ -87,6 +88,31 @@ func (s *Server) AddFlags(flags *flag.FlagSet) {
 	flags.StringVar(&s.Dir, "dir", "/mnt/data/reflow", "runtime data directory")
 	flags.BoolVar(&s.EC2Cluster, "ec2cluster", false, "this reflowlet is part of an ec2cluster")
 	flags.BoolVar(&s.HTTPDebug, "httpdebug", false, "turn on HTTP debug logging")
+}
+
+// spotNoticeWatcher watches for a spot termination notice and logs if found.
+// See https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-interruptions.html#instance-action-metadata
+// TODO(swami):  When flagged for termination, put server in lameduck mode.
+func (s *Server) spotNoticeWatcher(ctx context.Context) {
+	logger := log.Std.Prefix("spot notice: ")
+	tick := time.NewTicker(30 * time.Second)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		resp, err := http.Get("http://169.254.169.254/latest/meta-data/spot/instance-action")
+		if err != nil || resp.StatusCode != http.StatusOK {
+			continue
+		}
+		b, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			logger.Debugf("read %v", err)
+		}
+		logger.Print(string(b))
+		_ = resp.Body.Close()
+	}
 }
 
 // setTags sets the reflowlet version tag on the EC2 instance (if running on one).
@@ -210,6 +236,7 @@ func (s *Server) ListenAndServe() error {
 		if err := s.setupWatcher(ctx, sess, filepath.Join(s.Prefix, s.Dir), rc.VolumeWatcher); err != nil {
 			log.Fatal(err)
 		}
+		go s.spotNoticeWatcher(ctx)
 		go func() {
 			const period = time.Minute
 			// Always give the instance an expiry period to receive work,
