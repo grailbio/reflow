@@ -217,7 +217,7 @@ func (s *Scheduler) Do(ctx context.Context) error {
 			}
 			s.Stats.ReturnTask(task, alloc)
 			// Tasks failing due to network errors imply that the alloc is unusable.
-			if errors.Is(errors.Net, task.Err) {
+			if errors.Is(errors.Net, task.Err) && alloc.index != -1 {
 				heap.Remove(&live, alloc.index)
 				alloc.index = -1
 			}
