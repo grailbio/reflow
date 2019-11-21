@@ -26,11 +26,11 @@ require (
 	github.com/sirupsen/logrus v1.3.0 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/willf/bloom v2.0.3+incompatible
-        golang.org/x/net v0.0.0-20191007182048-72f939374954
-        golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
-        golang.org/x/time v0.0.0-20190308202827-9d24e82272b4
-        golang.org/x/tools v0.0.0-20190911174233-4f2ddba30aff
-        gopkg.in/yaml.v2 v2.2.4
+	golang.org/x/net v0.0.0-20191007182048-72f939374954
+	golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
+	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4
+	golang.org/x/tools v0.0.0-20190911174233-4f2ddba30aff
+	gopkg.in/yaml.v2 v2.2.4
 	gotest.tools v2.2.0+incompatible // indirect
 	v.io/x/lib v0.1.4
 )
