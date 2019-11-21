@@ -1,3 +1,5 @@
+// +build integration
+
 package cache_assertion_test
 
 import (
