@@ -19,7 +19,7 @@ require (
 	github.com/gorilla/mux v1.6.2 // indirect
 	github.com/grailbio/base v0.0.0-20190703175603-85a816db02fd
 	github.com/grailbio/infra v0.0.0-20190703181726-1a3f7bfef78a
-	github.com/grailbio/testutil v0.0.0-20190703174854-d9797572c8d2
+	github.com/grailbio/testutil v0.0.3
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
 	github.com/opencontainers/image-spec v1.0.1 // indirect
 	github.com/sirupsen/logrus v1.3.0 // indirect
