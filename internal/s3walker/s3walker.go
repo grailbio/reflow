@@ -79,13 +79,15 @@ func (w *S3Walker) Scan(ctx context.Context) bool {
 	// Loading object metadata is best-effort.
 	w.metadatas = make([]map[string]*string, len(w.objects))
 	_ = traverse.Each(len(w.metadatas), func(i int) error {
-		if resp, err := w.S3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
-			Bucket: aws.String(w.Bucket),
-			Key:    w.objects[i].Key,
-		}); err == nil {
-			w.metadatas[i] = resp.Metadata
-		}
-		return nil
+		return admit.Do(ctx, w.Policy, 1, func() error {
+			if resp, err := w.S3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+				Bucket: aws.String(w.Bucket),
+				Key:    w.objects[i].Key,
+			}); err == nil {
+				w.metadatas[i] = resp.Metadata
+			}
+			return nil
+		})
 	})
 	return w.Scan(ctx)
 }
