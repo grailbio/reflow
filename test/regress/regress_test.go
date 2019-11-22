@@ -9,6 +9,7 @@ package regress
 import (
 	"flag"
 	"io/ioutil"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -19,7 +20,13 @@ var binary = flag.String("regress_test.binary", "", "reflow binary to use for th
 // TestRegress performs regression checking, and requires AWS credentials for file transfers.
 func TestRegress(t *testing.T) {
 	if *binary == "" {
-		t.Fatalf("usage: go test -regress_test.binary </path/to/binary>")
+		const reflow = "./test.reflow"
+		cmd := exec.Command("go", "build", "-o", reflow, "github.com/grailbio/reflow/cmd/reflow")
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("go build: %s", err)
+		}
+		defer os.Remove(reflow)
+		*binary = reflow
 	}
 	infos, err := ioutil.ReadDir("testdata")
 	if err != nil {

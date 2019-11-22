@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"docker.io/go-docker"
@@ -217,22 +218,12 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	// throughout the system.
 	runID := reflow.Digester.Rand(nil)
 	c.Log.Printf("run ID: %s", runID.Short())
-	var repo reflow.Repository
-	err := c.Config.Instance(&repo)
-	if err != nil {
-		c.Fatal(err)
-	}
-	var ass assoc.Assoc
-	err = c.Config.Instance(&ass)
-	if err != nil {
-		c.Fatal(err)
-	}
 	var tdb taskdb.TaskDB
 	// TODO(dnicoloau): Add setup-tasktb command to setup a
 	// taskdb for reflow open source.
-	err = c.Config.Instance(&tdb)
+	err := c.Config.Instance(&tdb)
 	if err != nil {
-		if err.Error() == "no provider for type taskdb.TaskDB" {
+		if strings.HasPrefix(err.Error(), "no provider for type taskdb.TaskDB") {
 			c.Log.Debug(err)
 		} else {
 			c.Fatal(err)
@@ -306,6 +297,17 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	if config.local {
 		c.runLocal(ctx, config, execLogger, runID, e.Main(), e.MainType(), e.ImageMap, cmdline)
 		return
+	}
+
+	var ass assoc.Assoc
+	err = c.Config.Instance(&ass)
+	if err != nil {
+		c.Fatal(err)
+	}
+	var repo reflow.Repository
+	err = c.Config.Instance(&repo)
+	if err != nil {
+		c.Fatal(err)
 	}
 
 	// Default case: execute on cluster with shared cache.
@@ -452,15 +454,22 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 
 func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID digest.Digest, f *flow.Flow, typ *types.T, imageMap map[string]string, cmdline string) {
 	client, resources := c.dockerClient()
-	var repo reflow.Repository
-	err := c.Config.Instance(&repo)
+	var cache *infra.CacheProvider
+	err := c.Config.Instance(&cache)
 	if err != nil {
 		c.Fatal(err)
 	}
 	var ass assoc.Assoc
-	err = c.Config.Instance(&ass)
-	if err != nil {
-		c.Fatal(err)
+	var repo reflow.Repository
+	if cache.CacheMode != infra.CacheOff {
+		err = c.Config.Instance(&ass)
+		if err != nil {
+			c.Fatal(err)
+		}
+		err = c.Config.Instance(&repo)
+		if err != nil {
+			c.Fatal(err)
+		}
 	}
 	var sess *session.Session
 	err = c.Config.Instance(&sess)
@@ -482,7 +491,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	// TODO(dnicoloau): Add setup-tasktb command to setup a
 	// taskdb for reflow open source.
 	if err != nil {
-		if err.Error() == "no provider for type taskdb.TaskDB" {
+		if strings.HasPrefix(err.Error(), "no provider for type taskdb.TaskDB") {
 			c.Log.Debug(err)
 		} else {
 			c.Fatal(err)
@@ -517,11 +526,6 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 
 	if err := x.Start(); err != nil {
 		log.Fatal(err)
-	}
-	var cache *infra.CacheProvider
-	err = c.Config.Instance(&cache)
-	if err != nil {
-		c.Fatal(err)
 	}
 	var labels pool.Labels
 	err = c.Config.Instance(&labels)
