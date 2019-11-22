@@ -764,6 +764,7 @@ var pathDecls = []*Decl{
 		Doc: "Join joins a number of path elements into a single path. " +
 			"Empty elements are ignored, but the result is otherwise not cleaned " +
 			"and is thus compatible with URLs.",
+		Mode: ModeForced,
 		Type: types.Func(types.String,
 			&types.Field{Name: "paths", T: types.List(types.String)}),
 		Do: func(loc values.Location, args []values.T) (values.T, error) {

@@ -6,4 +6,4 @@ val url = "s3://foo/bar/baz.ext"
 val TestBase = path.Base(url) == "baz.ext"
 val TestExt = path.Ext(url) == ".ext"
 val TestDir = path.Dir(url) == "s3://foo/bar"
-val TestJoin = path.Join([path.Dir(url), path.Base(url)]) == url
+val TestJoin = path.Join([delay(path.Dir(url)), delay(path.Base(url))]) == url
