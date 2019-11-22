@@ -46,15 +46,9 @@ supplied via a CSV batch file as in "reflow runbatch".`
 		flags.Usage()
 	}
 	var assoc assoc.Assoc
-	err := c.Config.Instance(&assoc)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&assoc))
 	var repo reflow.Repository
-	err = c.Config.Instance(&repo)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&repo))
 	config := flow.EvalConfig{
 		Log:        c.Log,
 		Repository: repo,
@@ -66,16 +60,12 @@ supplied via a CSV batch file as in "reflow runbatch".`
 	repair.Go(ctx, *writebackConcurrency)
 	if *batch != "" {
 		f, err := os.Open(*batch)
-		if err != nil {
-			c.Fatal(err)
-		}
+		c.must(err)
 		r := csv.NewReader(f)
 		r.FieldsPerRecord = -1
 		records, err := r.ReadAll()
 		f.Close()
-		if err != nil {
-			c.Fatal(err)
-		}
+		c.must(err)
 		lim := limiter.New()
 		lim.Release(50)
 		header, records := records[0], records[1:]
@@ -106,22 +96,16 @@ supplied via a CSV batch file as in "reflow runbatch".`
 				return nil
 			})
 		}
-		if err := g.Wait(); err != nil {
-			c.Fatal(err)
-		}
+		c.must(g.Wait())
 	} else {
 		e := Eval{
 			InputArgs: flags.Args(),
 		}
-		if err := c.Eval(&e); err != nil {
-			c.Fatal(err)
-		}
+		c.must(c.Eval(&e))
 		repair.ImageMap = e.ImageMap
 		repair.Do(ctx, e.Main())
 
 	}
-	if err := repair.Done(); err != nil {
-		c.Fatal(err)
-	}
+	c.must(repair.Done())
 	c.Log.Printf("wrote %d new assoc entries", repair.NumWrites)
 }

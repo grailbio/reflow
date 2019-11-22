@@ -34,23 +34,13 @@ parameters.`
 		sess.Stdwarn = c.Stderr
 	}
 	m, err := sess.Open(file)
-	if err != nil {
-		c.Fatal(err)
-	}
-	if err := m.InjectArgs(sess, args); err != nil {
-		c.Fatal(err)
-	}
+	c.must(err)
+	c.must(m.InjectArgs(sess, args))
 	if *out == "" {
 		*out = filepath.Base(file) + "x" // ".rfx"
 	}
 	f, err := os.Create(*out)
-	if err != nil {
-		c.Fatal(err)
-	}
-	if err := sess.Bundle().Write(f); err != nil {
-		c.Fatal(err)
-	}
-	if err := f.Close(); err != nil {
-		c.Fatal(err)
-	}
+	c.must(err)
+	c.must(sess.Bundle().Write(f))
+	c.must(f.Close())
 }

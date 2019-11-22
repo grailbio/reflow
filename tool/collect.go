@@ -143,15 +143,11 @@ preceded by ! is negated.
 	)
 	if len(*keepFlag) > 0 {
 		keepFilter, err = parseFilter(*keepFlag)
-		if err != nil {
-			c.Fatal(err)
-		}
+		c.must(err)
 	}
 	if len(*labelsFlag) > 0 {
 		labelsFilter, err = parseFilter(*labelsFlag)
-		if err != nil {
-			c.Fatal(err)
-		}
+		c.must(err)
 	}
 	var threshold time.Time
 	if strings.HasSuffix(*thresholdFlag, "d") {
@@ -171,15 +167,9 @@ preceded by ! is negated.
 		}
 	}
 	var ass assoc.Assoc
-	err = c.Config.Instance(&ass)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&ass))
 	var repo reflow.Repository
-	err = c.Config.Instance(&repo)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&repo))
 
 	// Use an estimate of the item count in the assoc to create our bloom filters
 	count, err := ass.Count(ctx)
@@ -277,9 +267,7 @@ preceded by ! is negated.
 		}
 	}))
 	// Bail if anything went wrong since we're about to garbage collect based on these livesets
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(err)
 
 	// Some debugging information
 	c.Log.Debugf("Time to scan associations %s", time.Since(start))
@@ -287,12 +275,8 @@ preceded by ! is negated.
 		itemsScannedCount, liveItemCount, liveObjectsInFilesets, liveObjectsNotInRepository)
 
 	// Garbage collect the repository using the values liveset
-	if err = repo.CollectWithThreshold(ctx, bloomlive.New(valueFilter), deadValueFilter, threshold, *dryRunFlag); err != nil {
-		c.Fatal(err)
-	}
+	c.must(repo.CollectWithThreshold(ctx, bloomlive.New(valueFilter), deadValueFilter, threshold, *dryRunFlag))
 
 	// Garbage collect the association using the keys liveset
-	if err = ass.CollectWithThreshold(ctx, bloomlive.New(keyFilter), deadKeyFilter, assoc.Fileset, threshold, *rateFlag, *dryRunFlag); err != nil {
-		c.Fatal(err)
-	}
+	c.must(ass.CollectWithThreshold(ctx, bloomlive.New(keyFilter), deadKeyFilter, assoc.Fileset, threshold, *rateFlag, *dryRunFlag))
 }

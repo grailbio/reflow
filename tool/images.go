@@ -26,14 +26,11 @@ func (c *Cmd) images(ctx context.Context, args ...string) {
 	programPath := flags.Arg(0)
 	sess := syntax.NewSession(nil)
 	m, err := sess.Open(programPath)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(err)
 
 	programFlags, err := m.Flags(sess, sess.Values)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(err)
+
 	programFlags.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage of %s:\n", programPath)
 		programFlags.PrintDefaults()
@@ -50,9 +47,7 @@ func (c *Cmd) images(ctx context.Context, args ...string) {
 		programFlags.Usage()
 	}
 	_, err = m.Make(sess, env)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(err)
 
 	images := sess.Images()
 	sort.Strings(images)

@@ -24,13 +24,9 @@ func (c *Cmd) http(ctx context.Context, args ...string) {
 	arg := flags.Arg(0)
 
 	httpClient, err := c.httpClient()
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(err)
 	resp, err := httpClient.Get(arg)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(err)
 	if resp.Body == nil {
 		return
 	}

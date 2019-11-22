@@ -233,14 +233,10 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	base := c.Runbase(runID)
 	os.MkdirAll(filepath.Dir(base), 0777)
 	execfile, err := os.Create(base + ".execlog")
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(err)
 	defer execfile.Close()
 	logfile, err := os.Create(base + ".syslog")
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(err)
 	defer logfile.Close()
 
 	// execLogger is the target for exec status; we also output
@@ -288,10 +284,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	c.Log.Debug(b.String())
 	ctx, cancel := context.WithCancel(ctx)
 	var tracer trace.Tracer
-	err = c.Config.Instance(&tracer)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&tracer))
 	ctx = trace.WithTracer(ctx, tracer)
 	defer cancel()
 	if config.local {
@@ -300,15 +293,9 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	}
 
 	var ass assoc.Assoc
-	err = c.Config.Instance(&ass)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&ass))
 	var repo reflow.Repository
-	err = c.Config.Instance(&repo)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&repo))
 
 	// Default case: execute on cluster with shared cache.
 	// TODO: get rid of profile here
@@ -323,10 +310,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 		transferer.PendingTransfers.Set(repo.URL().String(), int(^uint(0)>>1))
 	}
 	var labels pool.Labels
-	err = c.Config.Instance(&labels)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&labels))
 
 	tctx, tcancel := context.WithCancel(ctx)
 	if tdb != nil {
@@ -369,10 +353,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 		}()
 	}
 	var cache *infra.CacheProvider
-	err = c.Config.Instance(&cache)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&cache))
 	run := runner.Runner{
 		Flow: e.Main(),
 		EvalConfig: flow.EvalConfig{
@@ -454,43 +435,30 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 
 func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID digest.Digest, f *flow.Flow, typ *types.T, imageMap map[string]string, cmdline string) {
 	client, resources := c.dockerClient()
+
 	var cache *infra.CacheProvider
-	err := c.Config.Instance(&cache)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&cache))
+
 	var ass assoc.Assoc
 	var repo reflow.Repository
 	if cache.CacheMode != infra.CacheOff {
-		err = c.Config.Instance(&ass)
-		if err != nil {
-			c.Fatal(err)
-		}
-		err = c.Config.Instance(&repo)
-		if err != nil {
-			c.Fatal(err)
-		}
+		c.must(c.Config.Instance(&ass))
+		c.must(c.Config.Instance(&repo))
 	}
+
 	var sess *session.Session
-	err = c.Config.Instance(&sess)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&sess))
+
 	var creds *credentials.Credentials
-	err = c.Config.Instance(&creds)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&creds))
+
 	var awstool *aws.AWSTool
-	err = c.Config.Instance(&awstool)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&awstool))
+
 	var tdb taskdb.TaskDB
-	err = c.Config.Instance(&tdb)
 	// TODO(dnicoloau): Add setup-tasktb command to setup a
 	// taskdb for reflow open source.
-	if err != nil {
+	if err := c.Config.Instance(&tdb); err != nil {
 		if strings.HasPrefix(err.Error(), "no provider for type taskdb.TaskDB") {
 			c.Log.Debug(err)
 		} else {
@@ -524,12 +492,10 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	}
 	x.SetResources(resources)
 
-	if err := x.Start(); err != nil {
-		log.Fatal(err)
-	}
+	c.must(x.Start())
+
 	var labels pool.Labels
-	err = c.Config.Instance(&labels)
-	if err != nil {
+	if err := c.Config.Instance(&labels); err != nil {
 		c.Log.Debug(err)
 	}
 
@@ -575,7 +541,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	if len(traceid) > 0 {
 		c.Log.Printf("Trace ID: %v", traceid)
 	}
-	if err = eval.Do(ctx); err != nil {
+	if err := eval.Do(ctx); err != nil {
 		c.Errorln(err)
 		if errors.Restartable(err) {
 			c.Exit(10)

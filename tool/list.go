@@ -43,24 +43,18 @@ The columns displayed by list are:
 	if len(args) == 0 {
 		if *allFlag {
 			offers, err := cluster.Offers(ctx)
-			if err != nil {
-				c.Fatal(err)
-			}
+			c.must(err)
 			for _, offer := range offers {
 				entries = append(entries, offer)
 			}
 		}
 		allocs, err := cluster.Allocs(ctx)
-		if err != nil {
-			c.Fatal(err)
-		}
+		c.must(err)
 		for _, alloc := range allocs {
 			entries = append(entries, alloc)
 			if *allFlag {
 				execs, err := alloc.Execs(ctx)
-				if err != nil {
-					c.Fatal(err)
-				}
+				c.must(err)
 				for _, exec := range execs {
 					entries = append(entries, exec)
 				}

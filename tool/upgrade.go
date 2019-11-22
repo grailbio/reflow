@@ -17,15 +17,8 @@ func (c *Cmd) upgrade(ctx context.Context, args ...string) {
 	if flags.NArg() != 0 {
 		flags.Usage()
 	}
-	err := c.Config.Setup()
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Setup())
 	b, err := c.Config.Marshal(false)
-	if err != nil {
-		c.Fatal(err)
-	}
-	if err := ioutil.WriteFile(c.ConfigFile, b, 0666); err != nil {
-		c.Fatal(err)
-	}
+	c.must(err)
+	c.must(ioutil.WriteFile(c.ConfigFile, b, 0666))
 }

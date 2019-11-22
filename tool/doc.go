@@ -33,9 +33,7 @@ func (c *Cmd) doc(ctx context.Context, args ...string) {
 	}
 	sess := syntax.NewSession(nil)
 	m, err := sess.Open(flags.Arg(0))
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(err)
 	if params := m.Params(); len(params) > 0 {
 		c.Println("Parameters")
 		c.Println()

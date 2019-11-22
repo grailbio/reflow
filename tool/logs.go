@@ -30,9 +30,7 @@ func (c *Cmd) logs(ctx context.Context, args ...string) {
 	err := c.Config.Instance(&tdb)
 	if err != nil || tdb == nil {
 		n, err := parseName(arg)
-		if err != nil {
-			c.Fatal(err)
-		}
+		c.must(err)
 		if n.Kind != execName {
 			c.Fatalf("%s: not an exec URI", arg)
 		}
@@ -51,9 +49,7 @@ func (c *Cmd) logs(ctx context.Context, args ...string) {
 		}
 		_, err = io.Copy(c.Stdout, rc)
 		rc.Close()
-		if err != nil {
-			c.Fatal(err)
-		}
+		c.must(err)
 		return
 	}
 
@@ -61,9 +57,7 @@ func (c *Cmd) logs(ctx context.Context, args ...string) {
 	if err == nil {
 		q := taskdb.Query{ID: d}
 		tasks, err := tdb.Tasks(ctx, q)
-		if err != nil {
-			c.Fatal(err)
-		}
+		c.must(err)
 		if len(tasks) == 0 {
 			c.Fatalf("no tasks matched id: %v", d.String())
 		}
@@ -90,16 +84,12 @@ func (c *Cmd) logs(ctx context.Context, args ...string) {
 		if rc != nil {
 			_, err = io.Copy(c.Stdout, rc)
 			rc.Close()
-			if err != nil {
-				c.Fatal(err)
-			}
+			c.must(err)
 		}
 		return
 	}
 	n, err := parseName(arg)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(err)
 	if n.Kind != execName {
 		c.Fatalf("%s: not an exec URI", arg)
 	}
@@ -109,7 +99,5 @@ func (c *Cmd) logs(ctx context.Context, args ...string) {
 	}
 	_, err = io.Copy(c.Stdout, rc)
 	rc.Close()
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(err)
 }

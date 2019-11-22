@@ -110,31 +110,19 @@ Abbreviated IDs are expanded where possible.`
 			)
 			if tdb != nil {
 				inspect, err = c.allocInspect(ctx, n)
-				if err != nil {
-					c.Fatal(err)
-				}
+				c.must(err)
 				execs, err = c.allocExecs(ctx, n)
-				if err != nil {
-					c.Fatal(err)
-				}
+				c.must(err)
 			} else {
 				alloc, err := c.Cluster(nil).Alloc(ctx, n.AllocID)
-				if err != nil {
-					c.Fatal(err)
-				}
+				c.must(err)
 				inspect, err = alloc.Inspect(ctx)
-				if err != nil {
-					c.Fatal(err)
-				}
+				c.must(err)
 				execs, err = alloc.Execs(ctx)
-				if err != nil {
-					c.Fatal(err)
-				}
+				c.must(err)
 			}
 			execs, err := c.allocExecs(ctx, n)
-			if err != nil {
-				c.Fatal(err)
-			}
+			c.must(err)
 			fmt.Fprintln(&tw, arg, "(alloc)")
 			c.printAlloc(ctx, &tw, inspect, execs)
 		}
@@ -262,10 +250,7 @@ func (c *Cmd) printCacheInfo(ctx context.Context, w io.Writer, id digest.Digest)
 	switch {
 	case err == nil:
 		var repo reflow.Repository
-		err := c.Config.Instance(&repo)
-		if err != nil {
-			c.Fatal(err)
-		}
+		c.must(c.Config.Instance(&repo))
 		var fs reflow.Fileset
 		switch err := repository.Unmarshal(ctx, repo, fsid, &fs); {
 		case err == nil:
@@ -291,10 +276,7 @@ func (c *Cmd) printCacheInfo(ctx context.Context, w io.Writer, id digest.Digest)
 
 func (c *Cmd) printFileInfo(ctx context.Context, w io.Writer, id digest.Digest) bool {
 	var repo reflow.Repository
-	err := c.Config.Instance(&repo)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&repo))
 	info, err := repo.Stat(ctx, id)
 	switch {
 	case err == nil:

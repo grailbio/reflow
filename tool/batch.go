@@ -104,21 +104,12 @@ flags override any parameters in the batch sample file.
 		flags.Usage()
 	}
 	var user *infra.User
-	err := c.Config.Instance(&user)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&user))
 	cluster := c.Cluster(c.Status.Group("ec2cluster"))
 	var repo reflow.Repository
-	err = c.Config.Instance(&repo)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&repo))
 	var assoc assoc.Assoc
-	err = c.Config.Instance(&assoc)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&assoc))
 	transferer := &repository.Manager{
 		Status:           c.Status.Group("transfers"),
 		PendingTransfers: repository.NewLimits(c.TransferLimit()),
@@ -133,10 +124,8 @@ flags override any parameters in the batch sample file.
 		c.Log.Error(err)
 	}
 	var cache *infra.CacheProvider
-	err = c.Config.Instance(&cache)
-	if err != nil {
-		c.Log.Error(err)
-	}
+	c.must(c.Config.Instance(&cache))
+
 	b := &batch.Batch{
 		EvalConfig: flow.EvalConfig{
 			Log:                c.Log,
@@ -155,9 +144,8 @@ flags override any parameters in the batch sample file.
 	}
 	config.Configure(&b.EvalConfig, c)
 	bc.Configure(b)
-	if err := b.Init(*resetFlag); err != nil {
-		c.Fatal(err)
-	}
+	c.must(b.Init(*resetFlag))
+
 	defer b.Close()
 	if *idsFlag != "" {
 		list := strings.Split(*idsFlag, ",")
@@ -214,9 +202,7 @@ See runbatch -help for information about Reflow's batching mechanism.`
 	var b batch.Batch
 	b.Rundir = c.rundir()
 	bc.Configure(&b)
-	if err := b.Init(false); err != nil {
-		c.Fatal(err)
-	}
+	c.must(b.Init(false))
 	defer b.Close()
 	ids := make([]string, len(b.Runs))
 	i := 0
@@ -257,9 +243,7 @@ The columns displayed by listbatch are:
 	var b batch.Batch
 	b.Rundir = c.rundir()
 	bc.Configure(&b)
-	if err := b.Init(false); err != nil {
-		c.Fatal(err)
-	}
+	c.must(b.Init(false))
 	defer b.Close()
 	ids := make([]string, len(b.Runs))
 	i := 0
@@ -336,14 +320,9 @@ scheduler:
 	bc.Flags(flags)
 	c.Parse(flags, args, help, "genbatch [-o module.rf]")
 	cwd, err := os.Getwd()
-	if err != nil {
-		log.Fatal(err)
-	}
-
+	c.must(err)
 	p, err := ioutil.ReadFile(bc.configFilepath)
-	if err != nil {
-		log.Fatal(err)
-	}
+	c.must(err)
 	var config struct {
 		Program string `json:"program"`
 		Runs    string `json:"runs_file"`
@@ -367,19 +346,13 @@ scheduler:
 	}
 
 	runsPath, err := filepath.Abs(config.Runs)
-	if err != nil {
-		log.Fatal(err)
-	}
+	c.must(err)
 	runs, err := os.Open(runsPath)
-	if err != nil {
-		log.Fatal(err)
-	}
+	c.must(err)
 	defer runs.Close()
 	r := csv.NewReader(runs)
 	header, err := r.Read()
-	if err != nil {
-		log.Fatal(err)
-	}
+	c.must(err)
 	if len(header) < 2 {
 		log.Fatal("expected at least two header fields")
 	}
@@ -438,15 +411,11 @@ scheduler:
 		"command": strings.Join(os.Args, " "),
 		"runs":    runsPath,
 	})
-	if err != nil {
-		log.Fatal(err)
-	}
+	c.must(err)
 
 	// Perform a typecheck to ensure that the program is well-formed.
 	prog, err := ioutil.ReadFile(config.Program)
-	if err != nil {
-		log.Fatal(err)
-	}
+	c.must(err)
 	sess = syntax.NewSession(inlineOrFileSystemSourcer{
 		"<stdout>.rf":  b.Bytes(),
 		config.Program: prog,
@@ -466,9 +435,7 @@ scheduler:
 		if _, err := io.Copy(f, &b); err != nil {
 			log.Fatal(err)
 		}
-		if err := f.Close(); err != nil {
-			log.Fatal(err)
-		}
+		c.must(f.Close())
 	} else {
 		if _, err := io.Copy(os.Stdout, &b); err != nil {
 			log.Fatal(err)

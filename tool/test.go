@@ -33,10 +33,7 @@ and the program exits with a non-zero status if any tests fail.`
 		flags.Usage()
 	}
 	e := Eval{InputArgs: flags.Args()}
-	err := c.Eval(&e)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Eval(&e))
 	if !e.V1 {
 		c.Fatal("reflow test is supported only for v1 reflows")
 	}
@@ -116,15 +113,9 @@ func (c *Cmd) makeTestExecutor(executor **local.Executor) {
 	}
 	client, resources := c.dockerClient()
 	var sess *session.Session
-	err := c.Config.Instance(&sess)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&sess))
 	var creds *credentials.Credentials
-	err = c.Config.Instance(&creds)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&creds))
 	*executor = &local.Executor{
 		Client:        client,
 		Dir:           defaultFlowDir,
@@ -133,7 +124,5 @@ func (c *Cmd) makeTestExecutor(executor **local.Executor) {
 		Log:           c.Log.Tee(nil, "executor: "),
 	}
 	(*executor).SetResources(resources)
-	if err := (*executor).Start(); err != nil {
-		c.Fatal(err)
-	}
+	c.must((*executor).Start())
 }

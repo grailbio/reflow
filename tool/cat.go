@@ -21,10 +21,8 @@ func (c *Cmd) cat(ctx context.Context, args ...string) {
 		flags.Usage()
 	}
 	var repo reflow.Repository
-	err := c.Config.Instance(&repo)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&repo))
+
 	var ids []digest.Digest
 	for _, arg := range flags.Args() {
 		id, err := reflow.Digester.Parse(arg)

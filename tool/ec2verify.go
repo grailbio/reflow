@@ -76,9 +76,7 @@ Optionally, the -package will write out the verified results to a Go file verifi
 	ec.InstanceTypes = verified
 
 	data, err := c.Config.Marshal(true)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(err)
 	c.Stdout.Write(data)
 	c.Println()
 
@@ -87,14 +85,10 @@ Optionally, the -package will write out the verified results to a Go file verifi
 		instances.VerifiedByRegion[ec.Region] = final
 		vgen := instances.VerifiedSrcGenerator{filepath.Base(dir), instances.VerifiedByRegion}
 		src, err := vgen.Source()
-		if err != nil {
-			c.Fatal(err)
-		}
+		c.must(err)
 		os.MkdirAll(dir, 0777)
 		path := filepath.Join(dir, "verified.go")
-		if err := ioutil.WriteFile(path, src, 0644); err != nil {
-			c.Fatal(err)
-		}
+		c.must(ioutil.WriteFile(path, src, 0644))
 	}
 }
 

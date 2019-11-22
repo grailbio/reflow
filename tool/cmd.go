@@ -36,3 +36,9 @@ func (c *Cmd) Parse(fs *flag.FlagSet, args []string, help, usage string) {
 		c.Exit(0)
 	}
 }
+
+func (c Cmd) must(err error) {
+	if err != nil {
+		c.Fatal(err)
+	}
+}

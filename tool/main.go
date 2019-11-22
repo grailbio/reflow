@@ -269,22 +269,14 @@ func (c *Cmd) Main() {
 	c.SchemaKeys[infra2.Reflow] = fmt.Sprintf("reflowversion,version=%s", c.Version)
 	var err error
 	c.Config, err = c.Schema.Make(c.SchemaKeys)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(err)
 
 	var (
 		bootstrapimage *infra2.BootstrapImage
 		dockerconfig   *infra2.DockerConfig
 	)
-	err = c.Config.Instance(&bootstrapimage)
-	if err != nil {
-		c.Fatal(err)
-	}
-	err = c.Config.Instance(&dockerconfig)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&bootstrapimage))
+	c.must(c.Config.Instance(&dockerconfig))
 
 	// Set the bootstrap image to the official image for this distribution
 	if ok := bootstrapimage.Set(c.BootstrapBinary); !ok {
@@ -298,9 +290,7 @@ func (c *Cmd) Main() {
 	}
 	if c.cpuProfileFlag != "" {
 		file, err := os.Create(c.cpuProfileFlag)
-		if err != nil {
-			c.Fatal(err)
-		}
+		c.must(err)
 		pprof.StartCPUProfile(file)
 		c.onexit(func() {
 			pprof.StopCPUProfile()
@@ -309,9 +299,7 @@ func (c *Cmd) Main() {
 	}
 	if c.memProfileFlag != "" {
 		file, err := os.Create(c.memProfileFlag)
-		if err != nil {
-			c.Fatal(err)
-		}
+		c.must(err)
 		c.onexit(func() {
 			runtime.GC() // get up-to-date statistics
 			if err := pprof.WriteHeapProfile(file); err != nil {
@@ -361,9 +349,7 @@ func (c *Cmd) Main() {
 		// arguments for the command in flags.Arg[0].
 		fn(c, ctx, flags.Args()[1:]...)
 	}()
-	if perr != nil {
-		c.Fatal(perr)
-	}
+	c.must(perr)
 	c.Exit(0)
 }
 

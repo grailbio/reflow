@@ -26,10 +26,7 @@ Items are digests read from the standard input.`
 	}
 
 	var ass assoc.Assoc
-	err := c.Config.Instance(&ass)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&ass))
 
 	var n int
 	scan := bufio.NewScanner(os.Stdin)

@@ -83,9 +83,7 @@ modified and overriden:
 	// Do not marshal the key for reflow version.
 	delete(c.Config.Keys, "reflow")
 	data, err := c.Config.Marshal(*marshalFlag)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(err)
 	c.Stdout.Write(data)
 	c.Println()
 }

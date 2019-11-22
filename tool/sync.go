@@ -37,23 +37,13 @@ are not also in the fileset.`
 		c.Fatalf("parse %s: %v", fsID, err)
 	}
 	var ass assoc.Assoc
-	err = c.Config.Instance(&ass)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&ass))
 	var repo reflow.Repository
-	err = c.Config.Instance(&repo)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(c.Config.Instance(&repo))
 	id, fsid, err := ass.Get(ctx, assoc.Fileset, id)
-	if err != nil {
-		c.Fatal(err)
-	}
+	c.must(err)
 	var fs reflow.Fileset
-	if err := repository.Unmarshal(ctx, repo, fsid, &fs); err != nil {
-		c.Fatal(err)
-	}
+	c.must(repository.Unmarshal(ctx, repo, fsid, &fs))
 	if fs.N() == 0 {
 		c.Fatal("fileset is empty")
 	}
@@ -105,9 +95,7 @@ are not also in the fileset.`
 			return err
 		})
 	}
-	if err := g.Wait(); err != nil {
-		c.Fatal(err)
-	}
+	c.must(g.Wait())
 }
 
 func digestFile(path string) (digest.Digest, error) {
