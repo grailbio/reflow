@@ -361,7 +361,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				m, k := vs[0].(*values.Map), vs[1]
 				v := m.Lookup(values.Digest(k, e.Left.Type.Index), k)
 				if v == nil {
-					return nil, fmt.Errorf("key %s not found", values.Sprint(vs[1], e.Right.Type))
+					return nil, fmt.Errorf("%v: key %s not found", e.Position, values.Sprint(vs[1], e.Right.Type))
 				}
 				return v, nil
 			}, e.Left, e.Right)
@@ -369,7 +369,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 				l, k := vs[0].(values.List), int(vs[1].(*big.Int).Int64())
 				if k < 0 || k >= len(l) {
-					return nil, fmt.Errorf("index %d out of bounds for list of size %v", k, len(l))
+					return nil, fmt.Errorf("%v: index %d out of bounds for list of size %v", e.Position, k, len(l))
 				}
 				return l[k], nil
 			}, e.Left, e.Right)
@@ -463,7 +463,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 					zip   = make(values.List, len(left))
 				)
 				if len(left) != len(right) {
-					return nil, fmt.Errorf("list sizes do not match: %d vs %d", len(left), len(right))
+					return nil, fmt.Errorf("%v: list sizes do not match: %d vs %d", e.Position, len(left), len(right))
 				}
 				for i := range left {
 					zip[i] = values.Tuple{left[i], right[i]}
@@ -592,7 +592,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}, e.Fields[0].Expr)
 		case "panic":
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
-				return nil, fmt.Errorf("panic: %s", vs[0].(string))
+				return nil, fmt.Errorf("%v: panic: %s", e.Position, vs[0].(string))
 			}, e.Fields[0].Expr)
 		case "delay":
 			// Delay deliberately introduces delayed evaluation, which is
@@ -795,7 +795,7 @@ func (e *Expr) exec(sess *Session, env *values.Env, ident string, args map[int]v
 		Coerce: func(v values.T) (values.T, error) {
 			list := v.(reflow.Fileset).List
 			if got, want := len(list), indexer.N(); got != want {
-				return nil, fmt.Errorf("bad exec result: expected size %d, got %d (deps %v, argmap %v, outputisdir %v)", want, got, deps, earg, dirs)
+				return nil, fmt.Errorf("%v: bad exec result: expected size %d, got %d (deps %v, argmap %v, outputisdir %v)", e.Position, want, got, deps, earg, dirs)
 			}
 			tup := make(values.Tuple, len(outputs))
 			for i, f := range e.Type.Tupled().Fields {
