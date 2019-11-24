@@ -761,7 +761,7 @@ func (f *Flow) ExecConfig() reflow.ExecConfig {
 			NeedAWSCreds:  strings.HasSuffix(f.OriginalImage, "$aws") || strings.HasSuffix(f.Image, "$aws"),
 			Cmd:           f.Cmd,
 			Args:          args,
-			Resources:     f.Resources,
+			Resources:     f.Reserved,
 			OutputIsDir:   f.OutputIsDir,
 		}
 	default:
