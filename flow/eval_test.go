@@ -487,6 +487,42 @@ func TestCacheLookupBottomup(t *testing.T) {
 	}
 }
 
+func TestCacheOffBottomup(t *testing.T) {
+	testCacheOff(t, true)
+}
+
+func TestCacheOffTopdown(t *testing.T) {
+	testCacheOff(t, false)
+}
+
+func testCacheOff(t *testing.T, bottomup bool) {
+	t.Helper()
+	intern := op.Intern("internurl")
+	exec := op.Exec("image", "command", testutil.Resources, intern)
+	extern := op.Extern("externurl", exec)
+	testutil.AssignExecId(nil, intern, exec, extern)
+
+	e := testutil.Executor{Have: testutil.Resources}
+	e.Init()
+	eval := flow.NewEval(extern, flow.EvalConfig{
+		Executor: &e,
+		Log:      logger(),
+		Trace:    logger(),
+		BottomUp: bottomup,
+	})
+	rc := testutil.EvalAsync(context.Background(), eval)
+	e.Ok(intern, testutil.Files("a/b/c", "a/b/d", "x/y/z"))
+	e.Ok(exec, testutil.Files("execout"))
+	e.Ok(extern, reflow.Fileset{})
+	r := <-rc
+	if r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if got := r.Val; !got.Empty() {
+		t.Fatalf("got %v, want <empty>", got)
+	}
+}
+
 func TestCacheLookupBottomupPhysical(t *testing.T) {
 	// intern from two different locations but the same contents
 	internA, internB := op.Intern("internurlA"), op.Intern("internurlB")

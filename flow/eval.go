@@ -1159,7 +1159,7 @@ func (e *Eval) todo(f *Flow, visited flowOnce, v *FlowVisitor) {
 		case Intern, Exec, Extern:
 			// We're ready to run. If we're in bottom up mode, this means we're ready
 			// for our cache lookup.
-			if e.BottomUp {
+			if e.BottomUp && e.CacheMode.Reading() {
 				e.Mutate(f, NeedLookup)
 			} else {
 				if e.CacheMode.Reading() {
