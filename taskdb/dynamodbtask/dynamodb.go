@@ -7,8 +7,8 @@
 // buckets stored. "Date-Keepalive-index" index allows querying runs/tasks based on time
 // buckets. Dynamodbtask also uses a bunch of secondary indices to help with run/task querying.
 // Schema:
-// run:  {ID, ID4, Labels, Type="run",  StartTime, User, Keepalive}
-// task: {ID, ID4, Labels, Type="task", StartTime, Keepalive, RunID, RunID4, FlowID, URI, ResultID}
+// run:  {ID, ID4, Labels, Bundle, Args, Date, Keepalive, StartTime, Type="run", User}
+// task: {ID, ID4, Labels, Date, Keepalive, StartTime, Type="task", FlowID, Inspect, ResultID, RunID, RunID4, Stderr, Stdout, URI}
 // Indexes:
 // 1. Date-Keepalive-index - for queries that are time based.
 // 2. RunID-index - for find all tasks that belongs to a run.
@@ -56,6 +56,8 @@ const (
 	User
 	Type
 	Date
+	Bundle
+	Args
 )
 
 func init() {
@@ -105,27 +107,29 @@ const (
 	colUser      = "User"
 	colType      = "Type"
 	colDate      = "Date"
+	colBundle    = "Bundle"
+	colArgs      = "Args"
 )
 
-var (
-	colmap = map[taskdb.Kind]string{
-		ID4:         colID4,
-		RunID:       colRunID,
-		RunID4:      colRunID4,
-		FlowID:      colFlowID,
-		ResultID:    colResultID,
-		KeepAlive:   colKeepalive,
-		StartTime:   colStartTime,
-		Stdout:      colStdout,
-		Stderr:      colStderr,
-		ExecInspect: colInspect,
-		URI:         colURI,
-		Labels:      colLabels,
-		User:        colUser,
-		Type:        colType,
-		Date:        colDate,
-	}
-)
+var colmap = map[taskdb.Kind]string{
+	ID4:         colID4,
+	RunID:       colRunID,
+	RunID4:      colRunID4,
+	FlowID:      colFlowID,
+	ResultID:    colResultID,
+	KeepAlive:   colKeepalive,
+	StartTime:   colStartTime,
+	Stdout:      colStdout,
+	Stderr:      colStderr,
+	ExecInspect: colInspect,
+	URI:         colURI,
+	Labels:      colLabels,
+	User:        colUser,
+	Type:        colType,
+	Date:        colDate,
+	Bundle:      colBundle,
+	Args:        colArgs,
+}
 
 // TaskDB implements the dynamodb backed taskdb.TaskDB interface to
 // store run/task state and metadata.
@@ -190,6 +194,33 @@ func (t *TaskDB) CreateRun(ctx context.Context, id digest.Digest, user string) e
 		},
 	}
 	_, err := t.DB.PutItemWithContext(ctx, input)
+	return err
+}
+
+// SetRunAttrs sets the reflow bundle and corresponding args for this run.
+func (t *TaskDB) SetRunAttrs(ctx context.Context, id, bundle digest.Digest, args []string) error {
+	updateExpression := aws.String(fmt.Sprintf("SET %s = :bundle", colBundle))
+	values := map[string]*dynamodb.AttributeValue{
+		":bundle": {
+			S: aws.String(bundle.String()),
+		},
+	}
+	if args != nil {
+		*updateExpression += fmt.Sprintf(", %s = :args", colArgs)
+		values[":args"] = &dynamodb.AttributeValue{SS: aws.StringSlice(args)}
+	}
+
+	input := &dynamodb.UpdateItemInput{
+		TableName: aws.String(t.TableName),
+		Key: map[string]*dynamodb.AttributeValue{
+			colID: {
+				S: aws.String(id.String()),
+			},
+		},
+		UpdateExpression:          updateExpression,
+		ExpressionAttributeValues: values,
+	}
+	_, err := t.DB.UpdateItemWithContext(ctx, input)
 	return err
 }
 

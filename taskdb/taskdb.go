@@ -36,6 +36,8 @@ type MappingHandler interface {
 type TaskDB interface {
 	// CreateRun creates a new Run with the provided id and user.
 	CreateRun(ctx context.Context, id digest.Digest, user string) error
+	// SetRunAttrs sets the reflow bundle and corresponding args for this run.
+	SetRunAttrs(ctx context.Context, id, bundle digest.Digest, args []string) error
 	// CreateTask creates a new task with the provided id, runid, flowid and uri.
 	CreateTask(ctx context.Context, id, run, flowid digest.Digest, uri string) error
 	// SetTaskResult sets the result of the task post completion.

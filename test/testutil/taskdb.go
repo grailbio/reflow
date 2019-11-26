@@ -20,6 +20,11 @@ func (n nopTaskDB) CreateRun(ctx context.Context, id digest.Digest, user string)
 	return nil
 }
 
+// SetRunAttrs is a no op.
+func (n nopTaskDB) SetRunAttrs(ctx context.Context, id, bundle digest.Digest, args []string) error {
+	return nil
+}
+
 // CreateTask is a no op.
 func (n nopTaskDB) CreateTask(ctx context.Context, id digest.Digest, run digest.Digest, flowid digest.Digest, uri string) error {
 	return nil

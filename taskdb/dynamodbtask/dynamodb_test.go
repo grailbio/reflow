@@ -73,6 +73,54 @@ func TestRunCreate(t *testing.T) {
 	}
 }
 
+func TestSetRunAttrs(t *testing.T) {
+	var (
+		mockdb = mockDynamoDBUpdate{}
+		taskb  = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		id     = reflow.Digester.Rand(nil)
+		bundle = reflow.Digester.Rand(nil)
+		args   = []string{"-a=1", "-b=2"}
+	)
+	err := taskb.SetRunAttrs(context.Background(), id, bundle, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		actual   string
+		expected string
+	}{
+		{*mockdb.uInput.TableName, "mockdynamodb"},
+		{*mockdb.uInput.Key[colID].S, id.String()},
+		{*mockdb.uInput.ExpressionAttributeValues[":bundle"].S, bundle.String()},
+		{*mockdb.uInput.ExpressionAttributeValues[":args"].SS[0], args[0]},
+		{*mockdb.uInput.ExpressionAttributeValues[":args"].SS[1], args[1]},
+		{*mockdb.uInput.UpdateExpression, fmt.Sprintf("SET %s = :bundle, %s = :args", colBundle, colArgs)},
+	} {
+		if test.expected != test.actual {
+			t.Errorf("expected %s, got %v", test.expected, test.actual)
+		}
+	}
+	// Verify correct behavior if no args are passed to SetRunAttrs
+	err = taskb.SetRunAttrs(context.Background(), id, bundle, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		actual   string
+		expected string
+	}{
+		{*mockdb.uInput.TableName, "mockdynamodb"},
+		{*mockdb.uInput.Key[colID].S, id.String()},
+		{*mockdb.uInput.ExpressionAttributeValues[":bundle"].S, bundle.String()},
+		{*mockdb.uInput.UpdateExpression, fmt.Sprintf("SET %s = :bundle", colBundle)},
+	} {
+		if test.expected != test.actual {
+			t.Errorf("expected %s, got %v", test.expected, test.actual)
+		}
+	}
+
+}
+
 func TestTaskCreate(t *testing.T) {
 	var (
 		labels = []string{"test=label"}
