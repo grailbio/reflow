@@ -124,11 +124,6 @@ func (t *Task) Wait(ctx context.Context, state TaskState) error {
 	return err
 }
 
-// Restart resets a task's state to TaskInit.
-func (t *Task) Restart() {
-	t.set(TaskInit)
-}
-
 func (t *Task) set(state TaskState) {
 	t.mu.Lock()
 	t.state = state
