@@ -1328,7 +1328,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 	switch f.Op {
 	case Intern, Extern, Exec:
 		if e.TaskDB != nil {
-			e.taskdbWriteAsync(ctx, f)
+			e.taskdbWriteAsync(ctx, f.Op, f.Inspect, f.Exec, f.TaskID)
 		}
 	}
 	if !e.CacheMode.Writing() {
@@ -1406,33 +1406,36 @@ func (e *Eval) cacheWriteAsync(ctx context.Context, f *Flow) {
 	}()
 }
 
-func (e *Eval) taskdbWrite(ctx context.Context, f *Flow) error {
-	var err error
+func (e *Eval) taskdbWrite(ctx context.Context, op Op, inspect reflow.ExecInspect, exec reflow.Exec, id digest.Digest) error {
+	if !op.External() {
+		return nil
+	}
+	var (
+		err            error
+		stdout, stderr digest.Digest
+		pid            digest.Digest
+	)
 	g, ctx := errgroup.WithContext(ctx)
-	pid := digest.Digest{}
-	var stdout, stderr digest.Digest
-	if f.Op.External() {
-		if pid, err = marshal(ctx, e.Repository, f.Inspect); err != nil {
-			log.Errorf("repository put profile: %v", err)
+	if pid, err = marshal(ctx, e.Repository, inspect); err != nil {
+		log.Errorf("repository put profile: %v", err)
+	}
+	if exec != nil {
+		if rc, err := exec.Logs(ctx, true, false, false); err == nil {
+			if stdout, err = e.Repository.Put(ctx, rc); err != nil {
+				log.Errorf("repository put stdout: %v", err)
+			}
+			rc.Close()
 		}
-		if f.Exec != nil {
-			if rc, err := f.Exec.Logs(ctx, true, false, false); err == nil {
-				if stdout, err = e.Repository.Put(ctx, rc); err != nil {
-					log.Errorf("repository put stdout: %v", err)
-				}
-				rc.Close()
+		if rc, err := exec.Logs(ctx, false, true, false); err == nil {
+			if stderr, err = e.Repository.Put(ctx, rc); err != nil {
+				log.Errorf("repository put stderr: %v", err)
 			}
-			if rc, err := f.Exec.Logs(ctx, false, true, false); err == nil {
-				if stderr, err = e.Repository.Put(ctx, rc); err != nil {
-					log.Errorf("repository put stderr: %v", err)
-				}
-				rc.Close()
-			}
+			rc.Close()
 		}
 	}
 	if e.TaskDB != nil {
 		g.Go(func() error {
-			err := e.TaskDB.SetTaskAttrs(ctx, f.TaskID, stdout, stderr, pid)
+			err := e.TaskDB.SetTaskAttrs(ctx, id, stdout, stderr, pid)
 			if err != nil {
 				e.Log.Debugf("taskdb settaskattrs: %v", err)
 			}
@@ -1442,12 +1445,14 @@ func (e *Eval) taskdbWrite(ctx context.Context, f *Flow) error {
 	return g.Wait()
 }
 
-func (e *Eval) taskdbWriteAsync(ctx context.Context, f *Flow) {
+// TODO(dnicolaou): Change to: taskdbWriteAsync(ctx context.Context, op Op, task *sched.Task) once nonscheduler mode is
+// removed.
+func (e *Eval) taskdbWriteAsync(ctx context.Context, op Op, inspect reflow.ExecInspect, exec reflow.Exec, id digest.Digest) {
 	bgctx := Background(ctx)
 	go func() {
-		err := e.taskdbWrite(bgctx, f)
+		err := e.taskdbWrite(bgctx, op, inspect, exec, id)
 		if err != nil {
-			e.Log.Errorf("taskdb write %v: %v", f, err)
+			e.Log.Errorf("taskdb write %v: %v", id, err)
 		}
 		bgctx.Complete()
 	}()
@@ -2328,7 +2333,7 @@ func (e *Eval) taskWait(f *Flow, task *sched.Task, ctx context.Context) error {
 		e.Mutate(f, task.Result.Err, task.Result.Fileset, Propagate, Done)
 	}
 	if e.TaskDB != nil {
-		e.taskdbWriteAsync(ctx, f)
+		e.taskdbWriteAsync(ctx, f.Op, task.Inspect, task.Exec, task.TaskID)
 	}
 	return nil
 }
