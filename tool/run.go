@@ -227,8 +227,8 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval, file stri
 	}
 	// Construct a unique name for this run, used to identify this invocation
 	// throughout the system.
-	runID := reflow.Digester.Rand(nil)
-	c.Log.Printf("run ID: %s", runID.Short())
+	runID := taskdb.NewRunID()
+	c.Log.Printf("run ID: %s", runID.IDShort())
 	var tdb taskdb.TaskDB
 	// TODO(dnicoloau): Add setup-tasktb command to setup a
 	// taskdb for reflow open source.
@@ -323,7 +323,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval, file stri
 		if errTDB != nil {
 			c.Log.Debugf("error writing run to taskdb: %v", errTDB)
 		} else {
-			go func() { _ = taskdb.Keepalive(tctx, tdb, runID) }()
+			go func() { _ = taskdb.KeepRunAlive(tctx, tdb, runID) }()
 			go func() { _ = c.uploadBundle(tctx, repo, tdb, runID, e, file, args) }()
 		}
 	}
@@ -384,7 +384,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval, file stri
 			AssertionGenerator: c.assertionGenerator(),
 			CacheMode:          cache.CacheMode,
 			Transferer:         transferer,
-			Status:             c.Status.Group(runID.Short()),
+			Status:             c.Status.Group(runID.IDShort()),
 			Scheduler:          scheduler,
 			ImageMap:           e.ImageMap,
 			TaskDB:             tdb,
@@ -449,7 +449,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval, file stri
 	}
 }
 
-func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID digest.Digest, f *flow.Flow, typ *types.T, imageMap map[string]string, cmdline string, ass assoc.Assoc, repo reflow.Repository, tdb taskdb.TaskDB, cache *infra.CacheProvider) {
+func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID taskdb.RunID, f *flow.Flow, typ *types.T, imageMap map[string]string, cmdline string, ass assoc.Assoc, repo reflow.Repository, tdb taskdb.TaskDB, cache *infra.CacheProvider) {
 	client, resources := c.dockerClient()
 
 	var sess *session.Session
@@ -504,7 +504,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		Assoc:              ass,
 		AssertionGenerator: c.assertionGenerator(),
 		CacheMode:          cache.CacheMode,
-		Status:             c.Status.Group(runID.Short()),
+		Status:             c.Status.Group(runID.IDShort()),
 		ImageMap:           imageMap,
 		TaskDB:             tdb,
 		RunID:              runID,
@@ -558,7 +558,7 @@ func (c *Cmd) rundir() string {
 
 // uploadBundle generates a bundle and updates taskdb with its digest. If the bundle does not already exist in taskdb,
 // uploadBundle caches it.
-func (c *Cmd) uploadBundle(ctx context.Context, repo reflow.Repository, tdb taskdb.TaskDB, id digest.Digest, e Eval, file string, args []string) error {
+func (c *Cmd) uploadBundle(ctx context.Context, repo reflow.Repository, tdb taskdb.TaskDB, runID taskdb.RunID, e Eval, file string, args []string) error {
 	var (
 		bundleId digest.Digest
 		rc       io.ReadCloser
@@ -586,12 +586,12 @@ func (c *Cmd) uploadBundle(ctx context.Context, repo reflow.Repository, tdb task
 		}
 	}
 	c.Log.Debugf("created bundle %s with args: %v\n", bundleId.String(), args)
-	return tdb.SetRunAttrs(ctx, id, bundleId, args)
+	return tdb.SetRunAttrs(ctx, runID, bundleId, args)
 }
 
-// runbase returns the base path for the run with the provided name
-func (c Cmd) Runbase(id digest.Digest) string {
-	return filepath.Join(c.rundir(), id.Hex())
+// Runbase returns the base path for the run with the provided name
+func (c Cmd) Runbase(runID taskdb.RunID) string {
+	return filepath.Join(c.rundir(), runID.IDShort())
 }
 
 // WaitForBackgroundTasks waits until all background tasks complete, or if the provided

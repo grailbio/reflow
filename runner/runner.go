@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/pool"
+	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/trace"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
@@ -52,7 +52,7 @@ const (
 // and later recovered in order to resume a run.
 type State struct {
 	// ID is this run's global ID.
-	ID digest.Digest
+	ID taskdb.RunID
 	// Program stores the reflow program name.
 	Program string
 	// Params is the run parameters
@@ -340,7 +340,7 @@ func (r *Runner) Eval(ctx context.Context) (string, error) {
 
 func (r Runner) labels() pool.Labels {
 	labels := r.Labels.Copy()
-	labels["ID"] = r.ID.Hex()
+	labels["ID"] = r.ID.IDShort()
 	labels["program"] = r.Program
 	for k, v := range r.Params {
 		labels[fmt.Sprintf("param[%s]", k)] = v

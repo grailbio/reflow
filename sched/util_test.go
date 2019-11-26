@@ -28,6 +28,7 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/sched"
+	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/test/testutil"
 )
 
@@ -52,9 +53,9 @@ func newTask(cpu, mem float64, priority int) *sched.Task {
 	task := sched.NewTask()
 	task.Priority = priority
 	task.Config.Resources = reflow.Resources{"cpu": cpu, "mem": mem}
-	task.ID = reflow.Digester.Rand(nil)
+	task.ID = taskdb.NewTaskID()
 	if *logTasks {
-		out := golog.New(os.Stderr, fmt.Sprintf("task %s (%s): ", task.ID.Short(), task.Config.Resources), golog.LstdFlags)
+		out := golog.New(os.Stderr, fmt.Sprintf("task %s (%s): ", task.ID.IDShort(), task.Config.Resources), golog.LstdFlags)
 		task.Log = log.New(out, log.DebugLevel)
 	}
 	return task

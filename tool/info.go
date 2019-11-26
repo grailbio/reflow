@@ -218,8 +218,8 @@ func (c *Cmd) printRunInfo(ctx context.Context, w io.Writer, id digest.Digest) b
 }
 
 func (c *Cmd) printTaskDBInfo(ctx context.Context, w io.Writer, id digest.Digest) bool {
-	q := taskdb.Query{ID: id}
-	ri, err := c.runInfo(ctx, q, false /* liveOnly */)
+	rq := taskdb.RunQuery{ID: taskdb.RunID(id)}
+	ri, err := c.runInfo(ctx, rq, false /* liveOnly */)
 	if err != nil {
 		log.Error(err)
 	}
@@ -227,7 +227,8 @@ func (c *Cmd) printTaskDBInfo(ctx context.Context, w io.Writer, id digest.Digest
 		c.writeRuns(ri, w, true)
 		return true
 	}
-	ti, err := c.taskInfo(ctx, q, false /* liveOnly */)
+	tq := taskdb.TaskQuery{ID: taskdb.TaskID(id)}
+	ti, err := c.taskInfo(ctx, tq, false /* liveOnly */)
 	if err != nil {
 		log.Error(err)
 	}

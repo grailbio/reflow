@@ -93,7 +93,7 @@ func (a *alloc) String() string {
 // assignment.
 func (a *alloc) Assign(task *Task) {
 	if task.alloc != nil {
-		panic(fmt.Sprintf("sched: task %v already assigned to alloc %v", task.ID.Short(), a))
+		panic(fmt.Sprintf("sched: task %v already assigned to alloc %v", task.ID.IDShort(), a))
 	}
 	task.alloc = a
 	a.Pending++

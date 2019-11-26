@@ -21,7 +21,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/reflow"
@@ -32,6 +31,7 @@ import (
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/syntax"
+	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
 	"golang.org/x/time/rate"
@@ -91,7 +91,7 @@ type Run struct {
 	Argv []string
 
 	// RunID is the global run ID for this run.
-	RunID digest.Digest
+	RunID taskdb.RunID
 
 	// State stores the runner state of this run.
 	State runner.State `json:"-"`
@@ -129,7 +129,7 @@ func (r *Run) Go(ctx context.Context, initWG *sync.WaitGroup) error {
 	// Also tee the output to the standard runlog location.
 	// TODO(marius): this should be handled in a standard way.
 	// (And run state management generally.)
-	runLogPath := filepath.Join(r.batch.Rundir, r.RunID.Hex()+".execlog")
+	runLogPath := filepath.Join(r.batch.Rundir, r.RunID.IDShort()+".execlog")
 	os.MkdirAll(filepath.Dir(runLogPath), 0777)
 	runLogFile, err := os.Create(runLogPath)
 	if err != nil {
@@ -432,23 +432,23 @@ func (b *Batch) read() error {
 		if run == nil {
 			run = new(Run)
 			// Create fresh run ID the first time we encounted a run.
-			run.RunID = reflow.Digester.Rand(nil)
+			run.RunID = taskdb.NewRunID()
 		}
 		run.ID = id
 		run.Args = attrs
 		run.Argv = fields[len(header):]
 		run.Program = b.path(b.config.Program)
-		run.Status = b.Status.Start(run.RunID.Short())
+		run.Status = b.Status.Start(run.RunID.IDShort())
 		run.Status.Print("waiting")
 		run.batch = b
-		b.states[id], err = state.Open(filepath.Join(b.Rundir, run.RunID.Hex()))
+		b.states[id], err = state.Open(filepath.Join(b.Rundir, run.RunID.IDShort()))
 		if err != nil {
 			return err
 		}
 		if err := b.states[id].Unmarshal(&run.State); err != nil && err != state.ErrNoState {
 			return err
 		}
-		if run.State.ID.IsZero() {
+		if !run.State.ID.IsValid() {
 			run.State.ID = run.RunID
 		}
 		runs[id] = run

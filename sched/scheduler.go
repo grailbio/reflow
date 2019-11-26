@@ -239,7 +239,7 @@ func (s *Scheduler) Do(ctx context.Context) error {
 
 		assigned := s.assign(&todo, &live, s.Stats)
 		for _, task := range assigned {
-			task.Log.Debugf("scheduler: assigning task %v to alloc %v", task.ID.Short(), task.alloc)
+			task.Log.Debugf("scheduler: assigning task %v to alloc %v", task.ID.IDShort(), task.alloc)
 			nrunning++
 			go s.run(task, returnc)
 		}
@@ -412,14 +412,14 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			})
 			err = g.Wait()
 		case statePut:
-			x, err = alloc.Put(ctx, task.ID, task.Config)
+			x, err = alloc.Put(ctx, digest.Digest(task.ID), task.Config)
 		case stateWait:
 			if s.TaskDB != nil {
 				tctx, tcancel = context.WithCancel(ctx)
 				if taskdbErr := s.TaskDB.CreateTask(tctx, task.ID, task.RunID, task.FlowID, x.URI()); taskdbErr != nil {
 					s.Log.Errorf("taskdb createtask: %v", taskdbErr)
 				} else {
-					go func() { _ = taskdb.Keepalive(tctx, s.TaskDB, task.ID) }()
+					go func() { _ = taskdb.KeepTaskAlive(tctx, s.TaskDB, task.ID) }()
 				}
 			}
 			task.Exec = x
@@ -476,14 +476,14 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			err = g.Wait()
 		}
 		if err == nil {
-			task.Log.Debugf("scheduler: %s %s", task.ID.Short(), state)
+			task.Log.Debugf("scheduler: %s %s", task.ID.IDShort(), state)
 			n = 0
 			state++
 		} else if err == ctx.Err() {
 			break
 		} else {
 			// TODO(marius): terminate early on NotSupported, Invalid
-			task.Log.Debugf("scheduler: %s %s: %s; try %d", task.ID.Short(), state, err, n+1)
+			task.Log.Debugf("scheduler: %s %s: %s; try %d", task.ID.IDShort(), state, err, n+1)
 			n++
 		}
 	}
@@ -503,7 +503,7 @@ func (s *Scheduler) directTransfer(ctx context.Context, task *Task) {
 		} else {
 			tctx, tcancel := context.WithCancel(ctx)
 			defer tcancel()
-			go func() { _ = taskdb.Keepalive(tctx, s.TaskDB, task.ID) }()
+			go func() { _ = taskdb.KeepTaskAlive(tctx, s.TaskDB, task.ID) }()
 		}
 	}
 	task.set(TaskRunning)

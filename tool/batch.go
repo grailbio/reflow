@@ -21,6 +21,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/batch"
@@ -217,8 +218,8 @@ See runbatch -help for information about Reflow's batching mechanism.`
 
 	for _, id := range ids {
 		run := b.Runs[id]
-		fmt.Fprintf(&tw, "run %s: %s\n", id, run.State.ID.Short())
-		c.printRunInfo(ctx, &tw, run.State.ID)
+		fmt.Fprintf(&tw, "run %s: %s\n", id, run.State.ID.IDShort())
+		c.printRunInfo(ctx, &tw, digest.Digest(run.State.ID))
 		fmt.Fprintf(&tw, "\tlog:\t%s\n", filepath.Join(b.Dir, "log."+id))
 	}
 }
@@ -273,7 +274,7 @@ The columns displayed by listbatch are:
 				state = "done"
 			}
 		}
-		fmt.Fprintf(&tw, "%s\t%s\t%s\n", id, run.State.ID.Short(), state)
+		fmt.Fprintf(&tw, "%s\t%s\t%s\n", id, run.State.ID.IDShort(), state)
 	}
 }
 

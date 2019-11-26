@@ -55,7 +55,7 @@ func (c *Cmd) logs(ctx context.Context, args ...string) {
 
 	d, err := reflow.Digester.Parse(arg)
 	if err == nil {
-		q := taskdb.Query{ID: d}
+		q := taskdb.TaskQuery{ID: taskdb.TaskID(d)}
 		tasks, err := tdb.Tasks(ctx, q)
 		c.must(err)
 		if len(tasks) == 0 {
