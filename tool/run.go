@@ -440,12 +440,13 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	c.must(c.Config.Instance(&cache))
 
 	var ass assoc.Assoc
-	var repo reflow.Repository
-	if cache.CacheMode != infra.CacheOff {
-		c.must(c.Config.Instance(&ass))
-		c.must(c.Config.Instance(&repo))
+	if err := c.Config.Instance(&ass); cache.CacheMode != infra.CacheOff {
+		c.must(err)
 	}
-
+	var repo reflow.Repository
+	if err := c.Config.Instance(&repo); cache.CacheMode != infra.CacheOff {
+		c.must(err)
+	}
 	var sess *session.Session
 	c.must(c.Config.Instance(&sess))
 
