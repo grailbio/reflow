@@ -108,6 +108,8 @@ type runConfig struct {
 	resourcesFlag string
 	cache         bool
 	sched         bool
+	needAss       bool
+	needRepo      bool
 
 	common commonRunConfig
 }
@@ -134,10 +136,16 @@ func (r *runConfig) Err() error {
 				return fmt.Errorf("-resources: %s", err)
 			}
 		}
+		if r.cache {
+			r.needAss = true
+			r.needRepo = true
+		}
 	} else {
 		if r.resourcesFlag != "" {
 			return errors.New("-resources can only be used in local mode")
 		}
+		r.needAss = true
+		r.needRepo = true
 	}
 	if r.sched && r.alloc != "" {
 		return errors.New("-alloc cannot be used with -sched")
@@ -283,19 +291,43 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	}
 	c.Log.Debug(b.String())
 	ctx, cancel := context.WithCancel(ctx)
+
 	var tracer trace.Tracer
 	c.must(c.Config.Instance(&tracer))
 	ctx = trace.WithTracer(ctx, tracer)
-	defer cancel()
-	if config.local {
-		c.runLocal(ctx, config, execLogger, runID, e.Main(), e.MainType(), e.ImageMap, cmdline)
-		return
-	}
+
+	var cache *infra.CacheProvider
+	c.must(c.Config.Instance(&cache))
 
 	var ass assoc.Assoc
-	c.must(c.Config.Instance(&ass))
+	if err = c.Config.Instance(&ass); config.needAss {
+		c.must(err)
+	}
 	var repo reflow.Repository
-	c.must(c.Config.Instance(&repo))
+	if err = c.Config.Instance(&repo); config.needRepo {
+		c.must(err)
+	}
+
+	tctx, tcancel := context.WithCancel(ctx)
+	if tdb != nil {
+		var user *infra.User
+		errTDB := c.Config.Instance(&user)
+		if errTDB != nil {
+			c.Log.Debug(errTDB)
+		}
+		errTDB = tdb.CreateRun(tctx, runID, string(*user))
+		if errTDB != nil {
+			c.Log.Debugf("error writing run to taskdb: %v", errTDB)
+		} else {
+			go func() { _ = taskdb.Keepalive(tctx, tdb, runID) }()
+		}
+	}
+
+	defer cancel()
+	if config.local {
+		c.runLocal(ctx, config, execLogger, runID, e.Main(), e.MainType(), e.ImageMap, cmdline, ass, repo, tdb, cache)
+		return
+	}
 
 	// Default case: execute on cluster with shared cache.
 	// TODO: get rid of profile here
@@ -311,21 +343,6 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	}
 	var labels pool.Labels
 	c.must(c.Config.Instance(&labels))
-
-	tctx, tcancel := context.WithCancel(ctx)
-	if tdb != nil {
-		var user *infra.User
-		err := c.Config.Instance(&user)
-		if err != nil {
-			c.Log.Debug(err)
-		}
-		err = tdb.CreateRun(tctx, runID, string(*user))
-		if err != nil {
-			c.Log.Debugf("error writing run to taskdb: %v", err)
-		} else {
-			go func() { _ = taskdb.Keepalive(tctx, tdb, runID) }()
-		}
-	}
 
 	var scheduler *sched.Scheduler
 	var wg wg.WaitGroup
@@ -352,8 +369,6 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 			wg.Done()
 		}()
 	}
-	var cache *infra.CacheProvider
-	c.must(c.Config.Instance(&cache))
 	run := runner.Runner{
 		Flow: e.Main(),
 		EvalConfig: flow.EvalConfig{
@@ -433,20 +448,9 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	}
 }
 
-func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID digest.Digest, f *flow.Flow, typ *types.T, imageMap map[string]string, cmdline string) {
+func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID digest.Digest, f *flow.Flow, typ *types.T, imageMap map[string]string, cmdline string, ass assoc.Assoc, repo reflow.Repository, tdb taskdb.TaskDB, cache *infra.CacheProvider) {
 	client, resources := c.dockerClient()
 
-	var cache *infra.CacheProvider
-	c.must(c.Config.Instance(&cache))
-
-	var ass assoc.Assoc
-	if err := c.Config.Instance(&ass); cache.CacheMode != infra.CacheOff {
-		c.must(err)
-	}
-	var repo reflow.Repository
-	if err := c.Config.Instance(&repo); cache.CacheMode != infra.CacheOff {
-		c.must(err)
-	}
 	var sess *session.Session
 	c.must(c.Config.Instance(&sess))
 
@@ -456,16 +460,6 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	var awstool *aws.AWSTool
 	c.must(c.Config.Instance(&awstool))
 
-	var tdb taskdb.TaskDB
-	// TODO(dnicoloau): Add setup-tasktb command to setup a
-	// taskdb for reflow open source.
-	if err := c.Config.Instance(&tdb); err != nil {
-		if strings.HasPrefix(err.Error(), "no provider for type taskdb.TaskDB") {
-			c.Log.Debug(err)
-		} else {
-			c.Fatal(err)
-		}
-	}
 	transferer := &repository.Manager{
 		Status:           c.Status.Group("transfers"),
 		PendingTransfers: repository.NewLimits(c.TransferLimit()),
@@ -498,21 +492,6 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	var labels pool.Labels
 	if err := c.Config.Instance(&labels); err != nil {
 		c.Log.Debug(err)
-	}
-
-	tctx, tcancel := context.WithCancel(ctx)
-	if tdb != nil {
-		var user *infra.User
-		err := c.Config.Instance(&user)
-		if err != nil {
-			c.Log.Debug(err)
-		}
-		err = tdb.CreateRun(tctx, runID, string(*user))
-		if err != nil {
-			c.Log.Debugf("taskdb createrun: %v\n", err)
-		} else {
-			go func() { _ = taskdb.Keepalive(tctx, tdb, runID) }()
-		}
 	}
 
 	evalConfig := flow.EvalConfig{
@@ -551,9 +530,6 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	}
 	c.WaitForBackgroundTasks(&wg, 10*time.Minute)
 	bgcancel()
-	if tcancel != nil {
-		tcancel()
-	}
 	if err := eval.Err(); err != nil {
 		c.Errorln(err)
 		c.Exit(11)
