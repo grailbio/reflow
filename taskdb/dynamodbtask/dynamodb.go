@@ -1,3 +1,7 @@
+// Copyright 2019 GRAIL, Inc. All rights reserved.
+// Use of this source code is governed by the Apache 2.0
+// license that can be found in the LICENSE file.
+
 // Package dynamodbtask implements the taskdb.TaskDB interface for AWS dynamodb backend.
 // Every run or task is stored in a row with their attributes which includes labels, user,
 // keepalive and start times. Tasks have a runid column to identify which run it belongs to.

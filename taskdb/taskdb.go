@@ -1,3 +1,7 @@
+// Copyright 2019 GRAIL, Inc. All rights reserved.
+// Use of this source code is governed by the Apache 2.0
+// license that can be found in the LICENSE file.
+
 // Package taskdb defines interfaces and data types for storing and querying reflow
 // runs and tasks. It also provides a function to keep a lease on a run/task.
 package taskdb
