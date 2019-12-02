@@ -56,8 +56,8 @@ func (s *scanner) Scan(ctx context.Context, h ItemsHandler) error {
 					TableName:                aws.String(s.TaskDB.TableName),
 					Segment:                  aws.Int64(int64(segment)),
 					TotalSegments:            aws.Int64(int64(s.SegmentCount)),
-					FilterExpression:         aws.String("attribute_exists(#v)"),
-					ExpressionAttributeNames: map[string]*string{"#v": aws.String("Value")},
+					FilterExpression:         aws.String("attribute_exists(#t)"),
+					ExpressionAttributeNames: map[string]*string{"#t": aws.String("Task")},
 				}
 				if lastEvaluatedKey != nil {
 					params.ExclusiveStartKey = lastEvaluatedKey
@@ -83,8 +83,9 @@ func (s *scanner) Scan(ctx context.Context, h ItemsHandler) error {
 				attempts = 0
 
 				// Call the Handler function with the Items.
-				err = h.HandleItems(resp.Items)
-				log.Errorf("error handling items %v", err)
+				if err = h.HandleItems(resp.Items); err != nil {
+					log.Errorf("error handling items %v", err)
+				}
 
 				// We're done if the last evaluated key is empty.
 				if resp.LastEvaluatedKey == nil {

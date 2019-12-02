@@ -79,8 +79,9 @@ func (s *scanner) Scan(ctx context.Context, h ItemsHandler) error {
 				attempts = 0
 
 				// Call the Handler function with the Items
-				err = h.HandleItems(resp.Items)
-				log.Errorf("error handling items %v", err)
+				if err = h.HandleItems(resp.Items); err != nil {
+					log.Errorf("error handling items %v", err)
+				}
 
 				// We're done if the last evaluated key is empty
 				if resp.LastEvaluatedKey == nil {
