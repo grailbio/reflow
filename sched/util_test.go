@@ -324,6 +324,9 @@ func (a *testAlloc) Unload(ctx context.Context, fs reflow.Fileset) error {
 		if a.refCount[file.ID] == 0 {
 			a.repository.Delete(ctx, file.ID)
 		}
+		if a.refCount[file.ID] < 0 {
+			golog.Panicf("unload: %v has negative ref count", file.ID)
+		}
 	}
 	return nil
 }

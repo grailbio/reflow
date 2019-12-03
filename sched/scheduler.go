@@ -25,6 +25,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/grailbio/base/data"
@@ -365,14 +366,16 @@ func (e execState) String() string {
 
 func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 	var (
-		err     error
-		alloc   = task.alloc
-		ctx     = alloc.Context
-		x       reflow.Exec
-		n       = 0
-		state   execState
-		tcancel context.CancelFunc
-		tctx    context.Context
+		err            error
+		alloc          = task.alloc
+		ctx            = alloc.Context
+		x              reflow.Exec
+		n              = 0
+		state          execState
+		tcancel        context.CancelFunc
+		tctx           context.Context
+		loadedData     sync.Map
+		resultUnloaded bool
 	)
 	// TODO(marius): we should distinguish between fatal and nonfatal errors.
 	// The fatal ones are useless to retry.
@@ -381,23 +384,32 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		default:
 			panic("bad state")
 		case stateLoad:
-			g, ctx := errgroup.WithContext(ctx)
 			for i, arg := range task.Config.Args {
 				if arg.Fileset == nil {
 					continue
 				}
-				i, arg := i, arg
+				loadedData.Store(i, false)
+			}
+			g, gctx := errgroup.WithContext(ctx)
+			loadedData.Range(func(key, value interface{}) bool {
+				if value.(bool) {
+					return true
+				}
+				i := key.(int)
+				arg := task.Config.Args[i]
 				g.Go(func() error {
 					task.Log.Debugf("loading %s", (*arg.Fileset).Short())
-					fs, lerr := alloc.Load(ctx, s.Repository.URL(), *arg.Fileset)
+					fs, lerr := alloc.Load(gctx, s.Repository.URL(), *arg.Fileset)
 					if lerr != nil {
 						return lerr
 					}
 					task.Log.Debugf("loaded %s", fs.Short())
 					task.Config.Args[i].Fileset = &fs
+					loadedData.Store(i, true)
 					return nil
 				})
-			}
+				return true
+			})
 			err = g.Wait()
 		case statePut:
 			x, err = alloc.Put(ctx, task.ID, task.Config)
@@ -429,23 +441,35 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			files := task.Result.Fileset.Files()
 			err = s.Transferer.Transfer(ctx, s.Repository, alloc.Repository(), files...)
 		case stateUnload:
-			var unload []reflow.Fileset
-			for _, arg := range task.Config.Args {
-				if arg.Fileset != nil {
-					unload = append(unload, *arg.Fileset)
-				}
-			}
-			unload = append(unload, task.Result.Fileset)
 			g, gctx := errgroup.WithContext(ctx)
-			for _, arg := range unload {
-				arg := arg
+			loadedData.Range(func(key, value interface{}) bool {
+				i := key.(int)
+				fs := *task.Config.Args[i].Fileset
 				g.Go(func() error {
-					task.Log.Debugf("unloading %v", arg.Short())
-					uerr := alloc.Unload(gctx, arg)
+					task.Log.Debugf("unloading %v", fs.Short())
+					uerr := alloc.Unload(gctx, fs)
 					if uerr != nil {
 						return uerr
 					}
-					task.Log.Debugf("unloaded %v", arg.Short())
+					task.Log.Debugf("unloaded %v", fs.Short())
+					loadedData.Delete(i)
+					return nil
+				})
+				return true
+			})
+			// Extern loads the files to be externed and gets unloaded above. Extern's result
+			// fileset includes files that were externed and not necessarily any new data
+			// that was produced. Hence we don't need to unload the result.
+			if task.Config.Type != "extern" && !resultUnloaded {
+				g.Go(func() error {
+					fs := task.Result.Fileset
+					task.Log.Debugf("unloading %v", fs.Short())
+					uerr := alloc.Unload(gctx, fs)
+					if uerr != nil {
+						return uerr
+					}
+					task.Log.Debugf("unloaded %v", fs.Short())
+					resultUnloaded = true
 					return nil
 				})
 			}

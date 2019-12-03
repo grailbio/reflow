@@ -87,6 +87,11 @@ func TestSchedulerBasic(t *testing.T) {
 	}
 
 	out := randomFileset(alloc.Repository())
+	// Increment the refcount for the result files in the alloc repository, so that we can unload
+	// them later.
+	for _, f := range out.Files() {
+		alloc.refCount[f.ID]++
+	}
 	req.Reply <- testClusterAllocReply{Alloc: alloc, Err: nil}
 
 	// By the time the task is running, it should have all of the dependent objects
@@ -417,16 +422,120 @@ func TestSchedulerDirectTransferUnsupported(t *testing.T) {
 		t.Fatal("task must fail with unsupported")
 	}
 
-	allocs := []*testAlloc{newTestAlloc(reflow.Resources{"cpu": 2, "mem": 2})}
+	allocs := []*testAlloc{newTestAlloc(reflow.Resources{"cpu": 2, "mem": 10 << 30})}
 	req := <-cluster.Req()
 	req.Reply <- testClusterAllocReply{Alloc: allocs[0]}
-
-	_ = task.Wait(ctx, sched.TaskRunning)
+	for {
+		// Extern is weird in that the state machine can go from the end state to the initial state
+		// when we fail on a direct transfer and try an indirect transfer. Hence it is not sufficient if
+		// task.Wait(TaskRunning) returns successfully (which it would even after the direct
+		// transfer failed). We need to ensure that it is actually running the indirect transfer here.
+		_ = task.Wait(ctx, sched.TaskRunning)
+		if task.State() == sched.TaskRunning {
+			break
+		}
+	}
 	select {
 	case <-cluster.Req():
 		t.Errorf("Cluster should have no requests")
 	default:
 	}
+}
+func TestSchedulerLoadUnloadExtern(t *testing.T) {
+	scheduler, cluster, repo, shutdown := newTestScheduler(t)
+	defer shutdown()
+	ctx := context.Background()
+	in := randomFileset(repo)
+	expectExists(t, repo, in)
+
+	task := newTask(10, 10<<30, 0)
+	task.Config.Args = []reflow.Arg{{Fileset: &in}}
+	task.Config.Type = "extern"
+
+	scheduler.Submit(task)
+	// Wait for the direct transfer to fail
+	_ = task.Wait(ctx, sched.TaskLost)
+	if !errors.Is(errors.NotSupported, task.Err) {
+		t.Fatal("task must fail with unsupported")
+	}
+
+	req := <-cluster.Req()
+	if got, want := req.Requirements, newRequirements(10, 10<<30, 1); !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	// TODO(pgopal): There is no way to wait for the tasks to be added to the scheduler queue.
+	// Hence we cannot check task stats here.
+	stats := scheduler.Stats.GetStats()
+	if got, want := len(stats.Allocs), 0; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	// pending allocs will not have an entry in stats.Allocs.
+	if got, want := stats.OverallStats.TotalTasks, int64(2); got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	alloc := newTestAlloc(reflow.Resources{"cpu": 25, "mem": 20 << 30})
+	req.Reply <- testClusterAllocReply{Alloc: alloc, Err: nil}
+
+	// By the time the task is running, it should have all of the dependent objects
+	// in its repository.
+	for {
+		// Extern is weird in that the state machine can go from the end state to the initial state
+		// when we fail on a direct transfer and try an indirect transfer. Hence it is not sufficient if
+		// task.Wait(TaskRunning) returns successfully (which it would even after the direct
+		// transfer failed). We need to ensure that it is actually running the indirect transfer here.
+		_ = task.Wait(ctx, sched.TaskRunning)
+		if task.State() == sched.TaskRunning {
+			break
+		}
+	}
+	if err := task.Wait(ctx, sched.TaskRunning); err != nil {
+		t.Fatal(err)
+	}
+	stats = scheduler.Stats.GetStats()
+	if got, want := len(stats.Tasks), 1; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := stats.Tasks[task.ID.String()].State, 2; got != want {
+		for k, v := range stats.Tasks {
+			t.Errorf("task %v: %v", k, v)
+		}
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := len(stats.Allocs), 1; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	want := sched.OverallStats{TotalAllocs: 1, TotalTasks: 2}
+	if got := stats.OverallStats; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	expectExists(t, alloc.Repository(), in)
+
+	// Complete the task and check that all of its output is placed back into
+	// the main repository.
+	exec := alloc.exec(task.ID)
+	out := randomFileset(alloc.Repository())
+	exec.complete(reflow.Result{Fileset: out}, nil)
+	if err := task.Wait(ctx, sched.TaskDone); err != nil {
+		t.Fatal(err)
+	}
+	if task.Err != nil {
+		t.Errorf("unexpected task error: %v", task.Err)
+	}
+	stats = scheduler.Stats.GetStats()
+	if got, want := len(stats.Tasks), 1; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := stats.Tasks[task.ID.String()].State, 4; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := len(stats.Allocs), 1; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	want = sched.OverallStats{TotalAllocs: 1, TotalTasks: 2}
+	if got := stats.OverallStats; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	expectExists(t, repo, out)
 }
 
 func TestSchedulerLoadUnloadFiles(t *testing.T) {
@@ -463,8 +572,6 @@ func TestSchedulerLoadUnloadFiles(t *testing.T) {
 	if got, want := stats.OverallStats.TotalTasks, int64(1); got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
-
-	out := randomFileset(alloc.Repository())
 	req.Reply <- testClusterAllocReply{Alloc: alloc, Err: nil}
 
 	// By the time the task is running, it should have all of the dependent objects
@@ -493,6 +600,12 @@ func TestSchedulerLoadUnloadFiles(t *testing.T) {
 	// Complete the task and check that all of its output is placed back into
 	// the main repository.
 	exec := alloc.exec(task.ID)
+	out := randomFileset(alloc.Repository())
+	// Increment the refcount for the result files in the alloc repository, so that we can unload
+	// them later.
+	for _, f := range out.Files() {
+		alloc.refCount[f.ID]++
+	}
 	exec.complete(reflow.Result{Fileset: out}, nil)
 	if err := task.Wait(ctx, sched.TaskDone); err != nil {
 		t.Fatal(err)
