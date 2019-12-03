@@ -181,7 +181,7 @@ func (m *Manager) Transfer(ctx context.Context, dst, src reflow.Repository, file
 	var err error
 	files, err = m.NeedTransfer(ctx, dst, files...)
 	if err != nil {
-		return errors.E("needtransfer", err)
+		return err
 	}
 	if src == dst {
 		if len(files) > 0 {
@@ -272,7 +272,7 @@ func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, file
 		if err := lx.Acquire(g1ctx, 1); err != nil {
 			m.done(dst, src, file, err)
 			if err != nil {
-				return errors.E("lx.acquire", err)
+				return err
 			}
 			return err
 		}
@@ -280,7 +280,7 @@ func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, file
 			lx.Release(1)
 			m.done(dst, src, file, err)
 			if err != nil {
-				return errors.E("ly.acquire", err)
+				return err
 			}
 			return err
 		}
