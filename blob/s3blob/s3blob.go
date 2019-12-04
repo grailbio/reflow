@@ -202,8 +202,7 @@ func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 	var resp *s3.HeadObjectOutput
 	var err error
 	for retries := 0; ; retries++ {
-		err = admit.Retry(ctx, b.fileAdmitter, 1, func() error {
-			var err error
+		err = admit.Retry(ctx, b.fileAdmitter, 1, func() (admit.CapacityStatus, error) {
 			ctx, cancel := context.WithTimeout(ctx, metaTimeout)
 			defer cancel()
 			resp, err = b.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
@@ -213,9 +212,9 @@ func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 			err = ctxErr(ctx, err)
 			if kind(err) == errors.ResourcesExhausted {
 				log.Printf("s3blob.File: %s/%s: %v (over capacity)\n", b.bucket, key, err)
-				return admit.ErrOverCapacity
+				return admit.OverNeedRetry, err
 			}
-			return err
+			return admit.Within, err
 		})
 		if !retryable(err) {
 			break
@@ -350,8 +349,7 @@ func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w i
 	var err error
 	policy := timeoutPolicy(size)
 	for retries := 0; ; retries++ {
-		err = admit.Retry(ctx, b.admitter, s3concurrency, func() error {
-			var err error
+		err = admit.Retry(ctx, b.admitter, s3concurrency, func() (admit.CapacityStatus, error) {
 			d := s3manager.NewDownloaderWithClient(b.client, func(d *s3manager.Downloader) {
 				d.PartSize = s3minpartsize
 				d.Concurrency = s3concurrency
@@ -362,9 +360,9 @@ func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w i
 			err = ctxErr(ctx, err)
 			if kind(err) == errors.ResourcesExhausted {
 				log.Printf("s3blob.Download: %s/%s: %v (over capacity)\n", b.bucket, key, err)
-				err = admit.ErrOverCapacity
+				return admit.OverNeedRetry, err
 			}
-			return err
+			return admit.Within, err
 		})
 		if !retryable(err) {
 			break
@@ -402,8 +400,7 @@ func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader
 	var err error
 	policy := timeoutPolicy(size)
 	for retries := 0; ; retries++ {
-		err = admit.Retry(ctx, b.admitter, s3concurrency, func() error {
-			var err error
+		err = admit.Retry(ctx, b.admitter, s3concurrency, func() (admit.CapacityStatus, error) {
 			up := s3manager.NewUploaderWithClient(b.client, func(u *s3manager.Uploader) {
 				u.PartSize = s3minpartsize
 				u.Concurrency = s3concurrency
@@ -422,9 +419,9 @@ func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader
 			err = ctxErr(ctx, err)
 			if kind(err) == errors.ResourcesExhausted {
 				log.Printf("s3blob.Put: %s/%s: %v (over capacity)\n", b.bucket, key, err)
-				return admit.ErrOverCapacity
+				return admit.OverNeedRetry, err
 			}
-			return err
+			return admit.Within, err
 		})
 		if !retryable(err) {
 			break
