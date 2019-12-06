@@ -344,6 +344,7 @@ func TestShouldRetry(t *testing.T) {
 		{awserr.New(s3.ErrCodeNoSuchKey, "test", nil), false},
 		{awserr.New("MultipartUpload", "test", context.Canceled), false},
 		{awserr.New("MultipartUpload", "test", context.DeadlineExceeded), false},
+		{awserr.New("MultipartUpload", "test", awserr.New("RequestTimeout", "test2", nil)), true},
 		{aws.ErrMissingRegion, false},
 		{aws.ErrMissingEndpoint, false},
 		{context.Canceled, false},

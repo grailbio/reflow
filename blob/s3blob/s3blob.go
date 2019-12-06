@@ -656,37 +656,43 @@ func (b *Bucket) getObjectInput(key, etag string) *s3.GetObjectInput {
 
 // kind interprets an S3 API error into a Reflow error kind.
 func kind(err error) errors.Kind {
-	aerr, ok := err.(awserr.Error)
-	if !ok {
-		return errors.Other
-	}
-	if request.IsErrorThrottle(err) {
-		return errors.ResourcesExhausted
-	}
-	if request.IsErrorRetryable(err) {
-		return errors.Temporary
-	}
-	if aerr.Code() == request.CanceledErrorCode {
-		return errors.Canceled
-	}
-	// The underlying error was an S3 error. Try to classify it.
-	// Best guess based on Amazon's descriptions:
-	switch aerr.Code() {
-	// Code NotFound is not documented, but it's what the API actually returns.
-	case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey, "NoSuchVersion", "NotFound":
-		return errors.NotExist
-	case "AccessDenied":
-		return errors.NotAllowed
-	case "InvalidRequest", "InvalidArgument", "EntityTooSmall", "EntityTooLarge", "KeyTooLong", "MethodNotAllowed":
-		return errors.Fatal
-	case "ExpiredToken", "AccountProblem", "ServiceUnavailable", "TokenRefreshRequired", "OperationAborted":
-		return errors.Unavailable
-	case "PreconditionFailed":
-		return errors.Precondition
-	case "SlowDown":
-		return errors.ResourcesExhausted
-	case "BadRequest":
-		return errors.Temporary
+	for {
+		if request.IsErrorThrottle(err) {
+			return errors.ResourcesExhausted
+		}
+		if request.IsErrorRetryable(err) {
+			return errors.Temporary
+		}
+		aerr, ok := err.(awserr.Error)
+		if !ok {
+			break
+		}
+		if aerr.Code() == request.CanceledErrorCode {
+			return errors.Canceled
+		}
+		// The underlying error was an S3 error. Try to classify it.
+		// Best guess based on Amazon's descriptions:
+		switch aerr.Code() {
+		// Code NotFound is not documented, but it's what the API actually returns.
+		case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey, "NoSuchVersion", "NotFound":
+			return errors.NotExist
+		case "AccessDenied":
+			return errors.NotAllowed
+		case "InvalidRequest", "InvalidArgument", "EntityTooSmall", "EntityTooLarge", "KeyTooLong", "MethodNotAllowed":
+			return errors.Fatal
+		case "ExpiredToken", "AccountProblem", "ServiceUnavailable", "TokenRefreshRequired", "OperationAborted":
+			return errors.Unavailable
+		case "PreconditionFailed":
+			return errors.Precondition
+		case "SlowDown":
+			return errors.ResourcesExhausted
+		case "BadRequest":
+			return errors.Temporary
+		}
+		if aerr.OrigErr() == nil {
+			break
+		}
+		err = aerr.OrigErr()
 	}
 	return errors.Other
 }
