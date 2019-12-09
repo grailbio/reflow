@@ -86,6 +86,7 @@ func (r *Repository) InstallDigest(d digest.Digest, file string) error {
 			if ferr != nil {
 				return ferr
 			}
+			defer func() { _ = f.Close() }()
 			_, err = r.Put(context.Background(), f)
 		}
 	}

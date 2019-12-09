@@ -765,6 +765,15 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 		return "", err
 	}
 	c.AppendFile(CloudFile{
+		Path:        "/etc/systemd/system.conf",
+		Permissions: "0644",
+		Owner:       "root",
+		Content: `
+		[Manager]
+		DefaultLimitNOFILE=65536
+		`,
+	})
+	c.AppendFile(CloudFile{
 		Path:        "/etc/reflowconfig",
 		Permissions: "0644",
 		Owner:       "root",
