@@ -43,10 +43,13 @@ const (
 	s3concurrency     = 100
 	defaultS3MinLimit = 500
 	defaultS3MaxLimit = 2000
-	// Use a lower limit for S3 HeadObject calls since, while they are relatively light-weight operations,
-	// doing too many of them concurrently seems to slow them all down.
-	defaultS3HeadMaxLimit = 1000
-	defaultMaxRetries     = 3
+	defaultMaxRetries = 3
+
+	// See: https://docs.google.com/document/d/1Nl3UyQXTRusXDu8tIt_s9N6JxXu1vhuKeBYssyaKcGU
+	// defaultS3AIMDDecFactor is the default decrease factor for the AIMD-based admission controller policy.
+	defaultS3AIMDDecFactor = 10
+	// defaultS3HeadLatencyLimit is the max acceptable latency for S3 HeadObject calls.
+	defaultS3HeadLatencyLimit = 300 * time.Millisecond
 
 	// minBPS defines the lowest acceptable transfer rate.
 	minBPS = 1 << 20
@@ -170,6 +173,14 @@ func newS3AdmitPolicy(maxLim int, varname string) admit.RetryPolicy {
 	return c
 }
 
+// NewS3AimdPolicy returns a default admit.RetryPolicy backed by an AIMD admission controller.
+func newS3AimdPolicy(varname string) admit.RetryPolicy {
+	rp := retry.MaxTries(retry.Jitter(retry.Backoff(500*time.Millisecond, time.Minute, 1.5), 0.5), defaultMaxRetries)
+	c := admit.AIMDWithRetry(defaultS3MinLimit, defaultS3AIMDDecFactor, rp)
+	admit.EnableVarExport(c, varname)
+	return c
+}
+
 // Bucket represents an s3 bucket; it implements blob.Bucket.
 type Bucket struct {
 	bucket       string
@@ -190,7 +201,7 @@ func NewBucket(name string, client s3iface.S3API) *Bucket {
 	return &Bucket{
 		name, client,
 		newS3AdmitPolicy(defaultS3MaxLimit, "s3data"),
-		newS3AdmitPolicy(defaultS3HeadMaxLimit, "s3head"),
+		newS3AimdPolicy("s3head"),
 		newS3RetryPolicy(),
 		defaultS3ObjectCopySizeLimit,
 		defaultS3MultipartCopyPartSize,
@@ -205,14 +216,19 @@ func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 		err = admit.Retry(ctx, b.fileAdmitter, 1, func() (admit.CapacityStatus, error) {
 			ctx, cancel := context.WithTimeout(ctx, metaTimeout)
 			defer cancel()
+			start := time.Now()
 			resp, err = b.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
 				Bucket: aws.String(b.bucket),
 				Key:    aws.String(key),
 			})
+			dur := time.Since(start)
 			err = ctxErr(ctx, err)
 			if kind(err) == errors.ResourcesExhausted {
 				log.Printf("s3blob.File: %s/%s: %v (over capacity)\n", b.bucket, key, err)
 				return admit.OverNeedRetry, err
+			}
+			if dur > defaultS3HeadLatencyLimit {
+				return admit.OverNoRetry, nil
 			}
 			return admit.Within, err
 		})
