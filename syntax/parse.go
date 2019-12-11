@@ -363,13 +363,22 @@ Scan:
 }
 
 func (x *Parser) scanTemplate(s string) *Template {
-	t := &Template{Text: s}
+	var (
+		t   = &Template{Text: s}
+		pos = x.scanner.Position
+	)
 	for {
 		beg := strings.Index(s, "{{")
 		if beg < 0 {
 			break
 		}
 		t.Frags = append(t.Frags, s[:beg])
+		pos.Line += strings.Count(s[:beg], "\n")
+		pos.Offset += len(s[:beg+2])
+		pos.Column += len(s[:beg+2])
+		if i := strings.LastIndex(s[:beg+2], "\n"); i >= 0 {
+			pos.Column = beg - i
+		}
 		end := strings.Index(s, "}}")
 		if end < 0 {
 			x.Error("unterminated interpolation")
@@ -382,17 +391,18 @@ func (x *Parser) scanTemplate(s string) *Template {
 		if err := lx.Parse(); err != nil {
 			for _, e := range err.(posErrors) {
 				// Adjust positions to be relative to parent lexer.
-				e.Filename = x.scanner.Pos().Filename
-				e.Position.Line += x.scanner.Pos().Line
-				e.Position.Offset += x.scanner.Pos().Offset
-				if e.Position.Line == x.scanner.Pos().Line {
-					e.Position.Column += x.scanner.Pos().Column
+				e.Filename = pos.Filename
+				e.Position.Offset += pos.Offset
+				if e.Position.Line <= 1 {
+					e.Position.Column += pos.Column
 				}
+				e.Position.Line += pos.Line - 1
 				x.el = x.el.Append(e)
 			}
 			return nil
 		}
 		t.Args = append(t.Args, lx.Expr)
+		pos.Line += strings.Count(s[beg+2:end], "\n")
 		s = s[end+2:]
 	}
 	t.Frags = append(t.Frags, s)
