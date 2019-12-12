@@ -154,7 +154,7 @@ func (v Fileset) Equal(w Fileset) bool {
 	}
 	for key, f := range v.Map {
 		g, ok := w.Map[key]
-		if !ok || !f.Equal(g) {
+		if !ok || f.IsRef() != g.IsRef() || !f.Equal(g) {
 			return false
 		}
 	}
