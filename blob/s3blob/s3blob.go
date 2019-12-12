@@ -594,6 +594,7 @@ func (b *Bucket) copyObject(ctx context.Context, key string, src *Bucket, srcKey
 				PartNumber:      aws.Int64(i + 1),
 				CopySourceRange: aws.String(fmt.Sprintf("bytes=%d-%d", firstByte, lastByte)),
 			})
+			err = ctxErr(ctx, err)
 			if err == nil || !retryable(err) {
 				break
 			}
@@ -654,8 +655,19 @@ func (b *Bucket) getObjectInput(key, etag string) *s3.GetObjectInput {
 	return in
 }
 
-// kind interprets an S3 API error into a Reflow error kind.
+// kind interprets any error into a Reflow error kind.
 func kind(err error) errors.Kind {
+	if aerr, ok := err.(awserr.Error); ok {
+		return awsKind(aerr)
+	}
+	if re := errors.Recover(err); re != nil {
+		return re.Kind
+	}
+	return errors.Other
+}
+
+// awsKind interprets an AWS error into a Reflow error kind.
+func awsKind(err error) errors.Kind {
 	for {
 		if request.IsErrorThrottle(err) {
 			return errors.ResourcesExhausted

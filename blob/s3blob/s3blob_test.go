@@ -83,7 +83,6 @@ func newErrorBucket(t *testing.T) *Bucket {
 	client := s3test.NewClient(t, errorbucket)
 	client.Region = "us-west-2"
 	client.Err = func(api string, input interface{}) error {
-		t.Logf("call: %s\ninput: %v\n", api, input)
 		if api != "HeadObjectRequestWithContext" {
 			return nil
 		}
@@ -305,18 +304,24 @@ func TestTimeoutPolicy(t *testing.T) {
 func TestFileErrors(t *testing.T) {
 	bucket := newErrorBucket(t)
 	bucket.retrier = retry.MaxTries(retry.Jitter(retry.Backoff(20*time.Millisecond, 100*time.Millisecond, 1.5), 0.25), defaultMaxRetries)
-	ctx := context.Background()
 	for _, tc := range []struct {
-		key   string
-		wantK errors.Kind
-		wantE error
+		key       string
+		wantK     errors.Kind
+		cancelCtx bool
+		wantE     error
 	}{
-		{"key_nosuchkey", errors.NotExist, nil},
-		{"key_deadlineexceeded", errors.Other, fmt.Errorf("s3blob.File errorbucket key_deadlineexceeded: gave up after 3 tries: too many tries")},
-		{"key_awsrequesttimeout", errors.Other, fmt.Errorf("s3blob.File errorbucket key_awsrequesttimeout: gave up after 3 tries: too many tries")},
-		{"key_canceled", errors.Canceled, nil},
-		{"key_awscanceled", errors.Canceled, nil},
+		{"key_nosuchkey", errors.NotExist, false, nil},
+		{"key_deadlineexceeded", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_deadlineexceeded: gave up after 3 tries: too many tries")},
+		{"key_awsrequesttimeout", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_awsrequesttimeout: gave up after 3 tries: too many tries")},
+		{"key_canceled", errors.Canceled, true, nil},
+		{"key_awscanceled", errors.Canceled, false, nil},
 	} {
+		ctx := context.Background()
+		if tc.cancelCtx {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithCancel(context.Background())
+			cancel()
+		}
 		_, got := bucket.File(ctx, tc.key)
 		if got == nil {
 			t.Errorf("want error, got none")
@@ -342,8 +347,6 @@ func TestShouldRetry(t *testing.T) {
 		{nil, false},
 		{awserr.New(request.CanceledErrorCode, "test", nil), false},
 		{awserr.New(s3.ErrCodeNoSuchKey, "test", nil), false},
-		{awserr.New("MultipartUpload", "test", context.Canceled), false},
-		{awserr.New("MultipartUpload", "test", context.DeadlineExceeded), false},
 		{awserr.New("MultipartUpload", "test", awserr.New("RequestTimeout", "test2", nil)), true},
 		{aws.ErrMissingRegion, false},
 		{aws.ErrMissingEndpoint, false},
