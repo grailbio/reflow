@@ -169,47 +169,39 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 					}
 					return v, err
 				}
+				forceIntern := func(src string) (values.T, error) {
+					url, err := url.Parse(src)
+					if err != nil {
+						return nil, err
+					}
+					return &flow.Flow{
+						Op:         flow.Coerce,
+						FlowDigest: coerceFilesetToFileDigest,
+						Coerce:     coerceFilesetToFile,
+						Deps: []*flow.Flow{
+							{
+								Op:         flow.Intern,
+								MustIntern: true,
+								URL:        url,
+								Position:   e.Position.String(),
+								Ident:      ident,
+							},
+						},
+					}, nil
+				}
 				return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 					l, r := vs[0].(reflow.File), vs[1].(reflow.File)
-					if l.IsRef() && !r.IsRef() || !l.IsRef() && r.IsRef() {
+					if l.IsRef() != r.IsRef() {
 						left, right := vs[0], vs[1]
 						if l.IsRef() {
-							url, err := url.Parse(l.Source)
+							left, err = forceIntern(l.Source)
 							if err != nil {
 								return nil, err
-							}
-							left = &flow.Flow{
-								Op:         flow.Coerce,
-								FlowDigest: coerceFilesetToFileDigest,
-								Coerce:     coerceFilesetToFile,
-								Deps: []*flow.Flow{
-									{
-										Op:         flow.Intern,
-										MustIntern: true,
-										URL:        url,
-										Position:   e.Position.String(),
-										Ident:      ident,
-									},
-								},
 							}
 						} else {
-							url, err := url.Parse(r.Source)
+							right, err = forceIntern(r.Source)
 							if err != nil {
 								return nil, err
-							}
-							right = &flow.Flow{
-								Op:         flow.Coerce,
-								FlowDigest: coerceFilesetToFileDigest,
-								Coerce:     coerceFilesetToFile,
-								Deps: []*flow.Flow{
-									{
-										Op:         flow.Intern,
-										MustIntern: true,
-										URL:        url,
-										Position:   e.Position.String(),
-										Ident:      ident,
-									},
-								},
 							}
 						}
 						return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
