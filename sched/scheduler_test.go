@@ -39,7 +39,7 @@ func newTestSchedulerWithRepo(t *testing.T, repo reflow.Repository) (scheduler *
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
-		scheduler.Do(ctx)
+		_ = scheduler.Do(ctx)
 		wg.Done()
 	}()
 	shutdown = func() {
@@ -303,9 +303,14 @@ func TestTaskNetError(t *testing.T) {
 	req := <-cluster.Req()
 	req.Reply <- testClusterAllocReply{Alloc: allocs[0]}
 
+	var err error
 	// Wait for two of the tasks (which will fit in the first alloc) to be allocated.
-	tasks[0].Wait(ctx, sched.TaskRunning)
-	tasks[1].Wait(ctx, sched.TaskRunning)
+	if err = tasks[0].Wait(ctx, sched.TaskRunning); err != nil {
+		t.Fatal(err)
+	}
+	if err = tasks[1].Wait(ctx, sched.TaskRunning); err != nil {
+		t.Fatal(err)
+	}
 
 	if tasks[2].State() != sched.TaskInit {
 		t.Fatal("inconsistent state")
@@ -314,17 +319,17 @@ func TestTaskNetError(t *testing.T) {
 	// Return the second (bigger) alloc and wait for the third task to be allocated.
 	req = <-cluster.Req()
 	req.Reply <- testClusterAllocReply{Alloc: allocs[1]}
-	tasks[2].Wait(ctx, sched.TaskRunning)
+	_ = tasks[2].Wait(ctx, sched.TaskRunning)
 
 	// Fail one of the tasks in the first alloc with a Network Error.
 	exec := allocs[0].exec(digest.Digest(tasks[0].ID))
 	exec.complete(reflow.Result{}, errors.E(errors.Net, "test network error"))
 	// Wait for it to be rescheduled on the second alloc.
-	tasks[0].Wait(ctx, sched.TaskRunning)
+	_ = tasks[0].Wait(ctx, sched.TaskRunning)
 	// Confirm its on the second alloc (will hang if not).
 	allocs[1].exec(digest.Digest(tasks[0].ID))
 	// Confirm the other task is still on the first alloc.
-	tasks[1].Wait(ctx, sched.TaskRunning)
+	_ = tasks[1].Wait(ctx, sched.TaskRunning)
 	allocs[0].exec(digest.Digest(tasks[1].ID))
 }
 

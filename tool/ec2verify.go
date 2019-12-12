@@ -42,7 +42,9 @@ Optionally, the -package will write out the verified results to a Go file verifi
 	existing := instances.VerifiedByRegion[ec.Region]
 	verified, toverify := instancesToVerify(ec.InstanceTypes, existing, *retry)
 	if len(toverify) == 0 {
-		c.Stdout.Write([]byte("no instance types to be verified\n"))
+		if _, err := c.Stdout.Write([]byte("no instance types to be verified\n")); err != nil {
+			c.Fatal(err)
+		}
 		c.Exit(0)
 	}
 	sort.Strings(toverify)
@@ -77,7 +79,9 @@ Optionally, the -package will write out the verified results to a Go file verifi
 
 	data, err := c.Config.Marshal(true)
 	c.must(err)
-	c.Stdout.Write(data)
+	if _, err := c.Stdout.Write(data); err != nil {
+		c.Fatal(err)
+	}
 	c.Println()
 
 	if *pkgPath != "" {
@@ -86,7 +90,7 @@ Optionally, the -package will write out the verified results to a Go file verifi
 		vgen := instances.VerifiedSrcGenerator{filepath.Base(dir), instances.VerifiedByRegion}
 		src, err := vgen.Source()
 		c.must(err)
-		os.MkdirAll(dir, 0777)
+		c.must(os.MkdirAll(dir, 0777))
 		path := filepath.Join(dir, "verified.go")
 		c.must(ioutil.WriteFile(path, src, 0644))
 	}

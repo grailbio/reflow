@@ -177,7 +177,7 @@ func (c *Cmd) printRunInfo(ctx context.Context, w io.Writer, id digest.Digest) b
 	}
 
 	var state runner.State
-	statefile.Unmarshal(&state)
+	c.must(statefile.Unmarshal(&state))
 	fmt.Fprintln(w, id.Hex(), "(run)")
 	fmt.Fprintf(w, "\ttime:\t%s\n", state.Created.Local().Format(time.ANSIC))
 	fmt.Fprintf(w, "\tprogram:\t%s\n", state.Program)

@@ -33,7 +33,8 @@ and the program exits with a non-zero status if any tests fail.`
 		flags.Usage()
 	}
 	e := Eval{InputArgs: flags.Args()}
-	c.must(c.Eval(&e))
+	c.must(e.Run())
+	c.must(e.ResolveImages(c.Config))
 	if !e.V1 {
 		c.Fatal("reflow test is supported only for v1 reflows")
 	}

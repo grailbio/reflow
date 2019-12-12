@@ -86,7 +86,10 @@ supplied via a CSV batch file as in "reflow runbatch".`
 				e := Eval{
 					InputArgs: args,
 				}
-				if err := c.Eval(&e); err != nil {
+				if err := e.Run(); err != nil {
+					return err
+				}
+				if err := e.ResolveImages(c.Config); err != nil {
 					return err
 				}
 				c.Log.Printf("repair: %s", strings.Join(args, " "))
@@ -101,7 +104,8 @@ supplied via a CSV batch file as in "reflow runbatch".`
 		e := Eval{
 			InputArgs: flags.Args(),
 		}
-		c.must(c.Eval(&e))
+		c.must(e.Run())
+		c.must(e.ResolveImages(c.Config))
 		repair.ImageMap = e.ImageMap
 		repair.Do(ctx, e.Main())
 

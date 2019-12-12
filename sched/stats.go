@@ -18,15 +18,20 @@ type OverallStats struct {
 	TotalTasks int64
 }
 
-// AllocStats is the per alloc stats.
-type AllocStats struct {
-	sync.Mutex `json:"-"`
+// AllocStatsData is the per alloc stats snapshot.
+type AllocStatsData struct {
 	// Resources is the currently available resources.
 	reflow.Resources
 	// Dead indicates if this alloc is dead.
 	Dead bool
 	// TaskIDs is the list of tasks running in this alloc.
 	TaskIDs map[string]int
+}
+
+// AllocStats is the per alloc stats used to update stats.
+type AllocStats struct {
+	sync.Mutex `json:"-"`
+	AllocStatsData
 }
 
 // AssignTask makes an alloc<->task association.
@@ -52,9 +57,9 @@ func (a *AllocStats) MarkDead() {
 	a.Dead = true
 }
 
-// Copy returns a copy of AllocStats.
-func (a *AllocStats) Copy() AllocStats {
-	var copy AllocStats
+// Copy returns an immutable snapshot of AllocStats.
+func (a *AllocStats) Copy() AllocStatsData {
+	var copy AllocStatsData
 	a.Mutex.Lock()
 	defer a.Mutex.Unlock()
 	copy.Resources.Set(a.Resources)
@@ -66,8 +71,8 @@ func (a *AllocStats) Copy() AllocStats {
 	return copy
 }
 
-// TaskStatFields is the set of the task stats.
-type TaskStatsFields struct {
+// TaskStatsData is a snapshot of the task stats.
+type TaskStatsData struct {
 	// Ident is the exec identifier of this task.
 	Ident string
 	// Type is the type of exec.
@@ -80,12 +85,12 @@ type TaskStatsFields struct {
 	RunID string
 }
 
-// TaskStats is the per task info and stats.
+// TaskStats is the per task info and stats used to update stats.
 type TaskStats struct {
-	// Mutex protects TaskStatsFields.
+	// Mutex protects TaskStatsData.
 	sync.Mutex `json:"-"`
-	// TaskStatsFields are the task stats.
-	TaskStatsFields
+	// TaskStatsData are the task stats.
+	TaskStatsData
 }
 
 // Update updates task state, error, if any.
@@ -98,11 +103,11 @@ func (t *TaskStats) Update(task *Task) {
 	}
 }
 
-// Copy returns a copy of TaskStats
-func (t *TaskStats) Copy() TaskStats {
+// Copy returns a immutable snapshot of TaskStats.
+func (t *TaskStats) Copy() TaskStatsData {
 	t.Mutex.Lock()
 	defer t.Mutex.Unlock()
-	return TaskStats{TaskStatsFields: t.TaskStatsFields}
+	return t.TaskStatsData
 }
 
 // NewStats returns an new Stats object.
@@ -113,7 +118,18 @@ func newStats() *Stats {
 	}
 }
 
+// StatsData is a immutable snapshot of Stats, usually obtained by calling Stats.GetStats().
+type StatsData struct {
+	// OverallStats has the overall scheduler stats.
+	OverallStats
+	// Allocs has all the alloc stats, including dead ones.
+	Allocs map[string]AllocStatsData
+	// Tasks has all the task state and stats, including completed/error tasks.
+	Tasks map[string]TaskStatsData
+}
+
 // Stats has all the scheduler stats, including alloc/task states and stats.
+// It is thread safe and can be used to update stats.
 type Stats struct {
 	// Mutex protects all the data members.
 	sync.Mutex `json:"-"`
@@ -136,7 +152,7 @@ func (s *Stats) AddTasks(tasks []*Task) {
 	defer s.Mutex.Unlock()
 	s.TotalTasks += int64(len(tasks))
 	for _, t := range tasks {
-		s.Tasks[t.ID.ID()] = &TaskStats{TaskStatsFields: TaskStatsFields{Ident: t.Config.Ident, Type: t.Config.Type, RunID: t.RunID.ID()}}
+		s.Tasks[t.ID.ID()] = &TaskStats{TaskStatsData: TaskStatsData{Ident: t.Config.Ident, Type: t.Config.Type, RunID: t.RunID.ID()}}
 		t.stats = s.Tasks[t.ID.ID()]
 	}
 }
@@ -170,7 +186,7 @@ func (s *Stats) AddAlloc(alloc *alloc) {
 	for k, v := range alloc.Resources() {
 		resources[k] = v
 	}
-	s.Allocs[alloc.id] = &AllocStats{TaskIDs: make(map[string]int), Resources: resources}
+	s.Allocs[alloc.id] = &AllocStats{AllocStatsData: AllocStatsData{TaskIDs: make(map[string]int), Resources: resources}}
 }
 
 // MarkAllocDead marks an alloc dead.
@@ -178,27 +194,19 @@ func (s *Stats) MarkAllocDead(alloc *alloc) {
 	s.Allocs[alloc.id].MarkDead()
 }
 
-// GetStats returns a copy of the scheduler stats.
-func (s *Stats) GetStats() Stats {
-	var copy Stats
+// GetStats returns a snapshot of the scheduler stats.
+func (s *Stats) GetStats() StatsData {
+	var copy StatsData
 	s.Mutex.Lock()
 	copy.OverallStats = s.OverallStats
-	copy.Allocs = make(map[string]*AllocStats)
+	copy.Allocs = make(map[string]AllocStatsData)
 	for k, v := range s.Allocs {
-		copy.Allocs[k] = v
+		copy.Allocs[k] = v.Copy()
 	}
-	copy.Tasks = make(map[string]*TaskStats)
+	copy.Tasks = make(map[string]TaskStatsData)
 	for k, v := range s.Tasks {
-		copy.Tasks[k] = v
+		copy.Tasks[k] = v.Copy()
 	}
 	s.Mutex.Unlock()
-	for k, v := range copy.Allocs {
-		c := v.Copy()
-		copy.Allocs[k] = &c
-	}
-	for k, v := range copy.Tasks {
-		c := v.Copy()
-		copy.Tasks[k] = &c
-	}
 	return copy
 }

@@ -6,7 +6,6 @@ package tool
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -14,7 +13,9 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow/ec2authenticator"
+	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/lang"
 	"github.com/grailbio/reflow/syntax"
@@ -38,14 +39,14 @@ type Eval struct {
 	V1 bool
 	// Bundle stores a v1 bundle associated with this evaluation.
 	Bundle *syntax.Bundle
+	// Images is the list of images that were parsed from a syntax session.
+	Images []string
 	// ImageMap stores a mapping between image names and resolved
 	// image names, to be used in evaluation.
 	ImageMap map[string]string
-
 	// Type is the module type of the toplevel module that has been
 	// evaluated.
 	Type *types.T
-
 	// Module is the module value that was evaluated.
 	Module values.Module
 }
@@ -70,16 +71,24 @@ func (e *Eval) Main() *flow.Flow {
 	}
 }
 
-// Eval evaluates a Reflow program to a Flow. It can evaluate both
+// Run evaluates a reflow program to a flow. It can evaluate both
 // legacy (".reflow") and modern (".rf") programs. It interprets
 // flags as module parameters. Input arguments and options are
 // specified in the passed-in Eval; results are deposited there, too.
-func (c *Cmd) Eval(e *Eval) error {
-	if len(e.InputArgs) == 0 {
+func (e *Eval) Run() error {
+	if len(e.InputArgs) == 0 && len(e.Program) == 0 {
 		return errors.New("no program provided")
 	}
-	var file string
-	file, args := e.InputArgs[0], e.InputArgs[1:]
+
+	var (
+		file string
+		args []string
+	)
+	file, args = e.Program, e.Args
+	if len(e.InputArgs) > 0 {
+		e.Program, e.Args = e.InputArgs[0], e.InputArgs[1:]
+		file, args = e.Program, e.Args
+	}
 	var err error
 	e.Program, err = filepath.Abs(file)
 	if err != nil {
@@ -99,10 +108,12 @@ func (c *Cmd) Eval(e *Eval) error {
 		flags.Usage = func() {
 			fmt.Fprintf(os.Stderr, "usage of %s:\n", file)
 			flags.PrintDefaults()
-			c.Exit(2)
+			os.Exit(2)
 		}
 		e.Params = make(map[string]string)
-		flags.Parse(args)
+		if err = flags.Parse(args); err != nil {
+			return err
+		}
 		flags.VisitAll(func(f *flag.Flag) {
 			if f.Value.String() == "" {
 				fmt.Fprintf(os.Stderr, "parameter %q is undefined\n", f.Name)
@@ -119,10 +130,11 @@ func (c *Cmd) Eval(e *Eval) error {
 		return nil
 	case ".rf", ".rfx":
 		sess := syntax.NewSession(nil)
-		if err := c.evalV1(sess, e); err != nil {
+		if err := e.evalV1(sess); err != nil {
 			return err
 		}
 		e.Bundle = sess.Bundle()
+		e.Images = sess.Images()
 		return nil
 	default:
 		return fmt.Errorf("unknown file extension %q", ext)
@@ -130,8 +142,8 @@ func (c *Cmd) Eval(e *Eval) error {
 }
 
 // EvalV1 is a helper function to evaluate a reflow v1 program.
-func (c *Cmd) evalV1(sess *syntax.Session, e *Eval) error {
-	file, args := e.InputArgs[0], e.InputArgs[1:]
+func (e *Eval) evalV1(sess *syntax.Session) error {
+	file, args := e.Program, e.Args
 	e.Params = make(map[string]string)
 	e.V1 = true
 	e.Args = args
@@ -140,21 +152,22 @@ func (c *Cmd) evalV1(sess *syntax.Session, e *Eval) error {
 	if err != nil {
 		return err
 	}
-	sess.Stderr = c.Stderr
 	m, err := sess.Open(file)
 	if err != nil {
 		return err
 	}
 	flags, err := m.Flags(sess, sess.Values)
 	if err != nil {
-		c.Fatal(err)
+		return errors.E(errors.Fatal, err)
 	}
 	flags.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage of %s:\n", file)
 		flags.PrintDefaults()
-		c.Exit(2)
+		os.Exit(2)
 	}
-	flags.Parse(args)
+	if err = flags.Parse(args); err != nil {
+		return err
+	}
 	if flags.NArg() > 0 {
 		err = fmt.Errorf("unrecognized parameters: %s", strings.Join(flags.Args(), " "))
 		fmt.Fprintln(os.Stderr, err)
@@ -174,12 +187,26 @@ func (c *Cmd) evalV1(sess *syntax.Session, e *Eval) error {
 	flags.VisitAll(func(f *flag.Flag) {
 		e.Params[f.Name] = f.Value.String()
 	})
-	var awsSession *session.Session
-	err = c.Config.Instance(&awsSession)
+	return err
+}
+
+// Resolve images resolves the images in an evaluated program.
+func (e *Eval) ResolveImages(config infra.Config) error {
+	// resolve images is only supported for v1 flows as of this writing.
+	if !e.V1 {
+		return nil
+	}
+	var (
+		awsSession *session.Session
+		err        error
+	)
+	if err = config.Instance(&awsSession); err != nil {
+		return err
+	}
 	r := ImageResolver{
 		Authenticator: ec2authenticator.New(awsSession),
 	}
-	e.ImageMap, err = r.ResolveImages(context.Background(), sess.Images())
+	e.ImageMap, err = r.ResolveImages(context.Background(), e.Images)
 	return err
 }
 

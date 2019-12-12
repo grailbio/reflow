@@ -455,6 +455,8 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 				if taskdbErr := s.TaskDB.SetTaskResult(tctx, task.ID, x.ID()); taskdbErr != nil {
 					task.Log.Errorf("taskdb settaskresult: %v", taskdbErr)
 				}
+			}
+			if tcancel != nil {
 				tcancel()
 			}
 		case statePromote:

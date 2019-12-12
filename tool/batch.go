@@ -96,7 +96,7 @@ flags override any parameters in the batch sample file.
 	idsFlag := flags.String("ids", "", "comma-separated list of ids to run; an empty list runs all")
 	var bc batchConfig
 	bc.Flags(flags)
-	var config commonRunConfig
+	var config CommonRunFlags
 	config.Flags(flags)
 	c.Parse(flags, args, help, "runbatch [-retry] [-reset] [flags]")
 
@@ -126,14 +126,17 @@ flags override any parameters in the batch sample file.
 	}
 	var cache *infra.CacheProvider
 	c.must(c.Config.Instance(&cache))
-
+	assg, err := assertionGenerator(c.Config)
+	if err != nil {
+		c.Fatal(err)
+	}
 	b := &batch.Batch{
 		EvalConfig: flow.EvalConfig{
 			Log:                c.Log,
 			Snapshotter:        c.blob(),
 			Repository:         repo,
 			Assoc:              assoc,
-			AssertionGenerator: c.assertionGenerator(),
+			AssertionGenerator: assg,
 			CacheMode:          cache.CacheMode,
 			Transferer:         transferer,
 		},
@@ -143,7 +146,7 @@ flags override any parameters in the batch sample file.
 		Cluster: cluster,
 		Status:  c.Status.Groupf("batch %s", wd),
 	}
-	config.Configure(&b.EvalConfig, c)
+	c.must(config.Configure(&b.EvalConfig))
 	bc.Configure(b)
 	c.must(b.Init(*resetFlag))
 

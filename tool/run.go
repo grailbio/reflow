@@ -7,7 +7,6 @@ package tool
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -16,7 +15,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -25,7 +23,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/base/digest"
-	"github.com/grailbio/base/state"
+	"github.com/grailbio/infra"
 	"github.com/grailbio/infra/aws"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
@@ -34,126 +32,18 @@ import (
 	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
-	"github.com/grailbio/reflow/infra"
+	reflowinfra "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/runner"
-	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/trace"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/wg"
 )
-
-const maxConcurrentStreams = 2000
-const defaultFlowDir = "/tmp/flow"
-
-type commonRunConfig struct {
-	gc             bool
-	nocacheextern  bool
-	recomputeempty bool
-	eval           string
-	invalidate     string
-	assert         string
-}
-
-func (r *commonRunConfig) Flags(flags *flag.FlagSet) {
-	flags.BoolVar(&r.gc, "gc", false, "enable garbage collection during evaluation")
-	flags.BoolVar(&r.nocacheextern, "nocacheextern", false, "don't cache extern ops")
-	flags.BoolVar(&r.recomputeempty, "recomputeempty", false, "recompute empty cache values")
-	flags.StringVar(&r.eval, "eval", "topdown", "evaluation strategy")
-	flags.StringVar(&r.invalidate, "invalidate", "", "regular expression for node identifiers that should be invalidated")
-	flags.StringVar(&r.assert, "assert", "never", "policy used to assert cached flow result compatibility (eg: never, exact)")
-}
-
-func (r *commonRunConfig) Err() error {
-	switch r.eval {
-	case "topdown", "bottomup":
-	default:
-		return fmt.Errorf("invalid evaluation strategy %s", r.eval)
-	}
-	if r.invalidate != "" {
-		_, err := regexp.Compile(r.invalidate)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// Configure stores the runConfig's configuration into the provided
-// EvalConfig.
-func (r *commonRunConfig) Configure(c *flow.EvalConfig, cmd *Cmd) {
-	c.Assert = cmd.asserter(r.assert)
-	c.NoCacheExtern = r.nocacheextern
-	c.GC = r.gc
-	c.RecomputeEmpty = r.recomputeempty
-	c.BottomUp = r.eval == "bottomup"
-	if r.invalidate != "" {
-		re := regexp.MustCompile(r.invalidate)
-		c.Invalidate = func(f *flow.Flow) bool {
-			return re.MatchString(f.Ident)
-		}
-	}
-}
-
-type runConfig struct {
-	localDir      string
-	dir           string
-	local         bool
-	alloc         string
-	trace         bool
-	resources     reflow.Resources
-	resourcesFlag string
-	cache         bool
-	sched         bool
-	needAss       bool
-	needRepo      bool
-
-	common commonRunConfig
-}
-
-func (r *runConfig) Flags(flags *flag.FlagSet) {
-	r.common.Flags(flags)
-	flags.BoolVar(&r.local, "local", false, "execute flow on the local Docker instance")
-	flags.StringVar(&r.localDir, "localdir", defaultFlowDir, "directory where execution state is stored in local mode")
-	flags.StringVar(&r.dir, "dir", "", "directory where execution state is stored in local mode (alias for local dir for backwards compatibilty)")
-	flags.StringVar(&r.alloc, "alloc", "", "use this alloc to execute program (don't allocate a fresh one)")
-	flags.BoolVar(&r.trace, "trace", false, "trace flow evaluation")
-	flags.StringVar(&r.resourcesFlag, "resources", "", "override offered resources in local mode (JSON formatted reflow.Resources)")
-	flags.BoolVar(&r.sched, "sched", true, "use scalable scheduler instead of work stealing")
-}
-
-func (r *runConfig) Err() error {
-	if r.local {
-		r.sched = false
-		if r.alloc != "" {
-			return errors.New("-alloc cannot be used in local mode")
-		}
-		if r.resourcesFlag != "" {
-			if err := json.Unmarshal([]byte(r.resourcesFlag), &r.resources); err != nil {
-				return fmt.Errorf("-resources: %s", err)
-			}
-		}
-		if r.cache {
-			r.needAss = true
-			r.needRepo = true
-		}
-	} else {
-		if r.resourcesFlag != "" {
-			return errors.New("-resources can only be used in local mode")
-		}
-		r.needAss = true
-		r.needRepo = true
-	}
-	if r.sched && r.alloc != "" {
-		return errors.New("-alloc cannot be used with -sched")
-	}
-	return nil
-}
 
 func (c *Cmd) run(ctx context.Context, args ...string) {
 	flags := flag.NewFlagSet("run", flag.ExitOnError)
@@ -182,7 +72,7 @@ Run exits with an error code according to evaluation status. Exit
 code 10 indicates a transient runtime error. Exit codes greater than
 10 indicate errors during program evaluation, which are likely not
 retriable.`
-	var config runConfig
+	var config RunFlags
 	config.Flags(flags)
 
 	c.Parse(flags, args, help, "run [-local] [flags] path [args]")
@@ -198,28 +88,27 @@ retriable.`
 	e := Eval{
 		InputArgs: flags.Args(),
 	}
-	err := c.Eval(&e)
-	if e.V1 && config.common.gc {
+	c.must(e.Run())
+	c.must(e.ResolveImages(c.Config))
+
+	if e.V1 && config.GC {
 		log.Errorf("garbage collection disabled for v1 reflows")
-		config.common.gc = false
-	} else if config.sched && config.common.gc {
+		config.GC = false
+	} else if config.Sched && config.GC {
 		log.Errorf("garbage collection disabled for with scalable scheduling")
-		config.common.gc = false
-	}
-	if err != nil {
-		c.Fatal(err)
+		config.GC = false
 	}
 	if e.Main() == nil {
 		c.Fatal("module has no Main")
 	}
-	if !config.sched && e.Main().Requirements().Equal(reflow.Requirements{}) && e.Main().Op != flow.Val {
+	if !config.Sched && e.Main().Requirements().Equal(reflow.Requirements{}) && e.Main().Op != flow.Val {
 		c.Fatal("Main requirements unspecified; add a @requires annotation")
 	}
 	c.runCommon(ctx, config, e, file, args)
 }
 
 // runCommon is the helper function used by run commands.
-func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval, file string, args []string) {
+func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file string, args []string) {
 	// In the case where a flow is immediate, we print the result and quit.
 	if e.Main().Op == flow.Val {
 		c.Println(sprintval(e.Main().Value, e.MainType()))
@@ -299,22 +188,22 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval, file stri
 	c.must(c.Config.Instance(&tracer))
 	ctx = trace.WithTracer(ctx, tracer)
 
-	var cache *infra.CacheProvider
+	var cache *reflowinfra.CacheProvider
 	c.must(c.Config.Instance(&cache))
 
 	var ass assoc.Assoc
-	if err = c.Config.Instance(&ass); config.needAss {
+	if err = c.Config.Instance(&ass); runFlags.needAss {
 		c.must(err)
 	}
 	var repo reflow.Repository
-	if err = c.Config.Instance(&repo); config.needRepo {
+	if err = c.Config.Instance(&repo); runFlags.needRepo {
 		c.must(err)
 	}
 
 	tctx, tcancel := context.WithCancel(ctx)
 	defer tcancel()
 	if tdb != nil {
-		var user *infra.User
+		var user *reflowinfra.User
 		errTDB := c.Config.Instance(&user)
 		if errTDB != nil {
 			c.Log.Debug(errTDB)
@@ -329,135 +218,49 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval, file stri
 	}
 
 	defer cancel()
-	if config.local {
-		c.runLocal(ctx, config, execLogger, runID, e.Main(), e.MainType(), e.ImageMap, cmdline, ass, repo, tdb, cache)
+	// TODO(pgopal): Move local mode execution to Runner.
+	if runFlags.Local {
+		c.runLocal(ctx, runFlags, execLogger, runID, e.Main(), e.MainType(), e.ImageMap, cmdline, ass, repo, tdb, cache)
 		return
 	}
 
-	// Default case: execute on cluster with shared cache.
-	// TODO: get rid of profile here
-	cluster := c.Cluster(c.Status.Group("ec2cluster"))
-	transferer := &repository.Manager{
-		Status:           c.Status.Group("transfers"),
-		PendingTransfers: repository.NewLimits(c.TransferLimit()),
-		Stat:             repository.NewLimits(statLimit),
-		Log:              c.Log,
-	}
-	if repo != nil {
-		transferer.PendingTransfers.Set(repo.URL().String(), int(^uint(0)>>1))
-	}
-	var labels pool.Labels
-	c.must(c.Config.Instance(&labels))
-
-	var scheduler *sched.Scheduler
-	var wg wg.WaitGroup
-	// TODO(marius): teardown is too complicated
-	var donecancel func()
-	if config.sched {
-		scheduler = sched.New()
-		scheduler.Transferer = transferer
-		scheduler.Mux = c.blob()
-		scheduler.Repository = repo
-		scheduler.Cluster = cluster
-		scheduler.Log = c.Log.Tee(nil, "scheduler: ")
-		scheduler.MinAlloc.Max(scheduler.MinAlloc, e.Main().Requirements().Min)
-		scheduler.TaskDB = tdb
-		var schedctx context.Context
-		schedctx, donecancel = context.WithCancel(ctx)
-		wg.Add(1)
-		scheduler.ExportStats()
-		go func() {
-			err := scheduler.Do(schedctx)
-			if err != nil && err != schedctx.Err() {
-				c.Log.Printf("scheduler: %v", err)
-			}
-			wg.Done()
-		}()
-	}
-	run := runner.Runner{
-		Flow: e.Main(),
-		EvalConfig: flow.EvalConfig{
-			Log:                execLogger,
-			Repository:         repo,
-			Snapshotter:        c.blob(),
-			Assoc:              ass,
-			AssertionGenerator: c.assertionGenerator(),
-			CacheMode:          cache.CacheMode,
-			Transferer:         transferer,
-			Status:             c.Status.Group(runID.IDShort()),
-			Scheduler:          scheduler,
-			ImageMap:           e.ImageMap,
-			TaskDB:             tdb,
-			RunID:              runID,
-		},
-		Type:    e.MainType(),
-		Labels:  make(pool.Labels),
-		Cluster: cluster,
-		Cmdline: cmdline,
-	}
-	config.common.Configure(&run.EvalConfig, c)
-	run.ID = runID
-	run.Program = e.Program
-	run.Params = e.Params
-	run.Args = e.Args
-	if config.trace {
-		run.Trace = c.Log
-	}
-	if config.alloc != "" {
-		run.AllocID = config.alloc
-		run.Phase = runner.Eval
-	}
-	statefile, err := state.Open(base)
+	var (
+		wg     wg.WaitGroup
+		result runner.State
+	)
+	runConfig := RunConfig{Config: c.Config, Program: file, Args: args, Status: c.Status, RunFlags: runFlags}
+	runner, err := NewRunner(runConfig, nil, c.Log)
 	if err != nil {
-		c.Fatalf("failed to open state file: %v", err)
+		c.Fatal(err)
 	}
-	if err := statefile.Marshal(run.State); err != nil {
-		c.Log.Errorf("failed to marshal state: %v", err)
+	result, err = runner.Go(ctx)
+	if err != nil {
+		c.Errorln(err)
+		c.Exit(1)
 	}
-	ctx, bgcancel := flow.WithBackground(ctx, &wg)
-	for ok := true; ok; {
-		ok = run.Do(ctx)
-		if run.State.Phase == runner.Retry {
-			c.Log.Printf("retrying error %v", run.State.Err)
-		}
-		c.Log.Debugf("run state: %s\n", run.State)
-		if err := statefile.Marshal(run.State); err != nil {
-			c.Log.Errorf("failed to marshal state: %v", err)
-		}
-	}
-	if run.Err != nil {
-		c.Errorln(run.Err)
-	} else {
-		c.Println(run.Result)
-	}
-	if donecancel != nil {
-		donecancel()
-	}
-	c.WaitForBackgroundTasks(&wg, 10*time.Minute)
-	bgcancel()
-	if run.Err != nil {
-		if errors.Is(errors.Eval, run.Err) {
-			// Error that occured during evaluation. Probably not recoverable.
+
+	c.WaitForBackgroundTasks(&wg, 1*time.Minute)
+	if result.Err != nil {
+		if errors.Is(errors.Eval, result.Err) {
+			// Error that occurred during evaluation. Probably not recoverable.
 			// TODO(marius): if this was caused by an underyling exit (from a tool)
 			// then propagate this here.
 			c.Exit(11)
 		}
-		if errors.Restartable(run.Err) {
+		if errors.Restartable(result.Err) {
 			c.Exit(10)
 		}
 		c.Exit(1)
 	}
 }
 
-func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID taskdb.RunID, f *flow.Flow, typ *types.T, imageMap map[string]string, cmdline string, ass assoc.Assoc, repo reflow.Repository, tdb taskdb.TaskDB, cache *infra.CacheProvider) {
+func (c *Cmd) runLocal(ctx context.Context, config RunFlags, execLogger *log.Logger, runID taskdb.RunID, f *flow.Flow, typ *types.T, imageMap map[string]string, cmdline string, ass assoc.Assoc, repo reflow.Repository, tdb taskdb.TaskDB, cache *reflowinfra.CacheProvider) {
 	client, resources := c.dockerClient()
 
 	var sess *session.Session
 	c.must(c.Config.Instance(&sess))
-
 	var creds *credentials.Credentials
 	c.must(c.Config.Instance(&creds))
-
 	var awstool *aws.AWSTool
 	c.must(c.Config.Instance(&awstool))
 
@@ -470,9 +273,9 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 	if repo != nil {
 		transferer.PendingTransfers.Set(repo.URL().String(), int(^uint(0)>>1))
 	}
-	dir := config.localDir
-	if config.dir != "" {
-		dir = config.dir
+	dir := config.LocalDir
+	if config.Dir != "" {
+		dir = config.Dir
 	}
 	x := &local.Executor{
 		Client:        client,
@@ -483,16 +286,18 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		Blob:          c.blob(),
 		Log:           c.Log.Tee(nil, "executor: "),
 	}
-	if !config.resources.Equal(nil) {
-		resources = config.resources
+	if !config.Resources.Equal(nil) {
+		resources = config.Resources
 	}
 	x.SetResources(resources)
-
 	c.must(x.Start())
-
 	var labels pool.Labels
 	if err := c.Config.Instance(&labels); err != nil {
 		c.Log.Debug(err)
+	}
+	assertionGenerator, err := assertionGenerator(c.Config)
+	if err != nil {
+		c.Fatal(err)
 	}
 
 	evalConfig := flow.EvalConfig{
@@ -502,15 +307,17 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		Log:                execLogger,
 		Repository:         repo,
 		Assoc:              ass,
-		AssertionGenerator: c.assertionGenerator(),
+		AssertionGenerator: assertionGenerator,
 		CacheMode:          cache.CacheMode,
 		Status:             c.Status.Group(runID.IDShort()),
 		ImageMap:           imageMap,
 		TaskDB:             tdb,
 		RunID:              runID,
 	}
-	config.common.Configure(&evalConfig, c)
-	if config.trace {
+	if err = config.CommonRunFlags.Configure(&evalConfig); err != nil {
+		c.Fatal(err)
+	}
+	if config.Trace {
 		evalConfig.Trace = c.Log
 	}
 	eval := flow.NewEval(f, evalConfig)
@@ -615,23 +422,23 @@ func (c Cmd) WaitForBackgroundTasks(wg *wg.WaitGroup, timeout time.Duration) {
 }
 
 // AssertionGenerator returns the configured AssertionGenerator mux.
-func (c Cmd) assertionGenerator() reflow.AssertionGeneratorMux {
+func assertionGenerator(config infra.Config) (reflow.AssertionGeneratorMux, error) {
 	mux := make(reflow.AssertionGeneratorMux)
-	mux[blob.AssertionsNamespace] = c.blob()
-	return mux
+	var err error
+	mux[blob.AssertionsNamespace], err = blobMux(config)
+	return mux, err
 }
 
 // asserter returns a reflow.Assert based on the given name.
-func (c Cmd) asserter(name string) reflow.Assert {
+func asserter(name string) (reflow.Assert, error) {
 	switch name {
 	case "never":
-		return reflow.AssertNever
+		return reflow.AssertNever, nil
 	case "exact":
-		return reflow.AssertExact
+		return reflow.AssertExact, nil
 	default:
-		c.Fatal(fmt.Errorf("unknown assert policy %s", name))
+		return nil, fmt.Errorf("unknown Assert policy %s", name)
 	}
-	return nil
 }
 
 // Blob returns the configured blob muxer.

@@ -43,6 +43,7 @@ modified and overriden:
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
+	var err error
 	for _, k := range keys {
 		v := help[k]
 		for _, p := range v {
@@ -58,14 +59,23 @@ modified and overriden:
 			}
 			hw := textutil.NewUTF8WrapWriter(pw, 80)
 			if len(p.Args) > 0 {
-				io.WriteString(hw, "\n")
-			}
-			for _, arg := range p.Args {
-				io.WriteString(hw, fmt.Sprintf("%s: %s", arg.Name, arg.Help))
-				if arg.DefaultValue != "" {
-					io.WriteString(hw, fmt.Sprintf(" (default %q)", arg.DefaultValue))
+				if _, err = io.WriteString(hw, "\n"); err != nil {
+					c.Fatal(err)
 				}
-				io.WriteString(hw, "\n")
+			}
+
+			for _, arg := range p.Args {
+				if _, err = io.WriteString(hw, fmt.Sprintf("%s: %s", arg.Name, arg.Help)); err != nil {
+					c.Fatal(err)
+				}
+				if arg.DefaultValue != "" {
+					if _, err = io.WriteString(hw, fmt.Sprintf(" (default %q)", arg.DefaultValue)); err != nil {
+						c.Fatal(err)
+					}
+				}
+				if _, err = io.WriteString(hw, "\n"); err != nil {
+					c.Fatal(err)
+				}
 			}
 			ww.Flush()
 			hw.Flush()
@@ -84,6 +94,8 @@ modified and overriden:
 	delete(c.Config.Keys, "reflow")
 	data, err := c.Config.Marshal(*marshalFlag)
 	c.must(err)
-	c.Stdout.Write(data)
+	if _, err = c.Stdout.Write(data); err != nil {
+		c.Fatal(err)
+	}
 	c.Println()
 }
