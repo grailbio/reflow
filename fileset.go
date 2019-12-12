@@ -78,6 +78,9 @@ func (f File) Digest() digest.Digest {
 // Equal returns whether files f and g represent the same content.
 // Since equality is a property of the file's contents, assertions are ignored.
 func (f File) Equal(g File) bool {
+	if f.IsRef() && !g.IsRef() || !f.IsRef() && g.IsRef() {
+		panic(fmt.Sprintf("cannot compare unresolved and resolved file: f(%v), g(%v)", f, g))
+	}
 	if f.IsRef() || g.IsRef() {
 		// When we compare references, we require nonempty etags.
 		equal := f.Size == g.Size && f.Source == g.Source && f.ETag != "" && f.ETag == g.ETag

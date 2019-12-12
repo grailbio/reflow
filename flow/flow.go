@@ -989,6 +989,9 @@ func (f *Flow) Canonicalize(config Config) *Flow {
 
 func (f *Flow) canonicalize(m *flowMap, config Config) *Flow {
 	if flow := m.Get(f); flow != nil {
+		if f.MustIntern && !flow.MustIntern {
+			return f
+		}
 		return flow
 	}
 	f = f.Copy()

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net/url"
 	"os"
 	"runtime/debug"
 	"strings"
@@ -156,6 +157,66 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 						v, err = not(v)
 					}
 					return v, err
+				}, e.Left, e.Right)
+			case types.FileKind:
+				comp := func(vs []values.T) (values.T, error) {
+					v, err := e.evalEq(sess, env, ident, vs[0], vs[1], e.Left.Type)
+					if err != nil {
+						return nil, err
+					}
+					if !eq {
+						v, err = not(v)
+					}
+					return v, err
+				}
+				return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+					l, r := vs[0].(reflow.File), vs[1].(reflow.File)
+					if l.IsRef() && !r.IsRef() || !l.IsRef() && r.IsRef() {
+						left, right := vs[0], vs[1]
+						if l.IsRef() {
+							url, err := url.Parse(l.Source)
+							if err != nil {
+								return nil, err
+							}
+							left = &flow.Flow{
+								Op:         flow.Coerce,
+								FlowDigest: coerceFilesetToFileDigest,
+								Coerce:     coerceFilesetToFile,
+								Deps: []*flow.Flow{
+									{
+										Op:         flow.Intern,
+										MustIntern: true,
+										URL:        url,
+										Position:   e.Position.String(),
+										Ident:      ident,
+									},
+								},
+							}
+						} else {
+							url, err := url.Parse(r.Source)
+							if err != nil {
+								return nil, err
+							}
+							right = &flow.Flow{
+								Op:         flow.Coerce,
+								FlowDigest: coerceFilesetToFileDigest,
+								Coerce:     coerceFilesetToFile,
+								Deps: []*flow.Flow{
+									{
+										Op:         flow.Intern,
+										MustIntern: true,
+										URL:        url,
+										Position:   e.Position.String(),
+										Ident:      ident,
+									},
+								},
+							}
+						}
+						return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+							return comp(vs)
+						}, tval{e.Left.Type, left}, tval{e.Right.Type, right})
+					}
+					return comp(vs)
 				}, e.Left, e.Right)
 			default:
 				return e.k(sess, env, ident, e.evalBinop, e.Left, e.Right)
