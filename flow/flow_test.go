@@ -69,8 +69,8 @@ func TestCanonicalize(t *testing.T) {
 	if canon.Deps[0] == canon.Deps[1] {
 		t.Fatalf("intern and forced intern should not canonical, %v, %v", canon.Deps[0].DebugString(), canon.Deps[1].DebugString())
 	}
-	if d == d1 {
-		t.Fatal("digests from forced intern flows should be different from ones that aren't")
+	if d != d1 {
+		t.Fatal("flow digests should be identical")
 	}
 }
 

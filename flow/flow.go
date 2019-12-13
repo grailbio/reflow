@@ -850,9 +850,6 @@ func (f *Flow) WriteDigest(w io.Writer) {
 	switch f.Op {
 	case Intern, Extern:
 		io.WriteString(w, f.URL.String())
-		if f.MustIntern {
-			io.WriteString(w, "mustIntern")
-		}
 	case Exec:
 		io.WriteString(w, f.Image)
 		io.WriteString(w, f.Cmd)
@@ -1067,8 +1064,18 @@ func newFlowMap() *flowMap {
 	return &flowMap{flows: map[digest.Digest]*Flow{}}
 }
 
-func (m *flowMap) Get(flow *Flow) *Flow {
+var mustInternDigest = reflow.Digester.FromString("internMustInternDigest")
+
+func (m *flowMap) flowDigest(flow *Flow) digest.Digest {
 	d := flow.Digest()
+	if flow.MustIntern {
+		d.Mix(mustInternDigest)
+	}
+	return d
+}
+
+func (m *flowMap) Get(flow *Flow) *Flow {
+	d := m.flowDigest(flow)
 	m.Lock()
 	f := m.flows[d]
 	m.Unlock()
@@ -1076,7 +1083,7 @@ func (m *flowMap) Get(flow *Flow) *Flow {
 }
 
 func (m *flowMap) Put(flow *Flow) *Flow {
-	d := flow.Digest()
+	d := m.flowDigest(flow)
 	m.Lock()
 	defer m.Unlock()
 	if f := m.flows[d]; f != nil {
