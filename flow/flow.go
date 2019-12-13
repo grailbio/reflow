@@ -850,6 +850,9 @@ func (f *Flow) WriteDigest(w io.Writer) {
 	switch f.Op {
 	case Intern, Extern:
 		io.WriteString(w, f.URL.String())
+		if f.MustIntern {
+			io.WriteString(w, "mustIntern")
+		}
 	case Exec:
 		io.WriteString(w, f.Image)
 		io.WriteString(w, f.Cmd)
@@ -989,9 +992,6 @@ func (f *Flow) Canonicalize(config Config) *Flow {
 
 func (f *Flow) canonicalize(m *flowMap, config Config) *Flow {
 	if flow := m.Get(f); flow != nil {
-		if f.MustIntern && !flow.MustIntern {
-			return f
-		}
 		return flow
 	}
 	f = f.Copy()

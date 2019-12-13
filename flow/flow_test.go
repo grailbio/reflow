@@ -57,6 +57,21 @@ func TestCanonicalize(t *testing.T) {
 	if canon.Deps[0] != canon.Deps[1] {
 		t.Fatal("flow is not canonical")
 	}
+	// make sure forced intern doesn't canonicalize to unforced ones.
+	intern3 := op.Intern("url")
+	intern3.MustIntern = true
+	merged = op.Merge(intern1, intern3)
+	d1 := merged.Digest()
+	canon = merged.Canonicalize(flow.Config{})
+	if got, want := canon.Digest(), d1; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if canon.Deps[0] == canon.Deps[1] {
+		t.Fatalf("intern and forced intern should not canonical, %v, %v", canon.Deps[0].DebugString(), canon.Deps[1].DebugString())
+	}
+	if d == d1 {
+		t.Fatal("digests from forced intern flows should be different from ones that aren't")
+	}
 }
 
 func TestPhysicalDigests(t *testing.T) {

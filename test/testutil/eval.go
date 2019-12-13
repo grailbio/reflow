@@ -7,6 +7,7 @@ package testutil
 import (
 	"context"
 	"errors"
+	"github.com/grailbio/reflow/values"
 	"sync"
 
 	"github.com/grailbio/reflow"
@@ -43,6 +44,31 @@ func EvalAsync(ctx context.Context, e *flow.Eval) <-chan EvalResult {
 			if !ok {
 				r.Err = errors.New("flow did not return a fileset")
 			}
+		}
+		wg.Wait()
+		c <- r
+	}()
+	return c
+}
+
+type EvalFlowResult struct {
+	Val values.T
+	Err error
+}
+
+func EvalFlowAsync(ctx context.Context, e *flow.Eval) <-chan EvalFlowResult {
+	c := make(chan EvalFlowResult, 1)
+	//	e.Logger = log.New(os.Stderr, "", 0)
+	go func() {
+		var wg sync.WaitGroup
+		ctx, _ = flow.WithBackground(ctx, &wg)
+		var r EvalFlowResult
+		r.Err = e.Do(ctx)
+		if r.Err == nil {
+			r.Err = e.Err()
+		}
+		if r.Err == nil {
+			r.Val = e.Value()
 		}
 		wg.Wait()
 		c <- r
