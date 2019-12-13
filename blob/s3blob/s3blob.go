@@ -331,11 +331,7 @@ func retryable(err error) bool {
 	if err == nil {
 		return false
 	}
-	if _, ok := err.(awserr.Error); ok {
-		return kind(err) == errors.Temporary
-	}
-	// Not an AWS error, so attempt to recover as reflow error
-	kind := errors.Recover(err).Kind
+	kind := kind(err)
 	return kind == errors.Timeout || kind == errors.Temporary
 }
 
