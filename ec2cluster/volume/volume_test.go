@@ -18,6 +18,8 @@ import (
 	"github.com/grailbio/reflow/log"
 )
 
+var errTest = fmt.Errorf("test error")
+
 func descVolsFn(m map[string]int64, err error) func() (*ec2.DescribeVolumesOutput, error) {
 	var out *ec2.DescribeVolumesOutput
 	if err == nil {
