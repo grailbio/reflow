@@ -2,6 +2,8 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
+// +build -darwin
+
 package volume
 
 import (
@@ -15,16 +17,14 @@ import (
 	"github.com/grailbio/reflow/log"
 )
 
-var (
-	errTest           = fmt.Errorf("test error")
-	testWatcherParams = infra.VolumeWatcher{
-		LowThresholdPct:       50.0,
-		HighThresholdPct:      75.0,
-		WatcherSleepDuration:  100 * time.Millisecond,
-		ResizeSleepDuration:   50 * time.Millisecond,
-		FastThresholdDuration: 50 * time.Millisecond,
-	}
-)
+var testWatcherParams = infra.VolumeWatcher{
+	LowThresholdPct:       50.0,
+	HighThresholdPct:      75.0,
+	WatcherSleepDuration:  100 * time.Millisecond,
+	ResizeSleepDuration:   50 * time.Millisecond,
+	FastThresholdDuration: 50 * time.Millisecond,
+}
+
 
 type testVolume struct {
 	size                          data.Size
