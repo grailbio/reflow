@@ -1,12 +1,18 @@
 language: go
-go:
-  - 1.13.x
-  - master
-os:
-  - linux
-  - osx
-dist: trusty
-sudo: false
+jobs:
+  include:
+    - os: linux
+      dist: trusty
+      go: 1.13.x
+    - os: osx
+      osx_image: xcode11.2
+      go: 1.13.x
+    - os: linux
+      dist: trusty
+      go: master
+    - os: osx
+      osx_image: xcode11.2
+      go: master
 install: true
 script:
   - env GO111MODULE=on go test -v -tags unit ./...
