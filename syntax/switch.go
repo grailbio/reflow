@@ -6,9 +6,9 @@ package syntax
 
 import (
 	"fmt"
+	"io"
 
-	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/flow"
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow/internal/scanner"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
@@ -36,6 +36,7 @@ type CaseClause struct {
 
 // evalSwitch is convenient context for evaluating the switch expression.
 type evalSwitch struct {
+	e    *Expr
 	sess *Session
 	env  *values.Env
 	id   string
@@ -64,6 +65,12 @@ type idPath struct {
 	path Path
 }
 
+func (p *idPath) digest(dw io.Writer) {
+	// TODO: Write some kind of string?
+	io.WriteString(dw, p.id)
+	digest.WriteDigest(dw, p.path.Digest())
+}
+
 // String renders a tree-formatted version of c.
 func (c *CaseClause) String() string {
 	return fmt.Sprintf("case(%v, %v)", c.Pat, c.Expr)
@@ -72,6 +79,20 @@ func (c *CaseClause) String() string {
 // Equal tests whether case clause c is equivalent to case clause d.
 func (c *CaseClause) Equal(d *CaseClause) bool {
 	return c.Pat.Equal(d.Pat) && c.Expr.Equal(d.Expr)
+}
+
+func (c *CaseClause) digest(dw io.Writer, env *values.Env) {
+	io.WriteString(dw, "grail.com/reflow/syntax.CaseClause")
+	digest.WriteDigest(dw, c.Pat.Digest())
+	var (
+		i    int
+		env2 = env.Push()
+	)
+	for _, ident := range c.Pat.Idents(nil) {
+		env2.Bind(ident, digestN(i))
+		i++
+	}
+	c.Expr.digest(dw, env2)
 }
 
 // switchCont is the common type of the continuation functions we use.  The
@@ -89,7 +110,7 @@ func (s *evalSwitch) evalCases(cs []*CaseClause) (values.T, error) {
 		// expression has no value.
 		return nil, fmt.Errorf("%s: no case pattern matches value", s.pos)
 	}
-	return s.evalCase(cs[0], func(m bool, env *values.Env) (values.T, error) {
+	return s.evalCase(cs[0], cs[1:], func(m bool, env *values.Env) (values.T, error) {
 		if m {
 			return s.evalExpr(cs[0], env)
 		}
@@ -98,7 +119,7 @@ func (s *evalSwitch) evalCases(cs []*CaseClause) (values.T, error) {
 	})
 }
 
-func (s *evalSwitch) evalCase(c *CaseClause, k switchCont) (values.T, error) {
+func (s *evalSwitch) evalCase(c *CaseClause, cs []*CaseClause, k switchCont) (values.T, error) {
 	pattern := c.Pat
 	ms := pattern.Matchers()
 	ps := make([]*idPath, 0, len(ms))
@@ -110,28 +131,27 @@ func (s *evalSwitch) evalCase(c *CaseClause, k switchCont) (values.T, error) {
 		ps = append(ps, p)
 	}
 	env := s.env.Push()
-	return s.evalPaths(ps, env, k)
+	return s.evalPaths(ps, env, c, cs, k)
 }
 
-func (s *evalSwitch) evalPaths(ps []*idPath, env *values.Env, k switchCont) (values.T, error) {
+func (s *evalSwitch) evalPaths(ps []*idPath, env *values.Env, c *CaseClause, cs []*CaseClause, k switchCont) (values.T, error) {
 	if len(ps) == 0 {
 		// If there are no more paths, then we have a successful match.
 		return k(true, env)
 	}
-	return s.evalPath(ps[0], s.v, s.t, env,
+	return s.evalPath(ps[0], s.v, s.t, env, c, ps[1:], cs,
 		func(m bool, env *values.Env) (values.T, error) {
 			if m {
 				// The path matched, so we continue trying to match the other
 				// paths.
-				return s.evalPaths(ps[1:], env, k)
+				return s.evalPaths(ps[1:], env, c, cs, k)
 			}
 			// The path did not match.  We are done here.
 			return k(false, nil)
 		})
 }
 
-func (s *evalSwitch) evalPath(
-	p *idPath, v values.T, t *types.T, env *values.Env, k switchCont) (values.T, error) {
+func (s *evalSwitch) evalPath(p *idPath, v values.T, t *types.T, env *values.Env, c *CaseClause, ps []*idPath, cs []*CaseClause, k switchCont) (values.T, error) {
 	if p.path.Done() {
 		// The path matched, so we bind the value into the environment that we
 		// are building up.
@@ -140,44 +160,37 @@ func (s *evalSwitch) evalPath(
 		}
 		return k(true, env)
 	}
-	if f, ok := v.(*flow.Flow); ok {
-		// We've hit a flow, so we can return immediately, and let the flow
-		// evaluation continue our matching.
-		return &flow.Flow{
-			Op:         flow.K,
-			Deps:       []*flow.Flow{f},
-			FlowDigest: p.path.Digest(),
-			K: func(vs []values.T) *flow.Flow {
-				resultV, err := s.evalPath(p, vs[0], t, env, k)
-				if err != nil {
-					return &flow.Flow{
-						Op:  flow.Val,
-						Err: errors.Recover(err),
-					}
-				}
-				return toFlow(resultV, s.resultT)
-			},
-		}, nil
-	}
-	// We throw away the error, because we know that the `Match` only uses its
-	// error to describe why the match failed, which we don't care about in
-	// this case.  There's some potential future world where `Match` can fail
-	// in ways we want to report.  We'll need to revisit this at that time.
-	nextV, nextT, ok, path, _ := p.path.Match(v, t)
-	if !ok {
-		return k(false, nil)
-	}
-	nextP := &idPath{
-		id:   p.id,
-		path: path,
-	}
-	return s.evalPath(nextP, nextV, nextT, env, k)
+	evalK := s.evalSwitchK(p, c, ps, cs)
+	return evalK.Continue(s.e, s.sess, s.env, s.id, func(vs []values.T) (values.T, error) {
+		nextV, nextT, ok, path, _ := p.path.Match(vs[0], t)
+		if !ok {
+			return k(false, nil)
+		}
+		nextP := &idPath{
+			id:   p.id,
+			path: path,
+		}
+		return s.evalPath(nextP, nextV, nextT, env, c, ps, cs, k)
+	}, tval{t, v})
 }
 
-func (s *evalSwitch) evalExpr(
-	c *CaseClause, env *values.Env) (values.T, error) {
-
+func (s *evalSwitch) evalExpr(c *CaseClause, env *values.Env) (values.T, error) {
 	return c.Expr.eval(s.sess, env, s.id)
+}
+
+func (s *evalSwitch) evalSwitchK(p *idPath, c *CaseClause, ps []*idPath, cs []*CaseClause) evalK {
+	return func(e *Expr, env *values.Env, dw io.Writer) {
+		e.digest1(dw)
+		values.WriteDigest(dw, s.v, s.t)
+		p.digest(dw)
+		for _, p := range ps {
+			p.digest(dw)
+		}
+		c.digest(dw, env)
+		for _, c := range cs {
+			c.digest(dw, env)
+		}
+	}
 }
 
 // caseUniv represents the universe of values in which the case clause patterns

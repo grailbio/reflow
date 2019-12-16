@@ -334,6 +334,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			return nil, err
 		}
 		es := evalSwitch{
+			e:       e,
 			sess:    sess,
 			env:     env,
 			id:      ident,

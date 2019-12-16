@@ -455,6 +455,17 @@ func (p *Pat) FieldMap() map[string]*Pat {
 	return m
 }
 
+// Digest returns a digest for this pattern.
+func (p *Pat) Digest() digest.Digest {
+	// TODO: Write a digest() method to write to an existing writer.
+	w := reflow.Digester.NewWriter()
+	io.WriteString(w, "grail.com/reflow/syntax.Pat")
+	for _, m := range p.Matchers() {
+		digest.WriteDigest(w, m.Path().Digest())
+	}
+	return w.Digest()
+}
+
 func (p *Pat) matchers(ms *[]*Matcher, parent *Matcher) {
 	switch p.Kind {
 	default:
