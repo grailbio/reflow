@@ -762,7 +762,7 @@ func (e *Eval) LogSummary(log *log.Logger) {
 				stats.Temp.Summary("%.1f"),
 				stats.Requested,
 			)
-			if memRatio := stats.Memory.Mean() / stats.Requested["mem"]; memRatio <= memSuggestThreshold {
+			if memRatio := stats.Memory.Mean() / stats.Requested["mem"]; memRatio <= memSuggestThreshold && stats.Requested["mem"] > minExecMemory {
 				warningIdents = append(warningIdents, ident)
 			}
 		} else {
@@ -770,7 +770,9 @@ func (e *Eval) LogSummary(log *log.Logger) {
 		}
 		fmt.Fprint(&tw, "\n")
 	}
-	fmt.Fprintf(&tw, "warning: reduce memory requirements for over-allocating execs: %s", strings.Join(warningIdents, ", "))
+	if len(warningIdents) > 0 {
+		fmt.Fprintf(&tw, "warning: reduce memory requirements for over-allocating execs: %s", strings.Join(warningIdents, ", "))
+	}
 	tw.Flush()
 	log.Printf(b.String())
 }
