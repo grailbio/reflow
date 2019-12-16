@@ -105,7 +105,28 @@ func TestSetRunAttrs(t *testing.T) {
 		}
 	}
 	// Verify correct behavior if no args are passed to SetRunAttrs
+	taskb = &TaskDB{DB: &mockdb, TableName: mockTableName}
 	err = taskb.SetRunAttrs(context.Background(), id, bundle, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		actual   string
+		expected string
+	}{
+		{*mockdb.uInput.TableName, "mockdynamodb"},
+		{*mockdb.uInput.Key[colID].S, id.String()},
+		{*mockdb.uInput.ExpressionAttributeValues[":bundle"].S, bundle.String()},
+		{*mockdb.uInput.UpdateExpression, fmt.Sprintf("SET %s = :bundle", colBundle)},
+	} {
+		if test.expected != test.actual {
+			t.Errorf("expected %s, got %v", test.expected, test.actual)
+		}
+	}
+
+	var emptyArgs []string
+	taskb = &TaskDB{DB: &mockdb, TableName: mockTableName}
+	err = taskb.SetRunAttrs(context.Background(), id, bundle, emptyArgs)
 	if err != nil {
 		t.Fatal(err)
 	}
