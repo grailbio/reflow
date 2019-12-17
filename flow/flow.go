@@ -1054,7 +1054,10 @@ func (v *FlowVisitor) Walk() bool {
 	}
 	return false
 }
-
+// FlowMap is a map of flows where the hash is the flow's digest unless it is an intern.
+// If an intern is set to MustIntern, then mustInternDigest is added to the hash. This
+// is done so we don't canonicalize a flow where the file has to be fully resolved to a flow
+// that can be completed only with a file reference.
 type flowMap struct {
 	sync.Mutex
 	flows map[digest.Digest]*Flow
