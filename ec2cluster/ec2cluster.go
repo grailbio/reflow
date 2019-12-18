@@ -738,8 +738,8 @@ func (s *state) getEC2State(ctx context.Context) (map[string]*reflowletInstance,
 	req := &ec2.DescribeInstancesInput{Filters: filters, MaxResults: aws.Int64(1000)}
 	instances := make(map[string]*reflowletInstance)
 	for req != nil {
-		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		resp, err := s.c.EC2.DescribeInstancesWithContext(ctx, req)
+		ctx2, cancel := context.WithTimeout(ctx, 30*time.Second)
+		resp, err := s.c.EC2.DescribeInstancesWithContext(ctx2, req)
 		cancel()
 		if err != nil {
 			return nil, err
