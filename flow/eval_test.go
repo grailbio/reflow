@@ -1247,6 +1247,59 @@ func TestSnapshotter(t *testing.T) {
 	}
 }
 
+func TestSnapshotterMustIntern(t *testing.T) {
+	e, config, done := newTestScheduler()
+	defer done()
+	snapshotter := make(snapshotter)
+	config.Snapshotter = snapshotter
+
+	snapshotter["s3://bucket/prefix"] = reflow.Fileset{
+		Map: map[string]reflow.File{
+			"x": reflow.File{Source: "s3://bucket/prefix/x", ETag: "x", Size: 1},
+			"y": reflow.File{Source: "s3://bucket/prefix/y", ETag: "y", Size: 2},
+			"z": reflow.File{Source: "s3://bucket/prefix/z", ETag: "z", Size: 3},
+		},
+	}
+	// Populate the substitution map for all known files.
+	e.Sub = make(map[digest.Digest]reflow.File)
+	for _, fs := range snapshotter {
+		for _, file := range fs.Files() {
+			e.Sub[file.Digest()] = testutil.WriteFile(e.Repo, file.Source)
+		}
+	}
+
+	intern := op.Intern("s3://bucket/prefix")
+	exec := op.Exec("image", "command", testutil.Resources, intern)
+	internMust := op.Intern("s3://bucket/prefix")
+	internMust.MustIntern = true
+	out := op.Merge(exec, internMust)
+	testutil.AssignExecIdRandom(intern, exec, internMust, out)
+
+	eval := flow.NewEval(out, config)
+	rc := testutil.EvalFlowAsync(context.Background(), eval)
+	// We never see an intern op. Instead we see the resolved + loaded fileset.
+	// Make sure the config is correct.
+	cfg := e.Exec(exec).Config()
+	if got, want := len(cfg.Args), 1; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	resolved, _ := snapshotter["s3://bucket/prefix"].Subst(e.Sub)
+	if got, want := *cfg.Args[0].Fileset, resolved; !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	e.Ok(internMust, testutil.WriteFiles(e.Repo, "a/b/c", "a/b/d", "x/y/z"))
+	e.Ok(exec, testutil.WriteFiles(e.Repo, "execout"))
+
+	r := <-rc
+	if r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	expected := reflow.Fileset{List:[]reflow.Fileset{testutil.Files("execout"), testutil.Files("a/b/c", "a/b/d", "x/y/z")}}
+	if got := r.Val; !values.Equal(got, expected) {
+		t.Fatalf("got %v, want %v", got, expected)
+	}
+}
+
 func TestResolverFail(t *testing.T) {
 	e, config, done := newTestScheduler()
 	defer done()

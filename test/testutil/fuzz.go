@@ -65,7 +65,7 @@ func (f *Fuzz) File(refok, wantAssertions bool) reflow.File {
 	var file reflow.File
 	if refok && f.Float64() < 0.5 {
 		file = reflow.File{
-			Size:   int64(f.Uint64()),
+			Size:   int64(f.Int63()),
 			Source: fmt.Sprintf("s3://%s/%s", f.String(""), f.String("/")),
 			ETag:   f.String(""),
 		}
