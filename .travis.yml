@@ -4,9 +4,11 @@ jobs:
     - os: linux
       dist: trusty
       go: 1.13.x
+      env: GO111MODULE=on
     - os: osx
       osx_image: xcode11.2
       go: 1.13.x
+      env: GO111MODULE=on
 # TODO(prasadgopal): running of master is broken as of 12/17/2019.
 # Re evaluate if we should even test of golang master.
 #    - os: linux
@@ -16,5 +18,8 @@ jobs:
 #      osx_image: xcode11.2
 #      go: master
 install: true
+before_script:
+  - go install github.com/golangci/golangci-lint/cmd/golangci-lint
 script:
-  - env GO111MODULE=on go test -v -tags unit ./...
+  - golangci-lint run
+  - go test -v -tags unit ./...
