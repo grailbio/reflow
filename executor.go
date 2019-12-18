@@ -106,6 +106,9 @@ type ExecConfig struct {
 	// credentials.
 	NeedAWSCreds bool
 
+	// NeedDockerAccess indicates that the exec needs access to the host docker daemon
+	NeedDockerAccess bool
+
 	// OutputIsDir tells whether an output argument (by index)
 	// is a directory.
 	OutputIsDir []bool `json:",omitempty"`

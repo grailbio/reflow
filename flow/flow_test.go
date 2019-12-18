@@ -176,3 +176,28 @@ func TestDepAssertions(t *testing.T) {
 		}
 	}
 }
+
+func TestImageQualifiers(t *testing.T) {
+	tests := []struct {
+		img, wImg     string
+		wAws, wDocker bool
+	}{
+		{"someimg", "someimg", false, false},
+		{"someimg$aws", "someimg", true, false},
+		{"someimg$docker", "someimg", false, true},
+		{"someimg$aws$docker", "someimg", true, true},
+		{"someimg$docker$aws", "someimg", true, true},
+	}
+	for _, tt := range tests {
+		got, gotaws, gotdocker := flow.ImageQualifiers(tt.img)
+		if got != tt.wImg {
+			t.Errorf("got %v, want %v", got, tt.wImg)
+		}
+		if gotaws != tt.wAws {
+			t.Errorf("got %v, want %v", gotaws, tt.wAws)
+		}
+		if gotdocker != tt.wDocker {
+			t.Errorf("got %v, want %v", gotdocker, tt.wDocker)
+		}
+	}
+}

@@ -2,7 +2,6 @@ package tool
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/internal/ecrauth"
 	"github.com/grailbio/reflow/log"
 )
@@ -67,9 +67,6 @@ func (r *ImageResolver) resolveImage(ctx context.Context, image string) (string,
 			return "", err
 		}
 		auth = &authn.Basic{Username: r.ecrCreds.Username, Password: r.ecrCreds.Password}
-		if err != nil {
-			return "", errors.E(err, "tool.resolveImage", "auth", image)
-		}
 	} else {
 		auth = authn.Anonymous
 	}
@@ -93,8 +90,7 @@ func (r *ImageResolver) authenticate(ctx context.Context) error {
 }
 
 func imageDigestReference(ctx context.Context, image string, auth authn.Authenticator) (string, error) {
-	// $aws suffix on an image is a back door to get AWS credentials in the exec.
-	image = strings.TrimSuffix(image, "$aws")
+	image, _, _ = flow.ImageQualifiers(image)
 	ref, err := imgname.ParseReference(image, imgname.WeakValidation)
 	if err != nil {
 		return "", errors.E(err, "tool.imageDigestReference", "parse", image)

@@ -197,6 +197,9 @@ func (e *dockerExec) create(ctx context.Context) (execState, error) {
 		// errors are more sensible to the user.
 		OomScoreAdj: 1000,
 	}
+	if e.Config.NeedDockerAccess {
+		hostConfig.Binds = append(hostConfig.Binds, "/var/run/docker.sock:/var/run/docker.sock")
+	}
 
 	// Restrict docker memory usage if specified by the user.
 	// If the docker container memory limit (the cgroup limit) is exceeded

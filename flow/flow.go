@@ -770,16 +770,19 @@ func (f *Flow) ExecConfig() reflow.ExecConfig {
 			}
 		}
 
+		image, aws, docker := ImageQualifiers(f.Image)
+		_, aws2, docker2 := ImageQualifiers(f.OriginalImage)
 		return reflow.ExecConfig{
-			Type:          "exec",
-			Ident:         f.Ident,
-			Image:         strings.TrimSuffix(f.Image, "$aws"),
-			OriginalImage: f.OriginalImage,
-			NeedAWSCreds:  strings.HasSuffix(f.OriginalImage, "$aws") || strings.HasSuffix(f.Image, "$aws"),
-			Cmd:           f.Cmd,
-			Args:          args,
-			Resources:     f.Reserved,
-			OutputIsDir:   f.OutputIsDir,
+			Type:             "exec",
+			Ident:            f.Ident,
+			Image:            image,
+			OriginalImage:    f.OriginalImage,
+			NeedAWSCreds:     aws || aws2,
+			NeedDockerAccess: docker || docker2,
+			Cmd:              f.Cmd,
+			Args:             args,
+			Resources:        f.Reserved,
+			OutputIsDir:      f.OutputIsDir,
 		}
 	default:
 		panic("no exec config for op " + f.Op.String())
@@ -1157,4 +1160,15 @@ func (f *Flow) AbbrevCmd() string {
 	cmd = trimspace(cmd)
 	cmd = abbrev(cmd, nabbrev)
 	return fmt.Sprintf("%s %s", leftabbrev(f.Image, nabbrevImage), cmd)
+}
+
+// ImageQualifiers analyzes the given image for the presence of backdoor qualifiers,
+// strips the image of them, and returns a boolean for each known qualifier if present.
+func ImageQualifiers(image string) (img string, aws, docker bool) {
+	img = image
+	aws = strings.Contains(image, "$aws")
+	docker = strings.Contains(image, "$docker")
+	img = strings.ReplaceAll(img, "$aws", "")
+	img = strings.ReplaceAll(img, "$docker", "")
+	return
 }
