@@ -53,6 +53,7 @@ var errorKeys = map[string]error{
 	"key_canceled":          context.Canceled,
 	"key_deadlineexceeded":  context.DeadlineExceeded,
 	"key_awsrequesttimeout": awserr.New("RequestTimeout", "test", nil),
+	"key_nestedEOFrequest":  awserr.New("MultipartUpload", "test", awserr.New("SerializationError", "test2", fmt.Errorf("unexpected EOF"))),
 }
 
 func testFile(key string, withContentHash bool) reflow.File {
@@ -83,7 +84,6 @@ func newErrorBucket(t *testing.T) *Bucket {
 	client := s3test.NewClient(t, errorbucket)
 	client.Region = "us-west-2"
 	client.Err = func(api string, input interface{}) error {
-		t.Logf("call: %s\ninput: %v\n", api, input)
 		if api != "HeadObjectRequestWithContext" {
 			return nil
 		}
@@ -305,18 +305,24 @@ func TestTimeoutPolicy(t *testing.T) {
 func TestFileErrors(t *testing.T) {
 	bucket := newErrorBucket(t)
 	bucket.retrier = retry.MaxTries(retry.Jitter(retry.Backoff(20*time.Millisecond, 100*time.Millisecond, 1.5), 0.25), defaultMaxRetries)
-	ctx := context.Background()
 	for _, tc := range []struct {
-		key   string
-		wantK errors.Kind
-		wantE error
+		key       string
+		wantK     errors.Kind
+		cancelCtx bool
+		wantE     error
 	}{
-		{"key_nosuchkey", errors.NotExist, nil},
-		{"key_deadlineexceeded", errors.Other, fmt.Errorf("s3blob.File errorbucket key_deadlineexceeded: gave up after 3 tries: too many tries")},
-		{"key_awsrequesttimeout", errors.Other, fmt.Errorf("s3blob.File errorbucket key_awsrequesttimeout: gave up after 3 tries: too many tries")},
-		{"key_canceled", errors.Canceled, nil},
-		{"key_awscanceled", errors.Canceled, nil},
+		{"key_nosuchkey", errors.NotExist, false, nil},
+		{"key_deadlineexceeded", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_deadlineexceeded: gave up after 3 tries: too many tries")},
+		{"key_awsrequesttimeout", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_awsrequesttimeout: gave up after 3 tries: too many tries")},
+		{"key_canceled", errors.Canceled, true, nil},
+		{"key_awscanceled", errors.Canceled, false, nil},
 	} {
+		ctx := context.Background()
+		if tc.cancelCtx {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithCancel(context.Background())
+			cancel()
+		}
 		_, got := bucket.File(ctx, tc.key)
 		if got == nil {
 			t.Errorf("want error, got none")
@@ -342,9 +348,8 @@ func TestShouldRetry(t *testing.T) {
 		{nil, false},
 		{awserr.New(request.CanceledErrorCode, "test", nil), false},
 		{awserr.New(s3.ErrCodeNoSuchKey, "test", nil), false},
-		{awserr.New("MultipartUpload", "test", context.Canceled), false},
-		{awserr.New("MultipartUpload", "test", context.DeadlineExceeded), false},
 		{awserr.New("MultipartUpload", "test", awserr.New("RequestTimeout", "test2", nil)), true},
+		{awserr.New("MultipartUpload", "test", awserr.New("SerializationError", "test2", fmt.Errorf("unexpected EOF"))), true},
 		{aws.ErrMissingRegion, false},
 		{aws.ErrMissingEndpoint, false},
 		{context.Canceled, false},
@@ -434,26 +439,30 @@ func newCopyErrorBucket(t *testing.T, fn *failN) *Bucket {
 }
 
 func TestCopyMultipart(t *testing.T) {
-	ctx := context.Background()
+	bctx := context.Background()
 	testBucket := newTestBucket(t)
 	fn2, fnMax := &failN{n: 2}, &failN{n: defaultMaxRetries + 1}
 	errorBucket := newCopyErrorBucket(t, fn2)
 	failMaxBucket := newCopyErrorBucket(t, fnMax)
 	for _, tc := range []struct {
-		bucket                *Bucket
-		dstKey                string
-		size, limit, partsize int64
-		wantErr               bool
+		bucket                 *Bucket
+		dstKey                 string
+		size, limit, partsize  int64
+		useShortCtx, cancelCtx bool
+		wantErr                bool
 	}{
 		// 100KiB of data, multi-part limit 50KiB, part size 10KiB
-		{testBucket, "dst1", 100 << 10, 50 << 10, 10 << 10, false},
+		{testBucket, "dst1", 100 << 10, 50 << 10, 10 << 10, false, false, false},
 		// 50KiB of data, multi-part limit 50KiB, part size 10KiB
-		{testBucket, "dst2", 50 << 10, 50 << 10, 10 << 10, false},
-		{errorBucket, "key_badrequest", 100 << 10, 50 << 10, 10 << 10, false},
-		{errorBucket, "key_deadlineexceeded", 100 << 10, 50 << 10, 10 << 10, false},
-		{errorBucket, "key_awsrequesttimeout", 100 << 10, 50 << 10, 10 << 10, false},
-		{errorBucket, "key_canceled", 100 << 10, 50 << 10, 10 << 10, true},
-		{failMaxBucket, "key_badrequest", 100 << 10, 50 << 10, 10 << 10, true},
+		{testBucket, "dst2", 50 << 10, 50 << 10, 10 << 10, false, false, false},
+		{testBucket, "dst3", 100 << 10, 50 << 10, 10 << 10, true, false, true},
+		{testBucket, "dst4", 100 << 10, 50 << 10, 10 << 10, false, true, true},
+		{errorBucket, "key_badrequest", 100 << 10, 50 << 10, 10 << 10, false, false, false},
+		{errorBucket, "key_deadlineexceeded", 100 << 10, 50 << 10, 10 << 10, false, false, false},
+		{errorBucket, "key_awsrequesttimeout", 100 << 10, 50 << 10, 10 << 10, false, false, false},
+		{errorBucket, "key_nestedEOFrequest", 100 << 10, 50 << 10, 10 << 10, false, false, false},
+		{errorBucket, "key_canceled", 100 << 10, 50 << 10, 10 << 10, false, false, true},
+		{failMaxBucket, "key_badrequest", 100 << 10, 50 << 10, 10 << 10, false, false, true},
 	} {
 		fn2.reset()
 		fnMax.reset()
@@ -465,14 +474,25 @@ func TestCopyMultipart(t *testing.T) {
 		}
 		c := &testutil.ByteContent{Data: b}
 		d := reflow.Digester.FromBytes(b)
-		if err := tc.bucket.Put(ctx, "src", 0, bytes.NewReader(c.Data), d.Hex()); err != nil {
+		if err := tc.bucket.Put(bctx, "src", 0, bytes.NewReader(c.Data), d.Hex()); err != nil {
 			t.Fatal(err)
 		}
 		checkObject(t, tc.bucket, "src", c, d)
+		ctx := bctx
+		var cancel context.CancelFunc
+		if tc.useShortCtx {
+			ctx, cancel = context.WithTimeout(bctx, 10*time.Nanosecond)
+		} else if tc.cancelCtx {
+			ctx, cancel = context.WithCancel(bctx)
+			cancel()
+		}
 		err := tc.bucket.Copy(ctx, "src", tc.dstKey, "")
+		if cancel != nil {
+			cancel()
+		}
 		if tc.wantErr {
 			if err == nil {
-				t.Error("got no error, want error")
+				t.Errorf("%s got no error, want error", tc.dstKey)
 			}
 			continue
 		}

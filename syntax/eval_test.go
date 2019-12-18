@@ -106,6 +106,49 @@ func TestPat(t *testing.T) {
 	}
 }
 
+func TestFileCompare(t *testing.T) {
+	v, typ, _, err := eval(`
+		file("s3://a") == file("s3://b")
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := typ, types.Bool; !got.Equal(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	f := v.(*flow.Flow)
+	if got, want := f.Op, flow.K; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := len(f.Deps), 2; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := f.Deps[0].Op, flow.Coerce; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := len(f.Deps[0].Deps), 1; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := f.Deps[0].Deps[0].Op, flow.Intern; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := f.Deps[0].Deps[0].URL.String(), "s3://a"; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := f.Deps[1].Op, flow.Coerce; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := len(f.Deps[1].Deps), 1; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := f.Deps[1].Deps[0].Op, flow.Intern; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := f.Deps[1].Deps[0].URL.String(), "s3://b"; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
 func TestExec(t *testing.T) {
 	v, typ, sess, err := eval(`
 		exec(image := "ubuntu", mem := 32*GiB, cpu := 32) (out file) {"

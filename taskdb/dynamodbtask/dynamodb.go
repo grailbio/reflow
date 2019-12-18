@@ -209,7 +209,7 @@ func (t *TaskDB) SetRunAttrs(ctx context.Context, id, bundle digest.Digest, args
 			S: aws.String(bundle.String()),
 		},
 	}
-	if args != nil {
+	if args != nil && len(args) > 0 {
 		*updateExpression += fmt.Sprintf(", %s = :args", colArgs)
 		values[":args"] = &dynamodb.AttributeValue{SS: aws.StringSlice(args)}
 	}

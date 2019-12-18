@@ -54,7 +54,7 @@ func (w *S3Walker) Scan(ctx context.Context) bool {
 		return false
 	}
 	var res *s3.ListObjectsV2Output
-	listObj := func() error {
+	listObj := func() (bool, error) {
 		var req *request.Request
 		req, res = w.S3.ListObjectsV2Request(&s3.ListObjectsV2Input{
 			Bucket:            aws.String(w.Bucket),
@@ -63,11 +63,11 @@ func (w *S3Walker) Scan(ctx context.Context) bool {
 		})
 		req.HTTPRequest = req.HTTPRequest.WithContext(ctx)
 		err := req.Send()
-		if request.IsErrorThrottle(err) {
+		throttled := request.IsErrorThrottle(err)
+		if throttled {
 			log.Printf("s3walker.Scan: %s/%s: %v (over capacity)", w.Bucket, w.Prefix, err)
-			return admit.ErrOverCapacity
 		}
-		return err
+		return throttled, err
 	}
 	w.err = admit.Do(ctx, w.Policy, 1, listObj)
 	if w.err != nil {
@@ -79,14 +79,14 @@ func (w *S3Walker) Scan(ctx context.Context) bool {
 	// Loading object metadata is best-effort.
 	w.metadatas = make([]map[string]*string, len(w.objects))
 	_ = traverse.Each(len(w.metadatas), func(i int) error {
-		return admit.Do(ctx, w.Policy, 1, func() error {
+		return admit.Do(ctx, w.Policy, 1, func() (bool, error) {
 			if resp, err := w.S3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
 				Bucket: aws.String(w.Bucket),
 				Key:    w.objects[i].Key,
 			}); err == nil {
 				w.metadatas[i] = resp.Metadata
 			}
-			return nil
+			return true, nil
 		})
 	})
 	return w.Scan(ctx)
