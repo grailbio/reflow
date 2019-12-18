@@ -5,6 +5,7 @@
 package syntax
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"strings"
@@ -461,7 +462,7 @@ func (p *Pat) Digest() digest.Digest {
 	w := reflow.Digester.NewWriter()
 	io.WriteString(w, "grail.com/reflow/syntax.Pat")
 	for _, m := range p.Matchers() {
-		digest.WriteDigest(w, m.Path().Digest())
+		m.Path().digest(w)
 	}
 	return w.Digest()
 }
@@ -561,6 +562,33 @@ func (m *Matcher) Path() Path {
 	return path
 }
 
+// String returns a string representation of matcher, mostly useful for
+// debugging.
+func (m *Matcher) String() string {
+	b := new(bytes.Buffer)
+	switch m.Kind {
+	case MatchValue:
+		b.WriteString("value")
+	case MatchTuple:
+		fmt.Fprintf(b, "tuple(%d)", m.Index)
+	case MatchList:
+		if m.AllowTail {
+			fmt.Fprintf(b, "list(%d of %d...)", m.Index, m.Length)
+		} else {
+			fmt.Fprintf(b, "list(%d of %d)", m.Index, m.Length)
+		}
+	case MatchListTail:
+		b.WriteString("list(...)")
+	case MatchStruct:
+		fmt.Fprintf(b, "struct(%s)", m.Field)
+	case MatchVariant:
+		fmt.Fprintf(b, "variant(#%s", m.Tag)
+	default:
+		panic("unknown match kind")
+	}
+	return b.String()
+}
+
 // Path represents a path to a value.
 type Path []*Matcher
 
@@ -616,6 +644,11 @@ func (p Path) Match(v values.T, t *types.T) (values.T, *types.T, bool, Path, err
 // Digest returns a digest representing this path.
 func (p Path) Digest() digest.Digest {
 	w := reflow.Digester.NewWriter()
+	p.digest(w)
+	return w.Digest()
+}
+
+func (p Path) digest(w io.Writer) {
 	io.WriteString(w, "grail.com/reflow/syntax.Path")
 	for _, m := range p {
 		writeN(w, int(m.Kind))
@@ -640,7 +673,6 @@ func (p Path) Digest() digest.Digest {
 			io.WriteString(w, m.Field)
 		}
 	}
-	return w.Digest()
 }
 
 // Done tells whether this path is complete.

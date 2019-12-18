@@ -14,6 +14,15 @@ import (
 	"github.com/grailbio/reflow/values"
 )
 
+// evalSwitch evaluates the switch expression e, which must have e.Kind == ExprSwitch.
+func (e *Expr) evalSwitch(sess *Session, env *values.Env, ident string) (values.T, error) {
+	v, err := e.Left.eval(sess, env, ident)
+	if err != nil {
+		return nil, err
+	}
+	return newSwitcher(sess, env, ident, e, v, e.Left.Type).eval()
+}
+
 // CaseClause is a single case within a switch expression.
 type CaseClause struct {
 	// Position contains the source position of the clause.  It is set by the
@@ -34,43 +43,6 @@ type CaseClause struct {
 	Expr *Expr
 }
 
-// evalSwitch is convenient context for evaluating the switch expression.
-type evalSwitch struct {
-	e    *Expr
-	sess *Session
-	env  *values.Env
-	id   string
-
-	// v is the value on which we are switching.  We will try to match this
-	// against the case clause patterns.
-	v values.T
-
-	// t is the type of the value on which we are switching.
-	t *types.T
-
-	// resultT is the type of the switch expression itself (i.e. the
-	// unification of the types of all the case clause expressions).
-	resultT *types.T
-
-	// pos is the position of the switch expression, given by the parser.
-	pos scanner.Position
-}
-
-// idPath pairs the identifier that should be bound to the value found at the
-// path with the path itself.  This just makes it a bit more convenient to pass
-// Paths around with enough context to bind them in a *values.Env once they
-// match.  If id == "", no value will be bound.
-type idPath struct {
-	id   string
-	path Path
-}
-
-func (p *idPath) digest(dw io.Writer) {
-	// TODO: Write some kind of string?
-	io.WriteString(dw, p.id)
-	digest.WriteDigest(dw, p.path.Digest())
-}
-
 // String renders a tree-formatted version of c.
 func (c *CaseClause) String() string {
 	return fmt.Sprintf("case(%v, %v)", c.Pat, c.Expr)
@@ -81,6 +53,7 @@ func (c *CaseClause) Equal(d *CaseClause) bool {
 	return c.Pat.Equal(d.Pat) && c.Expr.Equal(d.Expr)
 }
 
+// digest writes a digest of c to dw, evaluated in env.
 func (c *CaseClause) digest(dw io.Writer, env *values.Env) {
 	io.WriteString(dw, "grail.com/reflow/syntax.CaseClause")
 	digest.WriteDigest(dw, c.Pat.Digest())
@@ -95,6 +68,38 @@ func (c *CaseClause) digest(dw io.Writer, env *values.Env) {
 	c.Expr.digest(dw, env2)
 }
 
+// idPath pairs the identifier that should be bound to the value found at the
+// path with the path itself.  This just makes it a bit more convenient to pass
+// Paths around with enough context to bind them in a *values.Env once they
+// match.  If id == "", no value will be bound.
+type idPath struct {
+	id   string
+	path Path
+}
+
+// switcher holds the context and state used to evaluate a switch expression.
+type switcher struct {
+	sess  *Session
+	env   *values.Env
+	ident string
+	// e is the switch expression that this switcher is used to evaluate.
+	e *Expr
+	// v is the value on which we are switching.
+	v values.T
+	// t is the type of v.
+	t *types.T
+
+	// The fields below are used to accumulate the data we use to compute a flow
+	// digest when we need to defer execution during case matching.
+
+	// cs are the case clauses that still need evaluation and will be included
+	// in the continuation digest, if necessary.
+	cs []*CaseClause
+	// p is the path that is currently being matched and will be included in the
+	// continuation digest, if necessary.
+	p *idPath
+}
+
 // switchCont is the common type of the continuation functions we use.  The
 // code to evaluate cases is written in a continuation-passing style, as this
 // allows us to unify both immediate and deferred execution (e.g. when a Flow
@@ -104,24 +109,46 @@ func (c *CaseClause) digest(dw io.Writer, env *values.Env) {
 // the first argument will be false, and the Env must be ignored.
 type switchCont func(bool, *values.Env) (values.T, error)
 
-func (s *evalSwitch) evalCases(cs []*CaseClause) (values.T, error) {
-	if len(cs) == 0 {
-		// This means no case clause matched.  This is an error, as the switch
-		// expression has no value.
-		return nil, fmt.Errorf("%s: no case pattern matches value", s.pos)
+// newSwitcher returns a new switcher to evaluate a switch expression.
+func newSwitcher(sess *Session, env *values.Env, ident string, e *Expr, v values.T, t *types.T) *switcher {
+	return &switcher{
+		sess:  sess,
+		env:   env,
+		ident: ident,
+		e:     e,
+		v:     v,
+		t:     t,
 	}
-	return s.evalCase(cs[0], cs[1:], func(m bool, env *values.Env) (values.T, error) {
+}
+
+// eval kicks off evaluation of the switch expression managed by s.
+func (s *switcher) eval() (values.T, error) {
+	return s.evalCases(s.e.CaseClauses)
+}
+
+func (s *switcher) evalCases(cs []*CaseClause) (values.T, error) {
+	if len(cs) == 0 {
+		// Exhaustiveness-checking should prevent us from getting here.
+		return nil, fmt.Errorf("%s: no case pattern matches value", s.e.Position)
+	}
+	// Note that we include the current case, which means that it will be
+	// included in the digest. This is a bit imprecise, as we strictly could
+	// only include the remaining paths in the pattern that have not yet been
+	// matched. However, this simplifies the implementation, and the situations
+	// in which this would make a difference are limited. We can revisit if we
+	// find some degenerate cases.
+	s.cs = cs
+	return s.evalCase(cs[0], func(m bool, env *values.Env) (values.T, error) {
 		if m {
-			return s.evalExpr(cs[0], env)
+			return cs[0].Expr.eval(s.sess, env, s.ident)
 		}
 		// The case did not match successfully, so we keep looking.
 		return s.evalCases(cs[1:])
 	})
 }
 
-func (s *evalSwitch) evalCase(c *CaseClause, cs []*CaseClause, k switchCont) (values.T, error) {
-	pattern := c.Pat
-	ms := pattern.Matchers()
+func (s *switcher) evalCase(c *CaseClause, k switchCont) (values.T, error) {
+	ms := c.Pat.Matchers()
 	ps := make([]*idPath, 0, len(ms))
 	for _, m := range ms {
 		p := &idPath{
@@ -131,37 +158,37 @@ func (s *evalSwitch) evalCase(c *CaseClause, cs []*CaseClause, k switchCont) (va
 		ps = append(ps, p)
 	}
 	env := s.env.Push()
-	return s.evalPaths(ps, env, c, cs, k)
+	return s.evalPaths(ps, env, k)
 }
 
-func (s *evalSwitch) evalPaths(ps []*idPath, env *values.Env, c *CaseClause, cs []*CaseClause, k switchCont) (values.T, error) {
+func (s *switcher) evalPaths(ps []*idPath, env *values.Env, k switchCont) (values.T, error) {
 	if len(ps) == 0 {
 		// If there are no more paths, then we have a successful match.
 		return k(true, env)
 	}
-	return s.evalPath(ps[0], s.v, s.t, env, c, ps[1:], cs,
+	return s.evalPath(ps[0], s.v, s.t, env,
 		func(m bool, env *values.Env) (values.T, error) {
 			if m {
 				// The path matched, so we continue trying to match the other
 				// paths.
-				return s.evalPaths(ps[1:], env, c, cs, k)
+				return s.evalPaths(ps[1:], env, k)
 			}
 			// The path did not match.  We are done here.
 			return k(false, nil)
 		})
 }
 
-func (s *evalSwitch) evalPath(p *idPath, v values.T, t *types.T, env *values.Env, c *CaseClause, ps []*idPath, cs []*CaseClause, k switchCont) (values.T, error) {
+func (s *switcher) evalPath(p *idPath, v values.T, t *types.T, env *values.Env, k switchCont) (values.T, error) {
 	if p.path.Done() {
 		// The path matched, so we bind the value into the environment that we
-		// are building up.
+		// are building.
 		if p.id != "" {
 			env.Bind(p.id, v)
 		}
 		return k(true, env)
 	}
-	evalK := s.evalSwitchK(p, c, ps, cs)
-	return evalK.Continue(s.e, s.sess, s.env, s.id, func(vs []values.T) (values.T, error) {
+	s.p = p
+	return evalK(s.evalK).Continue(s.e, s.sess, s.env, s.ident, func(vs []values.T) (values.T, error) {
 		nextV, nextT, ok, path, _ := p.path.Match(vs[0], t)
 		if !ok {
 			return k(false, nil)
@@ -170,26 +197,20 @@ func (s *evalSwitch) evalPath(p *idPath, v values.T, t *types.T, env *values.Env
 			id:   p.id,
 			path: path,
 		}
-		return s.evalPath(nextP, nextV, nextT, env, c, ps, cs, k)
+		return s.evalPath(nextP, nextV, nextT, env, k)
 	}, tval{t, v})
 }
 
-func (s *evalSwitch) evalExpr(c *CaseClause, env *values.Env) (values.T, error) {
-	return c.Expr.eval(s.sess, env, s.id)
-}
-
-func (s *evalSwitch) evalSwitchK(p *idPath, c *CaseClause, ps []*idPath, cs []*CaseClause) evalK {
-	return func(e *Expr, env *values.Env, dw io.Writer) {
-		e.digest1(dw)
-		values.WriteDigest(dw, s.v, s.t)
-		p.digest(dw)
-		for _, p := range ps {
-			p.digest(dw)
-		}
+// evalK is the evalK that is used to defer further evaluation of s. It computes
+// a digest from the remainder of the switch expression that needs to be
+// considered.
+func (s *switcher) evalK(e *Expr, env *values.Env, dw io.Writer) {
+	e.digest1(dw)
+	// The rest of the switch may inspect other parts of the original value.
+	values.WriteDigest(dw, s.v, s.e.Type)
+	s.p.path.digest(dw)
+	for _, c := range s.cs {
 		c.digest(dw, env)
-		for _, c := range cs {
-			c.digest(dw, env)
-		}
 	}
 }
 

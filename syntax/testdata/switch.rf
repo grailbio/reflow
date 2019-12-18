@@ -22,3 +22,60 @@ val TestSumType = {
 	case #NoWithReason(reason): reason == "just because"
 	}
 }
+
+// The following test cases exercise deferred evaluation within switch
+// expressions, ensuring that flow digests are computed properly.
+
+// Verify that cases with equivalent patterns but different expressions are
+// evaluated distinctly.
+val TestDigestCaseExpr = {
+	f := func(i int) =>
+		switch i {
+		case x:
+			x
+		}
+	g := func(i int) =>
+		switch i {
+		case x:
+			x+1
+		}
+	f(delay(3)) != g(delay(3))
+}
+
+// Verify that equivalent switch expressions with different values on which to
+// switch are evaluated distinctly.
+val TestDigestSwitchValue = {
+	tupled := func(i int, j int) => delay((delay(i),delay(j)))
+	f := func(x (int, int)) =>
+		switch x {
+		case (a, b):
+			b
+		}
+	g := func(x (int, int)) =>
+		switch x {
+		case (a, b):
+			b
+		}
+	f(tupled(3, 4)) == 4 && g(tupled(3, 5)) == 5
+}
+
+// Verify that cases that only differ at the current pattern path are evaluated
+// distinctly.
+val TestDigestCasePat = {
+	f := func(x [[int]]) =>
+		switch x {
+        case [[a], [_]]:
+             a
+        case _:
+             0
+		}
+	g := func(x [[int]]) =>
+		switch x {
+        case [[_, a], [_]]:
+             a
+        case _:
+             0
+		}
+    v := delay([delay([1]), delay([2])])
+    f(v) != g(v)
+}
