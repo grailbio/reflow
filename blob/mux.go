@@ -41,7 +41,10 @@ func (m Mux) Bucket(ctx context.Context, rawurl string) (Bucket, string, error) 
 			errors.Errorf("no implementation for scheme %s", u.Scheme))
 	}
 	bucket, err := store.Bucket(ctx, u.Host)
-	return bucket, strings.TrimPrefix(u.Path, "/"), err
+	if err != nil {
+		return nil, "", err
+	}
+	return bucket, strings.TrimPrefix(rawurl, bucket.Location()), err
 }
 
 // File returns file metadata for the provided URL.

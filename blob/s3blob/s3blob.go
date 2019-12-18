@@ -252,7 +252,7 @@ func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 		Source:       fmt.Sprintf("s3://%s/%s", b.bucket, key),
 		ETag:         aws.StringValue(resp.ETag),
 		LastModified: aws.TimeValue(resp.LastModified),
-		Size:         *resp.ContentLength,
+		Size:         aws.Int64Value(resp.ContentLength),
 		ContentHash:  getContentHash(resp.Metadata),
 	}, nil
 }
