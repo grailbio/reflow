@@ -65,9 +65,9 @@ func (b *Bundle) Entrypoint() (source []byte, args []string, path string, err er
 	return p, b.manifest.Args, b.manifest.EntrypointPath, nil
 }
 
-// Write writes an archive (ZIP formatted) of this bundle to the provided
+// WriteTo writes an archive (ZIP formatted) of this bundle to the provided
 // io.Writer. Archives written by Write can be opened by OpenBundle.
-func (b *Bundle) Write(w io.Writer) error {
+func (b *Bundle) WriteTo(w io.Writer) error {
 	z := zip.NewWriter(w)
 	for d, data := range b.files {
 		f, err := z.Create(d.String())

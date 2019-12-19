@@ -690,7 +690,7 @@ func makeBundle(b *syntax.Bundle) (io.ReadCloser, digest.Digest, string, error) 
 	if err != nil {
 		return nil, digest.Digest{}, "", err
 	}
-	if err = b.Write(io.MultiWriter(dw, f)); err != nil {
+	if err = b.WriteTo(io.MultiWriter(dw, f)); err != nil {
 		return nil, digest.Digest{}, "", err
 	}
 	if _, err = f.Seek(0, io.SeekStart); err != nil {

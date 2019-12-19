@@ -41,6 +41,6 @@ parameters.`
 	}
 	f, err := os.Create(*out)
 	c.must(err)
-	c.must(sess.Bundle().Write(f))
+	c.must(sess.Bundle().WriteTo(f))
 	c.must(f.Close())
 }
