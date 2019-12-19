@@ -21,5 +21,5 @@ install: true
 before_script:
   - go install github.com/golangci/golangci-lint/cmd/golangci-lint
 script:
-  - golangci-lint run
+  - golangci-lint run --new-from-rev=master --timeout=300s -v .
   - go test -v -tags unit ./...
