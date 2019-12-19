@@ -1200,10 +1200,10 @@ func TestScheduler(t *testing.T) {
 func TestSnapshotter(t *testing.T) {
 	e, config, done := newTestScheduler()
 	defer done()
-	snapshotter := make(snapshotter)
-	config.Snapshotter = snapshotter
+	ss := make(snapshotter)
+	config.Snapshotter = ss
 
-	snapshotter["s3://bucket/prefix"] = reflow.Fileset{
+	ss["s3://bucket/prefix"] = reflow.Fileset{
 		Map: map[string]reflow.File{
 			"x": reflow.File{Source: "s3://bucket/prefix/x", ETag: "x", Size: 1},
 			"y": reflow.File{Source: "s3://bucket/prefix/y", ETag: "y", Size: 2},
@@ -1212,7 +1212,7 @@ func TestSnapshotter(t *testing.T) {
 	}
 	// Populate the substitution map for all known files.
 	e.Sub = make(map[digest.Digest]reflow.File)
-	for _, fs := range snapshotter {
+	for _, fs := range ss {
 		for _, file := range fs.Files() {
 			e.Sub[file.Digest()] = testutil.WriteFile(e.Repo, file.Source)
 		}
@@ -1231,7 +1231,7 @@ func TestSnapshotter(t *testing.T) {
 	if got, want := len(cfg.Args), 1; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
-	resolved, _ := snapshotter["s3://bucket/prefix"].Subst(e.Sub)
+	resolved, _ := ss["s3://bucket/prefix"].Subst(e.Sub)
 	if got, want := *cfg.Args[0].Fileset, resolved; !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
@@ -1250,10 +1250,10 @@ func TestSnapshotter(t *testing.T) {
 func TestSnapshotterMustIntern(t *testing.T) {
 	e, config, done := newTestScheduler()
 	defer done()
-	snapshotter := make(snapshotter)
-	config.Snapshotter = snapshotter
+	ss := make(snapshotter)
+	config.Snapshotter = ss
 
-	snapshotter["s3://bucket/prefix"] = reflow.Fileset{
+	ss["s3://bucket/prefix"] = reflow.Fileset{
 		Map: map[string]reflow.File{
 			"x": reflow.File{Source: "s3://bucket/prefix/x", ETag: "x", Size: 1},
 			"y": reflow.File{Source: "s3://bucket/prefix/y", ETag: "y", Size: 2},
@@ -1262,7 +1262,7 @@ func TestSnapshotterMustIntern(t *testing.T) {
 	}
 	// Populate the substitution map for all known files.
 	e.Sub = make(map[digest.Digest]reflow.File)
-	for _, fs := range snapshotter {
+	for _, fs := range ss {
 		for _, file := range fs.Files() {
 			e.Sub[file.Digest()] = testutil.WriteFile(e.Repo, file.Source)
 		}
@@ -1283,7 +1283,7 @@ func TestSnapshotterMustIntern(t *testing.T) {
 	if got, want := len(cfg.Args), 1; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
-	resolved, _ := snapshotter["s3://bucket/prefix"].Subst(e.Sub)
+	resolved, _ := ss["s3://bucket/prefix"].Subst(e.Sub)
 	if got, want := *cfg.Args[0].Fileset, resolved; !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
@@ -1329,10 +1329,10 @@ func TestResolverFail(t *testing.T) {
 func TestLoadFail(t *testing.T) {
 	_, config, done := newTestScheduler()
 	defer done()
-	snapshotter := make(snapshotter)
-	config.Snapshotter = snapshotter
+	ss := make(snapshotter)
+	config.Snapshotter = ss
 
-	snapshotter["s3://bucket/prefix"] = reflow.Fileset{
+	ss["s3://bucket/prefix"] = reflow.Fileset{
 		Map: map[string]reflow.File{
 			".": reflow.File{Source: "s3://bucket/prefix", ETag: "xyz", Size: 1},
 		},

@@ -7,11 +7,11 @@ package testutil
 import (
 	"context"
 	"errors"
-	"github.com/grailbio/reflow/values"
 	"sync"
 
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/flow"
+	"github.com/grailbio/reflow/values"
 )
 
 // Resources is a convenient set of resources to use for testing.
