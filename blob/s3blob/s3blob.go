@@ -709,6 +709,14 @@ func awsKind(err error) errors.Kind {
 			return errors.ResourcesExhausted
 		case "BadRequest":
 			return errors.Temporary
+		case "XAmzContentSHA256Mismatch":
+			// Example:
+			//
+			// XAmzContentSHA256Mismatch: The provided 'x-amz-content-sha256' header
+			// does not match what was computed.
+			//
+			// Happens sporadically for no discernible reason.  Just retry.
+			return errors.Temporary
 		}
 		if aerr.OrigErr() == nil {
 			break
