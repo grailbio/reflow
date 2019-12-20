@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow/internal/scanner"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
@@ -56,7 +55,7 @@ func (c *CaseClause) Equal(d *CaseClause) bool {
 // digest writes a digest of c to dw, evaluated in env.
 func (c *CaseClause) digest(dw io.Writer, env *values.Env) {
 	io.WriteString(dw, "grail.com/reflow/syntax.CaseClause")
-	digest.WriteDigest(dw, c.Pat.Digest())
+	c.Pat.digest(dw)
 	var (
 		i    int
 		env2 = env.Push()
