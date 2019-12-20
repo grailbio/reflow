@@ -296,8 +296,8 @@ func (u caseUniv) Minus(lhs []*Pat, rhs *Pat) []*Pat {
 	return u.Intersect(lhs, u.Complement(rhs))
 }
 
-// Intersect performs set intersection, L ∩ R, by taking union the pairwise
-// intersection of the patterns in L × R.
+// Intersect performs set intersection, L ∩ R, by taking the union of the
+// pairwise intersection of the patterns in L × R.
 func (u caseUniv) Intersect(lhs, rhs []*Pat) []*Pat {
 	intersection := []*Pat{}
 	for _, p := range lhs {
