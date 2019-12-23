@@ -103,7 +103,11 @@ func (s *Server) spotNoticeWatcher(ctx context.Context) {
 		case <-tick.C:
 		}
 		resp, err := http.Get("http://169.254.169.254/latest/meta-data/spot/instance-action")
-		if err != nil || resp.StatusCode != http.StatusOK {
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
 			continue
 		}
 		b, err := ioutil.ReadAll(resp.Body)
@@ -111,7 +115,6 @@ func (s *Server) spotNoticeWatcher(ctx context.Context) {
 			logger.Debugf("read %v", err)
 		}
 		logger.Print(string(b))
-		_ = resp.Body.Close()
 	}
 }
 
