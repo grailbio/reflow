@@ -106,7 +106,7 @@ func (s *Server) spotNoticeWatcher(ctx context.Context) {
 		if err != nil {
 			continue
 		}
-		defer resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			continue
 		}
