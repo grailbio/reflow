@@ -106,15 +106,17 @@ func (s *Server) spotNoticeWatcher(ctx context.Context) {
 		if err != nil {
 			continue
 		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			continue
-		}
-		b, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			logger.Debugf("read %v", err)
-		}
-		logger.Print(string(b))
+		func() {
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return
+			}
+			b, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				logger.Debugf("read %v", err)
+			}
+			logger.Print(string(b))
+		}()
 	}
 }
 
