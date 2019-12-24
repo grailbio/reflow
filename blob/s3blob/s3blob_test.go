@@ -280,7 +280,7 @@ func TestDownload(t *testing.T) {
 }
 
 func TestTimeoutPolicy(t *testing.T) {
-	p := timeoutPolicy(minBPS)
+	p := timeoutPolicy(transferDuration(minBPS, minBPS))
 	if got, want := timeout(p, 0), 60*time.Second; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
@@ -290,7 +290,7 @@ func TestTimeoutPolicy(t *testing.T) {
 	if got, want := timeout(p, 100), 180*time.Second; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	p = timeoutPolicy(100 * minBPS)
+	p = timeoutPolicy(transferDuration(100*minBPS, minBPS))
 	if got, want := timeout(p, 0), 100*time.Second; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}

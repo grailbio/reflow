@@ -42,7 +42,6 @@ const (
 	s3minpartsize     = 5 << 20
 	s3concurrency     = 100
 	defaultS3MinLimit = 500
-	defaultS3MaxLimit = 2000
 	defaultMaxRetries = 3
 
 	// See: https://docs.google.com/document/d/1Nl3UyQXTRusXDu8tIt_s9N6JxXu1vhuKeBYssyaKcGU
@@ -53,6 +52,8 @@ const (
 
 	// minBPS defines the lowest acceptable transfer rate.
 	minBPS = 1 << 20
+	// preferredBPS defines the preferred transfer rate.
+	preferredBPS = 10 << 20
 	// minTimeout defines the smallest acceptable timeout.
 	// This helps to give wiggle room for small data transfers.
 	minTimeout = 60 * time.Second
@@ -165,14 +166,6 @@ func newS3RetryPolicy() retry.Policy {
 	return retry.MaxTries(retry.Jitter(retry.Backoff(1*time.Second, time.Minute, 2), 0.25), defaultMaxRetries)
 }
 
-// NewS3AdmitPolicy returns a default admit.RetryPolicy useful for S3 operations.
-func newS3AdmitPolicy(maxLim int, varname string) admit.RetryPolicy {
-	rp := retry.MaxTries(retry.Jitter(retry.Backoff(500*time.Millisecond, time.Minute, 1.5), 0.5), defaultMaxRetries)
-	c := admit.ControllerWithRetry(defaultS3MinLimit, maxLim, rp)
-	admit.EnableVarExport(c, varname)
-	return c
-}
-
 // NewS3AimdPolicy returns a default admit.RetryPolicy backed by an AIMD admission controller.
 func newS3AimdPolicy(varname string) admit.RetryPolicy {
 	rp := retry.MaxTries(retry.Jitter(retry.Backoff(500*time.Millisecond, time.Minute, 1.5), 0.5), defaultMaxRetries)
@@ -200,7 +193,7 @@ type Bucket struct {
 func NewBucket(name string, client s3iface.S3API) *Bucket {
 	return &Bucket{
 		name, client,
-		newS3AdmitPolicy(defaultS3MaxLimit, "s3data"),
+		newS3AimdPolicy("s3data"),
 		newS3AimdPolicy("s3head"),
 		newS3RetryPolicy(),
 		defaultS3ObjectCopySizeLimit,
@@ -325,15 +318,20 @@ func ctxErr(ctx context.Context, other error) error {
 	return other
 }
 
-func timeoutPolicy(size int64) retry.Policy {
-	baseTimeout := time.Duration(size/minBPS) * time.Second
+// transferDuration estimates the time duration it would take to transfer
+// data of the given size at the given rate.
+func transferDuration(size int64, rate int) time.Duration {
 	if size == 0 {
-		baseTimeout = unknownSizeTimeout
+		return unknownSizeTimeout
 	}
-	if baseTimeout < minTimeout {
-		baseTimeout = minTimeout
+	return time.Duration(size/int64(rate)) * time.Second
+}
+
+func timeoutPolicy(timeout time.Duration) retry.Policy {
+	if timeout < minTimeout {
+		timeout = minTimeout
 	}
-	return retry.Backoff(baseTimeout, 3*baseTimeout, 1.5)
+	return retry.Backoff(timeout, 3*timeout, 1.5)
 }
 
 func timeout(policy retry.Policy, retries int) time.Duration {
@@ -360,10 +358,13 @@ func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w i
 			size = rf.Size
 		}
 	}
-	var n int64
-	s3concurrency := maxS3Ops(size)
-	var err error
-	policy := timeoutPolicy(size)
+	var (
+		n             int64
+		err           error
+		s3concurrency = maxS3Ops(size)
+		policy        = timeoutPolicy(transferDuration(size, minBPS))
+		preferredDur  = transferDuration(size, preferredBPS)
+	)
 	for retries := 0; ; retries++ {
 		err = admit.Retry(ctx, b.admitter, s3concurrency, func() (admit.CapacityStatus, error) {
 			d := s3manager.NewDownloaderWithClient(b.client, func(d *s3manager.Downloader) {
@@ -372,11 +373,16 @@ func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w i
 			})
 			ctx, cancel := context.WithTimeout(ctx, timeout(policy, retries))
 			defer cancel()
+			start := time.Now()
 			n, err = d.DownloadWithContext(ctx, w, b.getObjectInput(key, etag))
+			dur := time.Since(start)
 			err = ctxErr(ctx, err)
 			if kind(err) == errors.ResourcesExhausted {
 				log.Printf("s3blob.Download: %s/%s: %v (over capacity)\n", b.bucket, key, err)
 				return admit.OverNeedRetry, err
+			}
+			if dur > preferredDur {
+				return admit.OverNoRetry, err
 			}
 			return admit.Within, err
 		})
@@ -412,9 +418,12 @@ func (b *Bucket) Get(ctx context.Context, key, etag string) (io.ReadCloser, refl
 // Put stores the contents of the provided io.Reader at the provided key
 // and attaches the given contentHash to the object's metadata.
 func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader, contentHash string) error {
-	s3concurrency := maxS3Ops(size)
-	var err error
-	policy := timeoutPolicy(size)
+	var (
+		err           error
+		s3concurrency = maxS3Ops(size)
+		policy        = timeoutPolicy(transferDuration(size, minBPS))
+		preferredDur  = transferDuration(size, preferredBPS)
+	)
 	for retries := 0; ; retries++ {
 		err = admit.Retry(ctx, b.admitter, s3concurrency, func() (admit.CapacityStatus, error) {
 			up := s3manager.NewUploaderWithClient(b.client, func(u *s3manager.Uploader) {
@@ -431,11 +440,16 @@ func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader
 			if contentHash != "" {
 				input.Metadata = map[string]*string{awsContentSha256Key: aws.String(contentHash)}
 			}
+			start := time.Now()
 			_, err = up.UploadWithContext(ctx, input)
+			dur := time.Since(start)
 			err = ctxErr(ctx, err)
 			if kind(err) == errors.ResourcesExhausted {
 				log.Printf("s3blob.Put: %s/%s: %v (over capacity)\n", b.bucket, key, err)
 				return admit.OverNeedRetry, err
+			}
+			if dur > preferredDur {
+				return admit.OverNoRetry, err
 			}
 			return admit.Within, err
 		})
