@@ -115,6 +115,7 @@ func (s *Server) spotNoticeWatcher(ctx context.Context) {
 			b, err := ioutil.ReadAll(resp.Body)
 			if err != nil {
 				logger.Debugf("read %v", err)
+				return
 			}
 			logger.Print(string(b))
 		}()
