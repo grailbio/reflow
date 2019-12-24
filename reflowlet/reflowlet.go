@@ -104,7 +104,6 @@ func (s *Server) spotNoticeWatcher(ctx context.Context) {
 		}
 		resp, err := http.Get("http://169.254.169.254/latest/meta-data/spot/instance-action")
 		if err != nil {
-			logger.Debugf("read %v", err)
 			continue
 		}
 		func() {
