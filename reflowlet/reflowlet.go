@@ -106,6 +106,7 @@ func (s *Server) spotNoticeWatcher(ctx context.Context) {
 		if err != nil {
 			continue
 		}
+		// The following is done in a func to defer closing the response body.
 		func() {
 			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusOK {
