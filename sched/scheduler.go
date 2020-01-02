@@ -416,7 +416,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		case stateWait:
 			if s.TaskDB != nil {
 				tctx, tcancel = context.WithCancel(ctx)
-				if taskdbErr := s.TaskDB.CreateTask(tctx, task.ID, task.RunID, task.FlowID, x.URI()); taskdbErr != nil {
+				if taskdbErr := s.TaskDB.CreateTask(tctx, task.ID, task.RunID, task.FlowID, taskdb.NewImgCmdID(task.Config.Image, task.Config.Cmd), task.Config.Ident, x.URI()); taskdbErr != nil {
 					s.Log.Errorf("taskdb createtask: %v", taskdbErr)
 				} else {
 					go func() { _ = taskdb.KeepTaskAlive(tctx, s.TaskDB, task.ID) }()
@@ -498,7 +498,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 
 func (s *Scheduler) directTransfer(ctx context.Context, task *Task) {
 	if s.TaskDB != nil {
-		if err := s.TaskDB.CreateTask(ctx, task.ID, task.RunID, task.FlowID, "local"); err != nil {
+		if err := s.TaskDB.CreateTask(ctx, task.ID, task.RunID, task.FlowID, taskdb.NewImgCmdID(task.Config.Image, task.Config.Cmd), task.Config.Ident, "local"); err != nil {
 			s.Log.Errorf("taskdb createtask: %v", err)
 		} else {
 			tctx, tcancel := context.WithCancel(ctx)

@@ -8,13 +8,15 @@ package taskdb
 
 import (
 	"context"
+	"crypto"
+	_ "crypto/sha256"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/retry"
-	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/pool"
 )
@@ -24,7 +26,7 @@ type RunID digest.Digest
 
 // NewRunID produces a random RunID.
 func NewRunID() RunID {
-	return RunID(reflow.Digester.Rand(nil))
+	return RunID(idDigester.Rand(nil))
 }
 
 // ID returns the string representation of the RunID.
@@ -47,7 +49,7 @@ type TaskID digest.Digest
 
 // NewTaskID produces a random TaskID.
 func NewTaskID() TaskID {
-	return TaskID(reflow.Digester.Rand(nil))
+	return TaskID(idDigester.Rand(nil))
 }
 
 // ID returns the string representation of the TaskID.
@@ -64,6 +66,33 @@ func (t TaskID) IDShort() string {
 func (t TaskID) IsValid() bool {
 	return !digest.Digest(t).IsZero()
 }
+
+// ImgCmdID describes the behavior of an exec.
+// It is a digest of an exec's docker image + cmd.
+type ImgCmdID digest.Digest
+
+// NewImgCmdID returns an ImgCmdID created
+// from an image and a cmd.
+func NewImgCmdID(image, cmd string) ImgCmdID {
+	w := idDigester.NewWriter()
+	_, _ = io.WriteString(w, image)
+	_, _ = io.WriteString(w, cmd)
+	return ImgCmdID(w.Digest())
+}
+
+// ID returns the string representation of the ImgCmdID.
+func (b ImgCmdID) ID() string {
+	return digest.Digest(b).String()
+}
+
+// IsValid returns whether or not the ImgCmdID is valid.
+func (b ImgCmdID) IsValid() bool {
+	return !digest.Digest(b).IsZero()
+}
+
+// idDigester is the digester used to compute taskdb ID (TaskID, RunID, ImgCmdID)
+// digests. We use a SHA256 digest.
+var idDigester = digest.Digester(crypto.SHA256)
 
 // Kind describes the kind of mapping.
 type Kind int
@@ -89,8 +118,8 @@ type TaskDB interface {
 	CreateRun(ctx context.Context, id RunID, user string) error
 	// SetRunAttrs sets the reflow bundle and corresponding args for this run.
 	SetRunAttrs(ctx context.Context, id RunID, bundle digest.Digest, args []string) error
-	// CreateTask creates a new task with the provided id, runid, flowid and uri.
-	CreateTask(ctx context.Context, id TaskID, runID RunID, flowID digest.Digest, uri string) error
+	// CreateTask creates a new task in the taskdb with the provided taskID, runID and flowID, imgCmdID, ident, and uri.
+	CreateTask(ctx context.Context, id TaskID, runID RunID, flowID digest.Digest, imgCmdID ImgCmdID, ident, uri string) error
 	// SetTaskResult sets the result of the task post completion.
 	SetTaskResult(ctx context.Context, id TaskID, result digest.Digest) error
 	// SetTaskLogs updates the task log ids.

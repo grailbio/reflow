@@ -26,7 +26,7 @@ func (n nopTaskDB) SetRunAttrs(ctx context.Context, id taskdb.RunID, bundle dige
 }
 
 // CreateTask is a no op.
-func (n nopTaskDB) CreateTask(ctx context.Context, id taskdb.TaskID, runID taskdb.RunID, flowID digest.Digest, uri string) error {
+func (n nopTaskDB) CreateTask(ctx context.Context, id taskdb.TaskID, runID taskdb.RunID, flowID digest.Digest, imgCmdID taskdb.ImgCmdID, ident, uri string) error {
 	return nil
 }
 

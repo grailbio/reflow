@@ -49,3 +49,18 @@ func TestTaskID(t *testing.T) {
 		t.Errorf("taskid %s valid", invalidDigest.ID())
 	}
 }
+
+func TestImgCmdID(t *testing.T) {
+	var (
+		image    = "testimage"
+		cmd      = "testcmd"
+		imgCmdID = NewImgCmdID(image, cmd)
+		validID  = "sha256:bfc35fa41b55e036e8303eeaff9824b8880629114303d1c86e2137694f08b8b5"
+	)
+	if !imgCmdID.IsValid() {
+		t.Fatalf("id invalid")
+	}
+	if got, want := imgCmdID.ID(), validID; got != want {
+		t.Errorf("got %s, want %s", got, want)
+	}
+}

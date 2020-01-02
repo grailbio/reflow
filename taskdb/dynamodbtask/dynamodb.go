@@ -12,10 +12,10 @@
 // buckets. Dynamodbtask also uses a bunch of secondary indices to help with run/task querying.
 // Schema:
 // run:  {ID, ID4, Labels, Bundle, Args, Date, Keepalive, StartTime, Type="run", User}
-// task: {ID, ID4, Labels, Date, Keepalive, StartTime, Type="task", FlowID, Inspect, ResultID, RunID, RunID4, Stderr, Stdout, URI}
+// task: {ID, ID4, Labels, Date, Keepalive, StartTime, Type="task", FlowID, Inspect, ResultID, RunID, RunID4, ImgCmdID, Ident, Stderr, Stdout, URI}
 // Indexes:
-// 1. Date-Keepalive-index - for queries that are time based.
-// 2. RunID-index - for find all tasks that belongs to a run.
+// 1. Date-Keepalive-index - for time-based queries.
+// 2. RunID-index - for finding all tasks that belong to a run.
 // 3. ID-index and ID4-ID-index - for queries looking for specific runs or tasks.
 package dynamodbtask
 
@@ -50,6 +50,8 @@ const (
 	RunID4
 	FlowID
 	ResultID
+	ImgCmdID
+	Ident
 	KeepAlive
 	StartTime
 	Stdout
@@ -93,7 +95,7 @@ const (
 	readcap  = 20
 )
 
-// Column names used in dynamodb table
+// Column names used in dynamodb table.
 const (
 	colID        = "ID"
 	colID4       = "ID4"
@@ -101,6 +103,8 @@ const (
 	colRunID4    = "RunID4"
 	colFlowID    = "FlowID"
 	colResultID  = "ResultID"
+	colImgCmdID  = "ImgCmdID"
+	colIdent     = "Ident"
 	colKeepalive = "Keepalive"
 	colStartTime = "StartTime"
 	colStdout    = "Stdout"
@@ -120,6 +124,8 @@ var colmap = map[taskdb.Kind]string{
 	RunID:       colRunID,
 	RunID4:      colRunID4,
 	FlowID:      colFlowID,
+	ImgCmdID:    colImgCmdID,
+	Ident:       colIdent,
 	ResultID:    colResultID,
 	KeepAlive:   colKeepalive,
 	StartTime:   colStartTime,
@@ -228,8 +234,8 @@ func (t *TaskDB) SetRunAttrs(ctx context.Context, id taskdb.RunID, bundle digest
 	return err
 }
 
-// CreateTask sets a new task in the taskdb with the given taskid, runid and flowid.
-func (t *TaskDB) CreateTask(ctx context.Context, id taskdb.TaskID, runID taskdb.RunID, flowID digest.Digest, uri string) error {
+// CreateTask creates a new task in the taskdb with the provided taskID, runID and flowID, imgCmdID, ident, and uri.
+func (t *TaskDB) CreateTask(ctx context.Context, id taskdb.TaskID, runID taskdb.RunID, flowID digest.Digest, imgCmdID taskdb.ImgCmdID, ident, uri string) error {
 	now := time.Now().UTC()
 	input := &dynamodb.PutItemInput{
 		TableName: aws.String(t.TableName),
@@ -248,6 +254,12 @@ func (t *TaskDB) CreateTask(ctx context.Context, id taskdb.TaskID, runID taskdb.
 			},
 			colFlowID: {
 				S: aws.String(flowID.String()),
+			},
+			colImgCmdID: {
+				S: aws.String(imgCmdID.ID()),
+			},
+			colIdent: {
+				S: aws.String(ident),
 			},
 			colType: {
 				S: aws.String(string(task)),

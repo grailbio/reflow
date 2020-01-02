@@ -148,15 +148,17 @@ func TestSetRunAttrs(t *testing.T) {
 
 func TestTaskCreate(t *testing.T) {
 	var (
-		labels = []string{"test=label"}
-		mockdb = mockDynamodbPut{}
-		taskb  = &TaskDB{DB: &mockdb, TableName: mockTableName, Labels: labels}
-		taskID = taskdb.NewTaskID()
-		runID  = taskdb.NewRunID()
-		flowID = reflow.Digester.Rand(nil)
-		uri    = "machineUri"
+		labels   = []string{"test=label"}
+		mockdb   = mockDynamodbPut{}
+		taskb    = &TaskDB{DB: &mockdb, TableName: mockTableName, Labels: labels}
+		taskID   = taskdb.NewTaskID()
+		runID    = taskdb.NewRunID()
+		flowID   = reflow.Digester.Rand(nil)
+		uri      = "machineUri"
+		ident    = "ident"
+		imgCmdID = taskdb.NewImgCmdID("image", "cmd")
 	)
-	err := taskb.CreateTask(context.Background(), taskID, runID, flowID, uri)
+	err := taskb.CreateTask(context.Background(), taskID, runID, flowID, imgCmdID, ident, uri)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +172,8 @@ func TestTaskCreate(t *testing.T) {
 		{*mockdb.pinput.Item[colRunID].S, runID.ID()},
 		{*mockdb.pinput.Item[colRunID4].S, runID.IDShort()},
 		{*mockdb.pinput.Item[colFlowID].S, flowID.String()},
-		{*mockdb.pinput.Item[colType].S, "task"},
+		{*mockdb.pinput.Item[colImgCmdID].S, imgCmdID.ID()},
+		{*mockdb.pinput.Item[colIdent].S, ident},
 		{*mockdb.pinput.Item[colType].S, "task"},
 		{*mockdb.pinput.Item[colURI].S, "machineUri"},
 		{*mockdb.pinput.Item[colLabels].SS[0], labels[0]},

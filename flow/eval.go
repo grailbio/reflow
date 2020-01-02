@@ -1854,7 +1854,7 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 			)
 			if e.TaskDB != nil {
 				tctx, tcancel = context.WithCancel(ctx)
-				err = e.TaskDB.CreateTask(tctx, f.TaskID, e.RunID, id, x.URI())
+				err = e.TaskDB.CreateTask(tctx, f.TaskID, e.RunID, id, taskdb.NewImgCmdID(cfg.Image, cfg.Cmd), cfg.Ident, x.URI())
 				if err != nil {
 					tcancel()
 					e.Log.Debugf("taskdb createtask: %v\n", err)

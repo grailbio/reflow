@@ -190,7 +190,7 @@ func (w *worker) do(ctx context.Context, f *flow.Flow) (err error) {
 				w.Log.Errorf("transfer error: %v", err)
 			}
 		case statePut:
-			x, err = w.Executor.Put(ctx, f.ExecId, reflow.ExecConfig{
+			cfg := reflow.ExecConfig{
 				Type:        "exec",
 				Ident:       f.Ident,
 				Image:       f.Image,
@@ -198,11 +198,12 @@ func (w *worker) do(ctx context.Context, f *flow.Flow) (err error) {
 				Args:        args,
 				Resources:   f.Resources,
 				OutputIsDir: f.OutputIsDir,
-			})
+			}
+			x, err = w.Executor.Put(ctx, f.ExecId, cfg)
 			if err == nil {
 				if w.Eval.TaskDB != nil {
 					tctx, cancel = context.WithCancel(ctx)
-					err = w.Eval.TaskDB.CreateTask(tctx, f.TaskID, w.Eval.RunID, f.Digest(), x.URI())
+					err = w.Eval.TaskDB.CreateTask(tctx, f.TaskID, w.Eval.RunID, f.Digest(), taskdb.NewImgCmdID(cfg.Image, cfg.Cmd), cfg.Ident, x.URI())
 					if err != nil {
 						log.Debugf("taskdb createtask: %v\n", err)
 					} else {
