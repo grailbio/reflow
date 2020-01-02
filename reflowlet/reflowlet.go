@@ -103,16 +103,22 @@ func (s *Server) spotNoticeWatcher(ctx context.Context) {
 		case <-tick.C:
 		}
 		resp, err := http.Get("http://169.254.169.254/latest/meta-data/spot/instance-action")
-		if err != nil || resp.StatusCode != http.StatusOK {
-			continue
-		}
-		b, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			logger.Debugf("read %v", err)
 			continue
 		}
-		logger.Print(string(b))
-		_ = resp.Body.Close()
+		// The following is done in a func to defer closing the response body.
+		func() {
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return
+			}
+			b, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				logger.Debugf("read %v", err)
+				return
+			}
+			logger.Print(string(b))
+		}()
 	}
 }
 
