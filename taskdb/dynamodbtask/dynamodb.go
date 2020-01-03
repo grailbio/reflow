@@ -741,6 +741,8 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 	return []taskdb.Run{}, fmt.Errorf("%s", b.String())
 }
 
+// Scan calls the handler function for every association in the mapping.
+// Note that the handler function may be called asynchronously from multiple threads.
 func (t *TaskDB) Scan(ctx context.Context, kind taskdb.Kind, mappingHandler taskdb.MappingHandler) error {
 	colname, ok := colmap[kind]
 	if !ok {
