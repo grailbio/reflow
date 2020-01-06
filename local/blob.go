@@ -685,10 +685,17 @@ func (w *lazyWriterAt) WriteAt(p []byte, off int64) (n int, err error) {
 }
 
 func (w *lazyWriterAt) Close() error {
-	if w.namedWriterAtCloser != nil {
-		return w.namedWriterAtCloser.Close()
+	if w.namedWriterAtCloser == nil {
+		return nil
 	}
-	return nil
+	return w.namedWriterAtCloser.Close()
+}
+
+func (w *lazyWriterAt) Name() string {
+	if w.namedWriterAtCloser == nil {
+		return "<unknown>"
+	}
+	return w.namedWriterAtCloser.Name()
 }
 
 type upload struct {
