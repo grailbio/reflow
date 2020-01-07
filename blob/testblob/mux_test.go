@@ -20,6 +20,7 @@ func TestBucketKey(t *testing.T) {
 	}{
 		{"test://bucket/Helloworld", "Helloworld", false},
 		{"test://bucket/Hello #world #now", "Hello #world #now", false},
+		{"test://bucket/tmp/reflow/modules/internal/grailrnar/summary_want.tsv?=2", "tmp/reflow/modules/internal/grailrnar/summary_want.tsv?=2", false},
 	} {
 		_, got, err := m.Bucket(context.Background(), tc.rawurl)
 		if (err != nil) != tc.wanterr {
