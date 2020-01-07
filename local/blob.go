@@ -674,10 +674,14 @@ func newLazyWriterAt(opener func() (namedWriterAtCloser, error)) namedWriterAtCl
 	return &lazyWriterAt{opener: opener}
 }
 
-func (w *lazyWriterAt) WriteAt(p []byte, off int64) (n int, err error) {
+func (w *lazyWriterAt) ensureOpen() {
 	w.openOnce.Do(func() {
 		w.namedWriterAtCloser, w.openErr = w.opener()
 	})
+}
+
+func (w *lazyWriterAt) WriteAt(p []byte, off int64) (n int, err error) {
+	w.ensureOpen()
 	if w.openErr != nil {
 		return 0, w.openErr
 	}
@@ -685,15 +689,17 @@ func (w *lazyWriterAt) WriteAt(p []byte, off int64) (n int, err error) {
 }
 
 func (w *lazyWriterAt) Close() error {
-	if w.namedWriterAtCloser == nil {
-		return nil
+	w.ensureOpen()
+	if w.openErr != nil {
+		return w.openErr
 	}
 	return w.namedWriterAtCloser.Close()
 }
 
 func (w *lazyWriterAt) Name() string {
-	if w.namedWriterAtCloser == nil {
-		return "<unknown>"
+	w.ensureOpen()
+	if w.openErr != nil {
+		return ""
 	}
 	return w.namedWriterAtCloser.Name()
 }
