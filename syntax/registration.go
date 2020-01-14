@@ -18,7 +18,8 @@ func RegisterModule(name string, m *ModuleImpl) {
 	mu.Unlock()
 }
 
-// ParseAndRegisterModule is like RegisterModule, but parses module from reflow source
+// ParseAndRegisterModule is like RegisterModule, but parses module from reflow source.
+// This function has the advantage of being able to define module parameters.
 func ParseAndRegisterModule(name string, source io.Reader) error {
 	p := Parser{Mode: ParseModule, Body: source}
 	if err := p.Parse(); err != nil {
