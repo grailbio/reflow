@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/reflow"
@@ -129,7 +130,7 @@ func (r *Run) Go(ctx context.Context, initWG *sync.WaitGroup) error {
 	// Also tee the output to the standard runlog location.
 	// TODO(marius): this should be handled in a standard way.
 	// (And run state management generally.)
-	runLogPath := filepath.Join(r.batch.Rundir, r.RunID.IDShort()+".execlog")
+	runLogPath := filepath.Join(r.batch.Rundir, digest.Digest(r.RunID).Hex()+".execlog")
 	os.MkdirAll(filepath.Dir(runLogPath), 0777)
 	runLogFile, err := os.Create(runLogPath)
 	if err != nil {

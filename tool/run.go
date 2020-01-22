@@ -591,7 +591,7 @@ func (c *Cmd) uploadBundle(ctx context.Context, repo reflow.Repository, tdb task
 
 // Runbase returns the base path for the run with the provided name
 func (c Cmd) Runbase(runID taskdb.RunID) string {
-	return filepath.Join(c.rundir(), runID.IDShort())
+	return filepath.Join(c.rundir(), digest.Digest(runID).Hex())
 }
 
 // WaitForBackgroundTasks waits until all background tasks complete, or if the provided
