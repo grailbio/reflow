@@ -60,9 +60,37 @@ var indexes = map[string]*indexdefs{
 			},
 		},
 	},
+	imgCmdIDIndex: &indexdefs{
+		attrdefs: []*dynamodb.AttributeDefinition{
+			{
+				AttributeName: aws.String(colImgCmdID),
+				AttributeType: aws.String("S"),
+			},
+		},
+		keyschema: []*dynamodb.KeySchemaElement{
+			{
+				KeyType:       aws.String("HASH"),
+				AttributeName: aws.String(colImgCmdID),
+			},
+		},
+	},
+	identIndex: &indexdefs{
+		attrdefs: []*dynamodb.AttributeDefinition{
+			{
+				AttributeName: aws.String(colIdent),
+				AttributeType: aws.String("S"),
+			},
+		},
+		keyschema: []*dynamodb.KeySchemaElement{
+			{
+				KeyType:       aws.String("HASH"),
+				AttributeName: aws.String(colIdent),
+			},
+		},
+	},
 }
 
-// Setup implements infra.Provider
+// Setup implements infra.Provider.
 func (t *TaskDB) Setup(sess *session.Session, assoc *dydbassoc.Assoc, log *log.Logger) error {
 	t.TableName = assoc.TableName
 	db := assoc.DB
@@ -108,12 +136,6 @@ func (t *TaskDB) Setup(sess *session.Session, assoc *dydbassoc.Assoc, log *log.L
 					},
 				},
 			},
-		}
-		if *describe.Table.BillingModeSummary.BillingMode == "PROVISIONED" {
-			input.ProvisionedThroughput = &dynamodb.ProvisionedThroughput{
-				ReadCapacityUnits:  aws.Int64(int64(readcap)),
-				WriteCapacityUnits: aws.Int64(int64(writecap)),
-			}
 		}
 		_, err = db.UpdateTable(input)
 		if err != nil {

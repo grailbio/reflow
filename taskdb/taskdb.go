@@ -174,6 +174,12 @@ type Task struct {
 	FlowID digest.Digest
 	// ResultID is the id of the result, if non zero.
 	ResultID digest.Digest
+	// ImgCmdID is the ID of the underlying exec. It is a digest of an exec's image and cmd.
+	// ImgCmdID has a many-to-many relationship with Ident.
+	ImgCmdID ImgCmdID
+	// Ident is the human-readable name of the underlying exec. Ident has a many-to-many
+	// relationship with ImgCmdID.
+	Ident string
 	// Keepalive is the keepalive lease on the task.
 	Keepalive time.Time
 	// Start is the time the task was started.
@@ -188,29 +194,34 @@ func (t Task) String() string {
 	return fmt.Sprintf("task %s %s %s %s %s", t.ID.IDShort(), t.RunID.IDShort(), t.FlowID.Short(), t.Start.String(), t.Keepalive.String())
 }
 
-// TaskQuery is a query struct for the TaskDB query interface to query for tasks. All fields
-// are optional. If nothing is specified, the query looks up ids that have
-// keepalive updated in the last 30 minutes for any user. If a user filter is
-// specified, all queries are restricted to runs/tasks created by the user. ID is the TaskID
-// of a task. If ID is specified, tasks with ID are looked up. If RunID is specified, tasks with RunID are looked up.
-// If Since is specified, runs/tasks whose keepalive is within that time frame are looked up.
+// TaskQuery is the task-querying struct for TaskDB.Tasks. There are two ways to query tasks:
+//
+// 1. Only ID/RunID/ImgCmdID/Ident specified: Query tasks with the corresponding ID.
+//
+// 2. Since + User specified: Query runs whose keepalive is within that time frame that belong to the specified User.
+// If User is not specified, the query will return results for all users.
 type TaskQuery struct {
 	// ID is the task id being queried.
 	ID TaskID
 	// RunID is the runid of the tasks.
 	RunID RunID
+	// ImgCmdID is the behavior id of the task's exec.
+	// It is calculated from an exec's resolved docker image and command.
+	ImgCmdID ImgCmdID
+	// Ident is the human-readable identifier of the task's exec.
+	Ident string
 	// Since queries for runs/tasks that were active past this time.
 	Since time.Time
 	// User looks up the runs/tasks that are created by the user. If empty, the user filter is dropped.
 	User string
 }
 
-// RunQuery is a query struct for the TaskDB query interface to query for runs. All fields
-// are optional. If nothing is specified, the query looks up ids that have
-// keepalive updated in the last 30 minutes for any user. If a user filter is
-// specified, all queries are restricted to runs/tasks created by the user. ID is the RunID
-// of a run. If ID is specified, runs with ID are looked up. If Since is specified, runs/tasks
-// whose keepalive is within that time frame are looked up.
+// RunQuery is the run-querying struct for TaskDB.Runs. There are two ways to query runs:
+//
+// 1. Only ID specified: Query runs with the corresponding ID.
+//
+// 2. Since + User specified: Query runs whose keepalive is within that time frame that belong to the specified User.
+// If User is not specified, the query will return results for all users.
 type RunQuery struct {
 	// ID is the run id being queried.
 	ID RunID

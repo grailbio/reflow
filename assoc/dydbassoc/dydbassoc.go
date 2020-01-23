@@ -67,7 +67,7 @@ type Assoc struct {
 	labels     []*string `yaml:"-"`
 }
 
-// Help implements infra.Provider
+// Help implements infra.Provider.
 func (a *Assoc) Help() string {
 	return "configure an assoc using the provided DynamoDB table name"
 }
@@ -82,7 +82,7 @@ func (a *Assoc) Init(sess *session.Session, labels pool.Labels) error {
 	return nil
 }
 
-// Setup implements infra.Provider
+// Setup implements infra.Provider.
 func (a *Assoc) Setup(sess *session.Session, logger *log.Logger) error {
 	log.Printf("creating DynamoDB table %s", a.TableName)
 	db := dynamodb.New(sess)
@@ -99,11 +99,8 @@ func (a *Assoc) Setup(sess *session.Session, logger *log.Logger) error {
 				KeyType:       aws.String("HASH"),
 			},
 		},
-		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(readcap),
-			WriteCapacityUnits: aws.Int64(writecap),
-		},
-		TableName: aws.String(a.TableName),
+		BillingMode: aws.String("PAY_PER_REQUEST"),
+		TableName:   aws.String(a.TableName),
 	})
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); !ok || aerr.Code() != dynamodb.ErrCodeResourceInUseException {
@@ -175,10 +172,6 @@ func (a *Assoc) Setup(sess *session.Session, logger *log.Logger) error {
 						Projection: &dynamodb.Projection{
 							ProjectionType: aws.String("ALL"),
 						},
-						ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
-							ReadCapacityUnits:  aws.Int64(int64(readcap)),
-							WriteCapacityUnits: aws.Int64(int64(writecap)),
-						},
 					},
 				},
 			},
@@ -194,6 +187,11 @@ func (a *Assoc) Setup(sess *session.Session, logger *log.Logger) error {
 // Flags implements infra.Provider.
 func (a *Assoc) Flags(flags *flag.FlagSet) {
 	flags.StringVar(&a.TableName, "table", "", "name of the dynamodb table")
+}
+
+// Version implements infra.Provider.
+func (a *Assoc) Version() int {
+	return 1
 }
 
 // Store associates the digest v with the key digest k of the provided kind. If v is zero,

@@ -17,6 +17,7 @@
 // 1. Date-Keepalive-index - for time-based queries.
 // 2. RunID-index - for finding all tasks that belong to a run.
 // 3. ID-index and ID4-ID-index - for queries looking for specific runs or tasks.
+// 4. ImgCmdID-index and Ident-index - for queries looking for specific execs.
 package dynamodbtask
 
 import (
@@ -45,7 +46,8 @@ import (
 )
 
 const (
-	ID4 taskdb.Kind = iota
+	ID taskdb.Kind = iota
+	ID4
 	RunID
 	RunID4
 	FlowID
@@ -69,13 +71,6 @@ const (
 func init() {
 	infra.Register("dynamodbtask", new(TaskDB))
 }
-
-var (
-	dateKeepaliveIndex = "Date-Keepalive-index"
-	idIndex            = "ID-index"
-	id4Index           = "ID4-ID-index"
-	runIDIndex         = "RunID-index"
-)
 
 type objType string
 
@@ -120,6 +115,7 @@ const (
 )
 
 var colmap = map[taskdb.Kind]string{
+	ID:          colID,
 	ID4:         colID4,
 	RunID:       colRunID,
 	RunID4:      colRunID4,
@@ -141,6 +137,16 @@ var colmap = map[taskdb.Kind]string{
 	Args:        colArgs,
 }
 
+// Index names used in dynamodb table.
+const (
+	idIndex            = "ID-index"
+	id4Index           = "ID4-ID-index"
+	runIDIndex         = "RunID-index"
+	imgCmdIDIndex      = "ImgCmdID-index"
+	identIndex         = "Ident-index"
+	dateKeepaliveIndex = "Date-Keepalive-index"
+)
+
 // TaskDB implements the dynamodb backed taskdb.TaskDB interface to
 // store run/task state and metadata.
 // Each association is either:
@@ -159,12 +165,12 @@ type TaskDB struct {
 	limiter *limiter.Limiter
 }
 
-// Help implements infra.Provider
+// Help implements infra.Provider.
 func (TaskDB) Help() string {
 	return "configure a dynamodb table to store run/task information"
 }
 
-// Init implements infra.Provider
+// Init implements infra.Provider.
 func (t *TaskDB) Init(sess *session.Session, assoc *dydbassoc.Assoc, user *infra2.User, labels pool.Labels) error {
 	t.limiter = limiter.New()
 	t.limiter.Release(32)
@@ -176,6 +182,11 @@ func (t *TaskDB) Init(sess *session.Session, assoc *dydbassoc.Assoc, user *infra
 	t.User = string(*user)
 	t.TableName = assoc.TableName
 	return nil
+}
+
+// Version implements infra.Provider.
+func (t *TaskDB) Version() int {
+	return 1
 }
 
 // CreateRun sets a new run in the taskdb with the given id, labels and user.
@@ -368,8 +379,7 @@ func (t *TaskDB) keepalive(ctx context.Context, id digest.Digest, keepalive time
 }
 
 // query is the generic query struct for the TaskDB querying interface. All fields, with
-// the exception of Typ, are optional. If nothing is specified, the query looks up ids that have
-// keepalive updated in the last 30 minutes for any user. If a user filter is
+// the exception of Typ, are optional. If a user filter is
 // specified, all queries are restricted to runs/tasks created by the user.
 // If id is specified, runs/tasks with id is looked up. If Since is specified,
 // runs/tasks whose keepalive is within that time frame are looked up. The only valid Typs are
@@ -385,41 +395,23 @@ type query struct {
 	Typ objType
 }
 
-func (t *TaskDB) buildRunIdQuery(q taskdb.TaskQuery) []*dynamodb.QueryInput {
-	const keyExpression = colRunID + " = :rid"
-	attributeValues := make(map[string]*dynamodb.AttributeValue)
-	attributeValues[":rid"] = &dynamodb.AttributeValue{S: aws.String(q.RunID.ID())}
+// buildIndexQuery returns a dynamodb QueryInput for the specified key on the specified index.
+func (t *TaskDB) buildIndexQuery(kind taskdb.Kind, indexName, partKey string, typ objType) []*dynamodb.QueryInput {
+	colname, colnameOk := colmap[kind]
+	if !colnameOk {
+		panic("invalid kind")
+	}
+	keyExpression := fmt.Sprintf("%s = :keyval", colname)
+	attributeValues := map[string]*dynamodb.AttributeValue{
+		":keyval": {S: aws.String(partKey)},
+		":type":   {S: aws.String(string(typ))},
+	}
 	input := &dynamodb.QueryInput{
 		TableName:                 aws.String(t.TableName),
-		IndexName:                 aws.String(runIDIndex),
+		IndexName:                 aws.String(indexName),
 		KeyConditionExpression:    aws.String(keyExpression),
 		ExpressionAttributeValues: attributeValues,
-	}
-	return []*dynamodb.QueryInput{input}
-}
-
-func (t *TaskDB) buildIdQuery(q query) []*dynamodb.QueryInput {
-	var (
-		keyExpression   string
-		attributeValues = make(map[string]*dynamodb.AttributeValue)
-	)
-	index := idIndex
-	if q.ID.IsAbbrev() {
-		keyExpression = fmt.Sprintf("%v = :id4", colID4)
-		attributeValues[":id4"] = &dynamodb.AttributeValue{S: aws.String(q.ID.HexN(4))}
-		index = id4Index
-	} else {
-		keyExpression = fmt.Sprintf("%s = :testId", colID)
-		attributeValues[":testId"] = &dynamodb.AttributeValue{S: aws.String(q.ID.String())}
-	}
-	const filterExpression = "#Type = :type"
-	attributeValues[":type"] = &dynamodb.AttributeValue{S: aws.String(string(q.Typ))}
-	input := &dynamodb.QueryInput{
-		TableName:                 aws.String(t.TableName),
-		IndexName:                 aws.String(index),
-		KeyConditionExpression:    aws.String(keyExpression),
-		ExpressionAttributeValues: attributeValues,
-		FilterExpression:          aws.String(filterExpression),
+		FilterExpression:          aws.String("#Type = :type"),
 		ExpressionAttributeNames: map[string]*string{
 			"#Type": aws.String(colType),
 		},
@@ -427,13 +419,8 @@ func (t *TaskDB) buildIdQuery(q query) []*dynamodb.QueryInput {
 	return []*dynamodb.QueryInput{input}
 }
 
-func (t *TaskDB) buildQueries(q query) []*dynamodb.QueryInput {
-	if !q.ID.IsZero() {
-		return t.buildIdQuery(q)
-	}
-	if q.Typ != run && q.Typ != task {
-		panic(fmt.Sprintf("taskdb invalid query: %v", q))
-	}
+// buildSinceUserQueries builds Since and User-based queries. All query fields are optional.
+func (t *TaskDB) buildSinceUserQueries(q query) []*dynamodb.QueryInput {
 	// Build time bucket based queries.
 	type part struct {
 		keyExpression string
@@ -466,16 +453,16 @@ func (t *TaskDB) buildQueries(q query) []*dynamodb.QueryInput {
 		timeBuckets = append(timeBuckets, part)
 	}
 
+	filterExpression = append(filterExpression, "#Type = :type")
+	attributeValues[":type"] = &dynamodb.AttributeValue{S: aws.String(string(q.Typ))}
+	attributeNames["#Type"] = aws.String(colType)
+
 	if q.User != "" {
 		filterExpression = append(filterExpression, "#User = :user")
 		attributeValues[":user"] = &dynamodb.AttributeValue{S: aws.String(q.User)}
 		attributeNames["#User"] = aws.String(colUser)
 	}
-	if q.Typ == run {
-		filterExpression = append(filterExpression, "#Type = :type")
-		attributeValues[":type"] = &dynamodb.AttributeValue{S: aws.String(string(q.Typ))}
-		attributeNames["#Type"] = aws.String(colType)
-	}
+
 	if len(timeBuckets) > 0 {
 		var queries []*dynamodb.QueryInput
 		for _, ti := range timeBuckets {
@@ -520,16 +507,24 @@ func (t *TaskDB) buildQueries(q query) []*dynamodb.QueryInput {
 // Tasks returns tasks that matches the query.
 func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskdb.Task, error) {
 	var queries []*dynamodb.QueryInput
-	if taskQuery.RunID.IsValid() {
-		queries = t.buildRunIdQuery(taskQuery)
-	} else {
+	switch {
+	case taskQuery.ID.IsValid() && digest.Digest(taskQuery.ID).IsAbbrev():
+		queries = t.buildIndexQuery(ID4, id4Index, taskQuery.ID.IDShort(), task)
+	case taskQuery.ID.IsValid():
+		queries = t.buildIndexQuery(ID, idIndex, taskQuery.ID.ID(), task)
+	case taskQuery.RunID.IsValid():
+		queries = t.buildIndexQuery(RunID, runIDIndex, taskQuery.RunID.ID(), task)
+	case taskQuery.ImgCmdID.IsValid():
+		queries = t.buildIndexQuery(ImgCmdID, imgCmdIDIndex, taskQuery.ImgCmdID.ID(), task)
+	case taskQuery.Ident != "":
+		queries = t.buildIndexQuery(Ident, identIndex, taskQuery.Ident, task)
+	default:
 		q := query{
-			ID:    digest.Digest(taskQuery.ID),
 			Since: taskQuery.Since,
 			User:  taskQuery.User,
 			Typ:   task,
 		}
-		queries = t.buildQueries(q)
+		queries = t.buildSinceUserQueries(q)
 	}
 	var (
 		responses = make([][]map[string]*dynamodb.AttributeValue, len(queries))
@@ -565,7 +560,7 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 		return nil
 	})
 	if err != nil {
-		return []taskdb.Task{}, err
+		return nil, err
 	}
 	var items []map[string]*dynamodb.AttributeValue
 	for i := range responses {
@@ -574,8 +569,9 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 	tasks := make([]taskdb.Task, 0, len(items))
 	for _, it := range items {
 		var (
-			id, fid, runid, result, stderr, stdout, inspect digest.Digest
-			keepalive                                       time.Time
+			id, fid, runid, result, stderr, stdout, inspect, imgCmdID digest.Digest
+			keepalive                                                 time.Time
+			ident, uri                                                string
 		)
 
 		id, err = digest.Parse(*it[colID].S)
@@ -629,12 +625,25 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 				errs = append(errs, fmt.Errorf("parse inspect %v: %v", *it[colInspect].S, err))
 			}
 		}
-		uri := *it[colURI].S
+		if v, ok := it[colImgCmdID]; ok {
+			imgCmdID, err = digest.Parse(*v.S)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("parse imagecmdid %v: %v", *it[colImgCmdID].S, err))
+			}
+		}
+		if v, ok := it[colIdent]; ok {
+			ident = *v.S
+		}
+		if v, ok := it[colURI]; ok {
+			uri = *v.S
+		}
 		tasks = append(tasks, taskdb.Task{
 			ID:        taskdb.TaskID(id),
 			RunID:     taskdb.RunID(runid),
 			FlowID:    fid,
 			ResultID:  result,
+			ImgCmdID:  taskdb.ImgCmdID(imgCmdID),
+			Ident:     ident,
 			URI:       uri,
 			Keepalive: keepalive,
 			Start:     st,
@@ -653,18 +662,26 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 			b.WriteString(", ")
 		}
 	}
-	return []taskdb.Task{}, errors.New(b.String())
+	return nil, errors.New(b.String())
 }
 
 // Runs returns runs that matches the query.
 func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.Run, error) {
-	q := query{
-		ID:    digest.Digest(runQuery.ID),
-		Since: runQuery.Since,
-		User:  runQuery.User,
-		Typ:   run,
+	var queries []*dynamodb.QueryInput
+	switch {
+	case runQuery.ID.IsValid() && digest.Digest(runQuery.ID).IsAbbrev():
+		queries = t.buildIndexQuery(ID4, id4Index, runQuery.ID.IDShort(), run)
+	case runQuery.ID.IsValid():
+		queries = t.buildIndexQuery(ID, idIndex, runQuery.ID.ID(), run)
+	default:
+		q := query{
+			ID:    digest.Digest(runQuery.ID),
+			Since: runQuery.Since,
+			User:  runQuery.User,
+			Typ:   run,
+		}
+		queries = t.buildSinceUserQueries(q)
 	}
-	queries := t.buildQueries(q)
 	var (
 		responses = make([][]map[string]*dynamodb.AttributeValue, len(queries))
 		errs      []error
@@ -699,7 +716,7 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 		return nil
 	})
 	if err != nil {
-		return []taskdb.Run{}, err
+		return nil, err
 	}
 	var items []map[string]*dynamodb.AttributeValue
 	for i := range responses {
@@ -711,8 +728,8 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 		if err != nil {
 			errs = append(errs, fmt.Errorf("parse id %v: %v", *it[colID].S, err))
 		}
-		if !q.ID.IsZero() && q.ID.IsAbbrev() {
-			if !id.Expands(q.ID) {
+		if runQuery.ID.IsValid() && digest.Digest(runQuery.ID).IsAbbrev() {
+			if !id.Expands(digest.Digest(runQuery.ID)) {
 				continue
 			}
 		}
@@ -750,7 +767,7 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 			b.WriteString(", ")
 		}
 	}
-	return []taskdb.Run{}, fmt.Errorf("%s", b.String())
+	return nil, fmt.Errorf("%s", b.String())
 }
 
 // Scan calls the handler function for every association in the mapping.
