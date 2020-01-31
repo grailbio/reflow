@@ -228,7 +228,7 @@ func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 				return admit.OverNeedRetry, err
 			}
 			if dur > defaultS3HeadLatencyLimit {
-				return admit.OverNoRetry, nil
+				return admit.OverNoRetry, err
 			}
 			return admit.Within, err
 		})
