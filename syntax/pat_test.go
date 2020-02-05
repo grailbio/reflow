@@ -69,6 +69,9 @@ func TestRemove(t *testing.T) {
 			},
 		},
 	}
+	if got, want := pat.Idents(nil), []string{"ok", "baz", "qux", "foo", "bar", "quux"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
 	pat, removed := pat.Remove(idents{
 		"ok":    true,
 		"bar":   true,

@@ -219,7 +219,7 @@ func (p *Pat) Idents(ids []string) []string {
 			ids = p.Idents(ids)
 		}
 		if p.Tail != nil {
-			p.Tail.Idents(ids)
+			ids = p.Tail.Idents(ids)
 		}
 		return ids
 	case PatStruct:
