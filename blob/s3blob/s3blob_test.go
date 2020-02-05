@@ -79,7 +79,7 @@ func newTestBucket(t *testing.T) *Bucket {
 	return bucket
 }
 
-func newErrorBucket(t *testing.T) *Bucket {
+func newErrorBucket(t *testing.T, latency time.Duration) *Bucket {
 	t.Helper()
 	client := s3test.NewClient(t, errorbucket)
 	client.Region = "us-west-2"
@@ -87,13 +87,16 @@ func newErrorBucket(t *testing.T) *Bucket {
 		if api != "HeadObjectRequestWithContext" {
 			return nil
 		}
-		if hoi, ok := input.(*s3.HeadObjectInput); ok {
-			if *hoi.Bucket != errorbucket {
-				return nil
-			}
-			return errorKeys[*hoi.Key]
+		hoi, ok := input.(*s3.HeadObjectInput)
+
+		if !ok {
+			return nil
 		}
-		return nil
+		if *hoi.Bucket != errorbucket {
+			return nil
+		}
+		time.Sleep(latency)
+		return errorKeys[*hoi.Key]
 	}
 	return NewBucket(errorbucket, client)
 }
@@ -303,39 +306,45 @@ func TestTimeoutPolicy(t *testing.T) {
 }
 
 func TestFileErrors(t *testing.T) {
-	bucket := newErrorBucket(t)
-	bucket.retrier = retry.MaxTries(retry.Jitter(retry.Backoff(20*time.Millisecond, 100*time.Millisecond, 1.5), 0.25), defaultMaxRetries)
-	for _, tc := range []struct {
-		key       string
-		wantK     errors.Kind
-		cancelCtx bool
-		wantE     error
-	}{
-		{"key_nosuchkey", errors.NotExist, false, nil},
-		{"key_deadlineexceeded", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_deadlineexceeded: gave up after 3 tries: too many tries")},
-		{"key_awsrequesttimeout", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_awsrequesttimeout: gave up after 3 tries: too many tries")},
-		{"key_canceled", errors.Canceled, true, nil},
-		{"key_awscanceled", errors.Canceled, false, nil},
-	} {
-		ctx := context.Background()
-		if tc.cancelCtx {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithCancel(context.Background())
-			cancel()
-		}
-		_, got := bucket.File(ctx, tc.key)
-		if got == nil {
-			t.Errorf("want error, got none")
-			continue
-		}
-		if tc.wantK != errors.Other {
-			if !errors.Is(tc.wantK, got) {
-				t.Errorf("want kind %v, got %v", tc.wantK, got)
+	retrier := retry.MaxTries(retry.Jitter(retry.Backoff(20*time.Millisecond, 100*time.Millisecond, 1.5), 0.25), defaultMaxRetries)
+	fastbucket := newErrorBucket(t, 10*time.Millisecond)
+	fastbucket.retrier = retrier
+	slowbucket := newErrorBucket(t, defaultS3HeadLatencyLimit+20*time.Millisecond)
+	slowbucket.retrier = retrier
+	buckets := []*Bucket{slowbucket, fastbucket}
+	for _, bucket := range buckets {
+		for _, tc := range []struct {
+			key       string
+			wantK     errors.Kind
+			cancelCtx bool
+			wantE     error
+		}{
+			{"key_nosuchkey", errors.NotExist, false, nil},
+			{"key_deadlineexceeded", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_deadlineexceeded: gave up after 3 tries: too many tries")},
+			{"key_awsrequesttimeout", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_awsrequesttimeout: gave up after 3 tries: too many tries")},
+			{"key_canceled", errors.Canceled, true, nil},
+			{"key_awscanceled", errors.Canceled, false, nil},
+		} {
+			ctx := context.Background()
+			if tc.cancelCtx {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(context.Background())
+				cancel()
 			}
-			continue
-		}
-		if got.Error() != tc.wantE.Error() {
-			t.Errorf("got %v, want %v", got, tc.wantE)
+			_, got := bucket.File(ctx, tc.key)
+			if got == nil {
+				t.Errorf("want error, got none")
+				continue
+			}
+			if tc.wantK != errors.Other {
+				if !errors.Is(tc.wantK, got) {
+					t.Errorf("want kind %v, got %v", tc.wantK, got)
+				}
+				continue
+			}
+			if got.Error() != tc.wantE.Error() {
+				t.Errorf("got %v, want %v", got, tc.wantE)
+			}
 		}
 	}
 }
