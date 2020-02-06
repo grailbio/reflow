@@ -21,9 +21,11 @@
 package sched
 
 import (
+	"bytes"
 	"container/heap"
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -120,6 +122,29 @@ func (s *Scheduler) ExportStats() {
 	s.Stats.publish()
 }
 
+func (s *Scheduler) configString() string {
+	var b bytes.Buffer
+	if s.Transferer != nil {
+		_, _ = fmt.Fprintf(&b, "transferer %T", s.Transferer)
+	}
+	if s.Repository != nil {
+		_, _ = fmt.Fprintf(&b, " repository %T", s.Repository)
+	}
+	if s.Cluster != nil {
+		_, _ = fmt.Fprintf(&b, " cluster %T", s.Cluster)
+	}
+	if s.TaskDB != nil {
+		_, _ = fmt.Fprintf(&b, " taskDB %T", s.TaskDB)
+	}
+	var schemes []string
+	for s := range s.Mux {
+		schemes = append(schemes, s)
+	}
+	sort.Strings(schemes)
+	_, _ = fmt.Fprintf(&b, " blob.Mux[%s]", strings.Join(schemes, ", "))
+	return b.String()
+}
+
 // Do commences scheduling. The scheduler runs until the provided
 // context is canceled, after which the context error is returned.
 func (s *Scheduler) Do(ctx context.Context) error {
@@ -155,6 +180,7 @@ func (s *Scheduler) Do(ctx context.Context) error {
 	)
 	defer tick.Stop()
 
+	s.Log.Debugf("starting with configuration: %s", s.configString())
 	for {
 		select {
 		case <-ctx.Done():
@@ -239,7 +265,7 @@ func (s *Scheduler) Do(ctx context.Context) error {
 
 		assigned := s.assign(&todo, &live, s.Stats)
 		for _, task := range assigned {
-			task.Log.Debugf("scheduler: assigning task %v to alloc %v", task.ID.IDShort(), task.alloc)
+			task.Log.Debugf("scheduler: assigning to alloc %v", task.alloc)
 			nrunning++
 			go s.run(task, returnc)
 		}
@@ -376,6 +402,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		tctx           context.Context
 		loadedData     sync.Map
 		resultUnloaded bool
+		taskLogger     = task.Log.Prefix("scheduler: ")
 	)
 	// TODO(marius): we should distinguish between fatal and nonfatal errors.
 	// The fatal ones are useless to retry.
@@ -398,12 +425,12 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 				i := key.(int)
 				arg := task.Config.Args[i]
 				g.Go(func() error {
-					task.Log.Debugf("loading %s", (*arg.Fileset).Short())
+					taskLogger.Debugf("loading %s", (*arg.Fileset).Short())
 					fs, lerr := alloc.Load(gctx, s.Repository.URL(), *arg.Fileset)
 					if lerr != nil {
 						return lerr
 					}
-					task.Log.Debugf("loaded %s", fs.Short())
+					taskLogger.Debugf("loaded %s", fs.Short())
 					task.Config.Args[i].Fileset = &fs
 					loadedData.Store(i, true)
 					return nil
@@ -417,7 +444,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			if s.TaskDB != nil {
 				tctx, tcancel = context.WithCancel(ctx)
 				if taskdbErr := s.TaskDB.CreateTask(tctx, task.ID, task.RunID, task.FlowID, taskdb.NewImgCmdID(task.Config.Image, task.Config.Cmd), task.Config.Ident, x.URI()); taskdbErr != nil {
-					s.Log.Errorf("taskdb createtask: %v", taskdbErr)
+					taskLogger.Errorf("taskdb createtask: %v", taskdbErr)
 				} else {
 					go func() { _ = taskdb.KeepTaskAlive(tctx, s.TaskDB, task.ID) }()
 				}
@@ -427,7 +454,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			err = x.Wait(ctx)
 			if s.TaskDB != nil {
 				if taskdbErr := s.TaskDB.SetTaskResult(tctx, task.ID, x.ID()); taskdbErr != nil {
-					s.Log.Errorf("taskdb settaskresult: %v", taskdbErr)
+					taskLogger.Errorf("taskdb settaskresult: %v", taskdbErr)
 				}
 				tcancel()
 			}
@@ -446,12 +473,12 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 				i := key.(int)
 				fs := *task.Config.Args[i].Fileset
 				g.Go(func() error {
-					task.Log.Debugf("unloading %v", fs.Short())
+					taskLogger.Debugf("unloading %v", fs.Short())
 					uerr := alloc.Unload(gctx, fs)
 					if uerr != nil {
 						return uerr
 					}
-					task.Log.Debugf("unloaded %v", fs.Short())
+					taskLogger.Debugf("unloaded %v", fs.Short())
 					loadedData.Delete(i)
 					return nil
 				})
@@ -463,12 +490,12 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			if task.Config.Type != "extern" && !resultUnloaded {
 				g.Go(func() error {
 					fs := task.Result.Fileset
-					task.Log.Debugf("unloading %v", fs.Short())
+					taskLogger.Debugf("unloading %v", fs.Short())
 					uerr := alloc.Unload(gctx, fs)
 					if uerr != nil {
 						return uerr
 					}
-					task.Log.Debugf("unloaded %v", fs.Short())
+					taskLogger.Debugf("unloaded %v", fs.Short())
 					resultUnloaded = true
 					return nil
 				})
@@ -476,14 +503,14 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			err = g.Wait()
 		}
 		if err == nil {
-			task.Log.Debugf("scheduler: %s %s", task.ID.IDShort(), state)
+			taskLogger.Debugf("%s", state)
 			n = 0
 			state++
 		} else if err == ctx.Err() {
 			break
 		} else {
 			// TODO(marius): terminate early on NotSupported, Invalid
-			task.Log.Debugf("scheduler: %s %s: %s; try %d", task.ID.IDShort(), state, err, n+1)
+			taskLogger.Debugf("%s: %s; try %d", state, err, n+1)
 			n++
 		}
 	}
@@ -497,9 +524,10 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 }
 
 func (s *Scheduler) directTransfer(ctx context.Context, task *Task) {
+	taskLogger := task.Log.Prefix("scheduler direct transfer: ")
 	if s.TaskDB != nil {
 		if err := s.TaskDB.CreateTask(ctx, task.ID, task.RunID, task.FlowID, taskdb.NewImgCmdID(task.Config.Image, task.Config.Cmd), task.Config.Ident, "local"); err != nil {
-			s.Log.Errorf("taskdb createtask: %v", err)
+			taskLogger.Errorf("taskdb createtask: %v", err)
 		} else {
 			tctx, tcancel := context.WithCancel(ctx)
 			defer tcancel()
@@ -509,15 +537,19 @@ func (s *Scheduler) directTransfer(ctx context.Context, task *Task) {
 	task.set(TaskRunning)
 	task.Err = s.doDirectTransfer(ctx, task)
 	if task.Err != nil && errors.Is(errors.NotSupported, task.Err) {
+		taskLogger.Debugf("switching to non-direct %v", task.Err)
 		task.nonDirectTransfer = true
 		task.set(TaskLost)
 		s.submitc <- []*Task{task}
 		return
 	}
+	if task.Err != nil {
+		taskLogger.Error(task.Err)
+	}
 	task.set(TaskDone)
 	if s.TaskDB != nil && task.Result.Err == nil {
 		if err := s.TaskDB.SetTaskResult(ctx, task.ID, task.Result.Fileset.Digest()); err != nil {
-			s.Log.Errorf("taskdb settaskresult: %v", err)
+			taskLogger.Errorf("taskdb settaskresult: %v", err)
 		}
 	}
 }
@@ -544,6 +576,7 @@ func requirements(tasks []*Task) reflow.Requirements {
 // Direct transfers are supported only if the scheduler's Repository
 // and the destination repository are both blob stores.
 func (s *Scheduler) doDirectTransfer(ctx context.Context, task *Task) error {
+	taskLogger := task.Log.Prefix("scheduler direct transfer: ")
 	if task.Config.Type != "extern" {
 		panic("direct transfers only supported for extern")
 	}
@@ -593,7 +626,7 @@ func (s *Scheduler) doDirectTransfer(ctx context.Context, task *Task) error {
 			if dur < 1 {
 				dur += time.Second
 			}
-			task.Log.Debugf("scheduler: direct transfer complete: %s -> %s (%s) in %s (%s/s) ", srcUrl, dstUrl, data.Size(file.Size), dur, data.Size(file.Size/int64(dur.Seconds())))
+			taskLogger.Debugf("completed %s -> %s (%s) in %s (%s/s) ", srcUrl, dstUrl, data.Size(file.Size), dur, data.Size(file.Size/int64(dur.Seconds())))
 			task.mu.Lock()
 			task.Result.Fileset.Map[filename] = file
 			task.mu.Unlock()

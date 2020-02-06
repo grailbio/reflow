@@ -110,6 +110,7 @@ func keepalive(ctx context.Context, alloc Alloc) (time.Duration, error) {
 // Keepalive retries errors by exponential backoffs with a fixed
 // configuration.
 func Keepalive(ctx context.Context, log *log.Logger, alloc Alloc) error {
+	log = log.Prefixf("keepalive %s: ", alloc.ID())
 	for {
 		var (
 			iv   time.Duration

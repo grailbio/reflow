@@ -2380,7 +2380,7 @@ func (e *Eval) newTask(f *Flow) *sched.Task {
 	t.RunID = e.RunID
 	t.FlowID = f.Digest()
 	t.Config = f.ExecConfig()
-	t.Log = e.Log.Prefixf("task %s from flow %s: ", t.ID.IDShort(), t.FlowID.Short())
+	t.Log = e.Log.Prefixf("task %s (flow %s): ", t.ID.IDShort(), t.FlowID.Short())
 	return t
 }
 
