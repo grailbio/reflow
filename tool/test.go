@@ -72,7 +72,7 @@ testloop:
 			c.makeTestExecutor(&executor)
 			evalConfig := flow.EvalConfig{
 				Executor:  executor,
-				Log:       c.Log.Prefix(test.Name + ": "),
+				Log:       c.Log.Tee(nil, test.Name+": "),
 				CacheMode: infra.CacheOff,
 				ImageMap:  e.ImageMap,
 			}

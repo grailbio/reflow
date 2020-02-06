@@ -359,7 +359,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval, file stri
 		scheduler.Mux = c.blob()
 		scheduler.Repository = repo
 		scheduler.Cluster = cluster
-		scheduler.Log = c.Log.Prefix("scheduler: ")
+		scheduler.Log = c.Log.Tee(nil, "scheduler: ")
 		scheduler.MinAlloc.Max(scheduler.MinAlloc, e.Main().Requirements().Min)
 		scheduler.TaskDB = tdb
 		var schedctx context.Context

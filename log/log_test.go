@@ -35,6 +35,24 @@ func TestLogger(t *testing.T) {
 	}
 }
 
+func TestTeeWithPrefix(t *testing.T) {
+	var b outputBuffer
+	l := log.New(&b, log.InfoLevel)
+	l.Printf("hello, world")
+	l1 := l.Tee(nil, "prefix1: ")
+	l1.Printf("hello, another world")
+	l2 := l1.Tee(nil, "prefix2: ")
+	l2.Printf("hello")
+
+	if got, want := b.messages, ([]string{
+		"hello, world",
+		"prefix1: hello, another world",
+		"prefix1: prefix2: hello",
+	}); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
 func TestLevels(t *testing.T) {
 	var b outputBuffer
 	l := log.New(&b, log.ErrorLevel)

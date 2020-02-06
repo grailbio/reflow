@@ -129,7 +129,7 @@ func (l *Logger) print(calldepth int, level Level, prefix string, v ...interface
 		l.Output(calldepth+1, prefix+fmt.Sprint(v...))
 	}
 	if l.parent != nil {
-		l.parent.print(calldepth+1, level, prefix+l.prefix, v...)
+		l.parent.print(calldepth+1, level, l.prefix+prefix, v...)
 	}
 }
 
@@ -141,7 +141,7 @@ func (l *Logger) printf(calldepth int, level Level, prefix, format string, args 
 		l.Output(calldepth+1, prefix+fmt.Sprintf(format, args...))
 	}
 	if l.parent != nil {
-		l.parent.printf(calldepth+1, level, prefix+l.prefix, format, args...)
+		l.parent.printf(calldepth+1, level, l.prefix+prefix, format, args...)
 	}
 }
 
@@ -159,26 +159,6 @@ func (l *Logger) Tee(out Outputter, prefix string) *Logger {
 		parent:    l,
 		prefix:    prefix,
 	}
-}
-
-// Prefix returns this logger with an added prefix.
-func (l *Logger) Prefix(prefix string) *Logger {
-	if l == nil {
-		return nil
-	}
-	m := new(Logger)
-	*m = *l
-	m.prefix += prefix
-	return m
-}
-
-// Prefixf formats a string in the manner of fmt.Sprintf,
-// returns logger l with this prefix.
-func (l *Logger) Prefixf(format string, v ...interface{}) *Logger {
-	if l == nil {
-		return nil
-	}
-	return l.Prefix(fmt.Sprintf(format, v...))
 }
 
 // Std is the standard global logger.

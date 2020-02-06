@@ -94,7 +94,7 @@ func (s *Server) AddFlags(flags *flag.FlagSet) {
 // See https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-interruptions.html#instance-action-metadata
 // TODO(swami):  When flagged for termination, put server in lameduck mode.
 func (s *Server) spotNoticeWatcher(ctx context.Context) {
-	logger := log.Std.Prefix("spot notice: ")
+	logger := log.Std.Tee(nil, "spot notice: ")
 	tick := time.NewTicker(30 * time.Second)
 	for {
 		select {
