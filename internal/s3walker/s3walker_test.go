@@ -6,8 +6,10 @@ package s3walker
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,11 +64,38 @@ func TestS3Walker(t *testing.T) {
 	checkScan(t, w, want)
 }
 
+func TestS3WalkerRetries(t *testing.T) {
+	rp := retry.MaxTries(retry.Backoff(100*time.Millisecond, time.Minute, 1.5), 1)
+	client, want := setup(t)
+	client.Err = func(api string, input interface{}) error {
+		if api != "ListObjectsV2Request" {
+			return nil
+		}
+		lo, ok := input.(*s3.ListObjectsV2Input)
+		if !ok {
+			return nil
+		}
+		if !strings.HasPrefix(*lo.Prefix, "error") {
+			return nil
+		}
+		return errors.New("some error")
+	}
+	w := &S3Walker{S3: client, Bucket: bucket, Prefix: "error/", Retrier: rp}
+	if w.Scan(context.Background()) {
+		t.Fatal("scan must fail")
+	}
+	if err := w.Err(); err == nil {
+		t.Fatal("scan must fail")
+	}
+	w = &S3Walker{S3: client, Bucket: bucket, Prefix: "test/", Retrier: rp}
+	checkScan(t, w, want)
+}
+
 func TestS3WalkerWithPolicy(t *testing.T) {
 	rp := retry.MaxTries(retry.Backoff(100*time.Millisecond, time.Minute, 1.5), 1)
 	policy := admit.ControllerWithRetry(10, 10, rp)
 	client, want := setup(t)
-	w := &S3Walker{S3: client, Bucket: bucket, Prefix: "test/", Policy: policy}
+	w := &S3Walker{S3: client, Bucket: bucket, Prefix: "test/", Policy: policy, Retrier: rp}
 	if err := policy.Acquire(context.Background(), 10); err != nil {
 		t.Errorf("acquire failed!")
 	}
@@ -77,7 +106,7 @@ func TestS3WalkerWithPolicy(t *testing.T) {
 	}
 	policy.Release(10, true)
 	// Setup new S3Walker with same policy (previous will be in err state).
-	w = &S3Walker{S3: client, Bucket: bucket, Prefix: "test/", Policy: policy}
+	w = &S3Walker{S3: client, Bucket: bucket, Prefix: "test/", Policy: policy, Retrier: rp}
 	checkScan(t, w, want)
 }
 

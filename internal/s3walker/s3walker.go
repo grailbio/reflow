@@ -8,13 +8,13 @@ import (
 	"context"
 	"log"
 
-	"github.com/grailbio/base/traverse"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/grailbio/base/admit"
+	"github.com/grailbio/base/retry"
+	"github.com/grailbio/base/traverse"
 )
 
 // S3Walker traverses s3 keys through a prefix scan.
@@ -26,6 +26,9 @@ type S3Walker struct {
 
 	// Admission policy for S3 operations (can be nil)
 	Policy admit.Policy
+
+	// Retrier policy for S3 operations
+	Retrier retry.Policy
 
 	object    *s3.Object
 	metadata  map[string]*string
@@ -69,7 +72,18 @@ func (w *S3Walker) Scan(ctx context.Context) bool {
 		}
 		return throttled, err
 	}
-	w.err = admit.Do(ctx, w.Policy, 1, listObj)
+
+	for retries := 0; ; retries++ {
+		w.err = admit.Do(ctx, w.Policy, 1, listObj)
+		if w.err == nil {
+			break
+		}
+		log.Printf("s3walker.Scan: %s/%s (attempt %d): %v", w.Bucket, w.Prefix, retries, w.err)
+		if err := retry.Wait(ctx, w.Retrier, retries); err != nil {
+			break
+		}
+	}
+
 	if w.err != nil {
 		return false
 	}

@@ -290,7 +290,7 @@ func (s *scanner) Key() string {
 // provided prefix.
 func (b *Bucket) Scan(prefix string) blob.Scanner {
 	return &scanner{
-		S3Walker: &s3walker.S3Walker{S3: b.client, Bucket: b.bucket, Prefix: prefix, Policy: b.fileAdmitter},
+		S3Walker: &s3walker.S3Walker{S3: b.client, Bucket: b.bucket, Prefix: prefix, Policy: b.fileAdmitter, Retrier: b.retrier},
 		bucket:   b.bucket,
 	}
 }
