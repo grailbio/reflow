@@ -15,15 +15,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/grailbio/base/digest"
-
-	"github.com/grailbio/base/retry"
-
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/s3"
-
-	"github.com/aws/aws-sdk-go/aws"
+	"github.com/grailbio/base/data"
+	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/retry"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/testutil"
@@ -511,6 +509,33 @@ func TestCopyMultipart(t *testing.T) {
 		checkObject(t, tc.bucket, tc.dstKey, c, d)
 		if t.Failed() {
 			t.Logf("case: %v", tc)
+		}
+	}
+}
+
+func TestS3TransferParams(t *testing.T) {
+	for _, tc := range []struct {
+		size        int64
+		partsize    int64
+		concurrency int
+	}{
+		{100 * data.MiB.Bytes(), 5 * data.MiB.Bytes(), 20},
+		{400 * data.GiB.Bytes(), 45 * data.MiB.Bytes(), 100},
+		{5*data.MiB.Bytes()*s3MaxParts - 1, 5 * data.MiB.Bytes(), 100},
+		{5 * data.MiB.Bytes() * s3MaxParts, 5 * data.MiB.Bytes(), 100},
+		{5*data.MiB.Bytes()*s3MaxParts + 1, 10 * data.MiB.Bytes(), 100},
+		{10*data.MiB.Bytes()*s3MaxParts + 1, 15 * data.MiB.Bytes(), 100},
+	} {
+		partsize, concurrency := s3TransferParams(tc.size)
+		if got, want := partsize, tc.partsize; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		if got, want := concurrency, tc.concurrency; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		n := (tc.size + partsize - 1) / partsize
+		if n > s3MaxParts {
+			t.Errorf("too many parts %d (>%d)", n, s3MaxParts)
 		}
 	}
 }

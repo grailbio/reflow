@@ -14,10 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/grailbio/base/digest"
-
-	"github.com/grailbio/base/traverse"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/request"
@@ -26,8 +22,11 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/grailbio/base/admit"
+	"github.com/grailbio/base/data"
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/retry"
 	"github.com/grailbio/base/sync/ctxsync"
+	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/errors"
@@ -39,7 +38,9 @@ const (
 	// awsContentSha256Key is the header used to store the sha256 of a file's content.
 	awsContentSha256Key = "Content-Sha256"
 
-	s3minpartsize     = 5 << 20
+	s3minpartsize = 5 << 20
+	// The maximum number of parts allowed by S3 for multi-part operations.
+	s3MaxParts        = 10000
 	s3concurrency     = 100
 	defaultS3MinLimit = 500
 	defaultMaxRetries = 3
@@ -295,17 +296,26 @@ func (b *Bucket) Scan(prefix string) blob.Scanner {
 	}
 }
 
-// MaxS3Ops returns the optimal s3concurrency for parallel data transfers
-// based on the file size.  Returns a value from [1, s3concurrency]
-func maxS3Ops(size int64) int {
+// S3TransferParams returns the optimal (part size, concurrency) for parallel data transfers
+// based on the file size.
+// Returns part size in MiB and concurrency in the range [1, s3concurrency]
+func s3TransferParams(size int64) (int64, int) {
 	if size == 0 {
-		return s3concurrency
+		return s3minpartsize, s3concurrency
 	}
-	c := (size + s3minpartsize - 1) / s3minpartsize
+	partSize := int64(s3minpartsize)
+	if size > s3minpartsize*s3MaxParts {
+		// For the given size, the default part size would result in too many parts
+		// so we compute a larger part size to (safely) fall within the max allowed parts.
+		partSzB := size / s3MaxParts
+		partSzMiB := int64((data.Size(partSzB) + 5*data.MiB).Count(data.MiB))
+		partSize = partSzMiB * data.MiB.Bytes()
+	}
+	c := (size + partSize - 1) / partSize
 	if c > s3concurrency {
 		c = s3concurrency
 	}
-	return int(c)
+	return partSize, int(c)
 }
 
 // ctxErr will return the context's error (if any) or other.
@@ -359,16 +369,16 @@ func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w i
 		}
 	}
 	var (
-		n             int64
-		err           error
-		s3concurrency = maxS3Ops(size)
-		policy        = timeoutPolicy(transferDuration(size, minBPS))
-		preferredDur  = transferDuration(size, preferredBPS)
+		n                         int64
+		err                       error
+		s3partsize, s3concurrency = s3TransferParams(size)
+		policy                    = timeoutPolicy(transferDuration(size, minBPS))
+		preferredDur              = transferDuration(size, preferredBPS)
 	)
 	for retries := 0; ; retries++ {
 		err = admit.Retry(ctx, b.admitter, s3concurrency, func() (admit.CapacityStatus, error) {
 			d := s3manager.NewDownloaderWithClient(b.client, func(d *s3manager.Downloader) {
-				d.PartSize = s3minpartsize
+				d.PartSize = s3partsize
 				d.Concurrency = s3concurrency
 			})
 			ctx, cancel := context.WithTimeout(ctx, timeout(policy, retries))
@@ -419,15 +429,15 @@ func (b *Bucket) Get(ctx context.Context, key, etag string) (io.ReadCloser, refl
 // and attaches the given contentHash to the object's metadata.
 func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader, contentHash string) error {
 	var (
-		err           error
-		s3concurrency = maxS3Ops(size)
-		policy        = timeoutPolicy(transferDuration(size, minBPS))
-		preferredDur  = transferDuration(size, preferredBPS)
+		err                       error
+		s3partsize, s3concurrency = s3TransferParams(size)
+		policy                    = timeoutPolicy(transferDuration(size, minBPS))
+		preferredDur              = transferDuration(size, preferredBPS)
 	)
 	for retries := 0; ; retries++ {
 		err = admit.Retry(ctx, b.admitter, s3concurrency, func() (admit.CapacityStatus, error) {
 			up := s3manager.NewUploaderWithClient(b.client, func(u *s3manager.Uploader) {
-				u.PartSize = s3minpartsize
+				u.PartSize = s3partsize
 				u.Concurrency = s3concurrency
 			})
 			ctx, cancel := context.WithTimeout(ctx, timeout(policy, retries))
