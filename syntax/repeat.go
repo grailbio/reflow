@@ -21,18 +21,20 @@ import (
 var errNoExecsToRepeat = errors.E(errors.Precondition, errors.New("no execs to repeat"))
 
 // repeatExecs traverses the given flow DAG, repeats each exec found,
-// compares the results and returns a flow node that
-// returns a list of bool for each repeated exec under the given flow.
+// compares the results and returns a flow node that returns a bool
+// representing whether or not all repeated execs produced equal values.
 func repeatExecs(f *flow.Flow, n int) (*flow.Flow, error) {
-	r := repeater{root: f, times: n, fm: newFlowMap()}
+	r := repeater{root: f, times: n, repeated: newFlowMap(), skippedSet: newFlowMap()}
 	return r.Comparer()
 }
 
 type repeater struct {
-	root     *flow.Flow
-	times    int
-	fm       *flowMap
-	nSkipped int
+	root  *flow.Flow
+	times int
+	// repeated maps a flow f to a flow representing all repeats of f.
+	repeated *flowMap
+	// skippedSet maps a flow to itself and is used as a (goroutine-safe) set.
+	skippedSet *flowMap
 }
 
 // Comparer collects an aggregate flow node that combines the result of comparing
@@ -50,10 +52,11 @@ func (r *repeater) Comparer() (*flow.Flow, error) {
 			// so we should've collected all the repeat/comparison flow nodes.
 			// TODO(swami): Make this faster. This method causes us to wait for the root node
 			// to finish before potentially firing off repetitions, but we can definitely make this faster.
-			deps := r.fm.Values()
+			deps := r.repeated.Values()
+			skipped := r.skippedSet.Values()
 			if len(deps) == 0 && r.times > 1 {
-				if r.nSkipped > 0 {
-					fmt.Fprintf(os.Stderr, "no repeated execs (%d were skipped)\n", r.nSkipped)
+				if len(skipped) > 0 {
+					fmt.Fprintf(os.Stderr, "no repeated execs (%d were skipped)\n", len(skipped))
 					return &flow.Flow{Op: flow.Val, FlowDigest: values.Digest(true, types.Bool), Value: true}
 				}
 				return &flow.Flow{Op: flow.Val, Err: errors.Recover(errNoExecsToRepeat)}
@@ -68,6 +71,13 @@ func (r *repeater) Comparer() (*flow.Flow, error) {
 						tuple := v.(values.Tuple)
 						fmt.Fprintf(os.Stderr, "repeated exec result %s\n", tuple[0].(string))
 						result = result && tuple[1].(bool)
+					}
+					if len(skipped) > 0 {
+						skippedFs := make([]string, len(skipped))
+						for i, s := range skipped {
+							skippedFs[i] = fmt.Sprintf("%s(%s)", s.Ident, s.Digest().Short())
+						}
+						fmt.Fprintf(os.Stderr, "skipped %d repeated execs: %s\n", len(skipped), strings.Join(skippedFs, ", "))
 					}
 					return &flow.Flow{Op: flow.Val, FlowDigest: values.Digest(result, types.Bool), Value: result}
 				},
@@ -94,11 +104,11 @@ func (r *repeater) collect(f *flow.Flow) {
 	fr := repeatAndCompare(f, r.times)
 	// Skip non-deterministic execs
 	if f.NonDeterministic {
-		r.nSkipped++
+		r.skippedSet.Put(f, f)
 		return
 	}
 	if fr != nil {
-		r.fm.Put(f, fr)
+		r.repeated.Put(f, fr)
 	}
 }
 
