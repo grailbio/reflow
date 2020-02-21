@@ -14,8 +14,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
+
+	"github.com/grailbio/base/data"
 
 	"docker.io/go-docker"
 	"github.com/aws/aws-sdk-go/aws"
@@ -290,6 +293,7 @@ func (s *Server) ListenAndServe() error {
 	http2.ConfigureServer(s.server, &http2.Server{
 		MaxConcurrentStreams: maxConcurrentStreams,
 	})
+	go logMemStats(context.Background(), log.Std.Tee(nil, "memstats: "), rc.LogMemStatsDuration)
 	return s.server.ListenAndServeTLS("", "")
 }
 
@@ -325,4 +329,19 @@ func newConfigNode(cfg infra.Config) (rest.DoFunc, error) {
 		}
 		call.Reply(http.StatusOK, string(b))
 	}, nil
+}
+
+// logMemStats logs runtime memstats to the given logger every d duration.
+func logMemStats(ctx context.Context, log *log.Logger, d time.Duration) {
+	iter := time.NewTicker(d)
+	for {
+		memStats := new(runtime.MemStats)
+		runtime.ReadMemStats(memStats)
+		log.Printf("Heap %s, Sys %s", data.Size(memStats.HeapAlloc), data.Size(memStats.Sys))
+		select {
+		case <-ctx.Done():
+			return
+		case <-iter.C:
+		}
+	}
 }

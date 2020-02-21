@@ -399,13 +399,16 @@ type VolumeWatcher struct {
 type ReflowletConfig struct {
 	// MaxIdleDuration is the maximum duration the reflowlet will be idle waiting to receive work after which it dies.
 	MaxIdleDuration time.Duration `yaml:"maxidleduration,omitempty"`
+	// LogMemStatsDuration is the periodicity with which the reflowlet will log memory usage.
+	LogMemStatsDuration time.Duration `yaml:"logmemstatsduration,omitempty"`
 	// VolumeWatcher defines a set of parameters for the volume watcher on the reflowlet.
 	VolumeWatcher VolumeWatcher `yaml:"volumewatcher,omitempty"`
 }
 
 var DefaultReflowletConfig = ReflowletConfig{
-	MaxIdleDuration: 10 * time.Minute,
-	VolumeWatcher:   DefaultVolumeWatcher,
+	MaxIdleDuration:     10 * time.Minute,
+	LogMemStatsDuration: 1 * time.Minute,
+	VolumeWatcher:       DefaultVolumeWatcher,
 }
 
 // DefaultVolumeWatcher are a default set of volume watcher parameters which will double the disk size
