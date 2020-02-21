@@ -2,6 +2,10 @@ package sched
 
 import "github.com/grailbio/reflow/taskdb"
 
+// queryLimit is a soft limit on the number of tasks
+// that a taskdb query can return.
+const queryLimit int64 = 1000
+
 // taskGroup defines a group of tasks.
 type taskGroup interface {
 	// Name returns the taskGroup's name.
@@ -26,6 +30,7 @@ func (i imgCmdGroup) Name() string {
 func (i imgCmdGroup) Query() taskdb.TaskQuery {
 	return taskdb.TaskQuery{
 		ImgCmdID: i.imgCmdID,
+		Limit:    queryLimit,
 	}
 }
 
@@ -46,6 +51,7 @@ func (i identGroup) Name() string {
 func (i identGroup) Query() taskdb.TaskQuery {
 	return taskdb.TaskQuery{
 		Ident: i.ident,
+		Limit: queryLimit,
 	}
 }
 

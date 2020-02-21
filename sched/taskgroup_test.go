@@ -38,6 +38,9 @@ func TestGetTaskGroups(t *testing.T) {
 	if got, want := imgcmdQuery.ImgCmdID.ID(), imgCmdID.ID(); got != want {
 		t.Errorf("imgcmd group query imgcmdid: got %s, want %s", got, want)
 	}
+	if got, want := imgcmdQuery.Limit, queryLimit; got != want {
+		t.Errorf("imgcmd group query limit: got %d, want %d", got, want)
+	}
 
 	identgroup := taskGroups[1]
 	if _, ok := identgroup.(identGroup); !ok {
@@ -49,5 +52,8 @@ func TestGetTaskGroups(t *testing.T) {
 	identQuery := identgroup.Query()
 	if got, want := identQuery.Ident, ident; got != want {
 		t.Errorf("ident group query ident: got %s, want %s", got, want)
+	}
+	if got, want := identQuery.Limit, queryLimit; got != want {
+		t.Errorf("identQuery group query limit: got %d, want %d", got, want)
 	}
 }
