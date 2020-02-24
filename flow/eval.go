@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"runtime"
 	"sort"
 	"strings"
@@ -86,7 +87,7 @@ type EvalConfig struct {
 	// The executor to which execs are submitted.
 	Executor reflow.Executor
 
-	// Scheduler is used to run tasks. Either a scheduler or Executor
+	// Scheduler is used to run tasks. Either a Scheduler or Executor
 	// must be defined. Note that the plan is to deprecate using
 	// executors directly from the evaluator, leaving Scheduler the
 	// only option, and at which time we can simplify some aspects
@@ -94,6 +95,10 @@ type EvalConfig struct {
 	//
 	// The scheduler must use the same repository as the evaluator.
 	Scheduler *sched.Scheduler
+
+	// Predictor is used to predict the tasks' resource usage. It
+	// will only be used if a Scheduler is defined.
+	Predictor *sched.Predictor
 
 	// Snapshotter is used to snapshot source URLs into unloaded
 	// filesets. If non-nil, then files are delay-loaded.
@@ -638,6 +643,7 @@ func (e *Eval) Do(ctx context.Context) error {
 		// helps the scheduler better allocate underlying resources since
 		// we always submit the largest available working set.
 		if e.Scheduler != nil && len(tasks) > 0 && e.pending.NState(Lookup)+e.pending.NState(Running) == 0 {
+			e.reviseResources(ctx, tasks...)
 			e.Scheduler.Submit(tasks...)
 			tasks = tasks[:0]
 		}
@@ -2382,6 +2388,28 @@ func (e *Eval) newTask(f *Flow) *sched.Task {
 	t.Config = f.ExecConfig()
 	t.Log = e.Log.Tee(nil, fmt.Sprintf("scheduler task %s (flow %s): ", t.ID.IDShort(), t.FlowID.Short()))
 	return t
+}
+
+// reviseResources revises the resource requirements of the submitted tasks,
+// if applicable.
+func (e *Eval) reviseResources(ctx context.Context, tasks ...*sched.Task) {
+	if e.Predictor == nil {
+		return
+	}
+	predictedResources := e.Predictor.Predict(ctx, tasks...)
+	for _, task := range tasks {
+		if resources, ok := predictedResources[task]; ok {
+			// Make a copy of old resources for logging purposes.
+			oldResources := task.Config.Resources.String()
+			// Modify the task's resources.
+			for k, v := range resources {
+				task.Config.Resources[k] = v
+			}
+			// Never allocate a task less memory than the minimum allocatable exec memory.
+			task.Config.Resources["mem"] = math.Max(task.Config.Resources["mem"], minExecMemory)
+			e.Log.Debugf("task %s: modifying resources from %s to %s", task.ID.IDShort(), oldResources, task.Config.Resources)
+		}
+	}
 }
 
 func accumulate(flows []*Flow) (int, string) {

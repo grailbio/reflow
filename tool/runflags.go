@@ -93,6 +93,7 @@ type RunFlags struct {
 	Resources reflow.Resources
 	Cache     bool
 	Sched     bool
+	Pred      bool
 
 	resourcesFlag string
 	needAss       bool
@@ -109,6 +110,7 @@ func (r *RunFlags) Flags(flags *flag.FlagSet) {
 	flags.BoolVar(&r.Trace, "trace", false, "trace flow evaluation")
 	flags.StringVar(&r.resourcesFlag, "resources", "", "override offered resources in local mode (JSON formatted reflow.Resources)")
 	flags.BoolVar(&r.Sched, "sched", true, "use scalable scheduler instead of work stealing")
+	flags.BoolVar(&r.Pred, "pred", false, "use predictor to optimize resource usage. sched must also be true for the predictor to be used")
 }
 
 // Err checks if the flag values are consistent and valid.
@@ -136,6 +138,9 @@ func (r *RunFlags) Err() error {
 	}
 	if r.Sched && r.Alloc != "" {
 		return errors.New("-alloc cannot be used with -sched")
+	}
+	if !r.Sched && r.Pred {
+		return errors.New("-pred cannot be used without -sched")
 	}
 	return nil
 }

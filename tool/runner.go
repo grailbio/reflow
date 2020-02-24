@@ -14,7 +14,9 @@ import (
 	"strings"
 	"time"
 
+	aws2 "github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
@@ -230,6 +232,7 @@ func NewRunner(runConfig RunConfig, scheduler *sched.Scheduler, logger *log.Logg
 		return nil, err
 	}
 
+	var predictor *sched.Predictor
 	if runConfig.RunFlags.Sched {
 		if scheduler != nil {
 			mux = scheduler.Mux
@@ -244,11 +247,77 @@ func NewRunner(runConfig RunConfig, scheduler *sched.Scheduler, logger *log.Logg
 			scheduler.Transferer = transferer
 			scheduler.Mux = mux
 		}
+
+		// The Predictor can only be used if the following conditions are true:
+		// 1. The user specifies that they want to use the Predictor with the -pred=true flag.
+		// 2. A repo is present for retrieving cached ExecInspects.
+		// 3. A taskdb is present for querying tasks.
+		// 4. The reflow config specifies minData > 0 because a prediction cannot be made
+		//    with no data.
+		// 5. Reflow is being run from an ec2 instance. This is because the Predictor
+		//    is network-intensive and its performance will be severely hampered by a poor
+		//    network connection.
+
+		var (
+			usePredictor       bool
+			predFailureMessage string
+		)
+		if runConfig.RunFlags.Pred {
+			usePredictor = true
+		}
+
+		if usePredictor && repo == nil {
+			usePredictor = false
+			predFailureMessage = "no repo available"
+		}
+
+		var tdb taskdb.TaskDB
+		if usePredictor {
+			if err = runConfig.Config.Instance(&tdb); err != nil || tdb == nil {
+				usePredictor = false
+				predFailureMessage = "no taskdb available"
+			}
+		}
+
+		var (
+			minData, maxInspect int
+			memPercentile       float64
+		)
+		if usePredictor {
+			var predConfig *reflowinfra.PredictorConfig
+			if err = runConfig.Config.Instance(&predConfig); err != nil || predConfig == nil {
+				usePredictor = false
+				predFailureMessage = "no predconfig available"
+			} else {
+				minData = predConfig.MinData
+				maxInspect = predConfig.MaxInspect
+				memPercentile = predConfig.MemPercentile
+				predFailureMessage = fmt.Sprintf("bad predconfig value: %d not > 0", minData)
+			}
+		}
+
+		var sess *session.Session
+		if usePredictor {
+			if err = runConfig.Config.Instance(&sess); err != nil || sess == nil {
+				usePredictor = false
+				predFailureMessage = "no session available"
+			} else if md := ec2metadata.New(sess, &aws2.Config{MaxRetries: aws2.Int(3)}); !md.Available() {
+				usePredictor = false
+				predFailureMessage = "reflow controller not running on ec2 instance"
+			}
+		}
+
+		if usePredictor {
+			predictor = sched.NewPred(repo, tdb, logger.Tee(nil, "predictor: "), minData, maxInspect, memPercentile)
+		} else if !usePredictor && runConfig.RunFlags.Pred {
+			logger.Errorf("error while configuring predictor: %s", predFailureMessage)
+		}
 	}
 	runner := &Runner{
 		runConfig:   runConfig,
 		RunID:       taskdb.NewRunID(),
 		scheduler:   scheduler,
+		predictor:   predictor,
 		schedCancel: schedCancel,
 		Log:         logger,
 		wg:          &wg,
@@ -287,6 +356,7 @@ type Runner struct {
 
 	runConfig   RunConfig
 	scheduler   *sched.Scheduler
+	predictor   *sched.Predictor
 	schedCancel context.CancelFunc
 	cmdline     string
 	wg          *wg.WaitGroup
@@ -415,6 +485,7 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 			Transferer:         r.transferer,
 			Status:             r.runConfig.Status.Group(r.RunID.IDShort()),
 			Scheduler:          r.scheduler,
+			Predictor:          r.predictor,
 			ImageMap:           e.ImageMap,
 			TaskDB:             r.tdb,
 			RunID:              r.RunID,

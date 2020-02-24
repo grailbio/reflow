@@ -28,6 +28,7 @@ func init() {
 	infra.Register("kv", new(KV))
 	infra.Register("reflowletconfig", new(ReflowletConfig))
 	infra.Register("docker", new(DockerConfig))
+	infra.Register("predictorconfig", new(PredictorConfig))
 }
 
 // Reflow infra schema key names.
@@ -51,6 +52,7 @@ const (
 	Tracer     = "tracer"
 	TaskDB     = "taskdb"
 	Docker     = "docker"
+	Predictor  = "predictor"
 )
 
 // User is the infrastructure provider for username.
@@ -458,4 +460,57 @@ func (m *DockerConfig) Flags(flags *flag.FlagSet) {
 // Value returns the docker memory limit mode.
 func (m *DockerConfig) Value() string {
 	return string(*m)
+}
+
+// PredictorConfig represents the set of parameters that govern the behavior
+// of the resource prediction system. The resource prediction system predicts
+// the resource usage of an exec based on previous runs. A prediction requires
+// at least MinData datapoints--profiles containing the resource to be predicted.
+// No prediction will look at more than MaxInspect ExecInspects to obtain theses
+// profiles. An exec's predicted memory usage is the MemPercentile'th percentile
+// of the maximum memory usage of the exec.
+type PredictorConfig struct {
+	// MinData is the minimum number of datapoints
+	// required to make a resource prediction.
+	MinData int `yaml:"mindata"`
+	// MaxInspect is the maximum number of ExecInspects
+	// that can be used to make a prediction.
+	MaxInspect int `yaml:"maxinspect"`
+	// MemPercentile is the percentile that will
+	// be used to predict memory usage for all tasks.
+	MemPercentile float64 `yaml:"mempercentile"`
+}
+
+var DefaultPredictorConfig = PredictorConfig{
+	MinData:       5,
+	MaxInspect:    50,
+	MemPercentile: 95,
+}
+
+// Help implements infra.Provider.
+func (p PredictorConfig) Help() string {
+	return "config for the reflow resource prediction system"
+}
+
+// Init implements infra.Provider.
+func (p *PredictorConfig) Init() error {
+	if p == nil || *p == (PredictorConfig{}) {
+		*p = DefaultPredictorConfig
+		return nil
+	}
+	if p.MinData < 1 {
+		return fmt.Errorf("mindata %d is less than 1", p.MinData)
+	}
+	if p.MaxInspect < p.MinData {
+		return fmt.Errorf("maxinspect is less than mindata")
+	}
+	if p.MemPercentile < 0 || p.MemPercentile > 100 {
+		return fmt.Errorf("percentile %v is outside of range [0, 100]", p.MemPercentile)
+	}
+	return nil
+}
+
+// InstanceConfig implements infra.Provider.
+func (p *PredictorConfig) InstanceConfig() interface{} {
+	return p
 }

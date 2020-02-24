@@ -20,16 +20,6 @@ import (
 	"github.com/grailbio/reflow/taskdb"
 )
 
-const (
-	// memPercentile is the percentile that will
-	// be used to predict memory usage for all tasks.
-	memPercentile float64 = 95
-	// maxInspect is the maximum number of ExecInspects which
-	// will be unmarshalled to get obtain profiling data for a
-	// particular taskGroup.
-	maxInspect = 50
-)
-
 // Predictor predicts tasks' resource usage. All predictions
 // are performed online using cached profiling data.
 type Predictor struct {
@@ -43,6 +33,13 @@ type Predictor struct {
 	// minData is the minimum number of data points (Profiles)
 	// required to predict the resource usage of a taskGroup.
 	minData int
+	// maxInspect is the maximum number of ExecInspects which
+	// will be unmarshalled to get obtain profiling data for a
+	// particular taskGroup.
+	maxInspect int
+	// memPercentile is the percentile that will
+	// be used to predict memory usage for all tasks.
+	memPercentile float64
 	// inspectLimiter limits the number of concurrent
 	// ExecInspect Profile unmarshal operations.
 	inspectLimiter *limiter.Limiter
@@ -51,12 +48,15 @@ type Predictor struct {
 // NewPred returns a new Predictor instance. NewPred will panic if either repo or tdb is nil because
 // a Predictor requires both a taskdb and a repository to function. NewPred will also panic if
 // minData <= 0 because a prediction requires at least one data point.
-func NewPred(repo reflow.Repository, tdb taskdb.TaskDB, log *log.Logger, minData int) *Predictor {
+func NewPred(repo reflow.Repository, tdb taskdb.TaskDB, log *log.Logger, minData, maxInspect int, memPercentile float64) *Predictor {
 	if tdb == nil || repo == nil {
 		panic("predictor requires both a repository and a taskdb to function")
 	}
 	if minData <= 0 {
 		panic("minData must be greater than zero")
+	}
+	if maxInspect < minData {
+		panic("maxInspect must be greater than or equal to minData")
 	}
 
 	// ExecInspect unmarshaling is CPU-intensive
@@ -71,6 +71,8 @@ func NewPred(repo reflow.Repository, tdb taskdb.TaskDB, log *log.Logger, minData
 		repository:     repo,
 		log:            log,
 		minData:        minData,
+		maxInspect:     maxInspect,
+		memPercentile:  memPercentile,
 		inspectLimiter: inspectLimiter,
 	}
 }
@@ -155,12 +157,12 @@ func (p *Predictor) memUsage(ctx context.Context, group taskGroup) (float64, err
 	// In the event that there are over maxInspect inspects,
 	// randomly select maxInspect inspects to download and
 	// unmarshal.
-	if len(inspectDigests) > maxInspect {
+	if len(inspectDigests) > p.maxInspect {
 		src := rand.NewSource(time.Now().UnixNano())
 		rand.New(src).Shuffle(len(inspectDigests), func(i, j int) {
 			inspectDigests[i], inspectDigests[j] = inspectDigests[j], inspectDigests[i]
 		})
-		inspectDigests = inspectDigests[:maxInspect]
+		inspectDigests = inspectDigests[:p.maxInspect]
 	}
 
 	// Get all profiles for all tasks in the taskGroup.
@@ -201,7 +203,7 @@ func (p *Predictor) memUsage(ctx context.Context, group taskGroup) (float64, err
 	}
 
 	// Predict the memory usage of the taskGroup.
-	return maxValuePercentile(profiles, "mem", memPercentile), nil
+	return maxValuePercentile(profiles, "mem", p.memPercentile), nil
 }
 
 // taskSet is a set of tasks.
