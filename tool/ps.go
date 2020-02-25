@@ -25,6 +25,13 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const (
+	runHeader                   = "runid\tuser"
+	taskHeader                  = "taskid\tident\ttime\tduration\tstate\tmem\tcpu\tdisk\tprocs"
+	taskHeaderLongWithTaskDB    = "uri/resultid\tinspect"
+	taskHeaderLongWithoutTaskDB = "uri"
+)
+
 type taskInfo struct {
 	taskdb.Task
 	reflow.ExecInspect
@@ -58,15 +65,17 @@ The columns associated with a run:
 	user      user who initiated the run
 
 task:
-	taskid    the id associated with the task
-	ident     the exec identifier
-	time      the exec's start time
-	duration  the exec's run duration
-	state     the exec's state
-	mem       the amount of memory used by the exec
-	cpu       the number of CPU cores used by the exec
-	disk      the total amount of disk space used by the exec
-	procs     the set of processes running in the exec
+	taskid        the id associated with the task
+	ident         the exec identifier
+	time          the exec's start time
+	duration      the exec's run duration
+	state         the exec's state
+	mem           the amount of memory used by the exec
+	cpu           the number of CPU cores used by the exec
+	disk          the total amount of disk space used by the exec
+	procs         the set of processes running in the exec
+	uri/resultid  the uri of a running task or the result id of a completed task (long listing only)
+	inspect       the inspect of a completed task (long listing only)
 
 Ps lists only running execs for the current user by default.
 It supports the following filters:
@@ -78,12 +87,12 @@ Global flags that work in both query modes:
 Flag -i lists all known execs in any state. Completed execs display profile
 information for memory, cpu, and disk utilization in place of live utilization.
 Flag -l shows the long listing; the live exec URI for a running task and the result id
-for a completed task.
+and inspect for a completed task.
 
 Ps must contact each node in the cluster to gather exec data. If a node 
 does not respond within a predefined timeout, it is skipped, and an error is
 printed on the console.`
-	c.Parse(flags, args, help, "ps [-i] [-l] [-a | -u <user>] [-since hours]")
+	c.Parse(flags, args, help, "ps [-i] [-l] [-a | -u <user>] [-since <time>]")
 	if flags.NArg() != 0 {
 		flags.Usage()
 	}
@@ -142,6 +151,11 @@ printed on the console.`
 		var tw tabwriter.Writer
 		tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 		defer tw.Flush()
+		fmt.Fprint(&tw, taskHeader)
+		if *longFlag {
+			fmt.Fprint(&tw, "\t", taskHeaderLongWithoutTaskDB)
+		}
+		fmt.Fprint(&tw, "\n")
 		for _, info := range infos {
 			var layout = time.Kitchen
 			switch dur := time.Since(info.Created); {
@@ -363,7 +377,12 @@ func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing bool) {
 		if len(run.taskInfo) == 0 {
 			continue
 		}
-		fmt.Fprintf(w, "%s\t%s", run.Run.ID.IDShort(), run.Run.User)
+		fmt.Fprint(w, runHeader, "\n")
+		fmt.Fprintf(w, "%s\t%s\n", run.Run.ID.IDShort(), run.Run.User)
+		fmt.Fprint(w, "\t", taskHeader)
+		if longListing {
+			fmt.Fprint(w, "\t", taskHeaderLongWithTaskDB)
+		}
 		fmt.Fprint(w, "\n")
 		for _, task := range run.taskInfo {
 			if task.Task == (taskdb.Task{}) {
@@ -437,9 +456,9 @@ func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
 	)
 	if longListing {
 		if task.Task.ResultID.IsZero() {
-			fmt.Fprint(w, "\t", task.Task.URI)
+			fmt.Fprint(w, "\t", task.Task.URI, "\tNA")
 		} else {
-			fmt.Fprint(w, "\t", task.Task.ResultID.String())
+			fmt.Fprintf(w, "\t%s\t%s", task.Task.ResultID.Short(), task.Task.Inspect.Short())
 		}
 	}
 	fmt.Fprint(w, "\n")

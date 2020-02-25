@@ -281,7 +281,7 @@ func (c *Cmd) printFileInfo(ctx context.Context, w io.Writer, id digest.Digest) 
 	info, err := repo.Stat(ctx, id)
 	switch {
 	case err == nil:
-		fmt.Fprintln(w, id.Hex(), "(file)")
+		fmt.Fprintln(w, info.ID.Hex(), "(file)")
 		fmt.Fprintf(w, "\tsize:\t%d\n", info.Size)
 		return true
 	case errors.Is(errors.NotExist, err):
