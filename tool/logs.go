@@ -21,7 +21,7 @@ func (c *Cmd) logs(ctx context.Context, args ...string) {
 		followFlag = flags.Bool("f", false, "follow the logs")
 		help       = "Logs displays logs from execs."
 	)
-	c.Parse(flags, args, help, "logs exec")
+	c.Parse(flags, args, help, "logs [-f] [-stdout] exec")
 	if flags.NArg() != 1 {
 		flags.Usage()
 	}
