@@ -7,6 +7,7 @@ package testutil
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -78,10 +79,18 @@ func (e *Exec) Wait(ctx context.Context) error {
 	return err
 }
 
-// Logs is a no-op for the test exec.
+// Logs returns a ReadCloser for the exec.
 func (e *Exec) Logs(ctx context.Context, stdout bool, stderr bool, follow bool) (io.ReadCloser, error) {
 	_, err := e.result(ctx)
-	return ioutil.NopCloser(bytes.NewBufferString("")), err
+	rc := ioutil.NopCloser(bytes.NewBufferString(""))
+	if follow {
+		b, marshalErr := json.Marshal("following")
+		if marshalErr != nil {
+			return rc, marshalErr
+		}
+		rc = ioutil.NopCloser(bytes.NewReader(b))
+	}
+	return rc, err
 }
 
 // Shell is not implemented

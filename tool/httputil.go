@@ -13,15 +13,17 @@ import (
 	"github.com/grailbio/reflow/pool"
 )
 
+const defaultHTTPTimeout = 2 * time.Second
+
 // TODO(pgopal) - Move all the url construction logic to a common library that pool/client
 // and httputil can use.
 
 func (c *Cmd) allocInspect(ctx context.Context, n name) (pool.AllocInspect, error) {
 	httpClient, err := c.httpClient()
-	httpClient.Timeout = httpTimeout
 	if err != nil {
 		c.Fatal(err)
 	}
+	httpClient.Timeout = defaultHTTPTimeout
 	switch n.Kind {
 	case allocName:
 		url := constructHTTPUrl(n)
@@ -43,16 +45,12 @@ func (c *Cmd) allocInspect(ctx context.Context, n name) (pool.AllocInspect, erro
 	}
 }
 
-const (
-	httpTimeout = 2 * time.Second
-)
-
 func (c *Cmd) allocExecs(ctx context.Context, n name) ([]reflow.Exec, error) {
 	httpClient, err := c.httpClient()
-	httpClient.Timeout = httpTimeout
 	if err != nil {
 		c.Fatal(err)
 	}
+	httpClient.Timeout = defaultHTTPTimeout
 	switch n.Kind {
 	case allocName:
 		url := constructHTTPUrl(n) + "/" + "execs"
@@ -76,10 +74,10 @@ func (c *Cmd) allocExecs(ctx context.Context, n name) ([]reflow.Exec, error) {
 
 func (c *Cmd) liveExecInspect(ctx context.Context, n name) (reflow.ExecInspect, error) {
 	httpClient, err := c.httpClient()
-	httpClient.Timeout = httpTimeout
 	if err != nil {
 		c.Fatal(err)
 	}
+	httpClient.Timeout = defaultHTTPTimeout
 	switch n.Kind {
 	case execName:
 		url := constructHTTPUrl(n)
@@ -103,10 +101,10 @@ func (c *Cmd) liveExecInspect(ctx context.Context, n name) (reflow.ExecInspect, 
 
 func (c *Cmd) liveExecResult(ctx context.Context, n name) (reflow.Result, error) {
 	httpClient, err := c.httpClient()
-	httpClient.Timeout = httpTimeout
 	if err != nil {
 		c.Fatal(err)
 	}
+	httpClient.Timeout = defaultHTTPTimeout
 	switch n.Kind {
 	case execName:
 		url := constructHTTPUrl(n) + "/" + "result"
@@ -149,10 +147,10 @@ func (c *Cmd) reposExecInspect(ctx context.Context, d digest.Digest) (reflow.Exe
 
 func (c *Cmd) execLogs(ctx context.Context, stdout, follow bool, n name) (io.ReadCloser, error) {
 	httpClient, err := c.httpClient()
-	httpClient.Timeout = httpTimeout
 	if err != nil {
 		c.Fatal(err)
 	}
+	httpClient.Timeout = 2 * time.Minute
 	switch n.Kind {
 	case execName:
 		path := "/stderr"

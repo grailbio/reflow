@@ -328,12 +328,7 @@ func (n execNode) shellNode() rest.Node {
 }
 
 func (n execNode) Walk(ctx context.Context, call *rest.Call, path string) rest.Node {
-	u, err := url.Parse(path)
-	if err != nil {
-		call.Error(err)
-		return nil
-	}
-	switch u.Path {
+	switch path {
 	default:
 		return nil
 	case "wait":
@@ -348,11 +343,11 @@ func (n execNode) Walk(ctx context.Context, call *rest.Call, path string) rest.N
 			}
 		})
 	case "logs":
-		return n.logNode(true, true, u.Query().Get("follow"))
+		return n.logNode(true, true, call.URL().Query().Get("follow"))
 	case "stderr":
-		return n.logNode(false, true, u.Query().Get("follow"))
+		return n.logNode(false, true, call.URL().Query().Get("follow"))
 	case "stdout":
-		return n.logNode(true, false, u.Query().Get("follow"))
+		return n.logNode(true, false, call.URL().Query().Get("follow"))
 	case "shell":
 		return n.shellNode()
 	case "result":
