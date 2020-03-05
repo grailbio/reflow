@@ -57,7 +57,7 @@ func (s *scanner) Scan(ctx context.Context, h ItemsHandler) error {
 					Segment:                  aws.Int64(int64(segment)),
 					TotalSegments:            aws.Int64(int64(s.SegmentCount)),
 					FilterExpression:         aws.String("attribute_exists(#t)"),
-					ExpressionAttributeNames: map[string]*string{"#t": aws.String("Task")},
+					ExpressionAttributeNames: map[string]*string{"#t": aws.String(colType)},
 				}
 				if lastEvaluatedKey != nil {
 					params.ExclusiveStartKey = lastEvaluatedKey

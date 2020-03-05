@@ -457,7 +457,7 @@ func (t *TaskDB) buildSinceUserQueries(q query) []*dynamodb.QueryInput {
 	attributeValues[":type"] = &dynamodb.AttributeValue{S: aws.String(string(q.Typ))}
 	attributeNames["#Type"] = aws.String(colType)
 
-	if q.User != "" {
+	if q.User != "" && q.Typ == run {
 		filterExpression = append(filterExpression, "#User = :user")
 		attributeValues[":user"] = &dynamodb.AttributeValue{S: aws.String(q.User)}
 		attributeNames["#User"] = aws.String(colUser)
@@ -521,7 +521,6 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 	default:
 		q := query{
 			Since: taskQuery.Since,
-			User:  taskQuery.User,
 			Typ:   task,
 		}
 		queries = t.buildSinceUserQueries(q)

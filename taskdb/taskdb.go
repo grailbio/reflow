@@ -198,8 +198,7 @@ func (t Task) String() string {
 //
 // 1. Only ID/RunID/ImgCmdID/Ident specified: Query tasks with the corresponding ID.
 //
-// 2. Since + User specified: Query runs whose keepalive is within that time frame that belong to the specified User.
-// If User is not specified, the query will return results for all users.
+// 2. Since specified: Query tasks whose keepalive is within that time frame.
 type TaskQuery struct {
 	// ID is the task id being queried.
 	ID TaskID
@@ -212,8 +211,6 @@ type TaskQuery struct {
 	Ident string
 	// Since queries for runs/tasks that were active past this time.
 	Since time.Time
-	// User looks up the runs/tasks that are created by the user. If empty, the user filter is dropped.
-	User string
 }
 
 // RunQuery is the run-querying struct for TaskDB.Runs. There are two ways to query runs:

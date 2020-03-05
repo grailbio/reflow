@@ -413,45 +413,134 @@ func TestRunsIDShortQuery(t *testing.T) {
 	}
 }
 
-func TestRunsAwsErrMissingIndex(t *testing.T) {
+func TestRunsSinceQuery(t *testing.T) {
 	var (
-		runID       = taskdb.NewRunID()
-		expectederr = awserr.New("ValidationException", "The table does not have the specified index", nil)
-		mockdb      = getMockRunTaskDB()
-		taskb       = &TaskDB{DB: mockdb, TableName: mockTableName}
-		query       = taskdb.RunQuery{ID: runID}
+		mockdb = getmockquerytaskdb()
+		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
+		since  = time.Now().UTC().Add(-time.Minute * 10)
+		query  = taskdb.RunQuery{Since: since}
 	)
-	mockdb.id = digest.Digest(runID)
-	mockdb.err = expectederr
-	tasks, err := taskb.Runs(context.Background(), query)
-	awserr, ok := err.(*errors.Error).Err.(awserr.Error)
-	if !ok {
-		t.Fatalf("expected awserr.Error, got %v", err)
+	date := date(since).Format(dateLayout)
+	_, err := taskb.Runs(context.Background(), query)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got, want := awserr.Message(), expectederr.Message(); got != want {
-		t.Errorf("expected %v, got %v", want, got)
-	}
-	if got, want := len(tasks), 0; got != want {
-		t.Errorf("expected %v, got %v", want, got)
+	for _, test := range []struct {
+		name     string
+		actual   string
+		expected string
+	}{
+		{"table", *mockdb.qinput.TableName, "mockdynamodb"},
+		{"index", *mockdb.qinput.IndexName, dateKeepaliveIndex},
+		{"type", *mockdb.qinput.ExpressionAttributeValues[":type"].S, "run"},
+		{"date", *mockdb.qinput.ExpressionAttributeValues[":date"].S, date},
+		{"keepalive", *mockdb.qinput.ExpressionAttributeValues[":ka"].S, since.Format(timeLayout)},
+		{"key condition", *mockdb.qinput.KeyConditionExpression, "#Date = :date and " + colKeepalive + " > :ka "},
+		{"filter expression", *mockdb.qinput.FilterExpression, "#Type = :type"},
+		{"attribute name date", *mockdb.qinput.ExpressionAttributeNames["#Date"], colDate},
+		{"attribute name type", *mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
+	} {
+		if test.expected != test.actual {
+			t.Errorf("expected %s, got %v", test.expected, test.actual)
+		}
 	}
 }
 
-func TestRunsUnknownError(t *testing.T) {
+func TestRunsTimeBucketQuery(t *testing.T) {
 	var (
-		runID       = taskdb.NewRunID()
-		expectederr = errors.New("some unknown error")
-		mockdb      = getMockRunTaskDB()
-		taskb       = &TaskDB{DB: mockdb, TableName: mockTableName}
-		query       = taskdb.RunQuery{ID: runID}
+		mockdb = getmockquerytaskdb()
+		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
 	)
-	mockdb.id = digest.Digest(runID)
-	mockdb.err = expectederr
-	tasks, err := taskb.Runs(context.Background(), query)
-	if got, want := err, expectederr; got != want {
-		t.Errorf("expected %v, got %v", want, got)
+	queryTime := time.Now().UTC().Add(-time.Hour * 24)
+	// Make sure we don't hit an hour boundary. This can result in one extra query.
+	if queryTime.Truncate(time.Hour) == queryTime {
+		queryTime = queryTime.Add(time.Minute)
 	}
-	if got, want := len(tasks), 0; got != want {
-		t.Errorf("expected %v, got %v", want, got)
+	query := taskdb.RunQuery{User: "reflow", Since: queryTime}
+	_, err := taskb.Runs(context.Background(), query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := len(mockdb.qinputs), 2; got != want {
+		t.Fatalf("expected %v sub queries, got %v", want, got)
+	}
+	//	log.Printf("before: %v", mockdb.qinputs)
+	sort.Slice(mockdb.qinputs, func(i, j int) bool {
+		di, _ := time.Parse(dateLayout, *mockdb.qinputs[i].ExpressionAttributeValues[":date"].S)
+		dj, _ := time.Parse(dateLayout, *mockdb.qinputs[j].ExpressionAttributeValues[":date"].S)
+		if di.Before(dj) {
+			return true
+		}
+		_, ok1 := mockdb.qinputs[i].ExpressionAttributeValues[":ka"]
+		_, ok2 := mockdb.qinputs[j].ExpressionAttributeValues[":ka"]
+		if ok1 && ok2 {
+			hi, _ := time.Parse(timeLayout, *mockdb.qinputs[i].ExpressionAttributeValues[":ka"].S)
+			hj, _ := time.Parse(timeLayout, *mockdb.qinputs[j].ExpressionAttributeValues[":ka"].S)
+			return hi.Before(hj)
+		}
+		return i < j
+	})
+	// log.Printf("after: %v", mockdb.qinputs)
+	ka := queryTime.Format(timeLayout)
+	for _, qinput := range mockdb.qinputs {
+		date := date(queryTime).Format(dateLayout)
+		for _, test := range []struct {
+			name     string
+			actual   string
+			expected string
+		}{
+			{"table", *qinput.TableName, "mockdynamodb"},
+			{"index", *qinput.IndexName, dateKeepaliveIndex},
+			{"type", *qinput.ExpressionAttributeValues[":type"].S, "run"},
+			{"date", *qinput.ExpressionAttributeValues[":date"].S, date},
+			{"keepalive", *qinput.ExpressionAttributeValues[":ka"].S, ka},
+			{"user", *qinput.ExpressionAttributeValues[":user"].S, query.User},
+			{"key condition", *qinput.KeyConditionExpression, "#Date = :date and Keepalive > :ka "},
+			{"filter expression", *qinput.FilterExpression, "#Type = :type and #User = :user"},
+			{"attribute name user", *mockdb.qinput.ExpressionAttributeNames["#User"], colUser},
+			{"attribute name date", *mockdb.qinput.ExpressionAttributeNames["#Date"], colDate},
+			{"attribute name type", *mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
+		} {
+			if test.expected != test.actual {
+				t.Errorf("expected %s, got %v", test.expected, test.actual)
+			}
+		}
+		queryTime = queryTime.Add(time.Hour * 24)
+	}
+}
+
+func TestRunsSinceUserQuery(t *testing.T) {
+	var (
+		mockdb = getmockquerytaskdb()
+		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
+		since  = time.Now().UTC()
+		query  = taskdb.RunQuery{User: "reflow", Since: since}
+	)
+	date := date(since).Format(dateLayout)
+	_, err := taskb.Runs(context.Background(), query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name     string
+		actual   string
+		expected string
+	}{
+		{"table", *mockdb.qinput.TableName, "mockdynamodb"},
+		{"index", *mockdb.qinput.IndexName, dateKeepaliveIndex},
+		{"type", *mockdb.qinput.ExpressionAttributeValues[":type"].S, "run"},
+		{"date", *mockdb.qinput.ExpressionAttributeValues[":date"].S, date},
+		{"keepalive", *mockdb.qinput.ExpressionAttributeValues[":ka"].S, since.UTC().Format(timeLayout)},
+		{"user", *mockdb.qinput.ExpressionAttributeValues[":user"].S, query.User},
+		{"key condition", *mockdb.qinput.KeyConditionExpression, "#Date = :date and " + colKeepalive + " > :ka "},
+		{"filter expression", *mockdb.qinput.FilterExpression, "#Type = :type and #User = :user"},
+		{"attribute name user", *mockdb.qinput.ExpressionAttributeNames["#User"], colUser},
+		{"attribute name date", *mockdb.qinput.ExpressionAttributeNames["#Date"], colDate},
+		{"attribute name type", *mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
+	} {
+		if test.expected != test.actual {
+			t.Errorf("expected %s, got %v", test.expected, test.actual)
+		}
 	}
 }
 
@@ -511,47 +600,6 @@ func getmocktaskstaskdb() *mockDynamodbQueryTasks {
 	return &mockDynamodbQueryTasks{starttime: time.Now(), keepalive: time.Now(), user: colUser}
 }
 
-func TestTasksAwsErrMissingIndex(t *testing.T) {
-	var (
-		runID       = taskdb.NewRunID()
-		expectederr = awserr.New("ValidationException", "The table does not have the specified index", nil)
-		mockdb      = getmocktaskstaskdb()
-		taskb       = &TaskDB{DB: mockdb, TableName: mockTableName}
-		query       = taskdb.TaskQuery{RunID: runID}
-	)
-	mockdb.err = expectederr
-	tasks, err := taskb.Tasks(context.Background(), query)
-	awserr, ok := err.(*errors.Error).Err.(awserr.Error)
-	if !ok {
-		t.Fatal("expected awserr.Error")
-	}
-	if got, want := awserr.Message(), expectederr.Message(); got != want {
-		t.Errorf("expected %v, got %v", want, got)
-	}
-	if got, want := len(tasks), 0; got != want {
-		t.Errorf("expected %v, got %v", want, got)
-	}
-}
-
-func TestTasksUnknownError(t *testing.T) {
-	var (
-		runID       = taskdb.NewRunID()
-		badTaskID   = taskdb.TaskID(runID)
-		expectederr = errors.New("some unknown error")
-		mockdb      = getmocktaskstaskdb()
-		taskb       = &TaskDB{DB: mockdb, TableName: mockTableName}
-		query       = taskdb.TaskQuery{ID: badTaskID}
-	)
-	mockdb.err = expectederr
-	tasks, err := taskb.Tasks(context.Background(), query)
-	if got, want := err, expectederr; got != want {
-		t.Errorf("expected %v, got %v", want, got)
-	}
-	if got, want := len(tasks), 0; got != want {
-		t.Errorf("expected %v, got %v", want, got)
-	}
-}
-
 func getmockquerytaskdb() *mockDynamodbQueryTasks {
 	return &mockDynamodbQueryTasks{
 		starttime: time.Now(),
@@ -566,7 +614,7 @@ func TestTasksIDQuery(t *testing.T) {
 		taskID = taskdb.NewTaskID()
 		mockdb = getmocktaskstaskdb()
 		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
-		query  = taskdb.TaskQuery{ID: taskID, User: colUser}
+		query  = taskdb.TaskQuery{ID: taskID}
 	)
 	mockdb.id = digest.Digest(taskID)
 	tasks, err := taskb.Tasks(context.Background(), query)
@@ -641,7 +689,7 @@ func TestTasksIDShortQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 	taskID = taskdb.TaskID(id)
-	query = taskdb.TaskQuery{ID: taskID, User: colUser}
+	query = taskdb.TaskQuery{ID: taskID}
 	tasks, err = taskb.Tasks(context.Background(), query)
 	if err != nil {
 		t.Fatal(err)
@@ -796,6 +844,140 @@ func TestTasksIdentQuery(t *testing.T) {
 	}
 }
 
+func TestTasksSinceQuery(t *testing.T) {
+	var (
+		mockdb = getmockquerytaskdb()
+		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
+		since  = time.Now().UTC().Add(-time.Minute * 10)
+		query  = taskdb.TaskQuery{Since: since}
+	)
+	date := date(since).Format(dateLayout)
+	_, err := taskb.Tasks(context.Background(), query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name     string
+		actual   string
+		expected string
+	}{
+		{"table", *mockdb.qinput.TableName, "mockdynamodb"},
+		{"index", *mockdb.qinput.IndexName, dateKeepaliveIndex},
+		{"type", *mockdb.qinput.ExpressionAttributeValues[":type"].S, "task"},
+		{"date", *mockdb.qinput.ExpressionAttributeValues[":date"].S, date},
+		{"keepalive", *mockdb.qinput.ExpressionAttributeValues[":ka"].S, since.Format(timeLayout)},
+		{"key condition", *mockdb.qinput.KeyConditionExpression, "#Date = :date and " + colKeepalive + " > :ka "},
+		{"filter expression", *mockdb.qinput.FilterExpression, "#Type = :type"},
+		{"attribute name date", *mockdb.qinput.ExpressionAttributeNames["#Date"], colDate},
+		{"attribute name type", *mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
+	} {
+		if test.expected != test.actual {
+			t.Errorf("expected %s, got %v", test.expected, test.actual)
+		}
+	}
+}
+
+func TestTasksTimeBucketQuery(t *testing.T) {
+	var (
+		mockdb = getmockquerytaskdb()
+		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
+	)
+	queryTime := time.Now().UTC().Add(-time.Hour * 24)
+	// Make sure we don't hit an hour boundary. This can result in one extra query.
+	if queryTime.Truncate(time.Hour) == queryTime {
+		queryTime = queryTime.Add(time.Minute)
+	}
+	query := taskdb.TaskQuery{Since: queryTime}
+	_, err := taskb.Tasks(context.Background(), query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := len(mockdb.qinputs), 2; got != want {
+		t.Fatalf("expected %v sub queries, got %v", want, got)
+	}
+	//	log.Printf("before: %v", mockdb.qinputs)
+	sort.Slice(mockdb.qinputs, func(i, j int) bool {
+		di, _ := time.Parse(dateLayout, *mockdb.qinputs[i].ExpressionAttributeValues[":date"].S)
+		dj, _ := time.Parse(dateLayout, *mockdb.qinputs[j].ExpressionAttributeValues[":date"].S)
+		if di.Before(dj) {
+			return true
+		}
+		_, ok1 := mockdb.qinputs[i].ExpressionAttributeValues[":ka"]
+		_, ok2 := mockdb.qinputs[j].ExpressionAttributeValues[":ka"]
+		if ok1 && ok2 {
+			hi, _ := time.Parse(timeLayout, *mockdb.qinputs[i].ExpressionAttributeValues[":ka"].S)
+			hj, _ := time.Parse(timeLayout, *mockdb.qinputs[j].ExpressionAttributeValues[":ka"].S)
+			return hi.Before(hj)
+		}
+		return i < j
+	})
+	// log.Printf("after: %v", mockdb.qinputs)
+	ka := queryTime.Format(timeLayout)
+	for _, qinput := range mockdb.qinputs {
+		date := date(queryTime).Format(dateLayout)
+		for _, test := range []struct {
+			name     string
+			actual   string
+			expected string
+		}{
+			{"table", *qinput.TableName, "mockdynamodb"},
+			{"index", *qinput.IndexName, dateKeepaliveIndex},
+			{"type", *qinput.ExpressionAttributeValues[":type"].S, "task"},
+			{"date", *qinput.ExpressionAttributeValues[":date"].S, date},
+			{"keepalive", *qinput.ExpressionAttributeValues[":ka"].S, ka},
+			{"key condition", *qinput.KeyConditionExpression, "#Date = :date and Keepalive > :ka "},
+			{"filter expression", *qinput.FilterExpression, "#Type = :type"},
+			{"attribute name date", *mockdb.qinput.ExpressionAttributeNames["#Date"], colDate},
+			{"attribute name type", *mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
+		} {
+			if test.expected != test.actual {
+				t.Errorf("expected %s, got %v", test.expected, test.actual)
+			}
+		}
+		queryTime = queryTime.Add(time.Hour * 24)
+	}
+}
+
+func TestTasksAwsErrMissingIndex(t *testing.T) {
+	var (
+		runID       = taskdb.NewRunID()
+		expectederr = awserr.New("ValidationException", "The table does not have the specified index", nil)
+		mockdb      = getmocktaskstaskdb()
+		taskb       = &TaskDB{DB: mockdb, TableName: mockTableName}
+		query       = taskdb.TaskQuery{RunID: runID}
+	)
+	mockdb.err = expectederr
+	tasks, err := taskb.Tasks(context.Background(), query)
+	awserr, ok := err.(*errors.Error).Err.(awserr.Error)
+	if !ok {
+		t.Fatal("expected awserr.Error")
+	}
+	if got, want := awserr.Message(), expectederr.Message(); got != want {
+		t.Errorf("expected %v, got %v", want, got)
+	}
+	if got, want := len(tasks), 0; got != want {
+		t.Errorf("expected %v, got %v", want, got)
+	}
+}
+
+func TestTasksUnknownError(t *testing.T) {
+	var (
+		badTaskID   = taskdb.NewTaskID()
+		expectederr = errors.New("some unknown error")
+		mockdb      = getmocktaskstaskdb()
+		taskb       = &TaskDB{DB: mockdb, TableName: mockTableName}
+		query       = taskdb.TaskQuery{ID: badTaskID}
+	)
+	mockdb.err = expectederr
+	tasks, err := taskb.Tasks(context.Background(), query)
+	if got, want := err, expectederr; got != want {
+		t.Errorf("expected %v, got %v", want, got)
+	}
+	if got, want := len(tasks), 0; got != want {
+		t.Errorf("expected %v, got %v", want, got)
+	}
+}
+
 func TestTasksRunIDQueryAwsErrMissingIndex(t *testing.T) {
 	var (
 		runID       = taskdb.NewRunID()
@@ -837,194 +1019,6 @@ func TestTasksRunIDQueryOtherError(t *testing.T) {
 	}
 	if got, want := len(tasks), 0; got != want {
 		t.Errorf("expected %v, got %v", want, got)
-	}
-}
-
-func TestTasksUserQueryTimeBucket(t *testing.T) {
-	var (
-		runID  = taskdb.NewRunID()
-		mockdb = getmockquerytaskdb()
-		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
-		since  = time.Now().UTC().Add(-time.Minute * 10)
-		query  = taskdb.TaskQuery{User: "testuser", Since: since}
-	)
-
-	date := date(since).Format(dateLayout)
-	mockdb.id = digest.Digest(runID)
-	tasks, err := taskb.Tasks(context.Background(), query)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := *mockdb.qinput.TableName, "mockdynamodb"; got != want {
-		t.Errorf("expected %v, got %v", want, got)
-	}
-	if got, want := len(tasks), 1; got != want {
-		t.Errorf("expected %v, got %v", want, got)
-	}
-	if got, want := len(mockdb.qinput.ExpressionAttributeValues), 4; got != want {
-		t.Errorf("expected %v, got %v", want, got)
-	}
-	for _, test := range []struct {
-		name     string
-		actual   interface{}
-		expected interface{}
-	}{
-		{"table", *mockdb.qinput.TableName, "mockdynamodb"},
-		{"index", *mockdb.qinput.IndexName, dateKeepaliveIndex},
-		{"len(attribute_values)", len(mockdb.qinput.ExpressionAttributeValues), 4},
-		{"date", *mockdb.qinput.ExpressionAttributeValues[":date"].S, date},
-		{"user", *mockdb.qinput.ExpressionAttributeValues[":user"].S, query.User},
-		{"type", *mockdb.qinput.ExpressionAttributeValues[":type"].S, "task"},
-		{"attribute name user", *mockdb.qinput.ExpressionAttributeNames["#User"], colUser},
-		{"attribute name date", *mockdb.qinput.ExpressionAttributeNames["#Date"], colDate},
-		{"key condition", *mockdb.qinput.KeyConditionExpression, "#Date = :date and " + colKeepalive + " > :ka "},
-		{"filter expression", *mockdb.qinput.FilterExpression, "#Type = :type and #User = :user"},
-	} {
-		if test.expected != test.actual {
-			t.Errorf("%v: expected %s, got %v", test.name, test.expected, test.actual)
-		}
-	}
-	ka, err := time.Parse(timeLayout, *mockdb.qinput.ExpressionAttributeValues[":ka"].S)
-	if err != nil {
-		t.Fatal(err)
-	}
-	since, err = time.Parse(timeLayout, since.Format(timeLayout))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ka.UTC().After(since) && !ka.UTC().Equal(since) {
-		t.Errorf("expected %v after %v", ka.UTC(), since.UTC())
-	}
-}
-
-func TestTasksQueryTimeBucketSince(t *testing.T) {
-	var (
-		mockdb = getmockquerytaskdb()
-		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
-		since  = time.Now().UTC().Add(-time.Minute * 10)
-		query  = taskdb.RunQuery{Since: since}
-	)
-	date := date(since).Format(dateLayout)
-	_, err := taskb.Runs(context.Background(), query)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, test := range []struct {
-		name     string
-		actual   string
-		expected string
-	}{
-		{"table", *mockdb.qinput.TableName, "mockdynamodb"},
-		{"index", *mockdb.qinput.IndexName, dateKeepaliveIndex},
-		{"type", *mockdb.qinput.ExpressionAttributeValues[":type"].S, "run"},
-		{"date", *mockdb.qinput.ExpressionAttributeValues[":date"].S, date},
-		{"keepalive", *mockdb.qinput.ExpressionAttributeValues[":ka"].S, since.Format(timeLayout)},
-		{"key condition", *mockdb.qinput.KeyConditionExpression, "#Date = :date and " + colKeepalive + " > :ka "},
-		{"filter expression", *mockdb.qinput.FilterExpression, "#Type = :type"},
-		{"attribute name date", *mockdb.qinput.ExpressionAttributeNames["#Date"], colDate},
-		{"attribute name type", *mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
-	} {
-		if test.expected != test.actual {
-			t.Errorf("expected %s, got %v", test.expected, test.actual)
-		}
-	}
-}
-
-func TestTasksQueryTimeBucketUser(t *testing.T) {
-	var (
-		mockdb = getmockquerytaskdb()
-		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
-		since  = time.Now().UTC()
-		query  = taskdb.RunQuery{User: "reflow", Since: since}
-	)
-	date := date(since).Format(dateLayout)
-	_, err := taskb.Runs(context.Background(), query)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, test := range []struct {
-		name     string
-		actual   string
-		expected string
-	}{
-		{"table", *mockdb.qinput.TableName, "mockdynamodb"},
-		{"index", *mockdb.qinput.IndexName, dateKeepaliveIndex},
-		{"type", *mockdb.qinput.ExpressionAttributeValues[":type"].S, "run"},
-		{"date", *mockdb.qinput.ExpressionAttributeValues[":date"].S, date},
-		{"keepalive", *mockdb.qinput.ExpressionAttributeValues[":ka"].S, since.UTC().Format(timeLayout)},
-		{"user", *mockdb.qinput.ExpressionAttributeValues[":user"].S, query.User},
-		{"key condition", *mockdb.qinput.KeyConditionExpression, "#Date = :date and " + colKeepalive + " > :ka "},
-		{"filter expression", *mockdb.qinput.FilterExpression, "#Type = :type and #User = :user"},
-		{"attribute name user", *mockdb.qinput.ExpressionAttributeNames["#User"], colUser},
-		{"attribute name date", *mockdb.qinput.ExpressionAttributeNames["#Date"], colDate},
-		{"attribute name type", *mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
-	} {
-		if test.expected != test.actual {
-			t.Errorf("expected %s, got %v", test.expected, test.actual)
-		}
-	}
-}
-
-func TestTasksQueryTimeBucketRun(t *testing.T) {
-	var (
-		mockdb = getmockquerytaskdb()
-		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
-	)
-	queryTime := time.Now().UTC().Add(-time.Hour * 24)
-	// Make sure we don't hit an hour boundary. This can result in one extra query.
-	if queryTime.Truncate(time.Hour) == queryTime {
-		queryTime = queryTime.Add(time.Minute)
-	}
-	query := taskdb.RunQuery{User: "reflow", Since: queryTime}
-	_, err := taskb.Runs(context.Background(), query)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := len(mockdb.qinputs), 2; got != want {
-		t.Fatalf("expected %v sub queries, got %v", want, got)
-	}
-	//	log.Printf("before: %v", mockdb.qinputs)
-	sort.Slice(mockdb.qinputs, func(i, j int) bool {
-		di, _ := time.Parse(dateLayout, *mockdb.qinputs[i].ExpressionAttributeValues[":date"].S)
-		dj, _ := time.Parse(dateLayout, *mockdb.qinputs[j].ExpressionAttributeValues[":date"].S)
-		if di.Before(dj) {
-			return true
-		}
-		_, ok1 := mockdb.qinputs[i].ExpressionAttributeValues[":ka"]
-		_, ok2 := mockdb.qinputs[j].ExpressionAttributeValues[":ka"]
-		if ok1 && ok2 {
-			hi, _ := time.Parse(timeLayout, *mockdb.qinputs[i].ExpressionAttributeValues[":ka"].S)
-			hj, _ := time.Parse(timeLayout, *mockdb.qinputs[j].ExpressionAttributeValues[":ka"].S)
-			return hi.Before(hj)
-		}
-		return i < j
-	})
-	// log.Printf("after: %v", mockdb.qinputs)
-	ka := queryTime.Format(timeLayout)
-	for _, qinput := range mockdb.qinputs {
-		date := date(queryTime).Format(dateLayout)
-		for _, test := range []struct {
-			name     string
-			actual   string
-			expected string
-		}{
-			{"table", *qinput.TableName, "mockdynamodb"},
-			{"index", *qinput.IndexName, dateKeepaliveIndex},
-			{"type", *qinput.ExpressionAttributeValues[":type"].S, "run"},
-			{"date", *qinput.ExpressionAttributeValues[":date"].S, date},
-			{"keepalive", *qinput.ExpressionAttributeValues[":ka"].S, ka},
-			{"user", *qinput.ExpressionAttributeValues[":user"].S, query.User},
-			{"key condition", *qinput.KeyConditionExpression, "#Date = :date and Keepalive > :ka "},
-			{"filter expression", *qinput.FilterExpression, "#Type = :type and #User = :user"},
-			{"attribute name user", *mockdb.qinput.ExpressionAttributeNames["#User"], colUser},
-			{"attribute name date", *mockdb.qinput.ExpressionAttributeNames["#Date"], colDate},
-			{"attribute name type", *mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
-		} {
-			if test.expected != test.actual {
-				t.Errorf("expected %s, got %v", test.expected, test.actual)
-			}
-		}
-		queryTime = queryTime.Add(time.Hour * 24)
 	}
 }
 
