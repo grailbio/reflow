@@ -861,7 +861,12 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 		Path:        "/etc/journald-cloudwatch-logs.conf",
 		Permissions: "0644",
 		Owner:       "root",
-		Content:     `log_group = "reflow"`,
+		Content: `log_group = "reflow/reflowlet"
+fields = ["_HOSTNAME", "PRIORITY", "MESSAGE"]
+queue_poll_duration_ms = 1000
+queue_flush_log_ms = 5000
+field_length = 1024
+`,
 	})
 
 	c.AppendUnit(CloudUnit{
@@ -874,6 +879,7 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 		Wants=basic.target
 		After=basic.target network.target
 		[Service]
+		LogLevelMax=5
 		Type=simple
 		ExecStartPre=/usr/bin/sh -c "/usr/bin/echo 'log_stream = \"'$(curl http://169.254.169.254/latest/meta-data/public-hostname)'\"' | /usr/bin/cat - /etc/journald-cloudwatch-logs.conf > /tmp/journald-cloudwatch-logs.conf"
 		ExecStartPre=/usr/bin/wget https://github.com/advantageous/systemd-cloud-watch/releases/download/v0.2.1/systemd-cloud-watch_linux -O /tmp/systemd-cloud-watch_linux
