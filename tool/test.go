@@ -112,7 +112,8 @@ func (c *Cmd) makeTestExecutor(executor **local.Executor) {
 	if *executor != nil {
 		return
 	}
-	client, resources := c.dockerClient()
+	client, resources, err := dockerClient()
+	c.must(err)
 	var sess *session.Session
 	c.must(c.Config.Instance(&sess))
 	var creds *credentials.Credentials

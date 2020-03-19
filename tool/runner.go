@@ -1,31 +1,37 @@
 package tool
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
-
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/infra"
+	"github.com/grailbio/infra/aws"
 	"github.com/grailbio/infra/tls"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/s3blob"
+	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
 	reflowinfra "github.com/grailbio/reflow/infra"
+	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/repository"
@@ -34,6 +40,8 @@ import (
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/taskdb"
+	"github.com/grailbio/reflow/trace"
+	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/wg"
 	"golang.org/x/net/http2"
 )
@@ -159,6 +167,7 @@ func NewScheduler(config infra.Config, wg *wg.WaitGroup, logger *log.Logger, sta
 	scheduler := sched.New()
 	scheduler.Cluster = cluster
 	scheduler.Repository = repo
+	scheduler.Transferer = transferer
 	scheduler.Log = logger.Tee(nil, "scheduler: ")
 	scheduler.TaskDB = tdb
 	scheduler.ExportStats()
@@ -191,8 +200,10 @@ func NewRunner(runConfig RunConfig, scheduler *sched.Scheduler, logger *log.Logg
 		wg          wg.WaitGroup
 		limit       int
 	)
-	if cluster, err = clusterInstance(runConfig.Config, runConfig.Status); err != nil {
-		return nil, err
+	if !runConfig.RunFlags.Local {
+		if cluster, err = clusterInstance(runConfig.Config, runConfig.Status); err != nil {
+			return nil, err
+		}
 	}
 	if err = runConfig.Config.Instance(&repo); err != nil {
 		return nil, err
@@ -230,34 +241,22 @@ func NewRunner(runConfig RunConfig, scheduler *sched.Scheduler, logger *log.Logg
 			scheduler.Mux = mux
 		}
 	}
-
-	var assoc assoc.Assoc
-	if err = runConfig.Config.Instance(&assoc); err != nil {
+	runner := &Runner{
+		runConfig:   runConfig,
+		RunID:       taskdb.NewRunID(),
+		scheduler:   scheduler,
+		schedCancel: schedCancel,
+		Log:         logger,
+		wg:          &wg,
+		repo:        repo,
+		mux:         mux,
+		transferer:  transferer,
+		cluster:     cluster,
+	}
+	if err := runner.initInfra(); err != nil {
 		return nil, err
 	}
-	var cache *reflowinfra.CacheProvider
-	if err = runConfig.Config.Instance(&cache); err != nil {
-		return nil, err
-	}
-	assertionGenerator, err := assertionGenerator(runConfig.Config)
-	if err != nil {
-		return nil, err
-	}
-	return &Runner{
-		runConfig:          runConfig,
-		RunID:              taskdb.NewRunID(),
-		scheduler:          scheduler,
-		schedCancel:        schedCancel,
-		assoc:              assoc,
-		cache:              cache,
-		assertionGenerator: assertionGenerator,
-		log:                logger,
-		wg:                 &wg,
-		repo:               repo,
-		mux:                mux,
-		transferer:         transferer,
-		cluster:            cluster,
-	}, nil
+	return runner, nil
 }
 
 // RunConfig defines all the material (configuration, program and args) for a specific run.
@@ -277,34 +276,66 @@ type RunConfig struct {
 // Runner defines a reflow program/bundle, args and configuration that can be
 // evaluated to obtain a result.
 type Runner struct {
-	// RunId is the unique id for this run.
-	RunID              taskdb.RunID
-	log                *log.Logger
-	runConfig          RunConfig
-	scheduler          *sched.Scheduler
-	schedCancel        context.CancelFunc
-	assertionGenerator reflow.AssertionGenerator
-	assoc              assoc.Assoc
-	cache              *reflowinfra.CacheProvider
-	tdb                taskdb.TaskDB
-	cluster            runner.Cluster
-	cmdline            string
-	wg                 *wg.WaitGroup
-	repo               reflow.Repository
+	// RunID is the unique id for this run.
+	RunID taskdb.RunID
+	// Log is the logger to log to.
+	Log *log.Logger
+
+	runConfig   RunConfig
+	scheduler   *sched.Scheduler
+	schedCancel context.CancelFunc
+	cmdline     string
+	wg          *wg.WaitGroup
+
+	// infra
+	repo    reflow.Repository
+	assoc   assoc.Assoc
+	cache   *reflowinfra.CacheProvider
+	tdb     taskdb.TaskDB
+	cluster runner.Cluster
+
 	mux                blob.Mux
 	transferer         reflow.Transferer
+	assertionGenerator reflow.AssertionGenerator
+}
+
+func (r *Runner) initInfra() error {
+	var (
+		err    error
+		config = r.runConfig.Config
+	)
+	if err = config.Instance(&r.assoc); err != nil {
+		return err
+	}
+	if err = config.Instance(&r.cache); err != nil {
+		return err
+	}
+	r.assertionGenerator, err = assertionGenerator(config)
+	if err != nil {
+		return err
+	}
+	err = r.runConfig.Config.Instance(&r.tdb)
+	if err != nil {
+		if strings.HasPrefix(err.Error(), "no providers for type taskdb.TaskDB") {
+			r.Log.Debug(err)
+		} else {
+			return err
+		}
+	}
+	return nil
 }
 
 // Go runs the reflow program. It returns a non nil error if did not succeed.
 func (r *Runner) Go(ctx context.Context) (runner.State, error) {
-	if err := r.runConfig.RunFlags.Err(); err != nil {
+	var err error
+	if err = r.runConfig.RunFlags.Err(); err != nil {
 		return runner.State{}, err
 	}
 	var labels pool.Labels
-	err := r.runConfig.Config.Instance(&labels)
-	if err != nil {
-		r.log.Error(err)
+	if err = r.runConfig.Config.Instance(&labels); err != nil {
+		r.Log.Error(err)
 	}
+	r.Log.Printf("run ID: %s", r.RunID.IDShort())
 	e := Eval{
 		Program: r.runConfig.Program,
 		Args:    r.runConfig.Args,
@@ -315,10 +346,63 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 	if err = e.ResolveImages(r.runConfig.Config); err != nil {
 		return runner.State{}, err
 	}
+	path, err := filepath.Abs(e.Program)
+	if err != nil {
+		r.Log.Errorf("abs %s: %v", e.Program, err)
+		path = e.Program
+	}
+	cmdline := path
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "evaluating program %s", path)
+	if len(e.Params) > 0 {
+		var keys []string
+		for key := range e.Params {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		fmt.Fprintf(&b, "\n\tparams:")
+		for _, key := range keys {
+			fmt.Fprintf(&b, "\n\t\t%s=%s", key, e.Params[key])
+			cmdline += fmt.Sprintf(" -%s=%s", key, e.Params[key])
+		}
+	} else {
+		fmt.Fprintf(&b, "\n\t(no params)")
+	}
+	if len(e.Args) > 0 {
+		fmt.Fprintf(&b, "\n\targuments:")
+		for _, arg := range e.Args {
+			fmt.Fprintf(&b, "\n\t%s", arg)
+			cmdline += fmt.Sprintf(" %s", arg)
+		}
+	} else {
+		fmt.Fprintf(&b, "\n\t(no arguments)")
+	}
+	r.Log.Debug(b.String())
+
+	tctx, tcancel := context.WithCancel(ctx)
+	defer tcancel()
+	if r.tdb != nil {
+		var user *reflowinfra.User
+		errTDB := r.runConfig.Config.Instance(&user)
+		if errTDB != nil {
+			r.Log.Debug(errTDB)
+		}
+		errTDB = r.tdb.CreateRun(tctx, r.RunID, string(*user))
+		if errTDB != nil {
+			r.Log.Debugf("error writing run to taskdb: %v", errTDB)
+		} else {
+			go func() { _ = taskdb.KeepRunAlive(tctx, r.tdb, r.RunID) }()
+			go func() { _ = r.uploadBundle(tctx, r.repo, r.tdb, r.RunID, e, r.runConfig.Program, r.runConfig.Args) }()
+		}
+	}
+
+	if r.runConfig.RunFlags.Local {
+		return r.runLocal(ctx, e.Main(), e.MainType(), e.ImageMap, cmdline)
+	}
 	run := runner.Runner{
 		Flow: e.Main(),
 		EvalConfig: flow.EvalConfig{
-			Log:                r.log,
+			Log:                r.Log,
 			Repository:         r.repo,
 			Snapshotter:        r.mux,
 			Assoc:              r.assoc,
@@ -345,46 +429,38 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 	run.Params = e.Params
 	run.Args = e.Args
 	if r.runConfig.RunFlags.Trace {
-		run.Trace = r.log
+		run.Trace = r.Log
 	}
 	if r.runConfig.RunFlags.Alloc != "" {
 		run.AllocID = r.runConfig.RunFlags.Alloc
 		run.Phase = runner.Eval
 	}
-	// Set up run transcript and log files.
-	base, err := r.runbase()
-	if err != nil {
+	var base string
+	if base, err = r.Runbase(); err != nil {
 		return runner.State{}, err
 	}
-	if err = os.MkdirAll(filepath.Dir(base), 0777); err != nil {
-		return runner.State{}, err
-	}
-
-	statefile, err := state.Open(base)
+	stateFile, err := state.Open(base)
 	if err != nil {
 		return runner.State{}, errors.E("failed to open state file: %v", err)
 	}
-	if err = statefile.Marshal(run.State); err != nil {
+	if err = stateFile.Marshal(run.State); err != nil {
 		return runner.State{}, errors.E("failed to marshal state: %v", err)
 	}
-
 	ctx, bgcancel := flow.WithBackground(ctx, r.wg)
-
 	for ok := true; ok; {
 		ok = run.Do(ctx)
 		if run.State.Phase == runner.Retry {
-			r.log.Printf("retrying error %v", run.State.Err)
+			r.Log.Printf("retrying error %v", run.State.Err)
 		}
-		r.log.Debugf("run state: %s\n", run.State)
-		if err = statefile.Marshal(run.State); err != nil {
-			r.log.Errorf("failed to marshal state: %v", err)
+		if err = stateFile.Marshal(run.State); err != nil {
+			r.Log.Errorf("failed to marshal state: %v", err)
 		}
 	}
 
 	if run.Err != nil {
-		r.log.Error(run.Err)
+		r.Log.Error(run.Err)
 	} else {
-		r.log.Print(run.Result)
+		r.Log.Print(run.Result)
 	}
 	if r.schedCancel != nil {
 		r.schedCancel()
@@ -392,6 +468,133 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 	r.waitForBackgroundTasks(10 * time.Minute)
 	bgcancel()
 	return run.State, nil
+}
+
+// UploadBundle generates a bundle and updates taskdb with its digest. If the bundle does not already exist in taskdb,
+// uploadBundle caches it.
+func (r *Runner) uploadBundle(ctx context.Context, repo reflow.Repository, tdb taskdb.TaskDB, runID taskdb.RunID, e Eval, file string, args []string) error {
+	var (
+		bundleId digest.Digest
+		rc       io.ReadCloser
+		err      error
+		tmpName  string
+	)
+
+	if ext := filepath.Ext(file); ext == ".rfx" {
+		rc, bundleId, err = getBundle(file)
+	} else {
+		rc, bundleId, tmpName, err = makeBundle(e.Bundle)
+		if err == nil {
+			defer os.Remove(tmpName)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+
+	if _, err = repo.Stat(ctx, bundleId); errors.Is(errors.NotExist, err) {
+		bundleId, err = repo.Put(ctx, rc)
+		if err != nil {
+			return err
+		}
+	}
+	r.Log.Debugf("created bundle %s with args: %v\n", bundleId.String(), args)
+	return tdb.SetRunAttrs(ctx, runID, bundleId, args)
+}
+
+func (r *Runner) runLocal(ctx context.Context, f *flow.Flow, typ *types.T, imageMap map[string]string, cmdline string) (runner.State, error) {
+	flags := r.runConfig.RunFlags
+	client, resources, err := dockerClient()
+	if err != nil {
+		return runner.State{}, nil
+	}
+
+	var sess *session.Session
+	err = r.runConfig.Config.Instance(&sess)
+	if err != nil {
+		return runner.State{}, nil
+	}
+	var creds *credentials.Credentials
+	err = r.runConfig.Config.Instance(&creds)
+	if err != nil {
+		return runner.State{}, nil
+	}
+	var awstool *aws.AWSTool
+	err = r.runConfig.Config.Instance(&awstool)
+	if err != nil {
+		return runner.State{}, nil
+	}
+
+	dir := flags.LocalDir
+	if flags.Dir != "" {
+		dir = flags.Dir
+	}
+	x := &local.Executor{
+		Client:        client,
+		Dir:           dir,
+		Authenticator: ec2authenticator.New(sess),
+		AWSImage:      string(*awstool),
+		AWSCreds:      creds,
+		Blob:          r.mux,
+		Log:           r.Log.Tee(nil, "executor: "),
+	}
+	if !flags.Resources.Equal(nil) {
+		resources = flags.Resources
+	}
+	x.SetResources(resources)
+	if err = x.Start(); err != nil {
+		return runner.State{}, err
+	}
+	var labels pool.Labels
+	if err = r.runConfig.Config.Instance(&labels); err != nil {
+		return runner.State{}, err
+	}
+	evalConfig := flow.EvalConfig{
+		Executor:           x,
+		Snapshotter:        r.mux,
+		Transferer:         r.transferer,
+		Log:                r.Log,
+		Repository:         r.repo,
+		Assoc:              r.assoc,
+		AssertionGenerator: r.assertionGenerator,
+		CacheMode:          r.cache.CacheMode,
+		Status:             r.runConfig.Status.Group(r.RunID.IDShort()),
+		ImageMap:           imageMap,
+		TaskDB:             r.tdb,
+		RunID:              r.RunID,
+	}
+	if err = flags.CommonRunFlags.Configure(&evalConfig); err != nil {
+		return runner.State{}, err
+	}
+	if flags.Trace {
+		evalConfig.Trace = r.Log
+	}
+	eval := flow.NewEval(f, evalConfig)
+	ctx, bgcancel := flow.WithBackground(ctx, r.wg)
+	ctx, done := trace.Start(ctx, trace.Run, f.Digest(), cmdline)
+	defer done()
+	traceid := trace.URL(ctx)
+	if len(traceid) > 0 {
+		r.Log.Printf("Trace ID: %v", traceid)
+	}
+	if err := eval.Do(ctx); err != nil {
+		return runner.State{}, err
+	}
+	r.waitForBackgroundTasks(10 * time.Minute)
+	bgcancel()
+	var result runner.State
+	if err := eval.Err(); err != nil {
+		result.Err = errors.Recover(err)
+	}
+	result.Result = sprintval(eval.Value(), typ)
+	eval.LogSummary(r.Log)
+	if result.Err != nil {
+		r.Log.Error(result.Err)
+	} else {
+		r.Log.Print(result.Result)
+	}
+	return result, nil
 }
 
 // waitForBackgroundTasks waits until all background tasks complete, or if the provided
@@ -405,11 +608,11 @@ func (r Runner) waitForBackgroundTasks(timeout time.Duration) {
 		if n == 0 {
 			return
 		}
-		r.log.Debugf("waiting for %d background tasks to complete", n)
+		r.Log.Debugf("waiting for %d background tasks to complete", n)
 		select {
 		case <-waitc:
 		case <-time.After(timeout):
-			r.log.Errorf("some cache writes still pending after timeout %v", timeout)
+			r.Log.Errorf("some cache writes still pending after timeout %v", timeout)
 		}
 	}
 }
@@ -433,7 +636,7 @@ func (r *Runner) rundir() (string, error) {
 }
 
 // Runbase returns the base path for the run
-func (r Runner) runbase() (string, error) {
+func (r Runner) Runbase() (string, error) {
 	rundir, err := r.rundir()
 	if err != nil {
 		return "", err
