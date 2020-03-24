@@ -19,8 +19,8 @@ func coerceMatch(v values.T, t *types.T, pos scanner.Position, p Path) (values.T
 	if f, ok := v.(*flow.Flow); ok {
 		return coerceMatchFlow(f, t, pos, p), nil
 	}
-	v, t, ok, p, err := p.Match(v, t)
-	if !ok {
+	v, t, p, err := p.Match(v, t)
+	if err != nil {
 		return nil, errors.E(pos.String(), err)
 	}
 	return coerceMatch(v, t, pos, p)
@@ -34,12 +34,9 @@ func coerceMatchFlow(f *flow.Flow, t *types.T, pos scanner.Position, p Path) *fl
 		K: func(vs []values.T) *flow.Flow {
 			v, t, p := vs[0], t, p
 			for {
-				var (
-					err error
-					ok  bool
-				)
-				v, t, ok, p, err = p.Match(v, t)
-				if !ok {
+				var err error
+				v, t, p, err = p.Match(v, t)
+				if err != nil {
 					return &flow.Flow{
 						Op:  flow.Val,
 						Err: errors.Recover(errors.E(pos.String(), err)),
