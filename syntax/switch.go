@@ -159,12 +159,8 @@ func (s *evalSwitch) evalPath(
 			},
 		}, nil
 	}
-	// We throw away the error, because we know that the `Match` only uses its
-	// error to describe why the match failed, which we don't care about in
-	// this case.  There's some potential future world where `Match` can fail
-	// in ways we want to report.  We'll need to revisit this at that time.
-	nextV, nextT, ok, path, _ := p.path.Match(v, t)
-	if !ok {
+	nextV, nextT, path, err := p.path.Match(v, t)
+	if err != nil {
 		return k(false, nil)
 	}
 	nextP := &idPath{
