@@ -85,9 +85,9 @@ type switchCont func(bool, *values.Env) (values.T, error)
 
 func (s *evalSwitch) evalCases(cs []*CaseClause) (values.T, error) {
 	if len(cs) == 0 {
-		// This means no case clause matched.  This is an error, as the switch
-		// expression has no value.
-		return nil, fmt.Errorf("%s: no case pattern matches value", s.pos)
+		// No case clause matched. This should have been caught by
+		// exhaustiveness checking.
+		panic("no case clause matched; inexhaustive switch")
 	}
 	return s.evalCase(cs[0], func(m bool, env *values.Env) (values.T, error) {
 		if m {
