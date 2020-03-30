@@ -551,16 +551,17 @@ type mockEntry struct {
 
 type mockDynamodbQueryTasks struct {
 	dynamodbiface.DynamoDBAPI
-	mu        sync.Mutex
-	qinput    dynamodb.QueryInput
-	qinputs   []dynamodb.QueryInput
-	id        digest.Digest
-	user      string
-	keepalive time.Time
-	starttime time.Time
-	uri       string
-	ident     string
-	err       error
+	mu          sync.Mutex
+	qinput      dynamodb.QueryInput
+	qinputs     []dynamodb.QueryInput
+	id          digest.Digest
+	user        string
+	keepalive   time.Time
+	starttime   time.Time
+	uri         string
+	ident       string
+	err         error
+	multiOutput bool
 }
 
 func (m *mockDynamodbQueryTasks) QueryWithContext(ctx aws.Context, input *dynamodb.QueryInput, opts ...request.Option) (*dynamodb.QueryOutput, error) {
@@ -573,7 +574,7 @@ func (m *mockDynamodbQueryTasks) QueryWithContext(ctx aws.Context, input *dynamo
 	if !m.id.IsZero() {
 		id4 = m.id.HexN(8)
 	}
-	return &dynamodb.QueryOutput{
+	output := &dynamodb.QueryOutput{
 		Items: []map[string]*dynamodb.AttributeValue{
 			map[string]*dynamodb.AttributeValue{
 				colID:        &dynamodb.AttributeValue{S: aws.String(id)},
@@ -593,7 +594,15 @@ func (m *mockDynamodbQueryTasks) QueryWithContext(ctx aws.Context, input *dynamo
 				colIdent:     &dynamodb.AttributeValue{S: aws.String(m.ident)},
 			},
 		},
-	}, m.err
+	}
+
+	if m.multiOutput {
+		output.LastEvaluatedKey = map[string]*dynamodb.AttributeValue{
+			"key": &dynamodb.AttributeValue{S: aws.String("value")},
+		}
+	}
+
+	return output, m.err
 }
 
 func getmocktaskstaskdb() *mockDynamodbQueryTasks {
@@ -935,6 +944,28 @@ func TestTasksTimeBucketQuery(t *testing.T) {
 			}
 		}
 		queryTime = queryTime.Add(time.Hour * 24)
+	}
+}
+
+func TestTasksLimitQuery(t *testing.T) {
+	var (
+		ident        = "testident"
+		id           = reflow.Digester.Rand(nil)
+		mockdb       = getmockquerytaskdb()
+		taskb        = &TaskDB{DB: mockdb, TableName: mockTableName}
+		limit  int64 = 5
+		query        = taskdb.TaskQuery{Ident: ident, Limit: limit}
+	)
+	mockdb.id = id
+	mockdb.uri = "execURI"
+	mockdb.ident = ident
+	mockdb.multiOutput = true
+	tasks, err := taskb.Tasks(context.Background(), query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := len(tasks), int(limit); got != want {
+		t.Errorf("got %d, want %d", got, want)
 	}
 }
 

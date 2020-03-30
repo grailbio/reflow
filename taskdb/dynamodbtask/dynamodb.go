@@ -24,6 +24,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -526,9 +527,10 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 		queries = t.buildSinceUserQueries(q)
 	}
 	var (
-		responses = make([][]map[string]*dynamodb.AttributeValue, len(queries))
-		err       error
-		errs      []error
+		responses  = make([][]map[string]*dynamodb.AttributeValue, len(queries))
+		err        error
+		errs       []error
+		totalTasks int64
 	)
 	err = traverse.Each(len(queries), func(i int) error {
 		var (
@@ -550,9 +552,11 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 				}
 				return err
 			}
+
+			atomic.AddInt64(&totalTasks, int64(len(resp.Items)))
 			responses[i] = append(responses[i], resp.Items...)
 			lastKey = resp.LastEvaluatedKey
-			if lastKey == nil {
+			if lastKey == nil || (taskQuery.Limit > 0 && atomic.LoadInt64(&totalTasks) >= taskQuery.Limit) {
 				break
 			}
 		}

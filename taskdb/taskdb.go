@@ -209,8 +209,12 @@ type TaskQuery struct {
 	ImgCmdID ImgCmdID
 	// Ident is the human-readable identifier of the task's exec.
 	Ident string
-	// Since queries for runs/tasks that were active past this time.
+	// Since queries for tasks that were active past this time.
 	Since time.Time
+	// Limit is the maximum number of tasks a query will return. If Limit <= 0, the query will return
+	// all matching tasks. It is possible to get more tasks than is specified than the Limit because
+	// querying is stopped once there are at least as many tasks as Limit.
+	Limit int64
 }
 
 // RunQuery is the run-querying struct for TaskDB.Runs. There are two ways to query runs:
@@ -222,9 +226,9 @@ type TaskQuery struct {
 type RunQuery struct {
 	// ID is the run id being queried.
 	ID RunID
-	// Since queries for runs/tasks that were active past this time.
+	// Since queries for runs that were active past this time.
 	Since time.Time
-	// User looks up the runs/tasks that are created by the user. If empty, the user filter is dropped.
+	// User looks up the runs that are created by the user. If empty, the user filter is dropped.
 	User string
 }
 
