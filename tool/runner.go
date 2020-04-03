@@ -154,6 +154,9 @@ func NewScheduler(config infra.Config, wg *wg.WaitGroup, logger *log.Logger, sta
 	if err = config.Instance(&repo); err != nil {
 		return nil, nil, err
 	}
+	if limit, err = transferLimit(config); err != nil {
+		return nil, nil, err
+	}
 	transferer := &repository.Manager{
 		Status:           status.Group("transfers"),
 		PendingTransfers: repository.NewLimits(limit),
