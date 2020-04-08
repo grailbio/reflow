@@ -59,6 +59,7 @@ func transferLimit(config infra.Config) (int, error) {
 	return v, nil
 }
 
+// blobMux returns the configured blob muxer.
 func blobMux(config infra.Config) (blob.Mux, error) {
 	var sess *session.Session
 	err := config.Instance(&sess)

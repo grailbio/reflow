@@ -17,13 +17,11 @@ import (
 	"time"
 
 	"docker.io/go-docker"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/blob"
-	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
@@ -263,18 +261,6 @@ func asserter(name string) (reflow.Assert, error) {
 		return reflow.AssertExact, nil
 	default:
 		return nil, fmt.Errorf("unknown Assert policy %s", name)
-	}
-}
-
-// Blob returns the configured blob muxer.
-func (c Cmd) blob() blob.Mux {
-	var sess *session.Session
-	err := c.Config.Instance(&sess)
-	if err != nil {
-		c.Fatal(err)
-	}
-	return blob.Mux{
-		"s3": s3blob.New(sess),
 	}
 }
 

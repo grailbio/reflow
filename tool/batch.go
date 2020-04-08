@@ -130,10 +130,14 @@ flags override any parameters in the batch sample file.
 	if err != nil {
 		c.Fatal(err)
 	}
+	blobMux, err := blobMux(c.Config)
+	if err != nil {
+		c.Fatal(err)
+	}
 	b := &batch.Batch{
 		EvalConfig: flow.EvalConfig{
 			Log:                c.Log,
-			Snapshotter:        c.blob(),
+			Snapshotter:        blobMux,
 			Repository:         repo,
 			Assoc:              assoc,
 			AssertionGenerator: assg,
