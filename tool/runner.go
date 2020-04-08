@@ -510,23 +510,23 @@ func (r *Runner) runLocal(ctx context.Context, f *flow.Flow, typ *types.T, image
 	flags := r.runConfig.RunFlags
 	client, resources, err := dockerClient()
 	if err != nil {
-		return runner.State{}, nil
+		return runner.State{}, err
 	}
 
 	var sess *session.Session
 	err = r.runConfig.Config.Instance(&sess)
 	if err != nil {
-		return runner.State{}, nil
+		return runner.State{}, err
 	}
 	var creds *credentials.Credentials
 	err = r.runConfig.Config.Instance(&creds)
 	if err != nil {
-		return runner.State{}, nil
+		return runner.State{}, err
 	}
 	var awstool *aws.AWSTool
 	err = r.runConfig.Config.Instance(&awstool)
 	if err != nil {
-		return runner.State{}, nil
+		return runner.State{}, err
 	}
 
 	dir := flags.LocalDir
