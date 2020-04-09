@@ -592,9 +592,10 @@ func (m *Matcher) String() string {
 // Path represents a path to a value.
 type Path []*Matcher
 
-// Match performs single step deconstruction of a type and value.
-// It returns the next level; terminating when len(Path) == 0.
-func (p Path) Match(v values.T, t *types.T) (values.T, *types.T, bool, Path, error) {
+// Match performs single step deconstruction of a type and value. It returns the
+// next level; terminating when len(Path) == 0. If the path does not match,
+// return an error.
+func (p Path) Match(v values.T, t *types.T) (values.T, *types.T, Path, error) {
 	if len(p) == 0 {
 		panic("bad path")
 	}
@@ -603,41 +604,41 @@ func (p Path) Match(v values.T, t *types.T) (values.T, *types.T, bool, Path, err
 	default:
 		panic("bad path")
 	case MatchValue:
-		return v, t, true, p, nil
+		return v, t, p, nil
 	case MatchTuple:
-		return v.(values.Tuple)[m.Index], t.Fields[m.Index].T, true, p, nil
+		return v.(values.Tuple)[m.Index], t.Fields[m.Index].T, p, nil
 	case MatchList:
 		l := v.(values.List)
 		if len(l) < m.Length {
-			return nil, t.Elem, false, p, errors.Errorf("cannot match list pattern of size %d with a list of size %d", m.Length, len(l))
+			return nil, nil, nil, errors.Errorf("cannot match list pattern of size %d with a list of size %d", m.Length, len(l))
 		}
 		if !m.AllowTail && m.Length < len(l) {
-			return nil, t.Elem, false, p, errors.Errorf("cannot match list pattern of size %d with a list of size %d", m.Length, len(l))
+			return nil, nil, nil, errors.Errorf("cannot match list pattern of size %d with a list of size %d", m.Length, len(l))
 		}
 		if len(l) <= m.Index {
 			panic("matcher index exceeds list length; should be caught by length check")
 		}
-		return l[m.Index], t.Elem, true, p, nil
+		return l[m.Index], t.Elem, p, nil
 	case MatchListTail:
 		l := v.(values.List)
 		if len(l) < m.Length {
-			return nil, t.Elem, false, p, errors.Errorf("cannot match pattern of size %d with a list of size %d", m.Length, len(l))
+			return nil, nil, nil, errors.Errorf("cannot match pattern of size %d with a list of size %d", m.Length, len(l))
 		}
 		if !m.AllowTail {
 			panic("must allow tails to match tail")
 		}
-		return l[m.Length:], t, true, p, nil
+		return l[m.Length:], t, p, nil
 	case MatchStruct:
-		return v.(values.Struct)[m.Field], t.Field(m.Field), true, p, nil
+		return v.(values.Struct)[m.Field], t.Field(m.Field), p, nil
 	case MatchVariant:
 		variant := v.(*values.Variant)
 		if variant.Tag != m.Tag {
-			return nil, t, false, p, errors.Errorf("cannot match tag #%s with a variant with tag #%s", m.Tag, variant.Tag)
+			return nil, nil, nil, errors.Errorf("cannot match tag #%s with a variant with tag #%s", m.Tag, variant.Tag)
 		}
 		if variant.Elem == nil {
-			return v, t, true, p, nil
+			return v, t, p, nil
 		}
-		return variant.Elem, t.VariantMap()[variant.Tag], true, p, nil
+		return variant.Elem, t.VariantMap()[variant.Tag], p, nil
 	}
 }
 

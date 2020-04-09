@@ -34,7 +34,7 @@ func (a *AllocStats) AssignTask(task *Task) {
 	a.Mutex.Lock()
 	defer a.Mutex.Unlock()
 	a.Resources.Sub(a.Resources, task.Config.Resources)
-	a.TaskIDs[task.ID.String()] = 1
+	a.TaskIDs[task.ID.ID()] = 1
 }
 
 // RemoveTask removes the alloc<->task association.
@@ -42,7 +42,7 @@ func (a *AllocStats) RemoveTask(task *Task) {
 	a.Mutex.Lock()
 	defer a.Mutex.Unlock()
 	a.Resources.Add(a.Resources, task.Config.Resources)
-	delete(a.TaskIDs, task.ID.String())
+	delete(a.TaskIDs, task.ID.ID())
 }
 
 // MarkDead marks an alloc dead.
@@ -136,8 +136,8 @@ func (s *Stats) AddTasks(tasks []*Task) {
 	defer s.Mutex.Unlock()
 	s.TotalTasks += int64(len(tasks))
 	for _, t := range tasks {
-		s.Tasks[t.ID.String()] = &TaskStats{TaskStatsFields: TaskStatsFields{Ident: t.Config.Ident, Type: t.Config.Type, RunID: t.RunID.String()}}
-		t.stats = s.Tasks[t.ID.String()]
+		s.Tasks[t.ID.ID()] = &TaskStats{TaskStatsFields: TaskStatsFields{Ident: t.Config.Ident, Type: t.Config.Type, RunID: t.RunID.ID()}}
+		t.stats = s.Tasks[t.ID.ID()]
 	}
 }
 
@@ -145,7 +145,7 @@ func (s *Stats) AddTasks(tasks []*Task) {
 func (s *Stats) ReturnTask(task *Task, alloc *alloc) {
 	s.Mutex.Lock()
 	defer s.Mutex.Unlock()
-	t := s.Tasks[task.ID.String()]
+	t := s.Tasks[task.ID.ID()]
 	t.Update(task)
 	a := s.Allocs[alloc.id]
 	a.RemoveTask(task)
@@ -155,7 +155,7 @@ func (s *Stats) ReturnTask(task *Task, alloc *alloc) {
 func (s *Stats) AssignTask(task *Task, alloc *alloc) {
 	s.Mutex.Lock()
 	defer s.Mutex.Unlock()
-	t := s.Tasks[task.ID.String()]
+	t := s.Tasks[task.ID.ID()]
 	t.Update(task)
 	a := s.Allocs[alloc.id]
 	a.AssignTask(task)

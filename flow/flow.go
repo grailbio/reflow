@@ -25,6 +25,7 @@ import (
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/values"
 )
 
@@ -323,7 +324,7 @@ type Flow struct {
 	// This is only used for non-scheduler mode because in scheduler mode,
 	// the corresponding task object will contain the relevant identifier.
 	// TODO(dnicolaou): Remove TaskID once nonscheduler mode is removed.
-	TaskID digest.Digest
+	TaskID taskdb.TaskID
 
 	Tracked bool
 

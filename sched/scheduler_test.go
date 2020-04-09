@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/testblob"
@@ -103,7 +104,7 @@ func TestSchedulerBasic(t *testing.T) {
 	if got, want := len(stats.Tasks), 1; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
-	if got, want := stats.Tasks[task.ID.String()].State, 2; got != want {
+	if got, want := stats.Tasks[task.ID.ID()].State, 2; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	if got, want := len(stats.Allocs), 1; got != want {
@@ -117,7 +118,7 @@ func TestSchedulerBasic(t *testing.T) {
 
 	// Complete the task and check that all of its output is placed back into
 	// the main repository.
-	exec := alloc.exec(task.ID)
+	exec := alloc.exec(digest.Digest(task.ID))
 	exec.complete(reflow.Result{Fileset: out}, nil)
 	if err := task.Wait(ctx, sched.TaskDone); err != nil {
 		t.Fatal(err)
@@ -129,7 +130,7 @@ func TestSchedulerBasic(t *testing.T) {
 	if got, want := len(stats.Tasks), 1; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	if got, want := stats.Tasks[task.ID.String()].State, 4; got != want {
+	if got, want := stats.Tasks[task.ID.ID()].State, 4; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	if got, want := len(stats.Allocs), 1; got != want {
@@ -196,13 +197,13 @@ func TestSchedulerAlloc(t *testing.T) {
 
 	// Don't satisfy this allocation but instead finish tasks[0] and tasks[2]. This
 	// means the scheduler should be able to schedule tasks[1] and tasks[3].
-	exec := alloc.exec(tasks[2].ID)
+	exec := alloc.exec(digest.Digest(tasks[2].ID))
 	exec.complete(reflow.Result{}, nil)
 	if err := tasks[1].Wait(ctx, sched.TaskRunning); err != nil {
 		t.Fatal(err)
 	}
 
-	exec = alloc.exec(tasks[0].ID)
+	exec = alloc.exec(digest.Digest(tasks[0].ID))
 	exec.complete(reflow.Result{}, nil)
 	if err := tasks[3].Wait(ctx, sched.TaskRunning); err != nil {
 		t.Fatal(err)
@@ -316,15 +317,15 @@ func TestTaskNetError(t *testing.T) {
 	tasks[2].Wait(ctx, sched.TaskRunning)
 
 	// Fail one of the tasks in the first alloc with a Network Error.
-	exec := allocs[0].exec(tasks[0].ID)
+	exec := allocs[0].exec(digest.Digest(tasks[0].ID))
 	exec.complete(reflow.Result{}, errors.E(errors.Net, "test network error"))
 	// Wait for it to be rescheduled on the second alloc.
 	tasks[0].Wait(ctx, sched.TaskRunning)
 	// Confirm its on the second alloc (will hang if not).
-	allocs[1].exec(tasks[0].ID)
+	allocs[1].exec(digest.Digest(tasks[0].ID))
 	// Confirm the other task is still on the first alloc.
 	tasks[1].Wait(ctx, sched.TaskRunning)
-	allocs[0].exec(tasks[1].ID)
+	allocs[0].exec(digest.Digest(tasks[1].ID))
 }
 
 func TestSchedulerFracCPU(t *testing.T) {
@@ -495,7 +496,7 @@ func TestSchedulerLoadUnloadExtern(t *testing.T) {
 	if got, want := len(stats.Tasks), 1; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
-	if got, want := stats.Tasks[task.ID.String()].State, 2; got != want {
+	if got, want := stats.Tasks[task.ID.ID()].State, 2; got != want {
 		for k, v := range stats.Tasks {
 			t.Errorf("task %v: %v", k, v)
 		}
@@ -512,7 +513,7 @@ func TestSchedulerLoadUnloadExtern(t *testing.T) {
 
 	// Complete the task and check that all of its output is placed back into
 	// the main repository.
-	exec := alloc.exec(task.ID)
+	exec := alloc.exec(digest.Digest(task.ID))
 	out := randomFileset(alloc.Repository())
 	exec.complete(reflow.Result{Fileset: out}, nil)
 	if err := task.Wait(ctx, sched.TaskDone); err != nil {
@@ -525,7 +526,7 @@ func TestSchedulerLoadUnloadExtern(t *testing.T) {
 	if got, want := len(stats.Tasks), 1; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	if got, want := stats.Tasks[task.ID.String()].State, 4; got != want {
+	if got, want := stats.Tasks[task.ID.ID()].State, 4; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	if got, want := len(stats.Allocs), 1; got != want {
@@ -585,7 +586,7 @@ func TestSchedulerLoadUnloadFiles(t *testing.T) {
 	if got, want := len(stats.Tasks), 1; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
-	if got, want := stats.Tasks[task.ID.String()].State, 2; got != want {
+	if got, want := stats.Tasks[task.ID.ID()].State, 2; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	if got, want := len(stats.Allocs), 1; got != want {
@@ -599,7 +600,7 @@ func TestSchedulerLoadUnloadFiles(t *testing.T) {
 
 	// Complete the task and check that all of its output is placed back into
 	// the main repository.
-	exec := alloc.exec(task.ID)
+	exec := alloc.exec(digest.Digest(task.ID))
 	out := randomFileset(alloc.Repository())
 	// Increment the refcount for the result files in the alloc repository, so that we can unload
 	// them later.
@@ -617,7 +618,7 @@ func TestSchedulerLoadUnloadFiles(t *testing.T) {
 	if got, want := len(stats.Tasks), 1; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	if got, want := stats.Tasks[task.ID.String()].State, 4; got != want {
+	if got, want := stats.Tasks[task.ID.ID()].State, 4; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	if got, want := len(stats.Allocs), 1; got != want {

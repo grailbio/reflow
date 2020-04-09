@@ -252,7 +252,7 @@ func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 		Source:       fmt.Sprintf("s3://%s/%s", b.bucket, key),
 		ETag:         aws.StringValue(resp.ETag),
 		LastModified: aws.TimeValue(resp.LastModified),
-		Size:         *resp.ContentLength,
+		Size:         aws.Int64Value(resp.ContentLength),
 		ContentHash:  getContentHash(resp.Metadata),
 	}, nil
 }
@@ -457,22 +457,12 @@ func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader
 // provided prefix.
 func (b *Bucket) Snapshot(ctx context.Context, prefix string) (reflow.Fileset, error) {
 	if prefix != "" && !strings.HasSuffix(prefix, "/") {
-		head, err := b.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
-			Bucket: aws.String(b.bucket),
-			Key:    aws.String(prefix),
-		})
+		file, err := b.File(ctx, prefix)
 		if err != nil {
-			return reflow.Fileset{}, errors.E("s3blob.Snapshot", b.bucket, prefix, kind(err), err)
+			return reflow.Fileset{}, errors.E("s3blob.Snapshot", b.bucket, prefix, err)
 		}
-		if head.ContentLength == nil || head.ETag == nil {
+		if file.ETag == "" || file.Size == 0 {
 			return reflow.Fileset{}, errors.E("s3blob.Snapshot", b.bucket, prefix, errors.Invalid, errors.New("incomplete metadata"))
-		}
-		file := reflow.File{
-			Source:       fmt.Sprintf("s3://%s/%s", b.bucket, prefix),
-			ETag:         *head.ETag,
-			Size:         *head.ContentLength,
-			LastModified: aws.TimeValue(head.LastModified),
-			ContentHash:  getContentHash(head.Metadata),
 		}
 		return reflow.Fileset{Map: map[string]reflow.File{".": file}}, nil
 	}
@@ -708,6 +698,14 @@ func awsKind(err error) errors.Kind {
 		case "SlowDown":
 			return errors.ResourcesExhausted
 		case "BadRequest":
+			return errors.Temporary
+		case "XAmzContentSHA256Mismatch":
+			// Example:
+			//
+			// XAmzContentSHA256Mismatch: The provided 'x-amz-content-sha256' header
+			// does not match what was computed.
+			//
+			// Happens sporadically for no discernible reason.  Just retry.
 			return errors.Temporary
 		}
 		if aerr.OrigErr() == nil {

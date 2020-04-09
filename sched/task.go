@@ -12,6 +12,7 @@ import (
 	"github.com/grailbio/base/sync/ctxsync"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/taskdb"
 )
 
 // TaskState enumerates the possible states of a task.
@@ -54,7 +55,7 @@ func (s TaskState) String() string {
 // submission, all coordination is performed through the task struct.
 type Task struct {
 	// ID is a caller-assigned identifier for the task.
-	ID digest.Digest
+	ID taskdb.TaskID
 	// Config is the task's exec config, which is passed on to the
 	// alloc after scheduling.
 	Config reflow.ExecConfig
@@ -81,7 +82,7 @@ type Task struct {
 	Priority int
 
 	// RunID that created this task.
-	RunID digest.Digest
+	RunID taskdb.RunID
 	// FlowID is the digest (flow.Digest) of the flow for which this task was created.
 	FlowID digest.Digest
 

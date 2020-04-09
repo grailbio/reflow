@@ -233,16 +233,12 @@ func TestMatchers(t *testing.T) {
 		var (
 			v   values.T = v
 			typ          = typ
-			ok  bool
-			p   = m.Path()
+			p            = m.Path()
 			err error
 		)
 		for !p.Done() {
-			v, typ, ok, p, err = p.Match(v, typ)
+			v, typ, p, err = p.Match(v, typ)
 			if err != nil {
-				if ok {
-					t.Errorf("got error, but ok == true")
-				}
 				t.Fatalf("unexpected match failure %s", err)
 			}
 		}

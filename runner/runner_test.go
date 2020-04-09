@@ -14,6 +14,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/pool"
+	"github.com/grailbio/reflow/taskdb"
 	op "github.com/grailbio/reflow/test/flow"
 	"github.com/grailbio/reflow/test/testutil"
 )
@@ -93,7 +94,7 @@ func TestRunner(t *testing.T) {
 		}
 	)
 	testutil.AssignExecId(nil, r.Flow)
-	r.ID = reflow.Digester.FromString("test")
+	r.ID = taskdb.RunID(reflow.Digester.FromString("test"))
 	transferer.Init()
 	cluster.Init()
 

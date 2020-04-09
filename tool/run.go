@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	golog "log"
 	"math"
@@ -40,6 +41,7 @@ import (
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/sched"
+	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/trace"
 	"github.com/grailbio/reflow/types"
@@ -192,6 +194,7 @@ retriable.`
 	if flags.NArg() == 0 {
 		flags.Usage()
 	}
+	file, args := flags.Arg(0), flags.Args()[1:]
 	e := Eval{
 		InputArgs: flags.Args(),
 	}
@@ -212,11 +215,11 @@ retriable.`
 	if !config.sched && e.Main().Requirements().Equal(reflow.Requirements{}) && e.Main().Op != flow.Val {
 		c.Fatal("Main requirements unspecified; add a @requires annotation")
 	}
-	c.runCommon(ctx, config, e)
+	c.runCommon(ctx, config, e, file, args)
 }
 
 // runCommon is the helper function used by run commands.
-func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
+func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval, file string, args []string) {
 	// In the case where a flow is immediate, we print the result and quit.
 	if e.Main().Op == flow.Val {
 		c.Println(sprintval(e.Main().Value, e.MainType()))
@@ -224,8 +227,8 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	}
 	// Construct a unique name for this run, used to identify this invocation
 	// throughout the system.
-	runID := reflow.Digester.Rand(nil)
-	c.Log.Printf("run ID: %s", runID.Short())
+	runID := taskdb.NewRunID()
+	c.Log.Printf("run ID: %s", runID.IDShort())
 	var tdb taskdb.TaskDB
 	// TODO(dnicoloau): Add setup-tasktb command to setup a
 	// taskdb for reflow open source.
@@ -309,6 +312,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	}
 
 	tctx, tcancel := context.WithCancel(ctx)
+	defer tcancel()
 	if tdb != nil {
 		var user *infra.User
 		errTDB := c.Config.Instance(&user)
@@ -319,7 +323,8 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 		if errTDB != nil {
 			c.Log.Debugf("error writing run to taskdb: %v", errTDB)
 		} else {
-			go func() { _ = taskdb.Keepalive(tctx, tdb, runID) }()
+			go func() { _ = taskdb.KeepRunAlive(tctx, tdb, runID) }()
+			go func() { _ = c.uploadBundle(tctx, repo, tdb, runID, e, file, args) }()
 		}
 	}
 
@@ -379,7 +384,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 			AssertionGenerator: c.assertionGenerator(),
 			CacheMode:          cache.CacheMode,
 			Transferer:         transferer,
-			Status:             c.Status.Group(runID.Short()),
+			Status:             c.Status.Group(runID.IDShort()),
 			Scheduler:          scheduler,
 			ImageMap:           e.ImageMap,
 			TaskDB:             tdb,
@@ -430,10 +435,6 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	}
 	c.WaitForBackgroundTasks(&wg, 10*time.Minute)
 	bgcancel()
-	cancel()
-	if tcancel != nil {
-		tcancel()
-	}
 	if run.Err != nil {
 		if errors.Is(errors.Eval, run.Err) {
 			// Error that occured during evaluation. Probably not recoverable.
@@ -448,7 +449,7 @@ func (c *Cmd) runCommon(ctx context.Context, config runConfig, e Eval) {
 	}
 }
 
-func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID digest.Digest, f *flow.Flow, typ *types.T, imageMap map[string]string, cmdline string, ass assoc.Assoc, repo reflow.Repository, tdb taskdb.TaskDB, cache *infra.CacheProvider) {
+func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Logger, runID taskdb.RunID, f *flow.Flow, typ *types.T, imageMap map[string]string, cmdline string, ass assoc.Assoc, repo reflow.Repository, tdb taskdb.TaskDB, cache *infra.CacheProvider) {
 	client, resources := c.dockerClient()
 
 	var sess *session.Session
@@ -503,7 +504,7 @@ func (c *Cmd) runLocal(ctx context.Context, config runConfig, execLogger *log.Lo
 		Assoc:              ass,
 		AssertionGenerator: c.assertionGenerator(),
 		CacheMode:          cache.CacheMode,
-		Status:             c.Status.Group(runID.Short()),
+		Status:             c.Status.Group(runID.IDShort()),
 		ImageMap:           imageMap,
 		TaskDB:             tdb,
 		RunID:              runID,
@@ -555,9 +556,42 @@ func (c *Cmd) rundir() string {
 	return rundir
 }
 
-// runbase returns the base path for the run with the provided name
-func (c Cmd) Runbase(id digest.Digest) string {
-	return filepath.Join(c.rundir(), id.Hex())
+// uploadBundle generates a bundle and updates taskdb with its digest. If the bundle does not already exist in taskdb,
+// uploadBundle caches it.
+func (c *Cmd) uploadBundle(ctx context.Context, repo reflow.Repository, tdb taskdb.TaskDB, runID taskdb.RunID, e Eval, file string, args []string) error {
+	var (
+		bundleId digest.Digest
+		rc       io.ReadCloser
+		err      error
+		tmpName  string
+	)
+
+	if ext := filepath.Ext(file); ext == ".rfx" {
+		rc, bundleId, err = getBundle(file)
+	} else {
+		rc, bundleId, tmpName, err = makeBundle(e.Bundle)
+		if err == nil {
+			defer os.Remove(tmpName)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+
+	if _, err = repo.Stat(ctx, bundleId); errors.Is(errors.NotExist, err) {
+		bundleId, err = repo.Put(ctx, rc)
+		if err != nil {
+			return err
+		}
+	}
+	c.Log.Debugf("created bundle %s with args: %v\n", bundleId.String(), args)
+	return tdb.SetRunAttrs(ctx, runID, bundleId, args)
+}
+
+// Runbase returns the base path for the run with the provided name
+func (c Cmd) Runbase(runID taskdb.RunID) string {
+	return filepath.Join(c.rundir(), digest.Digest(runID).Hex())
 }
 
 // WaitForBackgroundTasks waits until all background tasks complete, or if the provided
@@ -633,4 +667,34 @@ func (c Cmd) dockerClient() (*docker.Client, reflow.Resources) {
 		"disk": 1e13, // Assume 10TB. TODO(marius): real disk management
 	}
 	return client, resources
+}
+
+func getBundle(file string) (io.ReadCloser, digest.Digest, error) {
+	dw := reflow.Digester.NewWriter()
+	f, err := os.Open(file)
+	if err != nil {
+		return nil, digest.Digest{}, err
+	}
+	if _, err = io.Copy(dw, f); err != nil {
+		return nil, digest.Digest{}, err
+	}
+	if _, err = f.Seek(0, io.SeekStart); err != nil {
+		return nil, digest.Digest{}, err
+	}
+	return f, dw.Digest(), nil
+}
+
+func makeBundle(b *syntax.Bundle) (io.ReadCloser, digest.Digest, string, error) {
+	dw := reflow.Digester.NewWriter()
+	f, err := ioutil.TempFile("", "")
+	if err != nil {
+		return nil, digest.Digest{}, "", err
+	}
+	if err = b.WriteTo(io.MultiWriter(dw, f)); err != nil {
+		return nil, digest.Digest{}, "", err
+	}
+	if _, err = f.Seek(0, io.SeekStart); err != nil {
+		return nil, digest.Digest{}, "", err
+	}
+	return f, dw.Digest(), f.Name(), nil
 }

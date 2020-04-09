@@ -54,7 +54,7 @@ func TestBundle(t *testing.T) {
 	// Package it and re-run it. Injected args should be persisted.
 	bundle := sess.Bundle()
 	var buf bytes.Buffer
-	if err := bundle.Write(&buf); err != nil {
+	if err := bundle.WriteTo(&buf); err != nil {
 		t.Fatal(err)
 	}
 	sess = NewSession(memorySourcer{
@@ -80,7 +80,7 @@ func TestBundle(t *testing.T) {
 	// Then make sure we can bundle modules that contain other bundles.
 	bundle = sess.Bundle()
 	buf.Reset()
-	if err := bundle.Write(&buf); err != nil {
+	if err = bundle.WriteTo(&buf); err != nil {
 		t.Fatal(err)
 	}
 	sess = NewSession(memorySourcer{
@@ -104,7 +104,7 @@ func TestBundleParam(t *testing.T) {
 	}
 	bundle := sess.Bundle()
 	var buf bytes.Buffer
-	if err := bundle.Write(&buf); err != nil {
+	if err = bundle.WriteTo(&buf); err != nil {
 		t.Fatal(err)
 	}
 	main, err := ioutil.ReadFile("testdata/bundle/parammain.rf")

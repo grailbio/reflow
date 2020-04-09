@@ -209,7 +209,7 @@ printed on the console.`
 		return
 	}
 
-	var q taskdb.Query
+	var q taskdb.RunQuery
 	var user *infra.User
 	err = c.Config.Instance(&user)
 	if err != nil {
@@ -261,7 +261,7 @@ func (c *Cmd) execInfos(ctx context.Context, execs []reflow.Exec) []execInfo {
 	return infos
 }
 
-func (c *Cmd) taskInfo(ctx context.Context, q taskdb.Query, liveOnly bool) ([]taskInfo, error) {
+func (c *Cmd) taskInfo(ctx context.Context, q taskdb.TaskQuery, liveOnly bool) ([]taskInfo, error) {
 	var tdb taskdb.TaskDB
 	err := c.Config.Instance(&tdb)
 	if err != nil {
@@ -324,7 +324,7 @@ func (c *Cmd) taskInfo(ctx context.Context, q taskdb.Query, liveOnly bool) ([]ta
 	return ti, err
 }
 
-func (c *Cmd) runInfo(ctx context.Context, q taskdb.Query, liveOnly bool) ([]runInfo, error) {
+func (c *Cmd) runInfo(ctx context.Context, q taskdb.RunQuery, liveOnly bool) ([]runInfo, error) {
 	var tdb taskdb.TaskDB
 	err := c.Config.Instance(&tdb)
 	if err != nil {
@@ -342,10 +342,10 @@ func (c *Cmd) runInfo(ctx context.Context, q taskdb.Query, liveOnly bool) ([]run
 	for i, run := range r {
 		i, run := i, run
 		g.Go(func() error {
-			qu := q
-			qu.ID = digest.Digest{}
-			qu.User = ""
-			qu.RunID = run.ID
+			qu := taskdb.TaskQuery{
+				RunID: run.ID,
+				Since: q.Since,
+			}
 			ti, err := c.taskInfo(gctx, qu, liveOnly)
 			if err != nil {
 				log.Debug(err)
@@ -363,7 +363,7 @@ func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing bool) {
 		if len(run.taskInfo) == 0 {
 			continue
 		}
-		fmt.Fprintf(w, "%s\t%s", run.Run.ID.Short(), run.Run.User)
+		fmt.Fprintf(w, "%s\t%s", run.Run.ID.IDShort(), run.Run.User)
 		fmt.Fprint(w, "\n")
 		for _, task := range run.taskInfo {
 			if task.Task == (taskdb.Task{}) {
@@ -427,7 +427,7 @@ func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
 	}
 	runtime := info.Runtime()
 	fmt.Fprintf(w, "\t%s\t%s\t%s\t%d:%02d\t%s\t%s\t%.1f\t%s\t%s",
-		task.Task.ID.Short(), info.Config.Ident,
+		task.Task.ID.IDShort(), info.Config.Ident,
 		info.Created.Local().Format(layout),
 		int(runtime.Hours()),
 		int(runtime.Minutes()-60*runtime.Hours()),

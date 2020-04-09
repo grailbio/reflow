@@ -627,10 +627,14 @@ func (d *download) Do(ctx context.Context, repo *filerepo.Repository) (reflow.Fi
 }
 
 func (d *download) download(ctx context.Context, repo *filerepo.Repository) (string, error) {
-	f, err := repo.TempFile("download")
-	if err != nil {
-		return "", err
-	}
+	f := newLazyWriterAt(func() (namedWriterAtCloser, error) {
+		downloadingFiles.Add(1)
+		file, err := repo.TempFile("download")
+		if err == nil {
+			d.Log.Printf("download %s%s (%s) to %s", d.Bucket.Location(), d.Key, data.Size(d.File.Size), file.Name())
+		}
+		return file, err
+	})
 	defer func() {
 		if err := f.Close(); err != nil {
 			d.Log.Errorf("close %s: %v", f.Name(), err)
@@ -638,9 +642,7 @@ func (d *download) download(ctx context.Context, repo *filerepo.Repository) (str
 	}()
 	var w bytewatch
 	w.Reset()
-	d.Log.Printf("download %s%s (%s) to %s", d.Bucket.Location(), d.Key, data.Size(d.File.Size), f.Name())
-	downloadingFiles.Add(1)
-	_, err = d.Bucket.Download(ctx, d.Key, d.File.ETag, d.File.Size, f)
+	_, err := d.Bucket.Download(ctx, d.Key, d.File.ETag, d.File.Size, f)
 	downloadingFiles.Add(-1)
 	if err != nil {
 		d.Log.Printf("download %s%s: %v", d.Bucket.Location(), d.Key, err)
@@ -649,6 +651,57 @@ func (d *download) download(ctx context.Context, repo *filerepo.Repository) (str
 	dur, bps := w.Lap(d.File.Size)
 	d.Log.Printf("done %s%s in %s (%s/s)", d.Bucket.Location(), d.Key, dur, data.Size(bps))
 	return f.Name(), err
+}
+
+// namedWriterAtCloser combines different interfaces for use by lazyWriterAt.
+type namedWriterAtCloser interface {
+	io.WriterAt
+	io.Closer
+	Name() string
+}
+
+// lazyWriterAt implements a lazy file opener which delays opening a file until `WriteAt` is called.
+// This is to avoid having too many file descriptors open when we intend to download and write to a lot of files,
+// while doing so with various concurrency limits limiting the number of files being processed concurrently.
+type lazyWriterAt struct {
+	namedWriterAtCloser
+	opener   func() (namedWriterAtCloser, error)
+	openErr  error
+	openOnce sync.Once
+}
+
+func newLazyWriterAt(opener func() (namedWriterAtCloser, error)) namedWriterAtCloser {
+	return &lazyWriterAt{opener: opener}
+}
+
+func (w *lazyWriterAt) ensureOpen() {
+	w.openOnce.Do(func() {
+		w.namedWriterAtCloser, w.openErr = w.opener()
+	})
+}
+
+func (w *lazyWriterAt) WriteAt(p []byte, off int64) (n int, err error) {
+	w.ensureOpen()
+	if w.openErr != nil {
+		return 0, w.openErr
+	}
+	return w.namedWriterAtCloser.WriteAt(p, off)
+}
+
+func (w *lazyWriterAt) Close() error {
+	w.ensureOpen()
+	if w.openErr != nil {
+		return w.openErr
+	}
+	return w.namedWriterAtCloser.Close()
+}
+
+func (w *lazyWriterAt) Name() string {
+	w.ensureOpen()
+	if w.openErr != nil {
+		return ""
+	}
+	return w.namedWriterAtCloser.Name()
 }
 
 type upload struct {
@@ -661,10 +714,14 @@ type upload struct {
 }
 
 func (u *upload) Do(ctx context.Context) error {
-	f, err := u.Repository.Get(ctx, u.ID)
-	if err != nil {
-		return err
-	}
+	f := newLazyReadCloser(func() (io.ReadCloser, error) {
+		uploadingFiles.Add(1)
+		file, err := u.Repository.Get(ctx, u.ID)
+		if err == nil {
+			u.Log.Printf("upload %s (%s) to %s%s", u.Key, data.Size(u.Size), u.Bucket.Location(), u.Key)
+		}
+		return file, err
+	})
 	defer func() {
 		if err := f.Close(); err != nil {
 			_, path := u.Repository.Path(u.ID)
@@ -673,9 +730,7 @@ func (u *upload) Do(ctx context.Context) error {
 	}()
 	var w bytewatch
 	w.Reset()
-	u.Log.Printf("upload %s (%s) to %s%s", u.Key, data.Size(u.Size), u.Bucket.Location(), u.Key)
-	uploadingFiles.Add(1)
-	err = u.Bucket.Put(ctx, u.Key, u.Size, f, u.ID.Hex())
+	err := u.Bucket.Put(ctx, u.Key, u.Size, f, u.ID.Hex())
 	uploadingFiles.Add(-1)
 	if err != nil {
 		u.Log.Printf("upload %s/%s: %v", u.Bucket.Location(), u.Key, err)
@@ -683,5 +738,36 @@ func (u *upload) Do(ctx context.Context) error {
 	}
 	dur, bps := w.Lap(u.Size)
 	u.Log.Printf("done %s/%s in %s (%s/s)", u.Bucket.Location(), u.Key, dur, data.Size(bps))
+	return nil
+}
+
+// lazyReadCloser implements a lazy file opener which delays opening a file until `Read` is called.
+// This is to avoid having too many file descriptors open when we intend to read from and upload a lot of files,
+// while doing so with various concurrency limits limiting the number of files being processed concurrently.
+type lazyReadCloser struct {
+	io.ReadCloser
+	opener   func() (io.ReadCloser, error)
+	openErr  error
+	openOnce sync.Once
+}
+
+func newLazyReadCloser(opener func() (io.ReadCloser, error)) io.ReadCloser {
+	return &lazyReadCloser{opener: opener}
+}
+
+func (r *lazyReadCloser) Read(p []byte) (n int, err error) {
+	r.openOnce.Do(func() {
+		r.ReadCloser, r.openErr = r.opener()
+	})
+	if r.openErr != nil {
+		return 0, r.openErr
+	}
+	return r.ReadCloser.Read(p)
+}
+
+func (r *lazyReadCloser) Close() error {
+	if r.ReadCloser != nil {
+		return r.ReadCloser.Close()
+	}
 	return nil
 }

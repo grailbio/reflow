@@ -173,15 +173,15 @@ func (t *TaskDB) Init(sess *session.Session, assoc *dydbassoc.Assoc, user *infra
 }
 
 // CreateRun sets a new run in the taskdb with the given id, labels and user.
-func (t *TaskDB) CreateRun(ctx context.Context, id digest.Digest, user string) error {
+func (t *TaskDB) CreateRun(ctx context.Context, id taskdb.RunID, user string) error {
 	input := &dynamodb.PutItemInput{
 		TableName: aws.String(t.TableName),
 		Item: map[string]*dynamodb.AttributeValue{
 			colID: {
-				S: aws.String(id.String()),
+				S: aws.String(id.ID()),
 			},
 			colID4: {
-				S: aws.String(id.HexN(4)),
+				S: aws.String(id.IDShort()),
 			},
 			colLabels: {
 				SS: aws.StringSlice(t.Labels),
@@ -202,7 +202,7 @@ func (t *TaskDB) CreateRun(ctx context.Context, id digest.Digest, user string) e
 }
 
 // SetRunAttrs sets the reflow bundle and corresponding args for this run.
-func (t *TaskDB) SetRunAttrs(ctx context.Context, id, bundle digest.Digest, args []string) error {
+func (t *TaskDB) SetRunAttrs(ctx context.Context, id taskdb.RunID, bundle digest.Digest, args []string) error {
 	updateExpression := aws.String(fmt.Sprintf("SET %s = :bundle", colBundle))
 	values := map[string]*dynamodb.AttributeValue{
 		":bundle": {
@@ -218,7 +218,7 @@ func (t *TaskDB) SetRunAttrs(ctx context.Context, id, bundle digest.Digest, args
 		TableName: aws.String(t.TableName),
 		Key: map[string]*dynamodb.AttributeValue{
 			colID: {
-				S: aws.String(id.String()),
+				S: aws.String(id.ID()),
 			},
 		},
 		UpdateExpression:          updateExpression,
@@ -229,25 +229,25 @@ func (t *TaskDB) SetRunAttrs(ctx context.Context, id, bundle digest.Digest, args
 }
 
 // CreateTask sets a new task in the taskdb with the given taskid, runid and flowid.
-func (t *TaskDB) CreateTask(ctx context.Context, id, runid, flowid digest.Digest, uri string) error {
+func (t *TaskDB) CreateTask(ctx context.Context, id taskdb.TaskID, runID taskdb.RunID, flowID digest.Digest, uri string) error {
 	now := time.Now().UTC()
 	input := &dynamodb.PutItemInput{
 		TableName: aws.String(t.TableName),
 		Item: map[string]*dynamodb.AttributeValue{
 			colID: {
-				S: aws.String(id.String()),
+				S: aws.String(id.ID()),
 			},
 			colID4: {
-				S: aws.String(id.HexN(4)),
+				S: aws.String(id.IDShort()),
 			},
 			colRunID: {
-				S: aws.String(runid.String()),
+				S: aws.String(runID.ID()),
 			},
 			colRunID4: {
-				S: aws.String(runid.HexN(4)),
+				S: aws.String(runID.IDShort()),
 			},
 			colFlowID: {
-				S: aws.String(flowid.String()),
+				S: aws.String(flowID.String()),
 			},
 			colType: {
 				S: aws.String(string(task)),
@@ -274,12 +274,12 @@ func (t *TaskDB) CreateTask(ctx context.Context, id, runid, flowid digest.Digest
 }
 
 // SetTaskResult sets the task result id.
-func (t *TaskDB) SetTaskResult(ctx context.Context, id, result digest.Digest) error {
+func (t *TaskDB) SetTaskResult(ctx context.Context, id taskdb.TaskID, result digest.Digest) error {
 	input := &dynamodb.UpdateItemInput{
 		TableName: aws.String(t.TableName),
 		Key: map[string]*dynamodb.AttributeValue{
 			colID: {
-				S: aws.String(id.String()),
+				S: aws.String(id.ID()),
 			},
 		},
 		UpdateExpression: aws.String(fmt.Sprintf("SET %s = :result", colResultID)),
@@ -292,12 +292,12 @@ func (t *TaskDB) SetTaskResult(ctx context.Context, id, result digest.Digest) er
 }
 
 // SetTaskAttrs sets the stdout, stderr and inspect ids for the task.
-func (t *TaskDB) SetTaskAttrs(ctx context.Context, id, stdout, stderr, inspect digest.Digest) error {
+func (t *TaskDB) SetTaskAttrs(ctx context.Context, id taskdb.TaskID, stdout, stderr, inspect digest.Digest) error {
 	input := &dynamodb.UpdateItemInput{
 		TableName: aws.String(t.TableName),
 		Key: map[string]*dynamodb.AttributeValue{
 			colID: {
-				S: aws.String(id.String()),
+				S: aws.String(id.ID()),
 			},
 		},
 		UpdateExpression: aws.String(fmt.Sprintf("SET %s = :stdout, %s = :stderr, %s = :inspect", colStdout, colStderr, colInspect)),
@@ -322,8 +322,18 @@ func dates(beg, end time.Time) (dates []time.Time) {
 	return
 }
 
-// Keepalive sets the keepalive for the specified testId (run/task) to keepalive.
-func (t *TaskDB) Keepalive(ctx context.Context, id digest.Digest, keepalive time.Time) error {
+// KeepRunAlive sets the keepalive for run id to keepalive.
+func (t *TaskDB) KeepRunAlive(ctx context.Context, id taskdb.RunID, keepalive time.Time) error {
+	return t.keepalive(ctx, digest.Digest(id), keepalive)
+}
+
+// KeepTaskAlive sets the keepalive for task id to keepalive.
+func (t *TaskDB) KeepTaskAlive(ctx context.Context, id taskdb.TaskID, keepalive time.Time) error {
+	return t.keepalive(ctx, digest.Digest(id), keepalive)
+}
+
+// keepalive sets the keepalive for the specified id to keepalive.
+func (t *TaskDB) keepalive(ctx context.Context, id digest.Digest, keepalive time.Time) error {
 	keepalive = keepalive.UTC()
 	input := &dynamodb.UpdateItemInput{
 		TableName: aws.String(t.TableName),
@@ -345,10 +355,28 @@ func (t *TaskDB) Keepalive(ctx context.Context, id digest.Digest, keepalive time
 	return err
 }
 
-func (t *TaskDB) buildRunIdQuery(q taskdb.Query) []*dynamodb.QueryInput {
+// query is the generic query struct for the TaskDB querying interface. All fields, with
+// the exception of Typ, are optional. If nothing is specified, the query looks up ids that have
+// keepalive updated in the last 30 minutes for any user. If a user filter is
+// specified, all queries are restricted to runs/tasks created by the user.
+// If id is specified, runs/tasks with id is looked up. If Since is specified,
+// runs/tasks whose keepalive is within that time frame are looked up. The only valid Typs are
+// "run" and "task".
+type query struct {
+	// ID is the task/run id being queried.
+	ID digest.Digest
+	// Since queries for runs/tasks that were active past this time.
+	Since time.Time
+	// User looks up the runs/tasks that are created by the user. If empty, the user filter is dropped.
+	User string
+	// Typ is the type (either run or task).
+	Typ objType
+}
+
+func (t *TaskDB) buildRunIdQuery(q taskdb.TaskQuery) []*dynamodb.QueryInput {
 	const keyExpression = colRunID + " = :rid"
 	attributeValues := make(map[string]*dynamodb.AttributeValue)
-	attributeValues[":rid"] = &dynamodb.AttributeValue{S: aws.String(q.RunID.String())}
+	attributeValues[":rid"] = &dynamodb.AttributeValue{S: aws.String(q.RunID.ID())}
 	input := &dynamodb.QueryInput{
 		TableName:                 aws.String(t.TableName),
 		IndexName:                 aws.String(runIDIndex),
@@ -358,7 +386,7 @@ func (t *TaskDB) buildRunIdQuery(q taskdb.Query) []*dynamodb.QueryInput {
 	return []*dynamodb.QueryInput{input}
 }
 
-func (t *TaskDB) buildIdQuery(q taskdb.Query, typ objType) []*dynamodb.QueryInput {
+func (t *TaskDB) buildIdQuery(q query) []*dynamodb.QueryInput {
 	var (
 		keyExpression   string
 		attributeValues = make(map[string]*dynamodb.AttributeValue)
@@ -373,7 +401,7 @@ func (t *TaskDB) buildIdQuery(q taskdb.Query, typ objType) []*dynamodb.QueryInpu
 		attributeValues[":testId"] = &dynamodb.AttributeValue{S: aws.String(q.ID.String())}
 	}
 	const filterExpression = "#Type = :type"
-	attributeValues[":type"] = &dynamodb.AttributeValue{S: aws.String(string(typ))}
+	attributeValues[":type"] = &dynamodb.AttributeValue{S: aws.String(string(q.Typ))}
 	input := &dynamodb.QueryInput{
 		TableName:                 aws.String(t.TableName),
 		IndexName:                 aws.String(index),
@@ -387,11 +415,11 @@ func (t *TaskDB) buildIdQuery(q taskdb.Query, typ objType) []*dynamodb.QueryInpu
 	return []*dynamodb.QueryInput{input}
 }
 
-func (t *TaskDB) buildQueries(q taskdb.Query, typ objType) []*dynamodb.QueryInput {
+func (t *TaskDB) buildQueries(q query) []*dynamodb.QueryInput {
 	if !q.ID.IsZero() {
-		return t.buildIdQuery(q, typ)
+		return t.buildIdQuery(q)
 	}
-	if !q.RunID.IsZero() && typ == run {
+	if q.Typ != run && q.Typ != task {
 		panic(fmt.Sprintf("taskdb invalid query: %v", q))
 	}
 	// Build time bucket based queries.
@@ -431,9 +459,9 @@ func (t *TaskDB) buildQueries(q taskdb.Query, typ objType) []*dynamodb.QueryInpu
 		attributeValues[":user"] = &dynamodb.AttributeValue{S: aws.String(q.User)}
 		attributeNames["#User"] = aws.String(colUser)
 	}
-	if typ == run {
+	if q.Typ == run {
 		filterExpression = append(filterExpression, "#Type = :type")
-		attributeValues[":type"] = &dynamodb.AttributeValue{S: aws.String(string(typ))}
+		attributeValues[":type"] = &dynamodb.AttributeValue{S: aws.String(string(q.Typ))}
 		attributeNames["#Type"] = aws.String(colType)
 	}
 	if len(timeBuckets) > 0 {
@@ -478,12 +506,18 @@ func (t *TaskDB) buildQueries(q taskdb.Query, typ objType) []*dynamodb.QueryInpu
 }
 
 // Tasks returns tasks that matches the query.
-func (t *TaskDB) Tasks(ctx context.Context, query taskdb.Query) ([]taskdb.Task, error) {
+func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskdb.Task, error) {
 	var queries []*dynamodb.QueryInput
-	if !query.RunID.IsZero() {
-		queries = t.buildRunIdQuery(query)
+	if taskQuery.RunID.IsValid() {
+		queries = t.buildRunIdQuery(taskQuery)
 	} else {
-		queries = t.buildQueries(query, task)
+		q := query{
+			ID:    digest.Digest(taskQuery.ID),
+			Since: taskQuery.Since,
+			User:  taskQuery.User,
+			Typ:   task,
+		}
+		queries = t.buildQueries(q)
 	}
 	var (
 		responses = make([][]map[string]*dynamodb.AttributeValue, len(queries))
@@ -536,8 +570,8 @@ func (t *TaskDB) Tasks(ctx context.Context, query taskdb.Query) ([]taskdb.Task, 
 		if err != nil {
 			errs = append(errs, fmt.Errorf("parse id %v: %v", *it[colID], err))
 		}
-		if !query.ID.IsZero() && query.ID.IsAbbrev() {
-			if !id.Expands(query.ID) {
+		if d := digest.Digest(taskQuery.ID); taskQuery.ID.IsValid() && d.IsAbbrev() {
+			if !id.Expands(d) {
 				continue
 			}
 		}
@@ -585,8 +619,8 @@ func (t *TaskDB) Tasks(ctx context.Context, query taskdb.Query) ([]taskdb.Task, 
 		}
 		uri := *it[colURI].S
 		tasks = append(tasks, taskdb.Task{
-			ID:        id,
-			RunID:     runid,
+			ID:        taskdb.TaskID(id),
+			RunID:     taskdb.RunID(runid),
 			FlowID:    fid,
 			ResultID:  result,
 			URI:       uri,
@@ -611,8 +645,14 @@ func (t *TaskDB) Tasks(ctx context.Context, query taskdb.Query) ([]taskdb.Task, 
 }
 
 // Runs returns runs that matches the query.
-func (t *TaskDB) Runs(ctx context.Context, query taskdb.Query) ([]taskdb.Run, error) {
-	queries := t.buildQueries(query, run)
+func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.Run, error) {
+	q := query{
+		ID:    digest.Digest(runQuery.ID),
+		Since: runQuery.Since,
+		User:  runQuery.User,
+		Typ:   run,
+	}
+	queries := t.buildQueries(q)
 	var (
 		responses = make([][]map[string]*dynamodb.AttributeValue, len(queries))
 		errs      []error
@@ -659,8 +699,8 @@ func (t *TaskDB) Runs(ctx context.Context, query taskdb.Query) ([]taskdb.Run, er
 		if err != nil {
 			errs = append(errs, fmt.Errorf("parse id %v: %v", *it[colID].S, err))
 		}
-		if !query.ID.IsZero() && query.ID.IsAbbrev() {
-			if !id.Expands(query.ID) {
+		if !q.ID.IsZero() && q.ID.IsAbbrev() {
+			if !id.Expands(q.ID) {
 				continue
 			}
 		}
@@ -682,7 +722,7 @@ func (t *TaskDB) Runs(ctx context.Context, query taskdb.Query) ([]taskdb.Run, er
 			errs = append(errs, fmt.Errorf("parse starttime %v: %v", *it[colStartTime].S, err))
 		}
 		runs = append(runs, taskdb.Run{
-			ID:        id,
+			ID:        taskdb.RunID(id),
 			Labels:    l,
 			User:      *it["User"].S,
 			Keepalive: keepalive,
@@ -701,6 +741,8 @@ func (t *TaskDB) Runs(ctx context.Context, query taskdb.Query) ([]taskdb.Run, er
 	return []taskdb.Run{}, fmt.Errorf("%s", b.String())
 }
 
+// Scan calls the handler function for every association in the mapping.
+// Note that the handler function may be called asynchronously from multiple threads.
 func (t *TaskDB) Scan(ctx context.Context, kind taskdb.Kind, mappingHandler taskdb.MappingHandler) error {
 	colname, ok := colmap[kind]
 	if !ok {

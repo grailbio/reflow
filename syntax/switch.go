@@ -128,8 +128,9 @@ func (s *switcher) eval() (values.T, error) {
 
 func (s *switcher) evalCases(cs []*CaseClause) (values.T, error) {
 	if len(cs) == 0 {
-		// Exhaustiveness-checking should prevent us from getting here.
-		return nil, fmt.Errorf("%s: no case pattern matches value", s.e.Position)
+		// No case clause matched. This should have been caught by
+		// exhaustiveness checking.
+		panic("no case clause matched; inexhaustive switch")
 	}
 	// Note that we include the current case, which means that it will be
 	// included in the digest. This is a bit imprecise, as we strictly could
@@ -189,8 +190,8 @@ func (s *switcher) evalPath(p *idPath, v values.T, t *types.T, env *values.Env, 
 	}
 	s.p = p
 	return evalK(s.evalK).Continue(s.e, s.sess, s.env, s.ident, func(vs []values.T) (values.T, error) {
-		nextV, nextT, ok, path, _ := p.path.Match(vs[0], t)
-		if !ok {
+		nextV, nextT, path, err := p.path.Match(vs[0], t)
+		if err != nil {
 			return k(false, nil)
 		}
 		nextP := &idPath{

@@ -129,7 +129,7 @@ type EvalConfig struct {
 	TaskDB taskdb.TaskDB
 
 	// RunID is a unique identifier for the run
-	RunID digest.Digest
+	RunID taskdb.RunID
 
 	// CacheMode determines whether the evaluator reads from
 	// or writees to the cache. If CacheMode is nonzero, Assoc,
@@ -476,8 +476,8 @@ func (e *Eval) Do(ctx context.Context) error {
 			}
 			switch f.Op {
 			case Exec, Intern, Extern:
-				if f.TaskID.IsZero() {
-					f.TaskID = reflow.Digester.Rand(nil)
+				if !f.TaskID.IsValid() {
+					f.TaskID = taskdb.NewTaskID()
 				}
 			}
 			if f.Op == Exec {
@@ -613,7 +613,7 @@ func (e *Eval) Do(ctx context.Context) error {
 						f.ExecId = digest.Digest{}
 						e.Mutate(f, Unreserve(f.Reserved), Reserve(newReserved), Execing)
 						task = e.newTask(f)
-						e.Log.Printf("flow %s: OOM: re-submitting task %s with %v of memory (%v/%v)", task.FlowID.Short(), task.ID.Short(), data.Size(task.Config.Resources["mem"]), retries+1, maxOOMRetries)
+						e.Log.Printf("flow %s: OOM: re-submitting task %s with %v of memory (%v/%v)", task.FlowID.Short(), task.ID.IDShort(), data.Size(task.Config.Resources["mem"]), retries+1, maxOOMRetries)
 						e.Scheduler.Submit(task)
 						if err := e.taskWait(f, task, ctx); err != nil {
 							return err
@@ -762,7 +762,7 @@ func (e *Eval) LogSummary(log *log.Logger) {
 				stats.Temp.Summary("%.1f"),
 				stats.Requested,
 			)
-			if memRatio := stats.Memory.Mean() / stats.Requested["mem"]; memRatio <= memSuggestThreshold {
+			if memRatio := stats.Memory.Mean() / stats.Requested["mem"]; memRatio <= memSuggestThreshold && stats.Requested["mem"] > minExecMemory {
 				warningIdents = append(warningIdents, ident)
 			}
 		} else {
@@ -770,7 +770,9 @@ func (e *Eval) LogSummary(log *log.Logger) {
 		}
 		fmt.Fprint(&tw, "\n")
 	}
-	fmt.Fprintf(&tw, "warning: reduce memory requirements for over-allocating execs: %s", strings.Join(warningIdents, ", "))
+	if len(warningIdents) > 0 {
+		fmt.Fprintf(&tw, "warning: reduce memory requirements for over-allocating execs: %s", strings.Join(warningIdents, ", "))
+	}
 	tw.Flush()
 	log.Printf(b.String())
 }
@@ -1414,7 +1416,7 @@ func (e *Eval) cacheWriteAsync(ctx context.Context, f *Flow) {
 	}()
 }
 
-func (e *Eval) taskdbWrite(ctx context.Context, op Op, inspect reflow.ExecInspect, exec reflow.Exec, id digest.Digest) error {
+func (e *Eval) taskdbWrite(ctx context.Context, op Op, inspect reflow.ExecInspect, exec reflow.Exec, id taskdb.TaskID) error {
 	if !op.External() {
 		return nil
 	}
@@ -1455,7 +1457,7 @@ func (e *Eval) taskdbWrite(ctx context.Context, op Op, inspect reflow.ExecInspec
 
 // TODO(dnicolaou): Change to: taskdbWriteAsync(ctx context.Context, op Op, task *sched.Task) once nonscheduler mode is
 // removed.
-func (e *Eval) taskdbWriteAsync(ctx context.Context, op Op, inspect reflow.ExecInspect, exec reflow.Exec, id digest.Digest) {
+func (e *Eval) taskdbWriteAsync(ctx context.Context, op Op, inspect reflow.ExecInspect, exec reflow.Exec, id taskdb.TaskID) {
 	bgctx := Background(ctx)
 	go func() {
 		err := e.taskdbWrite(bgctx, op, inspect, exec, id)
@@ -1840,7 +1842,7 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 					tcancel()
 					e.Log.Debugf("taskdb createtask: %v\n", err)
 				}
-				go func() { _ = taskdb.Keepalive(tctx, e.TaskDB, f.TaskID) }()
+				go func() { _ = taskdb.KeepTaskAlive(tctx, e.TaskDB, f.TaskID) }()
 			}
 			err = x.Wait(ctx)
 			if e.TaskDB != nil {
@@ -2357,11 +2359,11 @@ func (e *Eval) taskWait(f *Flow, task *sched.Task, ctx context.Context) error {
 
 func (e *Eval) newTask(f *Flow) *sched.Task {
 	t := sched.NewTask()
-	t.ID = f.ExecId
+	t.ID = taskdb.TaskID(f.ExecId)
 	t.RunID = e.RunID
 	t.FlowID = f.Digest()
 	t.Config = f.ExecConfig()
-	t.Log = e.Log.Prefixf("task %s from flow %s: ", t.ID.Short(), t.FlowID.Short())
+	t.Log = e.Log.Prefixf("task %s from flow %s: ", t.ID.IDShort(), t.FlowID.Short())
 	return t
 }
 
