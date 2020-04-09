@@ -382,20 +382,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			return e.Right.eval(sess, env, ident)
 		}, e.Cond)
 	case ExprSwitch:
-		v, err := e.Left.eval(sess, env, ident)
-		if err != nil {
-			return nil, err
-		}
-		es := evalSwitch{
-			sess:    sess,
-			env:     env,
-			id:      ident,
-			v:       v,
-			t:       e.Left.Type,
-			resultT: e.Type,
-			pos:     e.Position,
-		}
-		return es.evalCases(e.CaseClauses)
+		return e.evalSwitch(sess, env, ident)
 	case ExprDeref:
 		return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 			switch e.Left.Type.Kind {

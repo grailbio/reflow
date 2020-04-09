@@ -6,13 +6,21 @@ package syntax
 
 import (
 	"fmt"
+	"io"
 
-	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/internal/scanner"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
 )
+
+// evalSwitch evaluates the switch expression e, which must have e.Kind == ExprSwitch.
+func (e *Expr) evalSwitch(sess *Session, env *values.Env, ident string) (values.T, error) {
+	v, err := e.Left.eval(sess, env, ident)
+	if err != nil {
+		return nil, err
+	}
+	return newSwitcher(sess, env, ident, e, v, e.Left.Type).eval()
+}
 
 // CaseClause is a single case within a switch expression.
 type CaseClause struct {
@@ -34,25 +42,29 @@ type CaseClause struct {
 	Expr *Expr
 }
 
-// evalSwitch is convenient context for evaluating the switch expression.
-type evalSwitch struct {
-	sess *Session
-	env  *values.Env
-	id   string
+// String renders a tree-formatted version of c.
+func (c *CaseClause) String() string {
+	return fmt.Sprintf("case(%v, %v)", c.Pat, c.Expr)
+}
 
-	// v is the value on which we are switching.  We will try to match this
-	// against the case clause patterns.
-	v values.T
+// Equal tests whether case clause c is equivalent to case clause d.
+func (c *CaseClause) Equal(d *CaseClause) bool {
+	return c.Pat.Equal(d.Pat) && c.Expr.Equal(d.Expr)
+}
 
-	// t is the type of the value on which we are switching.
-	t *types.T
-
-	// resultT is the type of the switch expression itself (i.e. the
-	// unification of the types of all the case clause expressions).
-	resultT *types.T
-
-	// pos is the position of the switch expression, given by the parser.
-	pos scanner.Position
+// digest writes a digest of c to dw, evaluated in env.
+func (c *CaseClause) digest(dw io.Writer, env *values.Env) {
+	io.WriteString(dw, "grail.com/reflow/syntax.CaseClause")
+	c.Pat.digest(dw)
+	var (
+		i    int
+		env2 = env.Push()
+	)
+	for _, ident := range c.Pat.Idents(nil) {
+		env2.Bind(ident, digestN(i))
+		i++
+	}
+	c.Expr.digest(dw, env2)
 }
 
 // idPath pairs the identifier that should be bound to the value found at the
@@ -64,14 +76,27 @@ type idPath struct {
 	path Path
 }
 
-// String renders a tree-formatted version of c.
-func (c *CaseClause) String() string {
-	return fmt.Sprintf("case(%v, %v)", c.Pat, c.Expr)
-}
+// switcher holds the context and state used to evaluate a switch expression.
+type switcher struct {
+	sess  *Session
+	env   *values.Env
+	ident string
+	// e is the switch expression that this switcher is used to evaluate.
+	e *Expr
+	// v is the value on which we are switching.
+	v values.T
+	// t is the type of v.
+	t *types.T
 
-// Equal tests whether case clause c is equivalent to case clause d.
-func (c *CaseClause) Equal(d *CaseClause) bool {
-	return c.Pat.Equal(d.Pat) && c.Expr.Equal(d.Expr)
+	// The fields below are used to accumulate the data we use to compute a flow
+	// digest when we need to defer execution during case matching.
+
+	// cs are the case clauses that still need evaluation and will be included
+	// in the continuation digest, if necessary.
+	cs []*CaseClause
+	// p is the path that is currently being matched and will be included in the
+	// continuation digest, if necessary.
+	p *idPath
 }
 
 // switchCont is the common type of the continuation functions we use.  The
@@ -83,24 +108,47 @@ func (c *CaseClause) Equal(d *CaseClause) bool {
 // the first argument will be false, and the Env must be ignored.
 type switchCont func(bool, *values.Env) (values.T, error)
 
-func (s *evalSwitch) evalCases(cs []*CaseClause) (values.T, error) {
+// newSwitcher returns a new switcher to evaluate a switch expression.
+func newSwitcher(sess *Session, env *values.Env, ident string, e *Expr, v values.T, t *types.T) *switcher {
+	return &switcher{
+		sess:  sess,
+		env:   env,
+		ident: ident,
+		e:     e,
+		v:     v,
+		t:     t,
+	}
+}
+
+// eval kicks off evaluation of the switch expression managed by s.
+func (s *switcher) eval() (values.T, error) {
+	return s.evalCases(s.e.CaseClauses)
+}
+
+func (s *switcher) evalCases(cs []*CaseClause) (values.T, error) {
 	if len(cs) == 0 {
 		// No case clause matched. This should have been caught by
 		// exhaustiveness checking.
 		panic("no case clause matched; inexhaustive switch")
 	}
+	// Note that we include the current case, which means that it will be
+	// included in the digest. This is a bit imprecise, as we strictly could
+	// only include the remaining paths in the pattern that have not yet been
+	// matched. However, this simplifies the implementation, and the situations
+	// in which this would make a difference are limited. We can revisit if we
+	// find some degenerate cases.
+	s.cs = cs
 	return s.evalCase(cs[0], func(m bool, env *values.Env) (values.T, error) {
 		if m {
-			return s.evalExpr(cs[0], env)
+			return cs[0].Expr.eval(s.sess, env, s.ident)
 		}
 		// The case did not match successfully, so we keep looking.
 		return s.evalCases(cs[1:])
 	})
 }
 
-func (s *evalSwitch) evalCase(c *CaseClause, k switchCont) (values.T, error) {
-	pattern := c.Pat
-	ms := pattern.Matchers()
+func (s *switcher) evalCase(c *CaseClause, k switchCont) (values.T, error) {
+	ms := c.Pat.Matchers()
 	ps := make([]*idPath, 0, len(ms))
 	for _, m := range ms {
 		p := &idPath{
@@ -113,7 +161,7 @@ func (s *evalSwitch) evalCase(c *CaseClause, k switchCont) (values.T, error) {
 	return s.evalPaths(ps, env, k)
 }
 
-func (s *evalSwitch) evalPaths(ps []*idPath, env *values.Env, k switchCont) (values.T, error) {
+func (s *switcher) evalPaths(ps []*idPath, env *values.Env, k switchCont) (values.T, error) {
 	if len(ps) == 0 {
 		// If there are no more paths, then we have a successful match.
 		return k(true, env)
@@ -130,50 +178,40 @@ func (s *evalSwitch) evalPaths(ps []*idPath, env *values.Env, k switchCont) (val
 		})
 }
 
-func (s *evalSwitch) evalPath(
-	p *idPath, v values.T, t *types.T, env *values.Env, k switchCont) (values.T, error) {
+func (s *switcher) evalPath(p *idPath, v values.T, t *types.T, env *values.Env, k switchCont) (values.T, error) {
 	if p.path.Done() {
 		// The path matched, so we bind the value into the environment that we
-		// are building up.
+		// are building.
 		if p.id != "" {
 			env.Bind(p.id, v)
 		}
 		return k(true, env)
 	}
-	if f, ok := v.(*flow.Flow); ok {
-		// We've hit a flow, so we can return immediately, and let the flow
-		// evaluation continue our matching.
-		return &flow.Flow{
-			Op:         flow.K,
-			Deps:       []*flow.Flow{f},
-			FlowDigest: p.path.Digest(),
-			K: func(vs []values.T) *flow.Flow {
-				resultV, err := s.evalPath(p, vs[0], t, env, k)
-				if err != nil {
-					return &flow.Flow{
-						Op:  flow.Val,
-						Err: errors.Recover(err),
-					}
-				}
-				return toFlow(resultV, s.resultT)
-			},
-		}, nil
-	}
-	nextV, nextT, path, err := p.path.Match(v, t)
-	if err != nil {
-		return k(false, nil)
-	}
-	nextP := &idPath{
-		id:   p.id,
-		path: path,
-	}
-	return s.evalPath(nextP, nextV, nextT, env, k)
+	s.p = p
+	return evalK(s.evalK).Continue(s.e, s.sess, s.env, s.ident, func(vs []values.T) (values.T, error) {
+		nextV, nextT, path, err := p.path.Match(vs[0], t)
+		if err != nil {
+			return k(false, nil)
+		}
+		nextP := &idPath{
+			id:   p.id,
+			path: path,
+		}
+		return s.evalPath(nextP, nextV, nextT, env, k)
+	}, tval{t, v})
 }
 
-func (s *evalSwitch) evalExpr(
-	c *CaseClause, env *values.Env) (values.T, error) {
-
-	return c.Expr.eval(s.sess, env, s.id)
+// evalK is the evalK that is used to defer further evaluation of s. It computes
+// a digest from the remainder of the switch expression that needs to be
+// considered.
+func (s *switcher) evalK(e *Expr, env *values.Env, dw io.Writer) {
+	e.digest1(dw)
+	// The rest of the switch may inspect other parts of the original value.
+	values.WriteDigest(dw, s.v, s.e.Type)
+	s.p.path.digest(dw)
+	for _, c := range s.cs {
+		c.digest(dw, env)
+	}
 }
 
 // caseUniv represents the universe of values in which the case clause patterns
@@ -259,8 +297,8 @@ func (u caseUniv) Minus(lhs []*Pat, rhs *Pat) []*Pat {
 	return u.Intersect(lhs, u.Complement(rhs))
 }
 
-// Intersect performs set intersection, L ∩ R, by taking union the pairwise
-// intersection of the patterns in L × R.
+// Intersect performs set intersection, L ∩ R, by taking the union of the
+// pairwise intersection of the patterns in L × R.
 func (u caseUniv) Intersect(lhs, rhs []*Pat) []*Pat {
 	intersection := []*Pat{}
 	for _, p := range lhs {
