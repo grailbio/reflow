@@ -19,25 +19,21 @@ import (
 	"time"
 
 	aws2 "github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/infra"
-	"github.com/grailbio/infra/aws"
 	"github.com/grailbio/infra/tls"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/s3blob"
-	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
 	infra2 "github.com/grailbio/reflow/infra"
-	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/predictor"
@@ -47,8 +43,6 @@ import (
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/taskdb"
-	"github.com/grailbio/reflow/trace"
-	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/wg"
 	"golang.org/x/net/http2"
 )
@@ -101,14 +95,11 @@ func clusterInstance(config infra.Config, status *status.Status) (runner.Cluster
 	if err != nil {
 		return nil, err
 	}
-	var ec *ec2cluster.Cluster
-	if cerr := config.Instance(&ec); cerr == nil {
+	if ec, ok := cluster.(*ec2cluster.Cluster); ok {
 		if status != nil {
 			ec.Status = status.Group("ec2cluster")
 		}
 		ec.Configuration = config
-	} else {
-		log.Printf("not a ec2cluster! : %v", cerr)
 	}
 	var sess *session.Session
 	err = config.Instance(&sess)
@@ -217,14 +208,13 @@ func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger) (r 
 			schedCancel()
 		}
 	}()
-	if !runConfig.RunFlags.Local {
-		cluster = runConfig.RunFlags.Cluster
-		if cluster == nil {
-			if cluster, err = clusterInstance(runConfig.Config, runConfig.Status); err != nil {
-				return
-			}
+	cluster = runConfig.RunFlags.Cluster
+	if cluster == nil {
+		if cluster, err = clusterInstance(runConfig.Config, runConfig.Status); err != nil {
+			return nil, err
 		}
 	}
+
 	if err = runConfig.Config.Instance(&repo); err != nil {
 		return
 	}
@@ -275,6 +265,7 @@ func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger) (r 
 			}
 		}
 	}
+
 	r = &Runner{
 		runConfig:   runConfig,
 		RunID:       taskdb.NewRunID(),
@@ -433,20 +424,6 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 			go func() { _ = r.uploadBundle(tctx, r.repo, r.tdb, r.RunID, e, r.runConfig.Program, r.runConfig.Args) }()
 		}
 	}
-
-	if r.runConfig.RunFlags.Local {
-		s, serr := r.runLocal(ctx, e.Main(), e.MainType(), e.ImageMap, cmdline)
-		var et time.Time
-		if serr == nil {
-			et = s.Completion
-		}
-		if r.tdb != nil {
-			if errTDB := r.setRunComplete(tctx, et); errTDB != nil {
-				r.Log.Debugf("error writing run result to taskdb: %v", errTDB)
-			}
-		}
-		return s, serr
-	}
 	run := runner.Runner{
 		Flow: e.Main(),
 		EvalConfig: flow.EvalConfig{
@@ -497,6 +474,7 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 		return runner.State{}, errors.E("failed to marshal state: %v", err)
 	}
 	ctx, bgcancel := flow.WithBackground(ctx, r.wg)
+
 	for ok := true; ok; {
 		ok = run.Do(ctx)
 		if run.State.Phase == runner.Retry {
@@ -617,102 +595,6 @@ func (r *Runner) uploadBundle(ctx context.Context, repo reflow.Repository, tdb t
 	}
 	r.Log.Debugf("created bundle %s with args: %v\n", bundleId.String(), args)
 	return tdb.SetRunAttrs(ctx, runID, bundleId, args)
-}
-
-func (r *Runner) runLocal(ctx context.Context, f *flow.Flow, typ *types.T, imageMap map[string]string, cmdline string) (runner.State, error) {
-	flags := r.runConfig.RunFlags
-	client, resources, err := dockerClient()
-	if err != nil {
-		return runner.State{}, err
-	}
-
-	var sess *session.Session
-	err = r.runConfig.Config.Instance(&sess)
-	if err != nil {
-		return runner.State{}, err
-	}
-	var creds *credentials.Credentials
-	err = r.runConfig.Config.Instance(&creds)
-	if err != nil {
-		return runner.State{}, err
-	}
-	var awstool *aws.AWSTool
-	err = r.runConfig.Config.Instance(&awstool)
-	if err != nil {
-		return runner.State{}, err
-	}
-
-	dir := flags.LocalDir
-	if flags.Dir != "" {
-		dir = flags.Dir
-	}
-	x := &local.Executor{
-		Client:        client,
-		Dir:           dir,
-		Authenticator: ec2authenticator.New(sess),
-		AWSImage:      string(*awstool),
-		AWSCreds:      creds,
-		Blob:          r.mux,
-		Log:           r.Log.Tee(nil, "executor: "),
-	}
-	if !flags.Resources.Equal(nil) {
-		resources = flags.Resources
-	}
-	x.SetResources(resources)
-	if err = x.Start(); err != nil {
-		return runner.State{}, err
-	}
-	var labels pool.Labels
-	if err = r.runConfig.Config.Instance(&labels); err != nil {
-		return runner.State{}, err
-	}
-	evalConfig := flow.EvalConfig{
-		Executor:           x,
-		Snapshotter:        r.mux,
-		Transferer:         r.transferer,
-		Log:                r.Log,
-		Repository:         r.repo,
-		Assoc:              r.assoc,
-		AssertionGenerator: r.assertionGenerator,
-		CacheMode:          r.cache.CacheMode,
-		Status:             r.runConfig.Status.Group(r.RunID.IDShort()),
-		ImageMap:           imageMap,
-		TaskDB:             r.tdb,
-		RunID:              r.RunID,
-		DotWriter:          r.DotWriter,
-	}
-	if err = flags.CommonRunFlags.Configure(&evalConfig); err != nil {
-		return runner.State{}, err
-	}
-	if flags.Trace {
-		evalConfig.Trace = r.Log
-	}
-	eval := flow.NewEval(f, evalConfig)
-	ctx, bgcancel := flow.WithBackground(ctx, r.wg)
-	ctx, done := trace.Start(ctx, trace.Run, f.Digest(), cmdline)
-	defer done()
-	traceid := trace.URL(ctx)
-	if len(traceid) > 0 {
-		r.Log.Printf("Trace ID: %v", traceid)
-	}
-	if err := eval.Do(ctx); err != nil {
-		return runner.State{}, err
-	}
-	r.waitForBackgroundTasks(10 * time.Minute)
-	bgcancel()
-	var result runner.State
-	if err := eval.Err(); err != nil {
-		result.Err = errors.Recover(err)
-	} else {
-		result.Result = sprintval(eval.Value(), typ)
-	}
-	eval.LogSummary(r.Log)
-	if result.Err != nil {
-		r.Log.Error(result.Err)
-	} else {
-		r.Log.Printf("result: %s", result.Result)
-	}
-	return result, nil
 }
 
 // waitForBackgroundTasks waits until all background tasks complete, or if the provided

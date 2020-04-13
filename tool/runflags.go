@@ -124,7 +124,6 @@ func (r *RunFlags) Flags(flags *flag.FlagSet) {
 // Err checks if the flag values are consistent and valid.
 func (r *RunFlags) Err() error {
 	if r.Local {
-		r.Sched = false
 		if r.Alloc != "" {
 			return errors.New("-alloc cannot be used in local mode")
 		}

@@ -102,6 +102,16 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 		c.Println(sprintval(e.Main().Value, e.MainType()))
 		c.Exit(0)
 	}
+	if runFlags.Local {
+		dir := runFlags.LocalDir
+		if runFlags.Dir != "" {
+			dir = runFlags.Dir
+		}
+		var err error
+		c.SchemaKeys[reflowinfra.Cluster] = fmt.Sprintf("localcluster,dir=%v", dir)
+		c.Config, err = c.Schema.Make(c.SchemaKeys)
+		c.must(err)
+	}
 
 	ctx, cancel := context.WithCancel(ctx)
 	var tracer trace.Tracer
@@ -179,6 +189,8 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 			}()
 		}
 	}
+	runConfig.RunFlags.Cluster, err = clusterInstance(c.Config, c.Status)
+	c.must(err)
 	r, err := NewRunner(ctx, runConfig, c.Log)
 	if err != nil {
 		c.Fatal(err)

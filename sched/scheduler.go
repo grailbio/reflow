@@ -105,7 +105,7 @@ func New() *Scheduler {
 		submitc:          make(chan []*Task),
 		MaxPendingAllocs: 5,
 		MaxAllocIdleTime: 5 * time.Minute,
-		MinAlloc:         reflow.Resources{"cpu": 1, "mem": 1 << 30, "disk": 10 << 30},
+		MinAlloc:         reflow.Resources{"cpu": 1, "mem": 1 << 30, "disk": 1 << 30},
 		Stats:            newStats(),
 	}
 }

@@ -19,6 +19,7 @@ import (
 	_ "github.com/grailbio/reflow/assoc/dydbassoc"
 	_ "github.com/grailbio/reflow/ec2cluster"
 	infra2 "github.com/grailbio/reflow/infra"
+	_ "github.com/grailbio/reflow/localcluster"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	_ "github.com/grailbio/reflow/repository/s3"
