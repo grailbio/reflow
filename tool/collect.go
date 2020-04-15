@@ -198,7 +198,7 @@ preceded by ! is negated.
 			return
 		}
 		d := v[0]
-		checkRepos := func() reflow.Fileset {
+		checkRepos := func() (reflow.Fileset, error) {
 			var (
 				fs  reflow.Fileset
 				err error
@@ -214,24 +214,28 @@ preceded by ! is negated.
 					itemsScannedCount++
 					liveObjectsNotInRepository++
 					resultsLock.Unlock()
-					return fs
+					return fs, nil
 				}
 				if errors.Transient(err) {
 					continue
 				}
 				// If we can't parse the object for another reason bail now
-				c.Fatal(fmt.Errorf("error parsing fileset %v (%v)", k, err))
+				return reflow.Fileset{}, fmt.Errorf("fileset %v (flow %v): %v", d, k, err)
 			}
 			if err != nil {
-				c.Fatal(fmt.Errorf("error parsing fileset %v (%v)", k, err))
+				return reflow.Fileset{}, fmt.Errorf("fileset %v (flow %v): %v", d, k, err)
 			}
-			return fs
+			return fs, nil
 		}
-		live := keepFilter.Match(labels)
 
+		live := keepFilter.Match(labels)
 		var fs reflow.Fileset
 		if !live && labelsFilter.Match(labels) {
-			fs = checkRepos()
+			fs, err = checkRepos()
+			if err != nil {
+				c.Log.Error(err)
+				return
+			}
 			resultsLock.Lock()
 			defer resultsLock.Unlock()
 			for _, f := range fs.Files() {
@@ -247,7 +251,11 @@ preceded by ! is negated.
 		}
 		live = live || lastAccessTime.After(threshold)
 		if live {
-			fs = checkRepos()
+			fs, err = checkRepos()
+			if err != nil {
+				c.Log.Error(err)
+				return
+			}
 		}
 		// The repository checking happens outside the results lock for better performance
 		resultsLock.Lock()
@@ -265,6 +273,7 @@ preceded by ! is negated.
 		if itemsScannedCount%10000 == 0 {
 			c.Log.Debugf("Scanned item %d in association", itemsScannedCount)
 		}
+
 	}))
 	// Bail if anything went wrong since we're about to garbage collect based on these livesets
 	c.must(err)
