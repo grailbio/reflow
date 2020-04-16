@@ -1,12 +1,12 @@
 // Tests v0->v1 bridging.
-
+val gen = make("./generate.rf")
 val test = make("$/test")
 
 @requires(cpu := 1)
-val Main = {
+val Main = gen.GenerateFixed("localfile://testdata/inputdata") ~> {
 	filesets := make("$/filesets")
 	files := make("$/files")
-	old := make("./oldmodule.reflow", f := "localfile://testdata/bridge.rf")
-	f := file("testdata/bridge.rf")
+	old := make("./oldmodule.reflow", f := "localfile://testdata/inputdata")
+	f := file("testdata/inputdata")
 	test.Assert([len(files.Fileset(old.X)) == len(f)])
 }

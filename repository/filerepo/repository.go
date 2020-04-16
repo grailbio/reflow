@@ -289,6 +289,18 @@ func (r *Repository) Materialize(root string, binds map[string]digest.Digest) er
 		os.Remove(path) // best effort
 		_, rpath := r.Path(id)
 		if err := os.Link(rpath, path); err != nil {
+			// Copy if file was reported to be on a different device.
+			if linkErr, ok := err.(*os.LinkError); ok && linkErr.Err == syscall.EXDEV {
+				f, ferr := os.Create(path)
+				if ferr != nil {
+					return ferr
+				}
+				rc, rcerr := r.Get(context.Background(), id)
+				if rcerr != nil {
+					return rcerr
+				}
+				_, err = io.Copy(f, rc)
+			}
 			return err
 		}
 	}

@@ -1,5 +1,6 @@
 // This tests test.ExecRepeatAndCheck functionality.
 
+val gen = make("./generate.rf")
 val test = make("$/test")
 
 func CatCopy(in file, random bool) =
@@ -15,8 +16,8 @@ func CatCopy(in file, random bool) =
 	}
 
 @requires(cpu := 1)
-val Main = test.Assert([
-	test.ExecRepeatAndCheck(CatCopy(file("localfile://testdata/repeatexec.rf"), false), 1),
-	test.ExecRepeatAndCheck(CatCopy(file("localfile://testdata/repeatexec.rf"), false), 3),
-	false == test.ExecRepeatAndCheck(CatCopy(file("localfile://testdata/repeatexec.rf"), true), 3),
+val Main = gen.GenerateFixed("localfile://inputdata") ~> test.Assert([
+	test.ExecRepeatAndCheck(CatCopy(file("localfile://inputdata"), false), 1),
+	test.ExecRepeatAndCheck(CatCopy(file("localfile://inputdata"), false), 3),
+	false == test.ExecRepeatAndCheck(CatCopy(file("localfile://inputdata"), true), 3),
 ])

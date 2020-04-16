@@ -96,8 +96,8 @@ func (e *localfileExec) do(ctx context.Context) error {
 		for path, file := range arg.Fileset.Map {
 			binds[path] = file.ID
 		}
-		e.Log.Printf("materializing %s", filepath.Join(e.Executor.Prefix, u.Path))
-		return e.Executor.FileRepository.Materialize(filepath.Join(e.Executor.Prefix, u.Path), binds)
+		e.Log.Printf("materializing %s", filepath.Join(e.Executor.Prefix, u.Host+u.Path))
+		return e.Executor.FileRepository.Materialize(filepath.Join(e.Executor.Prefix, u.Host+u.Path), binds)
 	default:
 		return errors.E("exec", e.id, errors.NotSupported, errors.Errorf("unsupported exec type %v", e.cfg.Type))
 	}

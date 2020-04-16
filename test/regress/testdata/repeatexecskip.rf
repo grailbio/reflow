@@ -1,5 +1,6 @@
 // This tests test.ExecRepeatAndCheck functionality.
 
+val gen = make("./generate.rf")
 val test = make("$/test")
 
 func CatCopyRand(in file) =
@@ -9,6 +10,6 @@ func CatCopyRand(in file) =
 		"}
 
 @requires(cpu := 1)
-val Main = test.Assert([
-	test.ExecRepeatAndCheck(CatCopyRand(file("localfile://testdata/repeatexec.rf")), 3),
+val Main = gen.GenerateRand("localfile://inputdata") ~> test.Assert([
+	test.ExecRepeatAndCheck(CatCopyRand(file("localfile://inputdata")), 3),
 ])

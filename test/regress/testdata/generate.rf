@@ -1,0 +1,18 @@
+val files = make("$/files")
+
+@requires(cpu := 1)
+func GenerateRand(path string) = {
+	val f = exec(image := "ubuntu") (out file) {"
+			head -c 1K </dev/urandom > {{out}}
+	"}
+	files.Copy(f, path)
+}
+
+@requires(cpu := 1)
+func GenerateFixed(path string) = {
+	inputdata := file("testdata/inputdata")
+	val f = exec(image := "ubuntu") (out file) {"
+			cat {{inputdata}} > {{out}}
+	"}
+	files.Copy(f, path)
+}
