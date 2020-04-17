@@ -18,6 +18,7 @@ import (
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/grailbio/base/retry"
+	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/ecrauth"
 )
 
@@ -83,23 +84,25 @@ func pullImage(ctx context.Context, client *docker.Client, authenticator ecrauth
 			return err
 		}
 	}
-	var resp io.ReadCloser
-	var policy = retry.Backoff(time.Second, 10*time.Second, 1.5)
-	policy = retry.MaxTries(policy, 5)
+	var (
+		resp   io.ReadCloser
+		policy = retry.MaxTries(retry.Backoff(time.Second, 10*time.Second, 1.5), 5)
+	)
 	for retries := 0; ; retries++ {
 		var err error
 		resp, err = client.ImagePull(ctx, ref, options)
 		if err == nil {
 			break
 		}
+		// docker/go-docker does not always report "not found" errors as such due to a bug,
+		// so check the error string manually.
 		if strings.HasSuffix(err.Error(), "not found") {
-			return err
+			return errors.E("pull image", ref, errors.NotExist, err)
 		}
 		if err := retry.Wait(ctx, policy, retries); err != nil {
-			return err
+			return errors.E("pull image", ref, errors.Unavailable, err)
 		}
 	}
-	// TODO(marius): report progress up the chain.
 	defer resp.Close()
 	decoder := json.NewDecoder(resp)
 	// Docker sends status messages (e.g., "x% downloaded").

@@ -145,16 +145,9 @@ func (e *dockerExec) create(ctx context.Context) (execState, error) {
 	} else if !docker.IsErrNotFound(err) {
 		return execInit, errors.E("ContainerInspect", e.containerName(), kind(err), err)
 	}
-	// TODO: it might be worthwhile doing image pulling as a separate state.
-	for retries := 0; ; retries++ {
-		err := e.Executor.ensureImage(ctx, e.Config.Image)
-		if err == nil {
-			break
-		}
+	if err := e.Executor.ensureImage(ctx, e.Config.Image); err != nil {
 		e.Log.Errorf("error ensuring image %s: %v", e.Config.Image, err)
-		if err := retry.Wait(ctx, retryPolicy, retries); err != nil {
-			return execInit, errors.E(errors.Unavailable, fmt.Sprintf("failed to pull image %s: %s", e.Config.Image, err))
-		}
+		return execInit, errors.E("ensureimage", e.Config.Image, err)
 	}
 	// Map the products to input arguments and volume bindings for
 	// the container. Currently we map the whole repository (named by
