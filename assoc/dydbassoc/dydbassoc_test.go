@@ -38,7 +38,7 @@ type mockEntry struct {
 
 type mockdb struct {
 	dynamodbiface.DynamoDBAPI
-	mockStore []mockEntry
+	mockStore map[*mockEntry]bool
 	dbscanned bool
 	muScan    sync.Mutex
 
@@ -58,13 +58,13 @@ func (m *mockdb) DeleteItemWithContext(ctx aws.Context, input *dynamodb.DeleteIt
 	if !ok {
 		panic("key missing")
 	}
-	for i, entry := range m.mockStore {
-		entry, ok := entry.Attributes["ID"]
+	for k := range m.mockStore {
+		entry, ok := k.Attributes["ID"]
 		if !ok {
 			continue
 		}
 		if *entry.S == *key.S {
-			m.mockStore = append(m.mockStore[:i], m.mockStore[i+1:]...)
+			delete(m.mockStore, k)
 			return &dynamodb.DeleteItemOutput{
 				Attributes: input.Key,
 			}, nil
@@ -130,13 +130,15 @@ func (m *mockdb) ScanWithContext(ctx aws.Context, input *dynamodb.ScanInput, opt
 	if m.dbscanned {
 		return output, nil
 	}
-	for i, v := range m.mockStore {
-		output.Items = append(output.Items, v.Attributes)
-		if i == len(m.mockStore)-1 {
-			m.dbscanned = true
+	for k := range m.mockStore {
+		// Ignore all entries that do not show LastAccessTime.
+		if _, ok := k.Attributes["LastAccessTime"]; !ok {
+			continue
 		}
+		output.Items = append(output.Items, k.Attributes)
 	}
-	count := int64(len(m.mockStore))
+	m.dbscanned = true
+	count := int64(len(output.Items))
 	output.Count = &count
 	output.ScannedCount = &count
 	return output, nil
@@ -156,7 +158,7 @@ func TestDelete(t *testing.T) {
 		Kind: assoc.Fileset,
 	}
 	db := &mockdb{
-		mockStore: []mockEntry{dummyEntry},
+		mockStore: map[*mockEntry]bool{&dummyEntry: true},
 	}
 	ass := &Assoc{DB: db, TableName: mockTable}
 
@@ -528,10 +530,10 @@ func TestDydbassocInfra(t *testing.T) {
 	}
 }
 
-func TestAssocScan(t *testing.T) {
+func TestAssocScanValidEntries(t *testing.T) {
 	var (
 		ctx = context.Background()
-		db  = &mockdb{}
+		db  = &mockdb{mockStore: make(map[*mockEntry]bool)}
 		ass = &Assoc{DB: db, TableName: mockTable}
 	)
 	for _, tt := range []struct {
@@ -545,19 +547,22 @@ func TestAssocScan(t *testing.T) {
 		{assoc.ExecInspect, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), nil, "1572455280"},
 		{assoc.Logs, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), nil, "1572448157"},
 		{assoc.Fileset, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), []string{"grail:type=reflow", "grail:user=def@graiobio.com"}, "1568099519"},
+		{assoc.Fileset, reflow.Digester.Rand(nil), digest.Digest{}, nil, "1568099519"},
 	} {
 		entry := mockEntry{
 			Attributes: map[string]*dynamodb.AttributeValue{
 				"ID": {S: aws.String(tt.key.String())},
 			},
 		}
-		val := dynamodb.AttributeValue{S: aws.String(tt.val.String())}
-		switch tt.kind {
-		case assoc.Fileset:
-			entry.Attributes[colmap[tt.kind]] = &val
-		case assoc.ExecInspect, assoc.Logs, assoc.Bundle:
-			entry.Attributes[colmap[tt.kind]] = &dynamodb.AttributeValue{
-				L: []*dynamodb.AttributeValue{&val},
+		if !tt.val.IsZero() {
+			val := dynamodb.AttributeValue{S: aws.String(tt.val.String())}
+			switch tt.kind {
+			case assoc.Fileset:
+				entry.Attributes[colmap[tt.kind]] = &val
+			case assoc.ExecInspect, assoc.Logs, assoc.Bundle:
+				entry.Attributes[colmap[tt.kind]] = &dynamodb.AttributeValue{
+					L: []*dynamodb.AttributeValue{&val},
+				}
 			}
 		}
 		if tt.labels != nil {
@@ -567,9 +572,12 @@ func TestAssocScan(t *testing.T) {
 			}
 			entry.Attributes["Labels"] = &labelsEntry
 		}
-		entry.Attributes["LastAccessTime"] = &dynamodb.AttributeValue{N: aws.String(tt.lastAccessTimeUnix)}
-		db.mockStore = append(db.mockStore, entry)
+		if tt.lastAccessTimeUnix != "" {
+			entry.Attributes["LastAccessTime"] = &dynamodb.AttributeValue{N: aws.String(tt.lastAccessTimeUnix)}
+		}
+		db.mockStore[&entry] = true
 	}
+
 	var (
 		numFileSets          = new(int)
 		numExecInspects      = new(int)
@@ -638,6 +646,51 @@ func TestAssocScan(t *testing.T) {
 	}
 }
 
+func TestAssocScanInvalidEntries(t *testing.T) {
+	var (
+		ctx = context.Background()
+		db  = &mockdb{mockStore: make(map[*mockEntry]bool)}
+		ass = &Assoc{DB: db, TableName: mockTable}
+	)
+	for _, tt := range []struct {
+		key                digest.Digest
+		val                digest.Digest
+		lastAccessTimeUnix string
+	}{
+		{reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), "1571573191"},
+		{reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), "1572455280"},
+		{reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), "1572448157"},
+		{reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), "1568099519"},
+		{reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), ""},
+		{reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), "1568099519"},
+	} {
+		entry := mockEntry{
+			Attributes: map[string]*dynamodb.AttributeValue{
+				"ID": {S: aws.String(tt.key.String())},
+			},
+		}
+		if !tt.val.IsZero() {
+			entry.Attributes[colmap[assoc.Fileset]] = &dynamodb.AttributeValue{S: aws.String(tt.val.String())}
+		}
+		if tt.lastAccessTimeUnix != "" {
+			entry.Attributes["LastAccessTime"] = &dynamodb.AttributeValue{N: aws.String(tt.lastAccessTimeUnix)}
+		}
+		db.mockStore[&entry] = true
+	}
+
+	// Scan should only scan entries with a LastAccessTime column.
+	var validEntries int
+	err := ass.Scan(ctx, assoc.Fileset, assoc.MappingHandlerFunc(func(k digest.Digest, v []digest.Digest, mapkind assoc.Kind, lastAccessTime time.Time, labels []string) {
+		validEntries++
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := validEntries, 5; got != want {
+		t.Errorf("got %d valid entries, want %d", got, want)
+	}
+}
+
 type testSet map[digest.Digest]struct{}
 
 func (t testSet) Contains(k digest.Digest) bool {
@@ -648,11 +701,12 @@ func (t testSet) Contains(k digest.Digest) bool {
 func TestCollectWithThreshold(t *testing.T) {
 	var (
 		ctx              = context.Background()
-		db               = &mockdb{}
+		db               = &mockdb{mockStore: make(map[*mockEntry]bool)}
 		ass              = &Assoc{DB: db, TableName: mockTable}
 		threshold        = time.Unix(1000000, 0)
 		liveset, deadset = make(testSet), make(testSet)
 		keepKeys         = []digest.Digest{reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), reflow.Digester.Rand(nil)}
+		ignoreKey        = reflow.Digester.Rand(nil)
 	)
 
 	for _, tt := range []struct {
@@ -667,14 +721,18 @@ func TestCollectWithThreshold(t *testing.T) {
 		{"deadsetAfterThreshold", reflow.Digester.Rand(nil), "1000002", false, true},
 		{"noSetBeforeThreshold", reflow.Digester.Rand(nil), "999997", false, false},
 		{"noSetAfterThreshold", keepKeys[2], "1000003", false, false},
+		{"entryNoLastAccessTime", ignoreKey, "", false, true},
 	} {
 		entry := mockEntry{
 			Attributes: map[string]*dynamodb.AttributeValue{
-				"ID":             {S: aws.String(tt.key.String())},
-				"LastAccessTime": {N: aws.String(tt.lastAccessTimeUnix)},
+				"ID": {S: aws.String(tt.key.String())},
 			},
 		}
-		db.mockStore = append(db.mockStore, entry)
+		if tt.lastAccessTimeUnix != "" {
+			entry.Attributes["LastAccessTime"] = &dynamodb.AttributeValue{N: aws.String(tt.lastAccessTimeUnix)}
+		}
+
+		db.mockStore[&entry] = true
 		if tt.liveset {
 			liveset[tt.key] = struct{}{}
 		}
@@ -682,14 +740,14 @@ func TestCollectWithThreshold(t *testing.T) {
 			deadset[tt.key] = struct{}{}
 		}
 	}
-	if got, want := len(db.mockStore), 6; got != want {
+	if got, want := len(db.mockStore), 7; got != want {
 		t.Fatalf("got %d mock entries, want %d", got, want)
 	}
 
 	if err := ass.CollectWithThreshold(ctx, liveset, deadset, threshold, 300, true); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := len(db.mockStore), 6; got != want {
+	if got, want := len(db.mockStore), 7; got != want {
 		t.Fatalf("got %d mock entries, want %d", got, want)
 	}
 	// Allow db to be scanned for a non-dry run.
@@ -698,11 +756,12 @@ func TestCollectWithThreshold(t *testing.T) {
 	if err := ass.CollectWithThreshold(ctx, liveset, deadset, threshold, 300, false); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := len(db.mockStore), 3; got != want {
+	if got, want := len(db.mockStore), 4; got != want {
 		t.Fatalf("got %d mock entries, want %d", got, want)
 	}
-	for _, v := range db.mockStore {
-		key, err := reflow.Digester.Parse(*v.Attributes["ID"].S)
+	var ignoreKeyFound bool
+	for k := range db.mockStore {
+		key, err := reflow.Digester.Parse(*k.Attributes["ID"].S)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -713,8 +772,13 @@ func TestCollectWithThreshold(t *testing.T) {
 				break
 			}
 		}
-		if !keyValid {
+		if key == ignoreKey {
+			ignoreKeyFound = true
+		} else if !keyValid {
 			t.Errorf("key %s not found in remaining keys", key)
 		}
+	}
+	if !ignoreKeyFound {
+		t.Errorf("key with no LastAccessTime deleted from assoc")
 	}
 }
