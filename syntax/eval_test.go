@@ -309,6 +309,7 @@ func TestEvalErr(t *testing.T) {
 		{"testdata/err5.rf", "testdata/err5.rf:8:29 err5.Test: precondition was not met: no execs to repeat"},
 		{"testdata/err6.rf", "testdata/err6.rf:8:6 failed assertion err6.TestAllFail[1]"},
 		{"testdata/err7.rf", "testdata/lib.rf:8:6 failed assertion lib.AssertErr7[1]"},
+		{"testdata/err8.rf", "testdata/err8.rf:8:6 failed assertion err8.TestAllFail[a, c]"},
 	} {
 		m, err := sess.Open(c.file)
 		if err != nil {

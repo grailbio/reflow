@@ -1,0 +1,12 @@
+val test = make("$/test")
+
+val TestAllFail = {
+	a := 1
+	b := 2
+	c := "string"
+	s := {a, b, c}
+	test.AssertMap([
+		"a": s.a == 0,
+		"b": s.b == 2,
+		"c": s.c == "String"])
+}

@@ -311,6 +311,27 @@ var testDecls = []*Decl{
 		},
 	}.Decl(),
 	SystemFunc{
+		Id:     "AssertMap",
+		Module: "test",
+		Doc:    "AssertMap fails if any keys of the passed map[string:bool] are false, with an error containing the list of failing keys.",
+		Type:   types.Func(types.Bool, &types.Field{Name: "tests", T: types.Map(types.String, types.Bool)}),
+		Mode:   ModeForced,
+		Do: func(loc values.Location, args []values.T) (values.T, error) {
+			m := args[0].(*values.Map)
+			failed := make([]string, 0, m.Len())
+			m.Each(func(k, v values.T) {
+				if !v.(bool) {
+					failed = append(failed, k.(string))
+				}
+			})
+			if len(failed) > 0 {
+				sort.Strings(failed)
+				return false, fmt.Errorf("%v failed assertion %s[%s]", loc.Position, loc.Ident, strings.Join(failed, ", "))
+			}
+			return true, nil
+		},
+	}.Decl(),
+	SystemFunc{
 		Id:     "All",
 		Module: "test",
 		Doc:    "All returns true if every passed (boolean) value is true.",
