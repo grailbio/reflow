@@ -1,0 +1,9 @@
+val test = make("$/test")
+
+val TestAllFail = {
+	a := 1
+	b := 2
+	c := "string"
+	s := {a, b, c}
+	test.All([s.a == 1, s.b == 3, s.c == "string"])
+}

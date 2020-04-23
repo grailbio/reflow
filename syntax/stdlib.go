@@ -305,7 +305,7 @@ var testDecls = []*Decl{
 				}
 			}
 			if len(failed) > 0 {
-				return nil, fmt.Errorf("failed assertions: %v", failed)
+				return nil, fmt.Errorf("%v failed assertion %s%v", loc.Position, loc.Ident, failed)
 			}
 			return values.Unit, nil
 		},
@@ -320,7 +320,7 @@ var testDecls = []*Decl{
 			list := args[0].(values.List)
 			for i := range list {
 				if !list[i].(bool) {
-					return false, nil
+					return false, fmt.Errorf("%v failed assertion %s[%d]", loc.Position, loc.Ident, i)
 				}
 			}
 			return true, nil

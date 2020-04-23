@@ -1,0 +1,3 @@
+val lib = make("./lib.rf")
+
+val Test = lib.AssertErr7(1, 2, "string")

@@ -1,0 +1,12 @@
+val test = make("$/test")
+
+func AssertErr7(a, b int, c string) = {
+    // do
+    // something
+    // here
+	s := {a, b, c}
+	test.Assert([
+		s.a == 1,
+		s.b == 3,
+		s.c == "string"])
+}
