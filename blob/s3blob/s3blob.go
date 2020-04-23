@@ -240,7 +240,7 @@ func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 		// a missing object, while HeadObject returns a body-less HTTP 404
 		// error, which is then assigned the fallback HTTP error code
 		// NotFound by the SDK.
-		return reflow.File{}, errors.E("s3blob.File", b.bucket, key, kind(err), err)
+		return reflow.File{}, errors.E(debugHint("s3blob.File", err), b.bucket, key, kind(err), err)
 	}
 	return reflow.File{
 		Source:       fmt.Sprintf("s3://%s/%s", b.bucket, key),
@@ -405,7 +405,7 @@ func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w i
 		}
 	}
 	if err != nil && kind(err) != errors.Canceled {
-		err = errors.E("s3blob.Download", b.bucket, key, kind(err), err)
+		err = errors.E(debugHint("s3blob.Download", err), b.bucket, key, kind(err), err)
 	}
 	return n, err
 }
@@ -414,7 +414,7 @@ func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w i
 func (b *Bucket) Get(ctx context.Context, key, etag string) (io.ReadCloser, reflow.File, error) {
 	resp, err := b.client.GetObject(b.getObjectInput(key, etag))
 	if err != nil {
-		return nil, reflow.File{}, errors.E("s3blob.Get", b.bucket, key, kind(err), err)
+		return nil, reflow.File{}, errors.E(debugHint("s3blob.Get", err), b.bucket, key, kind(err), err)
 	}
 	return resp.Body, reflow.File{
 		Source:       fmt.Sprintf("s3://%s/%s", b.bucket, key),
@@ -472,7 +472,7 @@ func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader
 		}
 	}
 	if err != nil && kind(err) != errors.Canceled {
-		err = errors.E("s3blob.Put", b.bucket, key, kind(err), err)
+		err = errors.E(debugHint("s3blob.Put", err), b.bucket, key, kind(err), err)
 	}
 	return err
 }
@@ -517,7 +517,7 @@ func (b *Bucket) Snapshot(ctx context.Context, prefix string) (reflow.Fileset, e
 func (b *Bucket) Copy(ctx context.Context, src, dst string, contentHash string) error {
 	err := b.copyObject(ctx, dst, b, src, contentHash)
 	if err != nil {
-		err = errors.E("s3blob.Copy", b.bucket, src, dst, kind(err), err)
+		err = errors.E(debugHint("s3blob.Copy", err), b.bucket, src, dst, kind(err), err)
 	}
 	return err
 }
@@ -531,7 +531,7 @@ func (b *Bucket) CopyFrom(ctx context.Context, srcBucket blob.Bucket, src, dst s
 	}
 	err := b.copyObject(ctx, dst, srcB, src, "")
 	if err != nil {
-		err = errors.E("s3blob.CopyFrom", b.Location(), dst, srcBucket.Location(), src, err)
+		err = errors.E(debugHint("s3blob.CopyFrom", err), b.bucket, b.Location(), dst, srcBucket.Location(), src, err)
 	}
 	return err
 }
@@ -738,4 +738,11 @@ func awsKind(err error) errors.Kind {
 		err = aerr.OrigErr()
 	}
 	return errors.Other
+}
+
+func debugHint(msg string, err error) string {
+	if kind(err) != errors.Other {
+		return msg
+	}
+	return fmt.Sprintf("%s (%T)", msg, err)
 }
