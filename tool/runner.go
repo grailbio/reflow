@@ -545,6 +545,11 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 	return run.State, nil
 }
 
+// GetRunID is a getter for the runID associated with the runner.
+func (r *Runner) GetRunID() taskdb.RunID {
+	return r.RunID
+}
+
 // UploadBundle generates a bundle and updates taskdb with its digest. If the bundle does not already exist in taskdb,
 // uploadBundle caches it.
 func (r *Runner) uploadBundle(ctx context.Context, repo reflow.Repository, tdb taskdb.TaskDB, runID taskdb.RunID, e Eval, file string, args []string) error {
