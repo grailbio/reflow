@@ -109,7 +109,7 @@ type Assoc interface {
 
 	// CollectWithThreshold removes from this assoc any objects whose keys are not in the
 	// liveset and is either in the dead set or its creation times are not more recent than the threshold time.
-	CollectWithThreshold(ctx context.Context, live, dead liveset.Liveset, kind Kind, threshold time.Time, rate int64, dryrun bool) error
+	CollectWithThreshold(ctx context.Context, live, dead liveset.Liveset, threshold time.Time, rate int64, dryrun bool) error
 
 	// Count returns an estimate of the number of associations in this mapping.
 	Count(ctx context.Context) (int64, error)

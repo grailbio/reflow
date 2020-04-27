@@ -287,5 +287,5 @@ preceded by ! is negated.
 	c.must(repo.CollectWithThreshold(ctx, bloomlive.New(valueFilter), deadValueFilter, threshold, *dryRunFlag))
 
 	// Garbage collect the association using the keys liveset
-	c.must(ass.CollectWithThreshold(ctx, bloomlive.New(keyFilter), deadKeyFilter, assoc.Fileset, threshold, *rateFlag, *dryRunFlag))
+	c.must(ass.CollectWithThreshold(ctx, bloomlive.New(keyFilter), deadKeyFilter, threshold, *rateFlag, *dryRunFlag))
 }

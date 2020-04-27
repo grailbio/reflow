@@ -637,3 +637,84 @@ func TestAssocScan(t *testing.T) {
 		t.Errorf("last access time past threshold: got %v, want %v", got, want)
 	}
 }
+
+type testSet map[digest.Digest]struct{}
+
+func (t testSet) Contains(k digest.Digest) bool {
+	_, ok := t[k]
+	return ok
+}
+
+func TestCollectWithThreshold(t *testing.T) {
+	var (
+		ctx              = context.Background()
+		db               = &mockdb{}
+		ass              = &Assoc{DB: db, TableName: mockTable}
+		threshold        = time.Unix(1000000, 0)
+		liveset, deadset = make(testSet), make(testSet)
+		keepKeys         = []digest.Digest{reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), reflow.Digester.Rand(nil)}
+	)
+
+	for _, tt := range []struct {
+		name               string
+		key                digest.Digest
+		lastAccessTimeUnix string
+		liveset, deadset   bool
+	}{
+		{"livesetAfterThreshold", keepKeys[0], "1000001", true, false},
+		{"livesetBeforeThreshold", keepKeys[1], "999999", true, false},
+		{"deadsetBeforeThreshold", reflow.Digester.Rand(nil), "999998", false, true},
+		{"deadsetAfterThreshold", reflow.Digester.Rand(nil), "1000002", false, true},
+		{"noSetBeforeThreshold", reflow.Digester.Rand(nil), "999997", false, false},
+		{"noSetAfterThreshold", keepKeys[2], "1000003", false, false},
+	} {
+		entry := mockEntry{
+			Attributes: map[string]*dynamodb.AttributeValue{
+				"ID":             {S: aws.String(tt.key.String())},
+				"LastAccessTime": {N: aws.String(tt.lastAccessTimeUnix)},
+			},
+		}
+		db.mockStore = append(db.mockStore, entry)
+		if tt.liveset {
+			liveset[tt.key] = struct{}{}
+		}
+		if tt.deadset {
+			deadset[tt.key] = struct{}{}
+		}
+	}
+	if got, want := len(db.mockStore), 6; got != want {
+		t.Fatalf("got %d mock entries, want %d", got, want)
+	}
+
+	if err := ass.CollectWithThreshold(ctx, liveset, deadset, threshold, 300, true); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := len(db.mockStore), 6; got != want {
+		t.Fatalf("got %d mock entries, want %d", got, want)
+	}
+	// Allow db to be scanned for a non-dry run.
+	db.dbscanned = false
+
+	if err := ass.CollectWithThreshold(ctx, liveset, deadset, threshold, 300, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := len(db.mockStore), 3; got != want {
+		t.Fatalf("got %d mock entries, want %d", got, want)
+	}
+	for _, v := range db.mockStore {
+		key, err := reflow.Digester.Parse(*v.Attributes["ID"].S)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var keyValid bool
+		for _, keepKey := range keepKeys {
+			if keepKey == key {
+				keyValid = true
+				break
+			}
+		}
+		if !keyValid {
+			t.Errorf("key %s not found in remaining keys", key)
+		}
+	}
+}

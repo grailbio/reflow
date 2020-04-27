@@ -597,30 +597,24 @@ func (a *Assoc) BatchGet(ctx context.Context, batch assoc.Batch) error {
 
 const updaterConcurrency = 10
 
-// cell identifies a row,col we want to remove.
-type cell struct {
-	K    digest.Digest
-	Kind assoc.Kind
-}
-
 type updater struct {
-	cells chan *cell
-	a     *Assoc
-	rate  int64
+	keys chan digest.Digest
+	a    *Assoc
+	rate int64
 }
 
 func (u *updater) Go(ctx context.Context) error {
 	rl := rate.NewLimiter(rate.Limit(u.rate), 1)
 	g, ctx := errgroup.WithContext(ctx)
-	retries := make(chan *cell, updaterConcurrency+1)
+	retries := make(chan digest.Digest, updaterConcurrency+1)
 	for i := 0; i < updaterConcurrency; i++ {
 		g.Go(func() error {
 			for {
-				var c *cell
+				var d digest.Digest
 				select {
-				case c = <-retries:
-				case c = <-u.cells:
-					if c == nil {
+				case d = <-retries:
+				case d = <-u.keys:
+					if d.IsZero() {
 						return nil
 					}
 				case <-ctx.Done():
@@ -630,7 +624,7 @@ func (u *updater) Go(ctx context.Context) error {
 				if err != nil {
 					return err
 				}
-				err = u.a.Store(ctx, c.Kind, c.K, digest.Digest{})
+				err = u.a.Delete(ctx, d)
 				if awserr, ok := err.(awserr.Error); ok {
 					switch awserr.Code() {
 					case "ThrottlingException", "ProvisionedThroughputExceededException":
@@ -638,12 +632,15 @@ func (u *updater) Go(ctx context.Context) error {
 						// Writes to u.cells can block all threads and deadlock (since we have
 						// an external writer). Write to a separate channel that only the
 						// updater threads know about.
-						retries <- c
+						retries <- d
 					default:
 						return err
 					}
 				}
-				if err != nil {
+				// An errors.NotExist from a non-aws error indicates that
+				// the key (d) does not exist in the assoc. This specific
+				// error should not prevent the deletion of other keys.
+				if err != nil && !errors.Is(errors.NotExist, err) {
 					return err
 				}
 			}
@@ -672,14 +669,14 @@ func (c *counter) Get() int64 {
 
 // CollectWithThreshold removes from this Assoc any objects whose keys are not in the
 // liveset and have not been accessed more recently than the liveset's threshold
-func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, dead liveset.Liveset, kind assoc.Kind, threshold time.Time, rate int64, dryRun bool) error {
+func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, dead liveset.Liveset, threshold time.Time, rate int64, dryRun bool) error {
 	log.Debug("Collecting association")
 	scanner := newScanner(a)
 
 	var itemsCheckedCount, liveItemsCount, afterThresholdCount, itemsCollectedCount, deadFilterCount counter
 	start := time.Now()
 
-	updater := &updater{cells: make(chan *cell), a: a, rate: rate}
+	updater := &updater{keys: make(chan digest.Digest), a: a, rate: rate}
 	errch := make(chan error)
 	if !dryRun {
 		go func() {
@@ -716,7 +713,7 @@ func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, 
 				liveItemsCount.Add(1)
 			} else if remove {
 				if !dryRun {
-					updater.cells <- &cell{d, kind}
+					updater.keys <- d
 				}
 				itemsCollectedCount.Add(1)
 				deadFilterCount.Add(1)
@@ -724,7 +721,7 @@ func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, 
 				afterThresholdCount.Add(1)
 			} else {
 				if !dryRun {
-					updater.cells <- &cell{d, kind}
+					updater.keys <- d
 				}
 				itemsCollectedCount.Add(1)
 			}
@@ -732,7 +729,7 @@ func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, 
 		return nil
 	}))
 	if !dryRun {
-		close(updater.cells)
+		close(updater.keys)
 		<-errch
 	}
 
