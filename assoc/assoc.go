@@ -117,9 +117,7 @@ type Assoc interface {
 	// Scan calls the handler function for every association in the mapping.
 	// Note that the handler function may be called asynchronously from multiple threads.
 	Scan(ctx context.Context, kind Kind, handler MappingHandler) error
-}
 
-// Delete deletes the key k unconditionally from the provided assoc.
-func Delete(ctx context.Context, assoc Assoc, kind Kind, k digest.Digest) error {
-	return assoc.Store(ctx, kind, k, digest.Digest{})
+	// Delete deletes the key k unconditionally from the provided assoc.
+	Delete(ctx context.Context, k digest.Digest) error
 }

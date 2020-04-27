@@ -38,7 +38,7 @@ type mockEntry struct {
 
 type mockdb struct {
 	dynamodbiface.DynamoDBAPI
-	MockStore []mockEntry
+	mockStore []mockEntry
 	dbscanned bool
 	muScan    sync.Mutex
 
@@ -51,6 +51,26 @@ func (m *mockdb) NumUpdates() int {
 	m.muUpdate.Lock()
 	defer m.muUpdate.Unlock()
 	return m.numUpdates
+}
+
+func (m *mockdb) DeleteItemWithContext(ctx aws.Context, input *dynamodb.DeleteItemInput, options ...request.Option) (*dynamodb.DeleteItemOutput, error) {
+	key, ok := input.Key["ID"]
+	if !ok {
+		panic("key missing")
+	}
+	for i, entry := range m.mockStore {
+		entry, ok := entry.Attributes["ID"]
+		if !ok {
+			continue
+		}
+		if *entry.S == *key.S {
+			m.mockStore = append(m.mockStore[:i], m.mockStore[i+1:]...)
+			return &dynamodb.DeleteItemOutput{
+				Attributes: input.Key,
+			}, nil
+		}
+	}
+	return &dynamodb.DeleteItemOutput{}, nil
 }
 
 func (m *mockdb) BatchGetItemWithContext(ctx aws.Context, input *dynamodb.BatchGetItemInput, options ...request.Option) (*dynamodb.BatchGetItemOutput, error) {
@@ -110,19 +130,51 @@ func (m *mockdb) ScanWithContext(ctx aws.Context, input *dynamodb.ScanInput, opt
 	if m.dbscanned {
 		return output, nil
 	}
-	for i, v := range m.MockStore {
+	for i, v := range m.mockStore {
 		output.Items = append(output.Items, v.Attributes)
-		if i == len(m.MockStore)-1 {
+		if i == len(m.mockStore)-1 {
 			m.dbscanned = true
 		}
 	}
-	count := int64(len(m.MockStore))
+	count := int64(len(m.mockStore))
 	output.Count = &count
 	output.ScannedCount = &count
 	return output, nil
 }
 
 var kinds = []assoc.Kind{assoc.Fileset, assoc.ExecInspect, assoc.Logs, assoc.Bundle}
+
+func TestDelete(t *testing.T) {
+	ctx := context.Background()
+	key := reflow.Digester.Rand(nil)
+	dummyEntry := mockEntry{
+		Attributes: map[string]*dynamodb.AttributeValue{
+			"ID": {
+				S: aws.String(key.String()),
+			},
+		},
+		Kind: assoc.Fileset,
+	}
+	db := &mockdb{
+		mockStore: []mockEntry{dummyEntry},
+	}
+	ass := &Assoc{DB: db, TableName: mockTable}
+
+	badkey := reflow.Digester.Rand(nil)
+	if err := ass.Delete(ctx, badkey); err == nil {
+		t.Fatal("cannot successfully delete key that does not exist")
+	}
+	if got, want := len(db.mockStore), 1; got != want {
+		t.Errorf("got %d entries, want %d", got, want)
+	}
+
+	if err := ass.Delete(ctx, key); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := len(db.mockStore), 0; got != want {
+		t.Errorf("got %d entries, want %d", got, want)
+	}
+}
 
 func TestEmptyKeys(t *testing.T) {
 	var wg sync.WaitGroup
@@ -516,7 +568,7 @@ func TestAssocScan(t *testing.T) {
 			entry.Attributes["Labels"] = &labelsEntry
 		}
 		entry.Attributes["LastAccessTime"] = &dynamodb.AttributeValue{N: aws.String(tt.lastAccessTimeUnix)}
-		db.MockStore = append(db.MockStore, entry)
+		db.mockStore = append(db.mockStore, entry)
 	}
 	var (
 		numFileSets          = new(int)

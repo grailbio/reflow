@@ -51,6 +51,16 @@ const (
 	readcap  = 20
 )
 
+var (
+	colmap = map[assoc.Kind]string{
+		assoc.Fileset:     "Value",
+		assoc.Logs:        "Logs",
+		assoc.Bundle:      "Bundle",
+		assoc.ExecInspect: "ExecInspect",
+	}
+	backOffPolicy = retry.MaxTries(retry.Backoff(2*time.Millisecond, time.Minute, 1), 10)
+)
+
 // Assoc implements a DynamoDB-backed Assoc for use in caches.
 // Each association entry is represented by a DynamoDB
 // item with the attributes "ID" and "Value".
@@ -238,6 +248,31 @@ func (a *Assoc) Store(ctx context.Context, kind assoc.Kind, k, v digest.Digest) 
 	return err
 }
 
+// Delete deletes the key k unconditionally from the provided assoc.
+func (a *Assoc) Delete(ctx context.Context, k digest.Digest) error {
+	input := &dynamodb.DeleteItemInput{
+		Key: map[string]*dynamodb.AttributeValue{
+			"ID": {
+				S: aws.String(k.String()),
+			},
+		},
+		ReturnValues: aws.String("ALL_OLD"),
+		TableName:    aws.String(a.TableName),
+	}
+	output, err := a.DB.DeleteItemWithContext(ctx, input)
+	if err != nil {
+		return err
+	}
+	var keyFound bool
+	if output != nil {
+		_, keyFound = output.Attributes["ID"]
+	}
+	if !keyFound {
+		return errors.E(errors.NotExist, fmt.Errorf("key %s not found", k))
+	}
+	return nil
+}
+
 func (a *Assoc) getUpdateComponents(kind assoc.Kind, k, v digest.Digest) (expr string, av map[string]*dynamodb.AttributeValue, an map[string]*string) {
 	av = make(map[string]*dynamodb.AttributeValue)
 	an = make(map[string]*string)
@@ -300,16 +335,6 @@ func (a *Assoc) getUpdateComponents(kind assoc.Kind, k, v digest.Digest) (expr s
 	}
 	return
 }
-
-var (
-	colmap = map[assoc.Kind]string{
-		assoc.Fileset:     "Value",
-		assoc.Logs:        "Logs",
-		assoc.Bundle:      "Bundle",
-		assoc.ExecInspect: "ExecInspect",
-	}
-	backOffPolicy = retry.MaxTries(retry.Backoff(2*time.Millisecond, time.Minute, 1), 10)
-)
 
 // Get returns the digest associated with key digest k. Lookup
 // returns an error flagged errors.NotExist when no such mapping

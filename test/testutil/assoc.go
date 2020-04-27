@@ -85,3 +85,8 @@ func (a *inmemoryAssoc) Count(ctx context.Context) (int64, error) {
 func (a *inmemoryAssoc) Scan(ctx context.Context, kind assoc.Kind, handler assoc.MappingHandler) error {
 	return errors.E("scan", errors.NotSupported)
 }
+
+// Delete deletes the key k unconditionally from the provided assoc.
+func (a *inmemoryAssoc) Delete(ctx context.Context, k digest.Digest) error {
+	return errors.E("delete", errors.NotSupported)
+}
