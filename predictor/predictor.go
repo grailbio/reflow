@@ -1,4 +1,23 @@
-package sched
+// Copyright 2020 GRAIL, Inc. All rights reserved.
+// Use of this source code is governed by the Apache 2.0
+// license that can be found in the LICENSE file.
+
+// Package predictor implements an exec resource prediction
+// system for reflow.
+//
+// The predictor takes a group of scheduler Tasks and attempts
+// to predict the resource usage of each Task's exec based on
+// previous runs of the exec. The predictor queries taskdb for
+// specific taskGroups--groupings of Tasks which have the same
+// underlying exec. Next, the predictor fetches profiling data
+// from each exec's cached ExecInspect. If the predictor fails
+// to build a model for a specific taskGroup, the predictor
+// will generate a new taskGroup for the Task submitted to the
+// predictor and will retry. If no more taskGroups can be tried,
+// the predictor will not return any predicted resources
+// for the Task.
+
+package predictor
 
 import (
 	"context"
@@ -17,6 +36,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/taskdb"
 )
 
@@ -45,10 +65,10 @@ type Predictor struct {
 	inspectLimiter *limiter.Limiter
 }
 
-// NewPred returns a new Predictor instance. NewPred will panic if either repo or tdb is nil because
+// New returns a new Predictor instance. New will panic if either repo or tdb is nil because
 // a Predictor requires both a taskdb and a repository to function. NewPred will also panic if
 // minData <= 0 because a prediction requires at least one data point.
-func NewPred(repo reflow.Repository, tdb taskdb.TaskDB, log *log.Logger, minData, maxInspect int, memPercentile float64) *Predictor {
+func New(repo reflow.Repository, tdb taskdb.TaskDB, log *log.Logger, minData, maxInspect int, memPercentile float64) *Predictor {
 	if tdb == nil || repo == nil {
 		panic("predictor requires both a repository and a taskdb to function")
 	}
@@ -80,11 +100,11 @@ func NewPred(repo reflow.Repository, tdb taskdb.TaskDB, log *log.Logger, minData
 // Predict returns the predicted Resources of submitted tasks. If Predict fails
 // to predict the Resources of a particular task, it will return no resources
 // for the task.
-func (p *Predictor) Predict(ctx context.Context, tasks ...*Task) map[*Task]reflow.Resources {
+func (p *Predictor) Predict(ctx context.Context, tasks ...*sched.Task) map[*sched.Task]reflow.Resources {
 	// Only predict the resources of tasks of type "exec" because
 	// "exec" tasks are the only tasks with configured resources and
 	// profiling data.
-	predictableTasks := make([]*Task, 0, len(tasks))
+	predictableTasks := make([]*sched.Task, 0, len(tasks))
 	for _, task := range tasks {
 		if task.Config.Type == "exec" {
 			predictableTasks = append(predictableTasks, task)
@@ -97,11 +117,11 @@ func (p *Predictor) Predict(ctx context.Context, tasks ...*Task) map[*Task]reflo
 		maxLevel = len(getTaskGroups(tasks[0]))
 
 		mu     sync.Mutex
-		resMap = make(map[*Task]reflow.Resources)
+		resMap = make(map[*sched.Task]reflow.Resources)
 		// todo keeps track of which tasks do not yet have their resources predicted.
 		// Since all tasks have the same list of taskGroups, all the tasks in todo
 		// can be grouped by their taskGroup's level.
-		todo = newTaskSet(predictableTasks...)
+		todo = sched.NewTaskSet(predictableTasks...)
 	)
 
 	for level := 0; level < maxLevel && todo.Len() > 0; level++ {
@@ -206,47 +226,14 @@ func (p *Predictor) memUsage(ctx context.Context, group taskGroup) (float64, err
 	return maxValuePercentile(profiles, "mem", p.memPercentile), nil
 }
 
-// taskSet is a set of tasks.
-type taskSet map[*Task]bool
-
-// newTaskSet returns a set of tasks.
-func newTaskSet(tasks ...*Task) taskSet {
-	set := make(taskSet)
-	for _, task := range tasks {
-		set[task] = true
-	}
-	return set
-}
-
-// RemoveAll removes tasks from the taskSet.
-func (s taskSet) RemoveAll(tasks ...*Task) {
-	for _, task := range tasks {
-		delete(s, task)
-	}
-}
-
-// Slice returns a slice containing the tasks in the taskSet.
-func (s taskSet) Slice() []*Task {
-	var tasks = make([]*Task, 0, len(s))
-	for task := range s {
-		tasks = append(tasks, task)
-	}
-	return tasks
-}
-
-// Len returns the number of tasks in the taskSet.
-func (s taskSet) Len() int {
-	return len(s)
-}
-
 // groupByLevel maps all tasks by their respective taskGroups at the specified level.
 // groupByLevel assumes all tasks have the same number of taskGroups.
-func groupByLevel(tasks []*Task, level int) map[taskGroup][]*Task {
-	groupSetMap := make(map[taskGroup][]*Task)
+func groupByLevel(tasks []*sched.Task, level int) map[taskGroup][]*sched.Task {
+	groupSetMap := make(map[taskGroup][]*sched.Task)
 	for _, task := range tasks {
 		group := getTaskGroups(task)[level]
 		if _, ok := groupSetMap[group]; !ok {
-			groupSetMap[group] = make([]*Task, 0)
+			groupSetMap[group] = make([]*sched.Task, 0)
 		}
 		groupSetMap[group] = append(groupSetMap[group], task)
 	}

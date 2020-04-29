@@ -1,3 +1,7 @@
+// Copyright 2020 GRAIL, Inc. All rights reserved.
+// Use of this source code is governed by the Apache 2.0
+// license that can be found in the LICENSE file.
+
 package tool
 
 import (
@@ -36,6 +40,7 @@ import (
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
+	"github.com/grailbio/reflow/predictor"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/repository/blobrepo"
 	repositoryhttp "github.com/grailbio/reflow/repository/http"
@@ -232,7 +237,7 @@ func NewRunner(runConfig RunConfig, scheduler *sched.Scheduler, logger *log.Logg
 		return nil, err
 	}
 
-	var predictor *sched.Predictor
+	var pred *predictor.Predictor
 	if runConfig.RunFlags.Sched {
 		if scheduler != nil {
 			mux = scheduler.Mux
@@ -307,7 +312,7 @@ func NewRunner(runConfig RunConfig, scheduler *sched.Scheduler, logger *log.Logg
 		}
 
 		if usePredictor {
-			predictor = sched.NewPred(repo, tdb, logger.Tee(nil, "predictor: "), minData, maxInspect, memPercentile)
+			pred = predictor.New(repo, tdb, logger.Tee(nil, "predictor: "), minData, maxInspect, memPercentile)
 		} else if !usePredictor && runConfig.RunFlags.Pred {
 			logger.Errorf("error while configuring predictor: %s", predFailureMessage)
 		}
@@ -316,7 +321,7 @@ func NewRunner(runConfig RunConfig, scheduler *sched.Scheduler, logger *log.Logg
 		runConfig:   runConfig,
 		RunID:       taskdb.NewRunID(),
 		scheduler:   scheduler,
-		predictor:   predictor,
+		predictor:   pred,
 		schedCancel: schedCancel,
 		Log:         logger,
 		wg:          &wg,
@@ -355,7 +360,7 @@ type Runner struct {
 
 	runConfig   RunConfig
 	scheduler   *sched.Scheduler
-	predictor   *sched.Predictor
+	predictor   *predictor.Predictor
 	schedCancel context.CancelFunc
 	cmdline     string
 	wg          *wg.WaitGroup

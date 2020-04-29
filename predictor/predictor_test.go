@@ -1,4 +1,8 @@
-package sched
+// Copyright 2020 GRAIL, Inc. All rights reserved.
+// Use of this source code is governed by the Apache 2.0
+// license that can be found in the LICENSE file.
+
+package predictor
 
 import (
 	"bytes"
@@ -16,6 +20,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/taskdb"
 )
 
@@ -95,7 +100,7 @@ func (m *mockrepo) Put(_ context.Context, r io.Reader) (digest.Digest, error) {
 }
 
 // generateTasks returns a taskdb task, a sched task, and their corresponding ExecInspect.
-func generateTasks(image, cmd, ident string, usedResource float64) (taskdb.Task, *Task, reflow.ExecInspect) {
+func generateTasks(image, cmd, ident string, usedResource float64) (taskdb.Task, *sched.Task, reflow.ExecInspect) {
 	config := reflow.ExecConfig{
 		Ident: ident,
 		Image: image,
@@ -123,7 +128,7 @@ func generateTasks(image, cmd, ident string, usedResource float64) (taskdb.Task,
 		Ident:    config.Ident,
 		Inspect:  reflow.Digester.FromBytes(b),
 	}
-	taskSched := Task{
+	taskSched := sched.Task{
 		ID:     id,
 		Config: config,
 	}
@@ -136,12 +141,12 @@ func generateTasks(image, cmd, ident string, usedResource float64) (taskdb.Task,
 // the same taskGroup for the given level. Valid levels are 0 for imgCmdGroups and 1 for identGroups. Any other
 // level will result in a panic. All taskGroups at a different valid level other than the specified level will be
 // unique for each task.
-func generateData(t *testing.T, ctx context.Context, repo reflow.Repository, tdb *mockdb, level int) ([]*Task, taskGroup) {
-	tasks := make([]*Task, numTasks)
+func generateData(t *testing.T, ctx context.Context, repo reflow.Repository, tdb *mockdb, level int) ([]*sched.Task, taskGroup) {
+	tasks := make([]*sched.Task, numTasks)
 	for i := 0; i < numTasks; i++ {
 		var (
 			tdbTask   taskdb.Task
-			schedTask *Task
+			schedTask *sched.Task
 			inspect   reflow.ExecInspect
 		)
 		// In order to ensure that the selected taskGroup type is being used for querying and model building,
@@ -199,7 +204,7 @@ func TestNewPred(t *testing.T) {
 		{newMockRepo(), newMockdb(), logger, 1, 2, -1},
 	} {
 		defer r(tt.repo, tt.tdb, tt.minData, tt.maxInspect, tt.memPercentile)
-		_ = NewPred(tt.repo, tt.tdb, tt.log, tt.minData, tt.maxInspect, tt.memPercentile)
+		_ = New(tt.repo, tt.tdb, tt.log, tt.minData, tt.maxInspect, tt.memPercentile)
 	}
 }
 
@@ -211,7 +216,7 @@ func TestPredictImgCmdID(t *testing.T) {
 	)
 	tasks, _ := generateData(t, ctx, repo, tdb, 0)
 
-	pred := NewPred(repo, tdb, nil, defaultMinData, defaultMaxInspect, defaultMemPercentile)
+	pred := New(repo, tdb, nil, defaultMinData, defaultMaxInspect, defaultMemPercentile)
 
 	for i := 0; i < numTasks; i++ {
 		if got, want := tasks[i].Config.Resources["mem"], float64(20); got != want {
@@ -239,7 +244,7 @@ func TestPredictIdent(t *testing.T) {
 	)
 	tasks, _ := generateData(t, ctx, repo, tdb, 1)
 
-	pred := NewPred(repo, tdb, nil, defaultMinData, defaultMaxInspect, defaultMemPercentile)
+	pred := New(repo, tdb, nil, defaultMinData, defaultMaxInspect, defaultMemPercentile)
 
 	for i := 0; i < numTasks; i++ {
 		if got, want := tasks[i].Config.Resources["mem"], float64(20); got != want {
@@ -271,7 +276,7 @@ func TestPredictMultiGroup(t *testing.T) {
 	})
 	// Append a task whose resources cannot be predicted with the cached profiling data.
 	// The total number of tasks will now be numTasks + 1.
-	tasks = append(tasks, &Task{
+	tasks = append(tasks, &sched.Task{
 		ID: taskdb.NewTaskID(),
 		Config: reflow.ExecConfig{
 			Ident: "badident",
@@ -283,7 +288,7 @@ func TestPredictMultiGroup(t *testing.T) {
 
 	// Since minData is set to 1 and each task has a unique imgCmdID, there will be 20
 	// imgCmdIDs and 20 unique predictions (1, 2, 3..., 20).
-	pred := NewPred(repo, tdb, nil, 1, defaultMaxInspect, defaultMemPercentile)
+	pred := New(repo, tdb, nil, 1, defaultMaxInspect, defaultMemPercentile)
 
 	for i := 0; i < numTasks; i++ {
 		if got, want := tasks[i].Config.Resources["mem"], float64(20); got != want {
@@ -331,7 +336,7 @@ func TestMemUsage(t *testing.T) {
 		ctx  = context.Background()
 	)
 
-	pred := NewPred(repo, tdb, nil, defaultMinData, defaultMaxInspect, defaultMemPercentile)
+	pred := New(repo, tdb, nil, defaultMinData, defaultMaxInspect, defaultMemPercentile)
 
 	tasks, group := generateData(t, ctx, repo, tdb, 0)
 	for i := 0; i < numTasks; i++ {
@@ -356,7 +361,7 @@ func TestMemUsageNoMem(t *testing.T) {
 		ctx  = context.Background()
 	)
 
-	pred := NewPred(repo, tdb, nil, defaultMinData, defaultMaxInspect, defaultMemPercentile)
+	pred := New(repo, tdb, nil, defaultMinData, defaultMaxInspect, defaultMemPercentile)
 
 	tasks, group := generateData(t, ctx, repo, tdb, 0)
 	for i := 0; i < numTasks; i++ {
@@ -382,54 +387,6 @@ func TestMemUsageNoMem(t *testing.T) {
 	_, err := pred.memUsage(ctx, group)
 	if err == nil {
 		t.Fatalf("cannot predict memory if no mem Profile data is available")
-	}
-}
-
-func newTasks(numTasks int) []*Task {
-	tasks := make([]*Task, numTasks)
-	for i := 0; i < numTasks; i++ {
-		tasks[i] = &Task{
-			ID: taskdb.NewTaskID(),
-			Config: reflow.ExecConfig{
-				Type: "exec",
-			},
-		}
-	}
-	return tasks
-}
-
-func TestTaskSet(t *testing.T) {
-	var (
-		tasks = newTasks(numTasks)
-		set   = newTaskSet(tasks...)
-	)
-	sort.Slice(tasks, func(i, j int) bool {
-		return tasks[i].ID.ID() < tasks[j].ID.ID()
-	})
-	if got, want := set.Len(), len(tasks); got != want {
-		t.Errorf("set len: got %d tasks, want %d", got, want)
-	}
-
-	taskSlice := set.Slice()
-	sort.Slice(taskSlice, func(i, j int) bool {
-		return taskSlice[i].ID.ID() < taskSlice[j].ID.ID()
-	})
-	if got, want := len(tasks), len(taskSlice); got != want {
-		t.Errorf("set slice: got %d tasks, want %d", got, want)
-	}
-	for i := range taskSlice {
-		if got, want := taskSlice[i].ID.ID(), tasks[i].ID.ID(); got != want {
-			t.Errorf("set slice index %d: got %s, want %s", i, got, want)
-		}
-	}
-
-	taskID := tasks[0].ID
-	set.RemoveAll(tasks[0])
-	if got, want := set.Len(), len(tasks)-1; got != want {
-		t.Errorf("set delete: got %d tasks, want %d", got, want)
-	}
-	if got, want := tasks[0].ID.ID(), taskID.ID(); got != want {
-		t.Errorf("set delete altered task: got %s, want %s", got, want)
 	}
 }
 

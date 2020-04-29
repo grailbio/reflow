@@ -61,6 +61,19 @@ func newTask(cpu, mem float64, priority int) *sched.Task {
 	return task
 }
 
+func newTasks(numTasks int) []*sched.Task {
+	tasks := make([]*sched.Task, numTasks)
+	for i := 0; i < numTasks; i++ {
+		tasks[i] = &sched.Task{
+			ID: taskdb.NewTaskID(),
+			Config: reflow.ExecConfig{
+				Type: "exec",
+			},
+		}
+	}
+	return tasks
+}
+
 func newRequirements(cpu, mem float64, width int) reflow.Requirements {
 	return reflow.Requirements{
 		Min:   reflow.Resources{"cpu": cpu, "mem": mem},

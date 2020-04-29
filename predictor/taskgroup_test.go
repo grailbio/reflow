@@ -1,9 +1,14 @@
-package sched
+// Copyright 2020 GRAIL, Inc. All rights reserved.
+// Use of this source code is governed by the Apache 2.0
+// license that can be found in the LICENSE file.
+
+package predictor
 
 import (
 	"testing"
 
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/taskdb"
 )
 
@@ -13,7 +18,7 @@ func TestGetTaskGroups(t *testing.T) {
 		cmd      = "cmd"
 		ident    = "ident"
 		imgCmdID = taskdb.NewImgCmdID(img, cmd)
-		task     = &Task{
+		task     = &sched.Task{
 			Config: reflow.ExecConfig{
 				Image: img,
 				Cmd:   cmd,

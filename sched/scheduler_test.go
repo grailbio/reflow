@@ -7,6 +7,7 @@ package sched_test
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"testing"
 
@@ -592,4 +593,39 @@ func TestSchedulerLoadUnloadFiles(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	expectExists(t, repo, out)
+}
+
+func TestTaskSet(t *testing.T) {
+	var (
+		tasks = newTasks(20)
+		set   = sched.NewTaskSet(tasks...)
+	)
+	sort.Slice(tasks, func(i, j int) bool {
+		return tasks[i].ID.ID() < tasks[j].ID.ID()
+	})
+	if got, want := set.Len(), len(tasks); got != want {
+		t.Errorf("set len: got %d tasks, want %d", got, want)
+	}
+
+	taskSlice := set.Slice()
+	sort.Slice(taskSlice, func(i, j int) bool {
+		return taskSlice[i].ID.ID() < taskSlice[j].ID.ID()
+	})
+	if got, want := len(tasks), len(taskSlice); got != want {
+		t.Errorf("set slice: got %d tasks, want %d", got, want)
+	}
+	for i := range taskSlice {
+		if got, want := taskSlice[i].ID.ID(), tasks[i].ID.ID(); got != want {
+			t.Errorf("set slice index %d: got %s, want %s", i, got, want)
+		}
+	}
+
+	taskID := tasks[0].ID
+	set.RemoveAll(tasks[0])
+	if got, want := set.Len(), len(tasks)-1; got != want {
+		t.Errorf("set delete: got %d tasks, want %d", got, want)
+	}
+	if got, want := tasks[0].ID.ID(), taskID.ID(); got != want {
+		t.Errorf("set delete altered task: got %s, want %s", got, want)
+	}
 }

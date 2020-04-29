@@ -133,6 +133,39 @@ func (t *Task) set(state TaskState) {
 	t.mu.Unlock()
 }
 
+// TaskSet is a set of tasks.
+type TaskSet map[*Task]bool
+
+// newTaskSet returns a set of tasks.
+func NewTaskSet(tasks ...*Task) TaskSet {
+	set := make(TaskSet)
+	for _, task := range tasks {
+		set[task] = true
+	}
+	return set
+}
+
+// RemoveAll removes tasks from the taskSet.
+func (s TaskSet) RemoveAll(tasks ...*Task) {
+	for _, task := range tasks {
+		delete(s, task)
+	}
+}
+
+// Slice returns a slice containing the tasks in the taskSet.
+func (s TaskSet) Slice() []*Task {
+	var tasks = make([]*Task, 0, len(s))
+	for task := range s {
+		tasks = append(tasks, task)
+	}
+	return tasks
+}
+
+// Len returns the number of tasks in the taskSet.
+func (s TaskSet) Len() int {
+	return len(s)
+}
+
 // Taskq defines a priority queue of tasks, ordered by
 // scaled resource distance.
 type taskq []*Task

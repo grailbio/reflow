@@ -1,6 +1,13 @@
-package sched
+// Copyright 2020 GRAIL, Inc. All rights reserved.
+// Use of this source code is governed by the Apache 2.0
+// license that can be found in the LICENSE file.
 
-import "github.com/grailbio/reflow/taskdb"
+package predictor
+
+import (
+	"github.com/grailbio/reflow/sched"
+	"github.com/grailbio/reflow/taskdb"
+)
 
 // queryLimit is a soft limit on the number of tasks
 // that a taskdb query can return.
@@ -57,7 +64,7 @@ func (i identGroup) Query() taskdb.TaskQuery {
 
 // getTaskGroups returns a slice of taskGroups in order of
 // decreasing specificity (imgCmdGroup > identGroup).
-func getTaskGroups(task *Task) []taskGroup {
+func getTaskGroups(task *sched.Task) []taskGroup {
 	return []taskGroup{
 		imgCmdGroup{imgCmdID: taskdb.NewImgCmdID(task.Config.Image, task.Config.Cmd)},
 		identGroup{ident: task.Config.Ident},

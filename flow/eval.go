@@ -35,6 +35,7 @@ import (
 	"github.com/grailbio/reflow/liveset/bloomlive"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
+	"github.com/grailbio/reflow/predictor"
 	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/trace"
@@ -98,7 +99,7 @@ type EvalConfig struct {
 
 	// Predictor is used to predict the tasks' resource usage. It
 	// will only be used if a Scheduler is defined.
-	Predictor *sched.Predictor
+	Predictor *predictor.Predictor
 
 	// Snapshotter is used to snapshot source URLs into unloaded
 	// filesets. If non-nil, then files are delay-loaded.
