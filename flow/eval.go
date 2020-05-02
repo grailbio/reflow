@@ -522,6 +522,10 @@ func (e *Eval) Do(ctx context.Context) error {
 					// submit directly to the scheduler.
 					e.Mutate(f, NeedSubmit)
 				}
+			} else if f.Op.External() && f.MustIntern {
+				// TODO(pgopal/swami): Remove this (see https://phabricator.grailbio.com/D45057).
+				// This check was adedd to ensure MustIntern flows work properly in evaluator mode.
+				e.Mutate(f, Ready)
 			}
 
 			switch f.State {
