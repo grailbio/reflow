@@ -21,6 +21,7 @@ import (
 	_ "github.com/grailbio/infra/aws"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
+	"github.com/grailbio/reflow/flow"
 	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
@@ -40,6 +41,16 @@ type mockdb struct {
 	MockStore []mockEntry
 	dbscanned bool
 	muScan    sync.Mutex
+
+	muUpdate   sync.Mutex
+	numUpdates int
+}
+
+// NumUpdates is the total of recorded calls to UpdateWithContext.
+func (m *mockdb) NumUpdates() int {
+	m.muUpdate.Lock()
+	defer m.muUpdate.Unlock()
+	return m.numUpdates
 }
 
 func (m *mockdb) BatchGetItemWithContext(ctx aws.Context, input *dynamodb.BatchGetItemInput, options ...request.Option) (*dynamodb.BatchGetItemOutput, error) {
@@ -84,6 +95,9 @@ func (m *mockdb) BatchGetItemWithContext(ctx aws.Context, input *dynamodb.BatchG
 }
 
 func (m *mockdb) UpdateItemWithContext(ctx aws.Context, input *dynamodb.UpdateItemInput, opts ...request.Option) (*dynamodb.UpdateItemOutput, error) {
+	m.muUpdate.Lock()
+	m.numUpdates++
+	m.muUpdate.Unlock()
 	return nil, nil
 }
 
@@ -111,8 +125,10 @@ func (m *mockdb) ScanWithContext(ctx aws.Context, input *dynamodb.ScanInput, opt
 var kinds = []assoc.Kind{assoc.Fileset, assoc.ExecInspect, assoc.Logs, assoc.Bundle}
 
 func TestEmptyKeys(t *testing.T) {
-	ctx := context.Background()
-	ass := &Assoc{DB: &mockdb{}, TableName: mockTable}
+	var wg sync.WaitGroup
+	ctx, _ := flow.WithBackground(context.Background(), &wg)
+	db := &mockdb{}
+	ass := &Assoc{DB: db, TableName: mockTable}
 	keys := make(assoc.Batch)
 	err := ass.BatchGet(ctx, keys)
 	if err != nil {
@@ -121,11 +137,17 @@ func TestEmptyKeys(t *testing.T) {
 	if got, want := len(keys), 0; got != want {
 		t.Errorf("expected %d values, got %v", want, got)
 	}
+	wg.Wait()
+	if got, want := db.NumUpdates(), 0; got != want {
+		t.Errorf("got %d updates, want %d", got, want)
+	}
 }
 
 func TestSimpleBatchGetItem(t *testing.T) {
-	ctx := context.Background()
-	ass := &Assoc{DB: &mockdb{}, TableName: mockTable}
+	var wg sync.WaitGroup
+	ctx, _ := flow.WithBackground(context.Background(), &wg)
+	db := &mockdb{}
+	ass := &Assoc{DB: db, TableName: mockTable}
 	k := reflow.Digester.Rand(nil)
 	key := assoc.Key{Kind: assoc.Fileset, Digest: k}
 	batch := assoc.Batch{key: assoc.Result{}}
@@ -139,11 +161,17 @@ func TestSimpleBatchGetItem(t *testing.T) {
 	if got, want := batch[key].Digest, k; batch.Found(key) && got != want {
 		t.Errorf("want %v, got %v", got, want)
 	}
+	wg.Wait()
+	if got, want := db.NumUpdates(), 1; got != want {
+		t.Errorf("got %d updates, want %d", got, want)
+	}
 }
 
 func TestMultiKindBatchGetItem(t *testing.T) {
-	ctx := context.Background()
-	ass := &Assoc{DB: &mockdb{}, TableName: mockTable}
+	var wg sync.WaitGroup
+	ctx, _ := flow.WithBackground(context.Background(), &wg)
+	db := &mockdb{}
+	ass := &Assoc{DB: db, TableName: mockTable}
 	k := reflow.Digester.Rand(nil)
 	keys := []assoc.Key{{assoc.Fileset, k}, {assoc.ExecInspect, k}}
 	batch := make(assoc.Batch)
@@ -161,12 +189,26 @@ func TestMultiKindBatchGetItem(t *testing.T) {
 	if got, want := batch[keys[1]].Digest, k; batch.Found(keys[0]) && got != want {
 		t.Errorf("want %v, got %v", got, want)
 	}
+	wg.Wait()
+	if got, want := db.NumUpdates(), 2; got != want {
+		t.Errorf("got %d updates, want %d", got, want)
+	}
 }
 
 type mockdbunprocessed struct {
 	dynamodbiface.DynamoDBAPI
 	maxRetries int
 	retries    int
+
+	mu         sync.Mutex
+	numUpdates int
+}
+
+// NumUpdates is the total of recorded calls to UpdateWithContext.
+func (m *mockdbunprocessed) NumUpdates() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.numUpdates
 }
 
 func (m *mockdbunprocessed) BatchGetItemWithContext(ctx aws.Context, input *dynamodb.BatchGetItemInput, options ...request.Option) (*dynamodb.BatchGetItemOutput, error) {
@@ -224,10 +266,19 @@ func (m *mockdbunprocessed) BatchGetItemWithContext(ctx aws.Context, input *dyna
 	return o, nil
 }
 
+func (m *mockdbunprocessed) UpdateItemWithContext(ctx aws.Context, input *dynamodb.UpdateItemInput, opts ...request.Option) (*dynamodb.UpdateItemOutput, error) {
+	m.mu.Lock()
+	m.numUpdates++
+	m.mu.Unlock()
+	return nil, nil
+}
+
 func TestParallelBatchGetItem(t *testing.T) {
-	ctx := context.Background()
-	ass := &Assoc{DB: &mockdbunprocessed{maxRetries: 10}, TableName: mockTable}
+	var wg sync.WaitGroup
+	ctx, _ := flow.WithBackground(context.Background(), &wg)
 	count := 10 * 1024
+	db := &mockdbunprocessed{maxRetries: 10}
+	ass := &Assoc{DB: db, TableName: mockTable}
 	digests := make([]assoc.Key, count)
 
 	for i := 0; i < count; i++ {
@@ -288,11 +339,25 @@ func TestParallelBatchGetItem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	wg.Wait()
+	if got, want := db.NumUpdates(), count; got != want {
+		t.Errorf("got %d updated entries, want %d", got, want)
+	}
 }
 
 type mockdbInvalidDigest struct {
 	dynamodbiface.DynamoDBAPI
 	invalidDigestCol string
+
+	mu         sync.Mutex
+	numUpdates int
+}
+
+// NumUpdates is the total of recorded calls to UpdateWithContext.
+func (m *mockdbInvalidDigest) NumUpdates() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.numUpdates
 }
 
 func (m *mockdbInvalidDigest) BatchGetItemWithContext(ctx aws.Context, input *dynamodb.BatchGetItemInput, options ...request.Option) (*dynamodb.BatchGetItemOutput, error) {
@@ -330,6 +395,13 @@ func (m *mockdbInvalidDigest) BatchGetItemWithContext(ctx aws.Context, input *dy
 	return o, nil
 }
 
+func (m *mockdbInvalidDigest) UpdateItemWithContext(ctx aws.Context, input *dynamodb.UpdateItemInput, opts ...request.Option) (*dynamodb.UpdateItemOutput, error) {
+	m.mu.Lock()
+	m.numUpdates++
+	m.mu.Unlock()
+	return nil, nil
+}
+
 func TestInvalidDigest(t *testing.T) {
 	batch := make(assoc.Batch)
 	for i := 0; i < 1000; i++ {
@@ -341,8 +413,11 @@ func TestInvalidDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, kind := range kinds {
-		ass := &Assoc{DB: &mockdbInvalidDigest{invalidDigestCol: colmap[kind]}, TableName: mockTable}
-		err := ass.BatchGet(context.Background(), batch)
+		db := &mockdbInvalidDigest{invalidDigestCol: colmap[kind]}
+		ass := &Assoc{DB: db, TableName: mockTable}
+		var wg sync.WaitGroup
+		ctx, cancel := flow.WithBackground(context.Background(), &wg)
+		err := ass.BatchGet(ctx, batch)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -362,6 +437,11 @@ func TestInvalidDigest(t *testing.T) {
 		if got, want := errCount, 250; got != want {
 			t.Errorf(fmt.Sprintf("expected %v invalid digest keys, got %v", want, got))
 		}
+		wg.Wait()
+		if got, want := db.NumUpdates(), 1000-errCount; got != want {
+			t.Errorf("got %d updates, want %d", got, want)
+		}
+		cancel()
 	}
 }
 

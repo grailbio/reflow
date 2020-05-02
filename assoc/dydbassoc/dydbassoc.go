@@ -30,6 +30,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/liveset"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
@@ -515,11 +516,53 @@ func (a *Assoc) BatchGet(ctx context.Context, batch assoc.Batch) error {
 	if err != nil {
 		return err
 	}
+	var cacheKeys = make([]digest.Digest, 0, len(batches))
 	for _, b := range batches {
 		for k, v := range b {
+			if v.Error == nil {
+				cacheKeys = append(cacheKeys, k.Digest)
+			}
 			batch[k] = v
 		}
 	}
+	if len(cacheKeys) <= 0 {
+		return nil
+	}
+
+	// Asynchronously update LastAccessTime and AccessCount for each accessed key.
+	updateCtx := flow.Background(ctx)
+	go func() {
+		_ = traverse.Each(len(cacheKeys), func(i int) error {
+			if err := a.Limiter.Acquire(updateCtx, 1); err != nil {
+				return nil
+			}
+			defer a.Limiter.Release(1)
+			input := &dynamodb.UpdateItemInput{
+				Key: map[string]*dynamodb.AttributeValue{
+					"ID": {
+						S: aws.String(cacheKeys[i].String()),
+					},
+				},
+				TableName:        aws.String(a.TableName),
+				UpdateExpression: aws.String("SET LastAccessTime = :time ADD AccessCount :one"),
+				ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+					":time": {N: aws.String(fmt.Sprint(time.Now().Unix()))},
+					":one":  {N: aws.String("1")},
+				},
+			}
+			_, err := a.DB.UpdateItemWithContext(updateCtx, input)
+			if err != nil && err != updateCtx.Err() {
+				awserr, ok := err.(awserr.Error)
+				// The AWS SDK decides to override context cancellation
+				// with its own non-standard error.
+				if !ok || awserr.Code() != "RequestCanceled" {
+					log.Errorf("dynamodb: update %v: %v", cacheKeys[i], err)
+				}
+			}
+			return nil
+		})
+		updateCtx.Complete()
+	}()
 	return nil
 }
 
