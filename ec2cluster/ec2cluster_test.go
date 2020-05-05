@@ -13,13 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/grailbio/reflow/test/testutil"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/grailbio/infra"
-	_ "github.com/grailbio/infra/aws"
+	_ "github.com/grailbio/infra/aws/test"
 	"github.com/grailbio/infra/tls"
 	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
@@ -226,7 +224,6 @@ func setEquals(t *testing.T, msg string, gots, wants []string) {
 }
 
 func TestClusterInfra(t *testing.T) {
-	testutil.SkipIfNoCreds(t)
 	const bootstrapImage = "https://some_s3_path"
 	validateBootstrap = func(burl string, _ header) error {
 		if burl != bootstrapImage {
@@ -255,7 +252,7 @@ func TestClusterInfra(t *testing.T) {
         labels: kv
         tls: tls,file=/tmp/ca
         logger: logger
-        session: awssession
+        session: fakesession
         user: user
         bootstrap: bootstrapimage,uri=` + bootstrapImage + `
         reflow: reflowversion,version=abcdef

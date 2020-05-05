@@ -27,11 +27,11 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/grailbio/base/status"
+	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/infra"
 	"github.com/grailbio/infra/tls"
 	"github.com/grailbio/reflow"
@@ -119,6 +119,8 @@ type Cluster struct {
 	// Configuration for this Reflow instantiation. Used to provide configs to
 	// EC2 instances.
 	Configuration infra.Config `yaml:"-"`
+	// AWS session
+	Session *session.Session `yaml:"-"`
 
 	// User's public SSH key.
 	SshKey string `yaml:"sshkey"`
@@ -146,8 +148,9 @@ type Cluster struct {
 
 	// state maintains the state of the cluster by keeping it in-sync with EC2.
 	state *state
+	wait  chan *waiter
 
-	wait chan *waiter
+	initOnce once.Task
 }
 
 type header interface {
@@ -205,14 +208,11 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	transport := &http.Transport{TLSClientConfig: clientConfig}
 	http2.ConfigureTransport(transport)
 	httpClient := &http.Client{Transport: transport}
-	svc := ec2.New(sess, &aws.Config{MaxRetries: aws.Int(13)})
+
 	if reflowVersion.Value() == "" {
 		return errors.New("no version specified in cluster configuration")
 	}
-	if err := validateBootstrap(bootstrapimage.Value(), http.DefaultClient); err != nil {
-		return errors.E(errors.Fatal, fmt.Sprintf("bootstrap image: %s", bootstrapimage.Value()), err)
-	}
-	c.EC2 = svc
+
 	c.Authenticator = ec2authenticator.New(sess)
 	c.HTTPClient = httpClient
 	c.Log = logger.Tee(nil, "ec2cluster: ")
@@ -223,6 +223,8 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	c.BootstrapImage = bootstrapimage.Value()
 	c.ReflowVersion = string(*reflowVersion)
 	c.SshKey = sshKey.Value()
+	c.Session = sess
+
 	if c.MaxInstances == 0 {
 		c.MaxInstances = defaultMaxInstances
 	}
@@ -237,25 +239,6 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	qtags["cluster"] = c.Name
 	c.InstanceTags = qtags
 
-	if err := c.initialize(); err != nil {
-		return err
-	}
-	return nil
-}
-
-type waiter struct {
-	reflow.Requirements
-	ctx context.Context
-	c   chan struct{}
-}
-
-func (w *waiter) Notify() {
-	close(w.c)
-}
-
-// Initialize initializes the cluster's data structures. It must be called
-// before use. Init also starts maintenance goroutines.
-func (c *Cluster) initialize() error {
 	if c.MaxInstances == 0 {
 		return errors.New("missing max instances parameter")
 	}
@@ -292,6 +275,26 @@ func (c *Cluster) initialize() error {
 		return errors.New("no configured instance types")
 	}
 	c.instanceState = newInstanceState(configs, 5*time.Minute, c.Region)
+	return nil
+}
+
+type waiter struct {
+	reflow.Requirements
+	ctx context.Context
+	c   chan struct{}
+}
+
+func (w *waiter) Notify() {
+	close(w.c)
+}
+
+// VerifyAndInitialize verifies any configuration settings and runs the maintenance goroutines.
+func (c *Cluster) verifyAndInitialize() error {
+	if err := validateBootstrap(c.BootstrapImage, http.DefaultClient); err != nil {
+		err = errors.E(errors.Fatal, fmt.Sprintf("bootstrap image: %s", c.BootstrapImage), err)
+		return err
+	}
+	c.EC2 = ec2.New(c.Session, &aws.Config{MaxRetries: aws.Int(13)})
 	// TODO(swami):  Pass through a context from somewhere upstream as appropriate.
 	ctx := context.Background()
 	c.state = &state{c: c}
@@ -307,6 +310,10 @@ func (c *Cluster) initialize() error {
 // the request, it is returned immediately; otherwise new instance(s)
 // are spun up to handle the allocation.
 func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (alloc pool.Alloc, err error) {
+	if err = c.initOnce.Do(func() error { return c.verifyAndInitialize() }); err != nil {
+		return
+	}
+
 	c.Log.Debugf("allocate %s", req)
 	if !c.instanceState.Available(req.Min) {
 		return nil, errors.E(errors.ResourcesExhausted,
@@ -382,6 +389,9 @@ func (c *Cluster) allocate(ctx context.Context, req reflow.Requirements) <-chan 
 // A non-nil error means that the reflowlet failed to come up on this instance type.  The error
 // could be due to context deadline, in case we gave up waiting for it to come up.
 func (c *Cluster) Probe(ctx context.Context, instanceType string) (time.Duration, error) {
+	if err := c.initOnce.Do(func() error { return c.verifyAndInitialize() }); err != nil {
+		return time.Duration(0), err
+	}
 	config := c.instanceConfigs[instanceType]
 	i := c.newInstance(config, config.Price[c.Region])
 probe:
