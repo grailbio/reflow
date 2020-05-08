@@ -154,7 +154,14 @@ func (r *Repository) ReadFrom(ctx context.Context, id digest.Digest, u *url.URL)
 			if err != nil {
 				return nil, err
 			}
-			return nil, r.InstallDigest(id, temp.Name())
+			f, err := r.Install(temp.Name())
+			if err != nil {
+				return nil, err
+			}
+			if id != f.ID {
+				return nil, errors.E("readfrom", u.String(), errors.Integrity, errors.Errorf("%v != %v", id, f.ID))
+			}
+			return nil, nil
 		}
 
 		rc, err := repo.Get(ctx, id)
@@ -171,6 +178,9 @@ func (r *Repository) ReadFrom(ctx context.Context, id digest.Digest, u *url.URL)
 		}
 		return nil, nil
 	})
+	if err != nil {
+		r.Log.Debug(err)
+	}
 	return err
 }
 

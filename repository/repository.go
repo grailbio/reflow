@@ -11,8 +11,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"sync"
+	"time"
+
+	"github.com/grailbio/base/retry"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
@@ -23,6 +27,7 @@ import (
 var (
 	mu       sync.Mutex
 	diallers = map[string]func(*url.URL) (reflow.Repository, error){}
+	retrier  = retry.MaxTries(retry.Backoff(20*time.Millisecond, 100*time.Millisecond, 1.5), 3)
 )
 
 // RegisterScheme associates a dialler with a URL scheme.
@@ -55,13 +60,48 @@ func Dial(rawurl string) (reflow.Repository, error) {
 	return dial(u)
 }
 
-// Transfer attempts to transfer an object from one repository to
+// Transfer attempts to transfer an object from src to dst repository with retries on errors.
+func Transfer(ctx context.Context, dst, src reflow.Repository, id digest.Digest) (err error) {
+	for retries := 0; ; retries++ {
+		if err = doTransfer(ctx, dst, src, id); !retryTransfer(err) {
+			break
+		}
+		log.Printf("transfer %v from %s -> %s: %v", id, repoName(src), repoName(dst), err)
+		if rerr := retry.Wait(ctx, retrier, retries); rerr != nil {
+			break
+		}
+	}
+	return
+}
+
+// retryTransfer returns whether the given error is retryable in the context of a transfer.
+func retryTransfer(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Transient(err) {
+		return true
+	}
+	if errors.Is(errors.Integrity, err) {
+		return true
+	}
+	return false
+}
+
+func repoName(r reflow.Repository) string {
+	if u := r.URL(); u != nil {
+		return fmt.Sprintf("%v", u)
+	}
+	return fmt.Sprintf("%T", r)
+}
+
+// doTransfer attempts to transfer an object from one repository to
 // another. It attempts to achieve this via direct transfer, but
 // falling back to copying when necessary.
 //
 // BUG(marius): Transfer (or the underyling repositories) should ensure
 // that progress is made.
-func Transfer(ctx context.Context, dst, src reflow.Repository, id digest.Digest) error {
+func doTransfer(ctx context.Context, dst, src reflow.Repository, id digest.Digest) error {
 	if u := src.URL(); u != nil {
 		err := dst.ReadFrom(ctx, id, u)
 		switch {

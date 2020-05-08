@@ -15,6 +15,8 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/grailbio/reflow/errors"
+
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/liveset/bloomlive"
@@ -128,6 +130,38 @@ func TestReadFrom(t *testing.T) {
 	if got, want := string(body1), body; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
+	if err := src.Complete(); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestReadFromDigestMismatch(t *testing.T) {
+	ctx := context.Background()
+	r, cleanup := newTestRepository(t)
+	defer cleanup()
+	er := testutil.NewExpectRepository(t, "src://foobar")
+	src := &testutil.ExpectGetFilerRepository{er}
+	repository.RegisterScheme("src", func(u *url.URL) (reflow.Repository, error) { return src, nil })
+	defer repository.UnregisterScheme("src")
+
+	const body = "hello world"
+	const body2 = "hello corrupt world"
+	id := reflow.Digester.FromString(body)
+	src.Expect(testutil.RepositoryCall{
+		Kind:   testutil.RepositoryGetFile,
+		ArgID:  id,
+		ReplyN: int64(len(body2)),
+	})
+	err := r.ReadFrom(ctx, id, src.URL())
+	if err == nil {
+		t.Fatal("got no error, want integrity error")
+	}
+	if !errors.Is(errors.Integrity, err) {
+		t.Fatalf("got %v error, want integrity error", err)
+	}
+	if err := src.Complete(); err != nil {
+		t.Error(err)
+	}
 }
 
 func TestWriteTo(t *testing.T) {
@@ -152,6 +186,9 @@ func TestWriteTo(t *testing.T) {
 	})
 	if err := r.WriteTo(ctx, id, dst.URL()); err != nil {
 		t.Fatal(err)
+	}
+	if err := dst.Complete(); err != nil {
+		t.Error(err)
 	}
 }
 

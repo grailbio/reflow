@@ -190,6 +190,7 @@ const (
 	RepositoryStat
 	RepositoryWriteTo
 	RepositoryReadFrom
+	RepositoryGetFile
 )
 
 // RepositoryCall describes a single call to a Repository: its
@@ -206,6 +207,7 @@ type RepositoryCall struct {
 	ReplyFile       reflow.File
 	ReplyErr        error
 	ReplyReadCloser io.ReadCloser
+	ReplyN          int64
 }
 
 // ExpectRepository is a Repository implementation used for
@@ -318,6 +320,20 @@ func (*ExpectRepository) Collect(context.Context, liveset.Liveset) error {
 
 // URL returns the repository's URL.
 func (r *ExpectRepository) URL() *url.URL { return r.RepoURL }
+
+// ExpectGetFilerRepository is an ExpectRepository which also implements GetFile.
+type ExpectGetFilerRepository struct {
+	*ExpectRepository
+}
+
+// GetFile implements the repository's GetFile call.
+func (r *ExpectGetFilerRepository) GetFile(_ context.Context, id digest.Digest, w io.WriterAt) (int64, error) {
+	call := RepositoryCall{Kind: RepositoryGetFile, ArgID: id}
+	if err := r.call(&call); err != nil {
+		return 0, err
+	}
+	return call.ReplyN, call.ReplyErr
+}
 
 // panicRepository is an unimplemented Repository.
 type panicRepository struct{}
