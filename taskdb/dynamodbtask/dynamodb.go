@@ -166,6 +166,10 @@ type TaskDB struct {
 	limiter *limiter.Limiter
 }
 
+func (t *TaskDB) String() string {
+	return fmt.Sprintf("%T,TableName=%s,Labels=%s", t, t.TableName, strings.Join(t.Labels, ","))
+}
+
 // Help implements infra.Provider.
 func (TaskDB) Help() string {
 	return "configure a dynamodb table to store run/task information"

@@ -78,6 +78,10 @@ type Assoc struct {
 	labels     []*string `yaml:"-"`
 }
 
+func (a *Assoc) String() string {
+	return fmt.Sprintf("%T,TableName=%s", a, a.TableName)
+}
+
 // Help implements infra.Provider.
 func (a *Assoc) Help() string {
 	return "configure an assoc using the provided DynamoDB table name"

@@ -188,7 +188,24 @@ func (e EvalConfig) String() string {
 	if e.Snapshotter != nil {
 		fmt.Fprintf(&b, " snapshotter %T", e.Snapshotter)
 	}
-	fmt.Fprintf(&b, " transferer %T", e.Transferer)
+	if e.Transferer != nil {
+		fmt.Fprintf(&b, " transferer %T", e.Transferer)
+	}
+	repo := fmt.Sprintf("%T", e.Repository)
+	if u := e.Repository.URL(); u != nil {
+		repo += fmt.Sprintf(",url=%s", u)
+	}
+	fmt.Fprintf(&b, " repository %s", repo)
+	if e.Assoc != nil {
+		fmt.Fprintf(&b, " assoc %s", e.Assoc)
+	}
+	if e.TaskDB != nil {
+		fmt.Fprintf(&b, " taskdb %s", e.TaskDB)
+	}
+	if e.Predictor != nil {
+		fmt.Fprintf(&b, " predictor %T", e.Predictor)
+	}
+
 	var flags []string
 	if e.NoCacheExtern {
 		flags = append(flags, "nocacheextern")

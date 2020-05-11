@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/url"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/grailbio/base/digest"
@@ -266,7 +267,11 @@ func (r *Repository) CollectWithThreshold(ctx context.Context, live liveset.Live
 //
 //	<type>://bucket/prefix
 func (r *Repository) URL() *url.URL {
-	u, err := url.Parse(r.Bucket.Location() + "/" + r.Prefix)
+	loc := r.Bucket.Location()
+	if !strings.HasSuffix(loc, "/") {
+		loc += "/"
+	}
+	u, err := url.Parse(loc + r.Prefix)
 	if err != nil {
 		panic(err)
 	}
