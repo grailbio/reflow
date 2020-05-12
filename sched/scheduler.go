@@ -547,12 +547,12 @@ func (s *Scheduler) directTransfer(ctx context.Context, task *Task) {
 	if task.Err != nil {
 		taskLogger.Error(task.Err)
 	}
-	task.set(TaskDone)
 	if s.TaskDB != nil && task.Result.Err == nil {
 		if err := s.TaskDB.SetTaskResult(ctx, task.ID, task.Result.Fileset.Digest()); err != nil {
 			taskLogger.Errorf("taskdb settaskresult: %v", err)
 		}
 	}
+	task.set(TaskDone)
 }
 
 func requirements(tasks []*Task) reflow.Requirements {
