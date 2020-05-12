@@ -275,7 +275,7 @@ func NewRunner(runConfig RunConfig, scheduler *sched.Scheduler, logger *log.Logg
 		if usePredictor {
 			if err = runConfig.Config.Instance(&tdb); err != nil || tdb == nil {
 				usePredictor = false
-				predFailureMessage = "no taskdb available"
+				predFailureMessage = fmt.Sprintf("no taskdb available: %s", err)
 			}
 		}
 
@@ -287,12 +287,11 @@ func NewRunner(runConfig RunConfig, scheduler *sched.Scheduler, logger *log.Logg
 			var predConfig *reflowinfra.PredictorConfig
 			if err = runConfig.Config.Instance(&predConfig); err != nil || predConfig == nil {
 				usePredictor = false
-				predFailureMessage = "no predconfig available"
+				predFailureMessage = fmt.Sprintf("no predconfig available: %s", err)
 			} else {
 				minData = predConfig.MinData
 				maxInspect = predConfig.MaxInspect
 				memPercentile = predConfig.MemPercentile
-				predFailureMessage = fmt.Sprintf("bad predconfig value: %d not > 0", minData)
 			}
 		}
 
@@ -300,7 +299,7 @@ func NewRunner(runConfig RunConfig, scheduler *sched.Scheduler, logger *log.Logg
 		if usePredictor {
 			if err = runConfig.Config.Instance(&sess); err != nil || sess == nil {
 				usePredictor = false
-				predFailureMessage = "no session available"
+				predFailureMessage = fmt.Sprintf("no session available: %s", err)
 			} else if md := ec2metadata.New(sess, &aws2.Config{MaxRetries: aws2.Int(3)}); !md.Available() {
 				usePredictor = false
 				predFailureMessage = "reflow controller not running on ec2 instance"
