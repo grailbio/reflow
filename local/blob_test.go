@@ -226,6 +226,28 @@ func TestS3ExecInternPrefixError(t *testing.T) {
 	}
 }
 
+func TestS3ExecInternContentHashError(t *testing.T) {
+	const (
+		bucket = "testbucket"
+		prefix = "prefix/"
+	)
+	s3x, client, _, cleanup := newS3Test(t, bucket, prefix, intern)
+	defer cleanup()
+
+	file := getFile("a/b", true)
+	badcontent := file.path + "something"
+	badSha := reflow.Digester.FromString(badcontent).String()
+	client.SetFile(prefix+file.path, []byte(badcontent), file.sha256)
+	ctx := context.Background()
+	res, err := executeAndGetResultAndError(ctx, t, s3x)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := res.Err.Error(), fmt.Sprintf("intern s3://testbucket/prefix/: integrity error: digest %v (expected) != %v (actual)", file.sha256, badSha); got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
 func TestS3ExecExternPrefix(t *testing.T) {
 	const (
 		bucket = "testbucket"

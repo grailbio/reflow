@@ -611,9 +611,13 @@ func (d *download) Do(ctx context.Context, repo *filerepo.Repository) (reflow.Fi
 	digestingFiles.Add(1)
 	file, err := repo.Install(filename)
 	digestingFiles.Add(-1)
-	if err == nil && file.Size != d.File.Size {
-		err = errors.E(errors.Integrity,
-			errors.Errorf("expected size %d does not match actual size %d", d.File.Size, file.Size))
+	if err == nil {
+		if !d.File.ContentHash.IsZero() && file.ID != d.File.ContentHash {
+			err = errors.E(errors.Integrity, fmt.Errorf("digest %v (expected) != %v (actual)", d.File.ContentHash, file.ID))
+		}
+		if file.Size != d.File.Size {
+			err = errors.E(errors.Integrity, fmt.Errorf("size %d (expected) != %d (actual)", d.File.Size, file.Size))
+		}
 	}
 	if err != nil {
 		d.Log.Errorf("install %s%s: %v", d.Bucket.Location(), d.Key, err)
