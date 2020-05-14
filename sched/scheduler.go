@@ -114,7 +114,8 @@ func (s *Scheduler) Submit(tasks ...*Task) {
 	for _, task := range tasks {
 		task.Log.Debugf("submitted with %v", task.Config)
 	}
-	s.submitc <- tasks
+	tasksCopy := append([]*Task{}, tasks...)
+	s.submitc <- tasksCopy
 }
 
 // ExportStats exports scheduler stats as expvars.
