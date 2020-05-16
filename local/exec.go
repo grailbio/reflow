@@ -21,6 +21,8 @@ const (
 	execComplete                   // the Docker container has completed running; the results are available
 )
 
+const errExecNotComplete = "exec not complete"
+
 type exec interface {
 	reflow.Exec
 	Go(context.Context)

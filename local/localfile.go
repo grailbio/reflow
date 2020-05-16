@@ -147,7 +147,7 @@ func (e *localfileExec) Result(ctx context.Context) (reflow.Result, error) {
 		return reflow.Result{}, err
 	}
 	if state != execComplete {
-		return reflow.Result{}, errors.Errorf("result %v: exec not complete", e.id)
+		return reflow.Result{}, errors.Errorf("result %v: %s", e.id, errExecNotComplete)
 	}
 	return reflow.Result{Fileset: e.fs}, nil
 }

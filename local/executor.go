@@ -287,11 +287,30 @@ func (e *Executor) Put(ctx context.Context, id digest.Digest, cfg reflow.ExecCon
 		e.mu.Unlock()
 		return nil, errors.E("put", id, errors.NotExist)
 	}
+
+	var x exec
 	if obj := e.execs[id]; obj != nil {
-		e.mu.Unlock()
-		return obj, nil
+		res, err := obj.Result(ctx)
+		// Will return an existing obj only if either
+		// - there was no error during its execution and the result wasn't an error
+		// - or the only error we got back signifies that the obj isn't complete yet.
+		if err == nil && res.Err == nil {
+			x = obj
+		} else if err != nil && strings.Contains(err.Error(), errExecNotComplete) {
+			x = obj
+		} else {
+			e.Log.Debugf("put %s overwriting existing exec: %s", id.Short(), obj.URI())
+			if err := obj.Kill(ctx); err != nil {
+				e.Log.Debugf("kill existing %s: %v", id, err)
+			}
+			delete(e.execs, id)
+		}
 	}
-	var exec exec
+	if x != nil {
+		e.mu.Unlock()
+		return x, nil
+	}
+
 	switch cfg.Type {
 	case intern, extern:
 		u, err := url.Parse(cfg.URL)
@@ -301,7 +320,7 @@ func (e *Executor) Put(ctx context.Context, id digest.Digest, cfg reflow.ExecCon
 		}
 		switch u.Scheme {
 		case "localfile":
-			exec = newLocalfileExec(id, e, cfg)
+			x = newLocalfileExec(id, e, cfg)
 		default:
 			_, stderr := e.getRemoteStreams(id, false, true)
 			blob := &blobExec{
@@ -312,16 +331,16 @@ func (e *Executor) Put(ctx context.Context, id digest.Digest, cfg reflow.ExecCon
 			}
 			blob.Config = cfg
 			blob.Init(e)
-			exec = blob
+			x = blob
 		}
 	default:
 		stdout, stderr := e.getRemoteStreams(id, true, true)
-		exec = newDockerExec(id, e, cfg, log.New(stdout, log.InfoLevel), log.New(stderr, log.InfoLevel))
+		x = newDockerExec(id, e, cfg, log.New(stdout, log.InfoLevel), log.New(stderr, log.InfoLevel))
 	}
-	e.execs[id] = exec
+	e.execs[id] = x
 	e.mu.Unlock()
-	go exec.Go(e.ctx)
-	return exec, exec.WaitUntil(execInit)
+	go x.Go(e.ctx)
+	return x, x.WaitUntil(execInit)
 }
 
 // Get returns the exec named ID, or an errors.NotExist if the exec
@@ -701,6 +720,9 @@ func (e *Executor) install(ctx context.Context, path string, replace bool, repo 
 		path, relpath, size := w.Path(), w.Relpath(), w.Info().Size()
 		g.Go(func() error {
 			file, err := repo.Install(path)
+			if err != nil {
+				return err
+			}
 			mu.Lock()
 			val.Map[relpath] = reflow.File{ID: file.ID, Size: size}
 			mu.Unlock()

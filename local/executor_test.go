@@ -272,11 +272,12 @@ func TestExecRestore(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 	id := reflow.Digester.FromString("sleepy")
-	exec, err := x.Put(ctx, id, reflow.ExecConfig{
+	cfg := reflow.ExecConfig{
 		Type:  "exec",
 		Image: bashImage,
-		Cmd:   "sleep 2",
-	})
+		Cmd:   "sleep 1",
+	}
+	exec, err := x.Put(ctx, id, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,10 +300,91 @@ func TestExecRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := exec.Wait(ctx); err != nil {
+	if _, err = exec.Result(ctx); err == nil {
+		t.Fatal(err)
+	} else if !strings.Contains(err.Error(), errExecNotComplete) {
+		t.Fatalf("got %v want %v", err, errExecNotComplete)
+	}
+	if err = exec.Wait(ctx); err != nil {
 		t.Fatal(err)
 	}
 	res, err := exec.Result(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Err != nil {
+		t.Fatal(res.Err)
+	}
+
+	// Now let's put again and confirm we don't have to wait for the result
+	exec, err = x.Put(ctx, id, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Unfortunately all exec implementations don't do anything with the ctx passed to Wait
+	// so we can't rely on context cancellation errors to test that the exec wasn't run again.
+	// So we simply see how long it takes for Wait to return.
+	start := time.Now()
+	if err := exec.Wait(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if dur := time.Now().Sub(start); dur > 10*time.Millisecond {
+		t.Fatalf("took too long: %s", dur)
+	}
+	res, err = exec.Result(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Err != nil {
+		t.Fatal(res.Err)
+	}
+}
+
+// TestExecPutAgainOnError simulates an executor re-doing a failed exec.
+func TestExecPutAgainOnError(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+	x, cleanup := newTestExecutorOrSkip(t, nil)
+	defer cleanup()
+	ctx := context.Background()
+	id := reflow.Digester.FromString("sleepy")
+	cfg := reflow.ExecConfig{
+		Type:  "exec",
+		Image: bashImage,
+		Cmd:   "sleep 1 && false",
+	}
+	exec, err := x.Put(ctx, id, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = exec.Wait(ctx); err != nil {
+		t.Fatal(err)
+	}
+	res, err := exec.Result(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Err == nil {
+		t.Fatal("did not get error")
+	}
+	if got, wantsubstr := res.Err.Error(), "exited with code 1"; !strings.Contains(got, wantsubstr) {
+		t.Fatalf("got %v, want substr %v", got, wantsubstr)
+	}
+
+	// Now let's put again and confirm success
+	exec, err = x.Put(ctx, id, reflow.ExecConfig{
+		Type:  "exec",
+		Image: bashImage,
+		Cmd:   "echo hello",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = exec.Wait(ctx); err != nil {
+		t.Fatal(err)
+	}
+	res, err = exec.Result(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

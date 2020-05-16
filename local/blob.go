@@ -494,7 +494,7 @@ func (e *blobExec) Result(ctx context.Context) (reflow.Result, error) {
 		return reflow.Result{}, err
 	}
 	if state != execComplete {
-		return reflow.Result{}, errors.Errorf("result %v: exec not complete", e.ExecID)
+		return reflow.Result{}, errors.Errorf("result %v: %s", e.ExecID, errExecNotComplete)
 	}
 	return e.Manifest.Result, nil
 }
