@@ -709,8 +709,11 @@ func awsKind(err error) errors.Kind {
 		// Best guess based on Amazon's descriptions:
 		switch aerr.Code() {
 		// Code NotFound is not documented, but it's what the API actually returns.
-		case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey, "NoSuchVersion", "NotFound":
+		case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey, "NoSuchVersion":
 			return errors.NotExist
+		case "NotFound":
+			// Treat as temporary because sometimes they are, due to S3's eventual consistency model
+			return errors.Temporary
 		case "AccessDenied":
 			return errors.NotAllowed
 		case "InvalidRequest", "InvalidArgument", "EntityTooSmall", "EntityTooLarge", "KeyTooLong", "MethodNotAllowed":

@@ -366,6 +366,7 @@ func TestShouldRetry(t *testing.T) {
 		{context.DeadlineExceeded, true},
 		{errors.E("test", errors.Temporary), true},
 		{awserr.New("RequestTimeout", "test", nil), true},
+		{awserr.New("NotFound", "something not found", nil), true},
 	} {
 		if got, want := retryable(tc.err), tc.want; got != want {
 			t.Errorf("got %v, want %v: %v", got, want, tc.err)
