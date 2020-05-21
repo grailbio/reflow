@@ -25,6 +25,9 @@ func (c *Cluster) Setup(sess *session.Session) error {
 	if c.MaxInstances == 0 {
 		c.MaxInstances = 10
 	}
+	if c.MaxPendingInstances == 0 {
+		c.MaxPendingInstances = 5
+	}
 	if len(c.InstanceTypes) == 0 {
 		for _, instance := range instances.Types {
 			c.InstanceTypes = append(c.InstanceTypes, instance.Name)

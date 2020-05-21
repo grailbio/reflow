@@ -106,7 +106,9 @@ type Cluster struct {
 	// ReflowVersion is the version of reflow binary compatible with this cluster.
 	ReflowVersion string `yaml:"-"`
 	// MaxInstances is the maximum number of concurrent instances permitted.
-	MaxInstances int `yaml:"-"`
+	MaxInstances int `yaml:"maxinstances"`
+	// MaxPendingInstances is the maximum number of pending instances permitted.
+	MaxPendingInstances int `yaml:"maxpendinginstances"`
 	// DiskType is the EBS disk type to use.
 	DiskType string `yaml:"disktype"`
 	// DiskSpace is the number of GiB of disk space to allocate for each node.
@@ -444,7 +446,6 @@ func (c *Cluster) newInstance(config instanceConfig, price float64) *instance {
 
 // loop services requests to expand the cluster's capacity.
 func (c *Cluster) loop() {
-	const maxPending = 5
 	var (
 		waiters  []*waiter
 		pending  reflow.Resources
@@ -545,7 +546,7 @@ func (c *Cluster) loop() {
 			needPoll = true
 			goto sleep
 		}
-		for len(todo) > 0 && npending < maxPending && n+npending < c.MaxInstances {
+		for len(todo) > 0 && npending < c.MaxPendingInstances && n+npending < c.MaxInstances {
 			var config instanceConfig
 			config, todo = todo[0], todo[1:]
 			pending.Add(pending, config.Resources)
