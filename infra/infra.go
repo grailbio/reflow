@@ -29,6 +29,7 @@ func init() {
 	infra.Register("reflowletconfig", new(ReflowletConfig))
 	infra.Register("docker", new(DockerConfig))
 	infra.Register("predictorconfig", new(PredictorConfig))
+	infra.Register("testpredictorconfig", new(PredictorTestConfig))
 }
 
 // Reflow infra schema key names.
@@ -479,12 +480,18 @@ type PredictorConfig struct {
 	// MemPercentile is the percentile that will
 	// be used to predict memory usage for all tasks.
 	MemPercentile float64 `yaml:"mempercentile"`
+	// NonEC2Ok determines if the predictor should
+	// run on any machine. If set to false, the predictor
+	// will only work when 'reflow run' is invoked from
+	// an EC2 instance
+	NonEC2Ok bool `yaml:"alwaysrun"`
 }
 
 var DefaultPredictorConfig = PredictorConfig{
 	MinData:       5,
 	MaxInspect:    50,
 	MemPercentile: 95,
+	NonEC2Ok:      false,
 }
 
 // Help implements infra.Provider.
@@ -496,7 +503,6 @@ func (p PredictorConfig) Help() string {
 func (p *PredictorConfig) Init() error {
 	if p == nil || *p == (PredictorConfig{}) {
 		*p = DefaultPredictorConfig
-		return nil
 	}
 	if p.MinData < 1 {
 		return fmt.Errorf("mindata %d is less than 1", p.MinData)
@@ -512,5 +518,36 @@ func (p *PredictorConfig) Init() error {
 
 // InstanceConfig implements infra.Provider.
 func (p *PredictorConfig) InstanceConfig() interface{} {
+	return p
+}
+
+type PredictorTestConfig struct {
+	*PredictorConfig
+}
+
+var DefaultPredictorTestConfig = PredictorTestConfig{
+	&PredictorConfig{
+		MinData:       1,
+		MaxInspect:    50,
+		MemPercentile: 95,
+		NonEC2Ok:      true,
+	},
+}
+
+// Help implements infra.Provider.
+func (p PredictorTestConfig) Help() string {
+	return "config for testing the reflow resource prediction system"
+}
+
+// Init implements infra.Provider.
+func (p *PredictorTestConfig) Init() error {
+	if p == nil || *p == (PredictorTestConfig{}) {
+		*p = DefaultPredictorTestConfig
+	}
+	return p.PredictorConfig.Init()
+}
+
+// InstanceConfig implements infra.Provider.
+func (p *PredictorTestConfig) InstanceConfig() interface{} {
 	return p
 }
