@@ -772,6 +772,16 @@ func (f *Flow) ExecConfig() reflow.ExecConfig {
 
 		image, aws, docker := ImageQualifiers(f.Image)
 		_, aws2, docker2 := ImageQualifiers(f.OriginalImage)
+		// Make a copy of all slices and maps passed to the
+		// ExecConfig. This will prevent flow properties
+		// from being unsafely modified if the ExecConfig is
+		// manually changed, like it is after resource Prediction.
+		var (
+			reserved    = make(reflow.Resources)
+			outputIsDir = make([]bool, len(f.OutputIsDir))
+		)
+		reserved.Set(f.Reserved)
+		copy(outputIsDir, f.OutputIsDir)
 		return reflow.ExecConfig{
 			Type:             "exec",
 			Ident:            f.Ident,
@@ -781,8 +791,8 @@ func (f *Flow) ExecConfig() reflow.ExecConfig {
 			NeedDockerAccess: docker || docker2,
 			Cmd:              f.Cmd,
 			Args:             args,
-			Resources:        f.Reserved,
-			OutputIsDir:      f.OutputIsDir,
+			Resources:        reserved,
+			OutputIsDir:      outputIsDir,
 		}
 	default:
 		panic("no exec config for op " + f.Op.String())

@@ -2429,7 +2429,7 @@ func (e *Eval) reviseResources(ctx context.Context, tasks ...*sched.Task) {
 			}
 			// Never allocate a task less memory than the minimum allocatable exec memory.
 			task.Config.Resources["mem"] = math.Max(task.Config.Resources["mem"], minExecMemory)
-			e.Log.Debugf("task %s: modifying resources from %s to %s", task.ID.IDShort(), oldResources, task.Config.Resources)
+			e.Log.Debugf("task %s (flow %s): modifying resources from %s to %s", task.ID.IDShort(), task.FlowID.Short(), oldResources, task.Config.Resources)
 		}
 	}
 }
