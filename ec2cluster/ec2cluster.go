@@ -444,6 +444,47 @@ func (c *Cluster) newInstance(config instanceConfig, price float64) *instance {
 	}
 }
 
+// getInstanceAllocations returns the instances needed to satisfy the waiters.
+// It uses a greedy algorithm to group as many waiter requests as possible into a instance.
+func (c *Cluster) getInstanceAllocations(waiters []*waiter) (todo []instanceConfig) {
+	var resources []reflow.Resources
+	for _, w := range waiters {
+		for i := w.Width; i >= 0; i-- {
+			resources = append(resources, w.Min)
+		}
+	}
+	var (
+		need        reflow.Resources
+		group       int
+		oldMin, min instanceConfig
+		ok          bool
+		i           int
+	)
+	for i < len(resources) {
+		res := resources[i]
+		need.Add(need, res)
+		min, ok = c.instanceState.MinAvailable(need, c.Spot)
+		switch {
+		case group == 0 && !ok:
+			i++
+			need.Set(reflow.Resources{})
+			c.Log.Debugf("no currently available instance type can satisfy resource requirements %v", res)
+		case !ok:
+			todo = append(todo, oldMin)
+			need.Set(reflow.Resources{})
+			group = 0
+		case ok:
+			oldMin = min
+			group++
+			i++
+		}
+	}
+	if group > 0 {
+		todo = append(todo, oldMin)
+	}
+	return
+}
+
 // loop services requests to expand the cluster's capacity.
 func (c *Cluster) loop() {
 	var (
@@ -503,43 +544,7 @@ func (c *Cluster) loop() {
 			i++
 		}
 		needMore := len(waiters) > 0 && i != len(waiters)
-		var todo []instanceConfig
-		for i < len(waiters) {
-			var need reflow.Resources
-			w := waiters[i]
-			need.Add(need, w.Min)
-			i++
-			best, ok := c.instanceState.MinAvailable(need, c.Spot)
-			if !ok {
-				c.Log.Debugf("no currently available instance type can satisfy resource requirements %v", w.Min)
-				continue
-			}
-			// For wide requests, we simply try to find the largest available
-			// instance that will support some portion of the load. We don't
-			// pack more waiters. The workers will attempt to allocate the
-			// whole instance anyway.
-			if w.Width > 0 {
-				for j := 1; j < w.Width; j++ {
-					need.Add(need, w.Min)
-					wbest, ok := c.instanceState.MinAvailable(need, c.Spot)
-					if !ok {
-						break
-					}
-					best = wbest
-				}
-			} else {
-				for i < len(waiters) {
-					need.Add(need, waiters[i].Min)
-					wbest, ok := c.instanceState.MinAvailable(need, c.Spot)
-					if !ok {
-						break
-					}
-					best = wbest
-					i++
-				}
-			}
-			todo = append(todo, best)
-		}
+		todo := c.getInstanceAllocations(waiters[i:])
 		n := c.state.InstancesCount()
 		if needMore && len(todo) == 0 {
 			c.Log.Print("resource requirements are unsatisfiable by current instance selection")

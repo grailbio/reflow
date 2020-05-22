@@ -16,9 +16,11 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/grailbio/base/data"
 	"github.com/grailbio/infra"
 	_ "github.com/grailbio/infra/aws/test"
 	"github.com/grailbio/infra/tls"
+	"github.com/grailbio/reflow"
 	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
@@ -231,18 +233,7 @@ func TestClusterInfra(t *testing.T) {
 		}
 		return nil
 	}
-	var schema = infra.Schema{
-		"labels":    make(pool.Labels),
-		"cluster":   new(runner.Cluster),
-		"tls":       new(tls.Certs),
-		"logger":    new(log.Logger),
-		"session":   new(session.Session),
-		"user":      new(infra2.User),
-		"bootstrap": new(infra2.BootstrapImage),
-		"reflow":    new(infra2.ReflowVersion),
-		"sshkey":    new(infra2.SshKey),
-	}
-
+	var schema = getInfraSchema()
 	for _, tt := range []struct {
 		b        string
 		name, rv string
@@ -321,4 +312,206 @@ func (e *mockHeader) Head(url string) (resp *http.Response, err error) {
 		return nil, e.err
 	}
 	return e.resp, nil
+}
+
+func getInfraSchema() infra.Schema {
+	return infra.Schema{
+		"labels":    make(pool.Labels),
+		"cluster":   new(runner.Cluster),
+		"tls":       new(tls.Certs),
+		"logger":    new(log.Logger),
+		"session":   new(session.Session),
+		"user":      new(infra2.User),
+		"bootstrap": new(infra2.BootstrapImage),
+		"reflow":    new(infra2.ReflowVersion),
+		"sshkey":    new(infra2.SshKey),
+	}
+}
+
+func getEC2ClusterWithRestrictedInstanceTypes() (*Cluster, error) {
+	var (
+		config infra.Config
+		err    error
+	)
+	var schema = getInfraSchema()
+	configYaml := `
+        labels: kv
+        tls: tls,file=/tmp/ca
+        logger: logger
+        session: fakesession
+        user: user
+        bootstrap: bootstrapimage,uri=https://some_s3_path
+        reflow: reflowversion,version=abcdef
+        cluster: ec2cluster
+        ec2cluster:
+            maxinstances: 1
+            disktype: dt
+            diskspace: 10
+            ami: foo
+            region: us-west-2
+            securitygroup: blah
+            instancetypes:
+            - c5.large
+            - c5.4xlarge
+            - r3.8xlarge
+        sshkey: key
+    `
+	if config, err = schema.Unmarshal([]byte(configYaml)); err != nil {
+		return nil, err
+	}
+	var cluster runner.Cluster
+	if err := config.Instance(&cluster); err != nil {
+		return nil, err
+	}
+	ec2cluster, ok := cluster.(*Cluster)
+	if !ok {
+		return nil, fmt.Errorf("%v is not an ec2cluster", reflect.TypeOf(cluster))
+	}
+	return ec2cluster, nil
+}
+
+func TestInstanceAllocationRequest(t *testing.T) {
+	var (
+		cluster *Cluster
+		err     error
+	)
+	// c5.large: mem:3.7GiB cpu:2 disk:10.0GiB intel_avx:2 intel_avx2:2 intel_avx512:2
+	// c5.4xlarge: mem:32GiB cpu:16 disk:10.0GiB intel_avx:16 intel_avx2:16 intel_avx512:16
+	// r3.8xlarge: mem:226.9GiB cpu:32 disk:10.0GiB intel_avx:32
+	if cluster, err = getEC2ClusterWithRestrictedInstanceTypes(); err != nil {
+		t.Fatal("ec2cluster: ", err)
+	}
+	for _, tc := range []struct {
+		index   int
+		waiters []*waiter
+		reqs    []instanceConfig
+	}{
+		{
+			1,
+			[]*waiter{
+				{
+					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 2, "mem": 3.7 * float64(data.GiB)}},
+				}},
+			[]instanceConfig{
+				{
+					Type: "c5.large",
+				},
+			},
+		},
+		// NOTE: 2 c5.large would have been to good in this case. But we try to find the biggest instance that fits everything.
+		{
+			2,
+			[]*waiter{
+				{
+					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 2, "mem": 3.7 * float64(data.GiB)}, Width: 2},
+				}},
+			[]instanceConfig{
+				{
+					Type: "c5.4xlarge",
+				},
+			},
+		},
+		{
+			3,
+			[]*waiter{
+				{
+					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 2, "mem": 9 * float64(data.GiB)}, Width: 10},
+				}},
+			[]instanceConfig{
+				{
+					Type: "r3.8xlarge",
+				},
+			},
+		},
+		{
+			4,
+			[]*waiter{
+				{
+					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 32, "mem": 9 * float64(data.GiB)}, Width: 2},
+				}},
+			[]instanceConfig{
+				{
+					Type: "r3.8xlarge",
+				},
+				{
+					Type: "r3.8xlarge",
+				},
+				{
+					Type: "r3.8xlarge",
+				},
+			},
+		},
+		{
+			5,
+			[]*waiter{
+				{
+					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 2, "mem": 3.7 * float64(data.GiB)}},
+				},
+				{
+					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 32, "mem": 9 * float64(data.GiB)}},
+				}},
+			[]instanceConfig{
+				{
+					Type: "c5.large",
+				},
+				{
+					Type: "r3.8xlarge",
+				},
+			},
+		},
+		{
+			6,
+			[]*waiter{
+				{
+					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 2, "mem": 3.7 * float64(data.GiB)}},
+				},
+				{
+					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 8, "mem": float64(9 * data.GiB)}, Width: 5},
+				}},
+			[]instanceConfig{
+				{
+					Type: "r3.8xlarge",
+				},
+				{
+					Type: "r3.8xlarge",
+				},
+			},
+		},
+		{
+			7,
+			[]*waiter{
+				{
+					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 2, "mem": 2 * float64(data.GiB)}},
+				},
+				{
+					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 2, "mem": 2 * float64(data.GiB)}, Width: 15},
+				}},
+			[]instanceConfig{
+				{
+					Type: "r3.8xlarge",
+				},
+				{
+					Type: "c5.large",
+				},
+			},
+		},
+		{
+			8,
+			[]*waiter{
+				{
+					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 33, "mem": 2 * float64(data.GiB)}},
+				}},
+			[]instanceConfig{},
+		},
+	} {
+		reqs := cluster.getInstanceAllocations(tc.waiters)
+		if got, want := len(reqs), len(tc.reqs); got != want {
+			t.Fatalf("%v: expected %v allocation request, got %v", tc.index, want, got)
+		}
+		for i := range reqs {
+			if got, want := reqs[i].Type, tc.reqs[i].Type; got != want {
+				t.Fatalf("%v: expected %v, got %v", tc.index, want, got)
+			}
+		}
+	}
 }
