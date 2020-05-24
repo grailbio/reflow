@@ -414,6 +414,17 @@ func (f *Flow) Requirements() (req reflow.Requirements) {
 	return f.requirements(make(map[*Flow]reflow.Requirements))
 }
 
+// ExecReset resets all flow parameters related to running
+// a single exec.
+func (f *Flow) ExecReset() {
+	// TODO(dnicolaou): Remove ExecId reset once it is no longer required
+	// for scheduler mode unit tests in eval_test.go.
+	f.ExecId = digest.Digest{}
+	f.Exec = nil
+	f.Err = nil
+	f.Inspect = reflow.ExecInspect{}
+}
+
 func (f *Flow) requirements(m map[*Flow]reflow.Requirements) (req reflow.Requirements) {
 	if r, ok := m[f]; ok {
 		return r

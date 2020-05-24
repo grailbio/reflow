@@ -634,10 +634,9 @@ func (e *Eval) Do(ctx context.Context) error {
 						newReserved := reflow.Resources{}
 						newReserved.Set(f.Reserved)
 						newReserved["mem"] *= memMultiplier
-						// Set f.ExecId to the zero digest so that Eval.Mutate() will generate a new random ExecId. Once f.ExecId
-						// is no longer required for the scheduler mode tests in eval_test.go, this will no longer be necessary.
-						// See TODO in Eval.Mutate() for more inforamtion.
-						f.ExecId = digest.Digest{}
+						// Apply ExecReset so that the exec can be resubmitted to the scheduler with the flow's
+						// exec runtime parameters reset.
+						f.ExecReset()
 						e.Mutate(f, Unreserve(f.Reserved), Reserve(newReserved), Execing)
 						task = e.newTask(f)
 						e.Log.Printf("flow %s: OOM: re-submitting task %s with %v of memory (%v/%v)", task.FlowID.Short(), task.ID.IDShort(), data.Size(task.Config.Resources["mem"]), retries+1, maxOOMRetries)
