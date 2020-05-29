@@ -468,7 +468,8 @@ func (e *Eval) Do(ctx context.Context) error {
 
 	var (
 		todo  FlowVisitor
-		tasks []*sched.Task // the set of tasks to be submitted after this iteration
+		tasks []*sched.Task // The set of tasks to be submitted after this iteration.
+		flows []*Flow       // The set of flows corresponding to the tasks to be submitted after this iteration.
 	)
 	for root.State != Done {
 		if root.Digest().IsZero() {
@@ -622,6 +623,7 @@ func (e *Eval) Do(ctx context.Context) error {
 				e.Mutate(f, Execing, Reserve(f.Resources))
 				task := e.newTask(f)
 				tasks = append(tasks, task)
+				flows = append(flows, f)
 				e.step(f, func(f *Flow) error {
 					if err := e.taskWait(f, task, ctx); err != nil {
 						return err
@@ -664,9 +666,10 @@ func (e *Eval) Do(ctx context.Context) error {
 		// helps the scheduler better allocate underlying resources since
 		// we always submit the largest available working set.
 		if e.Scheduler != nil && len(tasks) > 0 && e.pending.NState(Lookup)+e.pending.NState(Running) == 0 {
-			e.reviseResources(ctx, tasks...)
+			e.reviseResources(ctx, tasks, flows)
 			e.Scheduler.Submit(tasks...)
 			tasks = tasks[:0]
+			flows = flows[:0]
 		}
 		if root.State == Done {
 			break
@@ -2360,7 +2363,17 @@ func (e *Eval) LogFlow(ctx context.Context, f *Flow) {
 	b.Reset()
 	fmt.Fprintf(&b, "%s %v %s:\n", f.Ident, f.Digest().Short(), f.Position)
 	if f.Op == Exec {
-		fmt.Fprintf(&b, "\tresources: %s\n", f.Resources)
+		logResources := make(reflow.Resources)
+		switch {
+		case f.State == Done:
+			// Get resources from ExecInspect if the flow is done
+			// because `f.Reserved` may have already been cleared
+			// by `returnFlow()`.
+			logResources.Set(f.Inspect.Config.Resources)
+		default:
+			logResources.Set(f.Reserved)
+		}
+		fmt.Fprintf(&b, "\tresources: %s\n", logResources)
 	}
 	for _, key := range f.CacheKeys() {
 		fmt.Fprintf(&b, "\t%s\n", key)
@@ -2411,23 +2424,24 @@ func (e *Eval) newTask(f *Flow) *sched.Task {
 	return t
 }
 
-// reviseResources revises the resource requirements of the submitted tasks,
-// if applicable.
-func (e *Eval) reviseResources(ctx context.Context, tasks ...*sched.Task) {
+// reviseResources revises the resources of the submitted tasks and flows, if applicable.
+func (e *Eval) reviseResources(ctx context.Context, tasks []*sched.Task, flows []*Flow) {
 	if e.Predictor == nil {
 		return
 	}
 	predictedResources := e.Predictor.Predict(ctx, tasks...)
-	for _, task := range tasks {
-		if resources, ok := predictedResources[task]; ok {
-			// Make a copy of old resources for logging purposes.
+	for i, task := range tasks {
+		if predicted, ok := predictedResources[task]; ok {
 			oldResources := task.Config.Resources.String()
-			// Modify the task's resources.
-			for k, v := range resources {
-				task.Config.Resources[k] = v
+			f := flows[i]
+			newReserved := make(reflow.Resources)
+			newReserved.Set(f.Reserved)
+			for k, v := range predicted {
+				newReserved[k] = v
 			}
-			// Never allocate a task less memory than the minimum allocatable exec memory.
-			task.Config.Resources["mem"] = math.Max(task.Config.Resources["mem"], minExecMemory)
+			newReserved["mem"] = math.Max(newReserved["mem"], minExecMemory)
+			e.Mutate(f, Unreserve(f.Reserved), Reserve(newReserved))
+			task.Config = f.ExecConfig()
 			e.Log.Debugf("task %s (flow %s): modifying resources from %s to %s", task.ID.IDShort(), task.FlowID.Short(), oldResources, task.Config.Resources)
 		}
 	}
