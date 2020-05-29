@@ -2,13 +2,14 @@ package sched
 
 import (
 	"expvar"
+	"fmt"
 	"sync"
 
 	"github.com/grailbio/reflow"
 )
 
-// ExpVarScheduler is the name of the expvar scheduler stats.
-const ExpVarScheduler = "scheduler"
+// ExpVarScheduler is the prefix of the scheduler stats exported name.
+const expVarScheduler = "scheduler"
 
 // OverallStats is the overall scheduler stats.
 type OverallStats struct {
@@ -141,9 +142,31 @@ type Stats struct {
 	Tasks map[string]*TaskStats
 }
 
+var (
+	schedulerStatExportedNames []string
+	mu                         sync.Mutex
+	exportNameCounter          int
+)
+
+func GetSchedulerStatExportedNames() []string {
+	mu.Lock()
+	names := make([]string, 0, len(schedulerStatExportedNames))
+	for _, name := range schedulerStatExportedNames {
+		names = append(names, name)
+	}
+	mu.Unlock()
+	return names
+}
+
 // Publish publishes the stats as a go expvar.
-func (s *Stats) publish() {
-	expvar.Publish(ExpVarScheduler, expvar.Func(func() interface{} { return s.GetStats() }))
+func (s *Stats) Publish() {
+	mu.Lock()
+	val := exportNameCounter
+	exportNameCounter++
+	name := expVarScheduler + fmt.Sprintf("-%d", val)
+	schedulerStatExportedNames = append(schedulerStatExportedNames, name)
+	mu.Unlock()
+	expvar.Publish(name, expvar.Func(func() interface{} { return s.GetStats() }))
 }
 
 // AddTasks adds the tasks to the stats.

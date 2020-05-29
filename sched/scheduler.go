@@ -120,7 +120,7 @@ func (s *Scheduler) Submit(tasks ...*Task) {
 
 // ExportStats exports scheduler stats as expvars.
 func (s *Scheduler) ExportStats() {
-	s.Stats.publish()
+	s.Stats.Publish()
 }
 
 func (s *Scheduler) configString() string {
