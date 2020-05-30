@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package sched_test
+package utiltest
 
 import (
 	"bytes"
@@ -49,7 +49,7 @@ func (c *counter) NextID() digest.Digest {
 
 var nalloc counter
 
-func newTask(cpu, mem float64, priority int) *sched.Task {
+func NewTask(cpu, mem float64, priority int) *sched.Task {
 	task := sched.NewTask()
 	task.Priority = priority
 	task.Config.Resources = reflow.Resources{"cpu": cpu, "mem": mem}
@@ -62,27 +62,14 @@ func newTask(cpu, mem float64, priority int) *sched.Task {
 	return task
 }
 
-func newTasks(numTasks int) []*sched.Task {
-	tasks := make([]*sched.Task, numTasks)
-	for i := 0; i < numTasks; i++ {
-		tasks[i] = &sched.Task{
-			ID: taskdb.NewTaskID(),
-			Config: reflow.ExecConfig{
-				Type: "exec",
-			},
-		}
-	}
-	return tasks
-}
-
-func newRequirements(cpu, mem float64, width int) reflow.Requirements {
+func NewRequirements(cpu, mem float64, width int) reflow.Requirements {
 	return reflow.Requirements{
 		Min:   reflow.Resources{"cpu": cpu, "mem": mem},
 		Width: width,
 	}
 }
 
-func randomFileset(repo reflow.Repository) reflow.Fileset {
+func RandomFileset(repo reflow.Repository) reflow.Fileset {
 	fuzz := testutil.NewFuzz(nil)
 	n := rand.Intn(100) + 1
 	var fs reflow.Fileset
@@ -105,7 +92,7 @@ func randomFileset(repo reflow.Repository) reflow.Fileset {
 	return fs
 }
 
-func randomRepoFileset(repo reflow.Repository) reflow.Fileset {
+func RandomRepoFileset(repo reflow.Repository) reflow.Fileset {
 	n := rand.Intn(100) + 1
 	var fs reflow.Fileset
 	fs.Map = make(map[string]reflow.File, n)
@@ -124,7 +111,7 @@ func randomRepoFileset(repo reflow.Repository) reflow.Fileset {
 	return fs
 }
 
-type testClusterAllocReply struct {
+type TestClusterAllocReply struct {
 	Alloc pool.Alloc
 	Err   error
 }
@@ -132,34 +119,34 @@ type testClusterAllocReply struct {
 type testClusterAllocReq struct {
 	reflow.Requirements
 	Labels pool.Labels
-	Reply  chan<- testClusterAllocReply
+	Reply  chan<- TestClusterAllocReply
 }
 
-type testCluster struct {
+type TestCluster struct {
 	max  reflow.Resources
 	reqs chan testClusterAllocReq
 }
 
-func newTestCluster() *testCluster {
-	return &testCluster{
+func NewTestCluster() *TestCluster {
+	return &TestCluster{
 		max:  reflow.Resources{"cpu": 64, "mem": 256 << 30},
 		reqs: make(chan testClusterAllocReq),
 	}
 }
 
-func (c *testCluster) Req() <-chan testClusterAllocReq {
+func (c *TestCluster) Req() <-chan testClusterAllocReq {
 	return c.reqs
 }
 
-func (c *testCluster) CanAllocate(r reflow.Resources) (bool, error) {
+func (c *TestCluster) CanAllocate(r reflow.Resources) (bool, error) {
 	if c.max.Available(r) {
 		return true, nil
 	}
 	return false, fmt.Errorf("resources %s too big (max: %s)", r, c.max)
 }
 
-func (c *testCluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error) {
-	replyc := make(chan testClusterAllocReply)
+func (c *TestCluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error) {
+	replyc := make(chan TestClusterAllocReply)
 	select {
 	case c.reqs <- testClusterAllocReq{
 		Requirements: req,
@@ -232,7 +219,7 @@ func (e *testExec) Wait(ctx context.Context) error {
 	return e.err
 }
 
-func (e *testExec) complete(res reflow.Result, err error) {
+func (e *testExec) Complete(res reflow.Result, err error) {
 	e.mu.Lock()
 	e.done = true
 	e.result = res
@@ -241,7 +228,7 @@ func (e *testExec) complete(res reflow.Result, err error) {
 	e.mu.Unlock()
 }
 
-type testAlloc struct {
+type TestAlloc struct {
 	pool.Alloc
 	id         uint64
 	repository *testutil.InmemoryRepository
@@ -256,8 +243,8 @@ type testAlloc struct {
 	refCount   map[digest.Digest]int64
 }
 
-func newTestAlloc(resources reflow.Resources) *testAlloc {
-	alloc := &testAlloc{
+func NewTestAlloc(resources reflow.Resources) *TestAlloc {
+	alloc := &TestAlloc{
 		repository: testutil.NewInmemoryRepository(),
 		execs:      make(map[digest.Digest]*testExec),
 		resources:  resources,
@@ -268,19 +255,19 @@ func newTestAlloc(resources reflow.Resources) *testAlloc {
 	return alloc
 }
 
-func (a *testAlloc) ID() string {
+func (a *TestAlloc) ID() string {
 	return fmt.Sprintf("test%d", a.id)
 }
 
-func (a *testAlloc) Resources() reflow.Resources {
+func (a *TestAlloc) Resources() reflow.Resources {
 	return a.resources
 }
 
-func (a *testAlloc) Repository() reflow.Repository {
+func (a *TestAlloc) Repository() reflow.Repository {
 	return a.repository
 }
 
-func (a *testAlloc) Load(ctx context.Context, url *url.URL, fs reflow.Fileset) (reflow.Fileset, error) {
+func (a *TestAlloc) Load(ctx context.Context, url *url.URL, fs reflow.Fileset) (reflow.Fileset, error) {
 	a.refCountMu.Lock()
 	defer a.refCountMu.Unlock()
 	var (
@@ -340,7 +327,7 @@ func (a *testAlloc) Load(ctx context.Context, url *url.URL, fs reflow.Fileset) (
 }
 
 // VerifyIntegrity verifies the integrity of the given set of files
-func (a *testAlloc) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) error {
+func (a *TestAlloc) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) error {
 	a.refCountMu.Lock()
 	defer a.refCountMu.Unlock()
 	for _, file := range fs.Files() {
@@ -366,7 +353,7 @@ func (a *testAlloc) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) erro
 	return nil
 }
 
-func (a *testAlloc) Unload(ctx context.Context, fs reflow.Fileset) error {
+func (a *TestAlloc) Unload(ctx context.Context, fs reflow.Fileset) error {
 	a.refCountMu.Lock()
 	defer a.refCountMu.Unlock()
 	for _, file := range fs.Files() {
@@ -384,7 +371,7 @@ func (a *testAlloc) Unload(ctx context.Context, fs reflow.Fileset) error {
 	return nil
 }
 
-func (a *testAlloc) Put(ctx context.Context, id digest.Digest, config reflow.ExecConfig) (reflow.Exec, error) {
+func (a *TestAlloc) Put(ctx context.Context, id digest.Digest, config reflow.ExecConfig) (reflow.Exec, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if _, ok := a.execs[id]; !ok {
@@ -394,7 +381,7 @@ func (a *testAlloc) Put(ctx context.Context, id digest.Digest, config reflow.Exe
 	return a.execs[id], nil
 }
 
-func (a *testAlloc) Keepalive(ctx context.Context, interval time.Duration) (time.Duration, error) {
+func (a *TestAlloc) Keepalive(ctx context.Context, interval time.Duration) (time.Duration, error) {
 	a.mu.Lock()
 	hung, err := a.hung, a.err
 	a.mu.Unlock()
@@ -408,7 +395,23 @@ func (a *testAlloc) Keepalive(ctx context.Context, interval time.Duration) (time
 	return 50 * time.Millisecond, err
 }
 
-func (a *testAlloc) exec(id digest.Digest) *testExec {
+func (a *TestAlloc) RefCount() map[digest.Digest]int64 {
+	a.refCountMu.Lock()
+	defer a.refCountMu.Unlock()
+	rc := make(map[digest.Digest]int64, len(a.refCount))
+	for k, v := range a.refCount {
+		rc[k] = v
+	}
+	return rc
+}
+
+func (a *TestAlloc) RefCountInc(id digest.Digest) {
+	a.refCountMu.Lock()
+	defer a.refCountMu.Unlock()
+	a.refCount[id]++
+}
+
+func (a *TestAlloc) Exec(id digest.Digest) *testExec {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for a.execs[id] == nil {
@@ -417,13 +420,58 @@ func (a *testAlloc) exec(id digest.Digest) *testExec {
 	return a.execs[id]
 }
 
-func (a *testAlloc) error(err error) {
+func (a *TestAlloc) NExecs() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return len(a.execs)
+}
+
+func (a *TestAlloc) Error(err error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.err = err
 }
 
-func (a *testAlloc) hang() {
+// CompleteAll completes all execs put in this alloc after a minimum duration has elapsed.
+// The duration for each exec is expected to be set in `exec.Config.Ident`.
+func (a *TestAlloc) CompleteAll(ctx context.Context) {
+	var (
+		done           bool
+		tick           = time.NewTicker(20 * time.Millisecond)
+		execStartTimes = make(map[digest.Digest]time.Time)
+	)
+	defer tick.Stop()
+	for !done {
+		a.mu.Lock()
+		for id, exec := range a.execs {
+			exec.mu.Lock()
+			skip := exec.done
+			exec.mu.Unlock()
+			if skip {
+				continue
+			}
+			delay, err := time.ParseDuration(exec.Config.Ident)
+			if err != nil {
+				panic(fmt.Sprintf("not a duration: %s", exec.Config.Ident))
+			}
+			if start, ok := execStartTimes[id]; ok {
+				if time.Since(start) > delay {
+					exec.Complete(reflow.Result{}, nil)
+				}
+			} else {
+				execStartTimes[id] = time.Now()
+			}
+		}
+		a.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			done = true
+		case <-tick.C:
+		}
+	}
+}
+
+func (a *TestAlloc) hang() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.hung = true

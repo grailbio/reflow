@@ -2,26 +2,55 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package sched_test
+package scale_test
 
 import (
 	"context"
 	"fmt"
-	"log"
+	golog "log"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/sched"
+	"github.com/grailbio/reflow/sched/internal/utiltest"
+	"github.com/grailbio/reflow/test/testutil"
 )
 
 const (
 	allocationDelay = 100 * time.Millisecond
 	completionDelay = 100 * time.Millisecond
 )
+
+func newTestScheduler(t *testing.T) (scheduler *sched.Scheduler, cluster *utiltest.TestCluster, repository *testutil.InmemoryRepository, shutdown func()) {
+	t.Helper()
+	repository = testutil.NewInmemoryRepository()
+	cluster = utiltest.NewTestCluster()
+	scheduler = sched.New()
+	scheduler.Transferer = testutil.Transferer
+	scheduler.Repository = repository
+	scheduler.Cluster = cluster
+	scheduler.PostUseChecksum = true
+	scheduler.MinAlloc = reflow.Resources{}
+	out := golog.New(os.Stderr, "scheduler: ", golog.LstdFlags)
+	scheduler.Log = log.New(out, log.DebugLevel)
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		_ = scheduler.Do(ctx)
+		wg.Done()
+	}()
+	shutdown = func() {
+		cancel()
+		wg.Wait()
+	}
+	return
+}
 
 func TestSchedScaleSmall(t *testing.T) {
 	tasks := append([]*taskNode{
@@ -149,15 +178,15 @@ func sizedTask(size taskSize, dur time.Duration) *sched.Task {
 	var task *sched.Task
 	switch size {
 	case small:
-		task = newTask(2, 8<<30, 0)
+		task = utiltest.NewTask(2, 8<<30, 0)
 	case medium:
-		task = newTask(8, 32<<30, 0)
+		task = utiltest.NewTask(8, 32<<30, 0)
 	case large:
-		task = newTask(16, 64<<30, 0)
+		task = utiltest.NewTask(16, 64<<30, 0)
 	case enormous:
-		task = newTask(32, 128<<30, 0)
+		task = utiltest.NewTask(32, 128<<30, 0)
 	default:
-		task = newTask(1, 2<<30, 0)
+		task = utiltest.NewTask(1, 2<<30, 0)
 	}
 	task.Config.Ident = fmt.Sprintf("%s", dur)
 	return task
@@ -211,7 +240,7 @@ func (t *taskSubmitter) start() {
 }
 
 type namedTestAlloc struct {
-	*testAlloc
+	*utiltest.TestAlloc
 	name string
 }
 
@@ -230,19 +259,17 @@ func (a *allocator) describe() (int, reflow.Resources, string) {
 	)
 	var names []string
 	for _, alloc := range a.allocs {
-		alloc.mu.Lock()
-		if nExecs := len(alloc.execs); nExecs > 0 {
+		if nExecs := alloc.NExecs(); nExecs > 0 {
 			ar := alloc.Resources()
 			n += 1
 			r.Add(r, ar)
 			names = append(names, fmt.Sprintf("%s%s", alloc.name, ar))
 		}
-		alloc.mu.Unlock()
 	}
 	return n, r, strings.Join(names, ", ")
 }
 
-func (a *allocator) start(ctx context.Context, cluster *testCluster) {
+func (a *allocator) start(ctx context.Context, cluster *utiltest.TestCluster) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -253,55 +280,16 @@ func (a *allocator) start(ctx context.Context, cluster *testCluster) {
 				panic(fmt.Sprintf("min req %s too big", req.Min))
 			}
 			time.AfterFunc(allocationDelay, func() {
-				reply := testClusterAllocReply{}
+				reply := utiltest.TestClusterAllocReply{}
 				a.mu.Lock()
-				alloc := &namedTestAlloc{testAlloc: newTestAlloc(r)}
+				alloc := &namedTestAlloc{TestAlloc: utiltest.NewTestAlloc(r)}
 				alloc.name = instType
-				go alloc.completeAll(ctx)
+				go alloc.CompleteAll(ctx)
 				a.allocs = append(a.allocs, alloc)
 				reply.Alloc = alloc
 				a.mu.Unlock()
 				req.Reply <- reply
 			})
-		}
-	}
-}
-
-// completeAll completes all execs put in this alloc after a minimum duration has elapsed.
-// The duration for each exec is expected to be set in `exec.Config.Ident`.
-func (a *testAlloc) completeAll(ctx context.Context) {
-	var (
-		done           bool
-		tick           = time.NewTicker(20 * time.Millisecond)
-		execStartTimes = make(map[digest.Digest]time.Time)
-	)
-	defer tick.Stop()
-	for !done {
-		a.mu.Lock()
-		for id, exec := range a.execs {
-			exec.mu.Lock()
-			skip := exec.done
-			exec.mu.Unlock()
-			if skip {
-				continue
-			}
-			delay, err := time.ParseDuration(exec.Config.Ident)
-			if err != nil {
-				panic(fmt.Sprintf("not a duration: %s", exec.Config.Ident))
-			}
-			if start, ok := execStartTimes[id]; ok {
-				if time.Since(start) > delay {
-					exec.complete(reflow.Result{}, nil)
-				}
-			} else {
-				execStartTimes[id] = time.Now()
-			}
-		}
-		a.mu.Unlock()
-		select {
-		case <-ctx.Done():
-			done = true
-		case <-tick.C:
 		}
 	}
 }
