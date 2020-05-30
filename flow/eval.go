@@ -630,16 +630,10 @@ func (e *Eval) Do(ctx context.Context) error {
 					}
 					// Retry OOMs if needed.
 					for retries := 0; retries < maxOOMRetries && task.Result.Err != nil && errors.Is(errors.OOM, task.Result.Err); retries++ {
-						// Increase the flow's reserved resources and generate a new ExecId
-						// TODO(dnicolaou) Get amount of memory at OOM from /dev/kmsg multiply that by memMultiplier to
-						// reallocate memory.
-						newReserved := reflow.Resources{}
-						newReserved.Set(f.Reserved)
-						newReserved["mem"] *= memMultiplier
 						// Apply ExecReset so that the exec can be resubmitted to the scheduler with the flow's
 						// exec runtime parameters reset.
 						f.ExecReset()
-						e.Mutate(f, Unreserve(f.Reserved), Reserve(newReserved), Execing)
+						e.Mutate(f, Unreserve(f.Reserved), Reserve(oomAdjust(f.Resources, task.Config.Resources)), Execing)
 						task = e.newTask(f)
 						e.Log.Printf("flow %s: OOM: re-submitting task %s with %v of memory (%v/%v)", task.FlowID.Short(), task.ID.IDShort(), data.Size(task.Config.Resources["mem"]), retries+1, maxOOMRetries)
 						e.Scheduler.Submit(task)
@@ -2445,6 +2439,19 @@ func (e *Eval) reviseResources(ctx context.Context, tasks []*sched.Task, flows [
 			e.Log.Debugf("task %s (flow %s): modifying resources from %s to %s", task.ID.IDShort(), task.FlowID.Short(), oldResources, task.Config.Resources)
 		}
 	}
+}
+
+// oomAdjust returns a new set of resources with increased memory.
+// TODO(dnicolaou): Adjust based on actual used memory instead of allocated.
+func oomAdjust(specified, used reflow.Resources) reflow.Resources {
+	newResources := make(reflow.Resources)
+	newResources.Set(used)
+	if specified["mem"] > used["mem"] {
+		newResources["mem"] = specified["mem"]
+	} else {
+		newResources["mem"] *= memMultiplier
+	}
+	return newResources
 }
 
 func accumulate(flows []*Flow) (int, string) {

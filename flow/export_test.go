@@ -11,6 +11,8 @@ import (
 	"github.com/grailbio/reflow"
 )
 
+var MemMultiplier = memMultiplier
+
 func PhysicalDigests(f *Flow) []digest.Digest {
 	return f.physicalDigests()
 }
@@ -27,4 +29,8 @@ func NewAssertionsBatchCache(e *Eval) *AssertionsBatchCache {
 
 func RefreshAssertions(ctx context.Context, e *Eval, a []*reflow.Assertions, cache *AssertionsBatchCache) ([]*reflow.Assertions, error) {
 	return e.refreshAssertions(ctx, a, cache)
+}
+
+func OomAdjust(specified, used reflow.Resources) reflow.Resources {
+	return oomAdjust(specified, used)
 }

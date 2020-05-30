@@ -1440,6 +1440,54 @@ func TestRefreshAssertionBatchCache(t *testing.T) {
 	}
 }
 
+func TestOomAdjust(t *testing.T) {
+	// Specified mem > used mem.
+	specified := reflow.Resources{
+		"cpu":  5,
+		"mem":  10,
+		"disk": 7,
+	}
+	used := reflow.Resources{
+		"cpu":  4,
+		"mem":  9,
+		"disk": 6,
+	}
+	adjusted := flow.OomAdjust(specified, used)
+	if got, want := adjusted["cpu"], used["cpu"]; got != want {
+		t.Errorf("cpu got %v, want %v", got, want)
+	}
+	if got, want := adjusted["mem"], specified["mem"]; got != want {
+		t.Errorf("mem got %v, want %v", got, want)
+	}
+	if got, want := adjusted["disk"], used["disk"]; got != want {
+		t.Errorf("disk got %v, want %v", got, want)
+	}
+	// Specified = used mem.
+	used["mem"] = specified["mem"]
+	adjusted = flow.OomAdjust(specified, used)
+	if got, want := adjusted["cpu"], used["cpu"]; got != want {
+		t.Errorf("cpu got %v, want %v", got, want)
+	}
+	if got, want := adjusted["mem"], used["mem"]*flow.MemMultiplier; got != want {
+		t.Errorf("mem got %v, want %v", got, want)
+	}
+	if got, want := adjusted["disk"], used["disk"]; got != want {
+		t.Errorf("disk got %v, want %v", got, want)
+	}
+	// Specified < used mem.
+	used["mem"] = specified["mem"] + 1
+	adjusted = flow.OomAdjust(specified, used)
+	if got, want := adjusted["cpu"], used["cpu"]; got != want {
+		t.Errorf("cpu got %v, want %v", got, want)
+	}
+	if got, want := adjusted["mem"], used["mem"]*flow.MemMultiplier; got != want {
+		t.Errorf("mem got %v, want %v", got, want)
+	}
+	if got, want := adjusted["disk"], used["disk"]; got != want {
+		t.Errorf("disk got %v, want %v", got, want)
+	}
+}
+
 func flowFiles(files ...string) *flow.Flow {
 	v := testutil.Files(files...)
 	return &flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done}
