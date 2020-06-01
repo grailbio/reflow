@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"math/big"
+	"reflect"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -518,4 +519,58 @@ func (m *ModuleImpl) InjectArgs(sess *Session, args []string) error {
 
 func (m *ModuleImpl) InjectedArgs() []string {
 	return m.injectedArgs
+}
+
+// Equal tells whether modules m and n are equivalent.
+func (m *ModuleImpl) Equal(n *ModuleImpl) bool {
+	if m == nil || n == nil {
+		return m == nil && n == nil
+	}
+	if (m.Keyspace == nil) != (n.Keyspace == nil) {
+		return false
+	}
+	if m.Keyspace != nil && !m.Keyspace.Equal(n.Keyspace) {
+		return false
+	}
+
+	if len(m.Reservation) != len(n.Reservation) {
+		return false
+	}
+	for i := range m.Reservation {
+		if !m.Reservation[i].Equal(n.Reservation[i]) {
+			return false
+		}
+	}
+
+	if len(m.ParamDecls) != len(n.ParamDecls) {
+		return false
+	}
+	for i := range m.ParamDecls {
+		if !m.ParamDecls[i].Equal(n.ParamDecls[i]) {
+			return false
+		}
+	}
+
+	if len(m.Decls) != len(n.Decls) {
+		return false
+	}
+	for i := range m.Decls {
+		if !m.Decls[i].Equal(n.Decls[i]) {
+			return false
+		}
+	}
+
+	if !reflect.DeepEqual(m.Docs, n.Docs) {
+		return false
+	}
+
+	if !m.typ.Equal(n.typ) {
+		return false
+	}
+
+	if !m.tenv.Equal(n.tenv) {
+		return false
+	}
+
+	return true
 }

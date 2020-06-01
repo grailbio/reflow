@@ -12,12 +12,35 @@ import (
 // Symtab is a symbol table of values.
 type Symtab map[string]T
 
+func (s Symtab) equal(t Symtab) bool {
+	if s == nil || t == nil {
+		return s == nil && t == nil
+	}
+	if len(s) != len(t) {
+		return false
+	}
+	for key, sv := range s {
+		if tv, ok := t[key]; !ok || !Equal(sv, tv) {
+			return false
+		}
+	}
+	return true
+}
+
 // Env binds identifiers to evaluation.
 type Env struct {
 	// Symtab is the symbol table for this level.
 	Symtab Symtab
 	debug  bool
 	next   *Env
+}
+
+// Equal tells whether environments e and f are equivalent.
+func (e *Env) Equal(f *Env) bool {
+	if e == nil || f == nil {
+		return e == nil && f == nil
+	}
+	return e.Symtab.equal(f.Symtab) && e.debug == f.debug && e.next.Equal(f.next)
 }
 
 // NewEnv constructs and initializes a new Env.

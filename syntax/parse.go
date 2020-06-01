@@ -279,6 +279,7 @@ Scan:
 		case "true", "false":
 			yy.expr = &Expr{
 				Position: x.scanner.Pos(),
+				Comment:  comment,
 				Kind:     ExprConst,
 				Type:     types.Bool,
 				Val:      values.T(text == "true"),
@@ -290,6 +291,7 @@ Scan:
 	case scanner.Int:
 		yy.expr = &Expr{
 			Position: pos,
+			Comment:  comment,
 			Kind:     ExprConst,
 			Type:     types.Int,
 		}
@@ -304,6 +306,7 @@ Scan:
 	case scanner.Float:
 		yy.expr = &Expr{
 			Position: pos,
+			Comment:  comment,
 			Kind:     ExprConst,
 			Type:     types.Float,
 		}
@@ -315,13 +318,23 @@ Scan:
 		}
 		yy.expr.Val = values.T(f)
 		return tokExpr
-
-	case scanner.String, scanner.RawString:
+	case scanner.String:
 		yy.expr = &Expr{
 			Position: pos,
+			Comment:  comment,
 			Kind:     ExprConst,
 			Type:     types.String,
 			Val:      values.T(text[1 : len(text)-1]),
+		}
+		return tokExpr
+	case scanner.RawString:
+		yy.expr = &Expr{
+			Position: pos,
+			Comment:  comment,
+			Kind:     ExprConst,
+			Type:     types.String,
+			Val:      values.T(text[1 : len(text)-1]),
+			Fmt:      FmtRawString,
 		}
 		return tokExpr
 	case scanner.Template:

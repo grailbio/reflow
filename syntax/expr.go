@@ -7,6 +7,7 @@ package syntax
 import (
 	"bytes"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -102,6 +103,13 @@ type ComprClause struct {
 	Expr *Expr
 }
 
+func (c *ComprClause) equal(d *ComprClause) bool {
+	if c == nil || d == nil {
+		return c == nil && d == nil
+	}
+	return c.Kind == d.Kind && c.Pat.Equal(d.Pat) && c.Expr.Equal(d.Expr)
+}
+
 // Template is an exec template and its interpolation arguments.
 // The template is stored as a number of fragments interspersed
 // by argument expressions to be rendered.
@@ -134,6 +142,43 @@ func (t *Template) FormatString() string {
 	return b.String()
 }
 
+func (t *Template) equal(u *Template) bool {
+	if t == nil || u == nil {
+		return t == nil && u == nil
+	}
+	if t.Text != u.Text {
+		return false
+	}
+	if !reflect.DeepEqual(t.Frags, u.Frags) {
+		return false
+	}
+	if len(t.Args) != len(u.Args) {
+		return false
+	}
+	for i := range t.Args {
+		if !t.Args[i].Equal(u.Args[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// ExprFmt is a bitset of flags used during formatting.
+type ExprFmt int
+
+const (
+	// FmtAppendArgs is set in ExprBinop whose Op == "+" indicating this Expr was created from append:
+	// [a, b, ...c ...d].
+	FmtAppendArgs ExprFmt = 1 << iota
+	// FmtRawString is set in ExprConst of type string if it was specified as a raw string literal.
+	FmtRawString
+)
+
+// IsSet queries whether a flag is set.
+func (f ExprFmt) IsSet(o ExprFmt) bool {
+	return f&o != 0
+}
+
 // An Expr is a node in Reflow's expression AST.
 type Expr struct {
 	// Position contains the source position of the node.
@@ -159,6 +204,8 @@ type Expr struct {
 	// ExprUnop, and builtin in ExprBuiltin.
 	Op string
 
+	OpAppendArgs bool
+
 	// Args holds function arguments in an ExprFunc.
 	Args []*types.Field
 
@@ -168,7 +215,7 @@ type Expr struct {
 	// Map holds expressions for map literals.
 	Map map[*Expr]*Expr
 
-	// Decls holds declarations for ExprBlock and ExprExec.
+	// Decls holds declarations for ExprBlock, ExprExec, ExprMake, ExprRequires.
 	Decls []*Decl
 
 	// Fields holds field definitions (identifiers and expressions)
@@ -198,6 +245,9 @@ type Expr struct {
 
 	// Module stores the module as opened during type checking.
 	Module Module
+
+	// Fmt contains information used for formatting this expression.
+	Fmt ExprFmt
 }
 
 // ExprValue stores the evaluated values associated with the dependencies
@@ -865,113 +915,131 @@ func (c closure) Digest() digest.Digest {
 
 // Equal tests whether expression e is equivalent to expression f.
 func (e *Expr) Equal(f *Expr) bool {
+	if e == nil || f == nil {
+		return e == nil && f == nil
+	}
+
 	if e.Kind == ExprError {
 		return false
 	}
 	if e.Kind != f.Kind {
 		return false
 	}
-	switch e.Kind {
-	default:
-		panic("error")
-	case ExprIdent:
-		return e.Ident == f.Ident
-	case ExprBinop:
-		return e.Left.Equal(f.Left) && e.Right.Equal(f.Right)
-	case ExprUnop:
-		return e.Left.Equal(f.Left)
-	case ExprConst:
-		return e.Type.Equal(f.Type) && values.Equal(e.Val, f.Val)
-	case ExprAscribe:
-		return e.Left.Equal(f.Left) && e.Type.Equal(f.Type)
-	case ExprBlock:
-		if len(e.Decls) != len(f.Decls) {
-			return false
-		}
-		for i := range e.Decls {
-			if !e.Decls[i].Equal(f.Decls[i]) {
-				return false
-			}
-		}
-		return e.Left.Equal(f.Left)
-	case ExprFunc:
-		if len(e.Args) != len(f.Args) {
-			return false
-		}
-		for i := range e.Args {
-			if !e.Args[i].Equal(f.Args[i]) {
-				return false
-			}
-		}
-		return e.Left.Equal(f.Left)
-	case ExprList:
-		if len(e.List) != len(f.List) {
-			return false
-		}
-		for i := range e.List {
-			if !e.List[i].Equal(f.List[i]) {
-				return false
-			}
-		}
-		return true
-	case ExprTuple:
-		if len(e.Fields) != len(f.Fields) {
-			return false
-		}
-		for i := range e.Fields {
-			if !e.Fields[i].Expr.Equal(f.Fields[i].Expr) {
-				return false
-			}
-		}
-		return true
-	case ExprStruct:
-		if len(e.Fields) != len(f.Fields) {
-			return false
-		}
-		for i := range e.Fields {
-			if !e.Fields[i].Equal(f.Fields[i]) {
-				return false
-			}
-		}
-		return true
-	case ExprMap:
-		if len(e.Map) != len(f.Map) {
-			return false
-		}
-		// TODO(marius: This is really ugly (and quadratic!);
-		// it suggests we should store map literals differently.
-		for ek, ev := range e.Map {
-			var fk, fv *Expr
-			for k, v := range f.Map {
-				if ek.Equal(k) {
-					fk, fv = k, v
-					break
-				}
-			}
-			if fk == nil {
-				return false
-			}
-			if !ev.Equal(fv) {
-				return false
-			}
-		}
-		return true
-	case ExprExec:
-		if len(e.Decls) != len(f.Decls) {
-			return false
-		}
-		for i := range e.Decls {
-			if !e.Decls[i].Equal(f.Decls[i]) {
-				return false
-			}
-		}
-		if !e.Type.Equal(f.Type) {
-			return false
-		}
-		return e.Template == f.Template
-	case ExprCond:
-		return e.Cond.Equal(f.Cond) && e.Left.Equal(f.Left) && e.Right.Equal(f.Right)
+
+	if e.Comment != f.Comment {
+		return false
 	}
+
+	if !e.Cond.Equal(f.Cond) {
+		return false
+	}
+
+	if !e.Left.Equal(f.Left) {
+		return false
+	}
+
+	if !e.Right.Equal(f.Right) {
+		return false
+	}
+
+	if e.Op != f.Op {
+		return false
+	}
+
+	if len(e.Args) != len(f.Args) {
+		return false
+	}
+	for i := range e.Args {
+		if !e.Args[i].Equal(f.Args[i]) {
+			return false
+		}
+	}
+
+	if len(e.List) != len(f.List) {
+		return false
+	}
+	for i := range e.List {
+		if !e.List[i].Equal(f.List[i]) {
+			return false
+		}
+	}
+
+	if len(e.Map) != len(f.Map) {
+		return false
+	}
+	// TODO(marius: This is really ugly (and quadratic!);
+	// it suggests we should store map literals differently.
+	for ek, ev := range e.Map {
+		var fk, fv *Expr
+		for k, v := range f.Map {
+			if ek.Equal(k) {
+				fk, fv = k, v
+				break
+			}
+		}
+		if fk == nil {
+			return false
+		}
+		if !ev.Equal(fv) {
+			return false
+		}
+	}
+
+	if len(e.Decls) != len(f.Decls) {
+		return false
+	}
+	for i := range e.Decls {
+		if !e.Decls[i].Equal(f.Decls[i]) {
+			return false
+		}
+	}
+
+	if len(e.Fields) != len(f.Fields) {
+		return false
+	}
+	for i := range e.Fields {
+		if !e.Fields[i].Expr.Equal(f.Fields[i].Expr) {
+			return false
+		}
+	}
+
+	if e.Ident != f.Ident {
+		return false
+	}
+
+	if !e.Type.StructurallyEqual(f.Type) || !values.Equal(e.Val, f.Val) {
+		return false
+	}
+
+	if !e.Template.equal(f.Template) {
+		return false
+	}
+
+	if !e.ComprExpr.Equal(f.ComprExpr) {
+		return false
+	}
+	if len(e.ComprClauses) != len(f.ComprClauses) {
+		return false
+	}
+	for i := range e.ComprClauses {
+		if !e.ComprClauses[i].equal(f.ComprClauses[i]) {
+			return false
+		}
+	}
+
+	if !e.Env.Equal(f.Env) {
+		return false
+	}
+
+	if !e.Pat.Equal(f.Pat) {
+		return false
+	}
+
+	if e.Fmt != f.Fmt {
+		return false
+	}
+
+	return true
 }
 
 // String renders a tree-formatted version of e.
@@ -1102,7 +1170,7 @@ var binopPrec = map[string]int{
 
 // Prec returns the precedence of expression e. If it is not a binary
 // op, its precedence is 0.
-func (e *Expr) prec() int {
+func (e *Expr) Prec() int {
 	if e.Kind != ExprBinop {
 		return 0
 	}
@@ -1125,7 +1193,7 @@ func (e *Expr) Abbrev() string {
 		return e.Ident
 	case ExprBinop:
 		right := e.Right.Abbrev()
-		if l, r := e.prec(), e.Right.prec(); r <= l && l != 0 && r != 0 {
+		if l, r := e.Prec(), e.Right.Prec(); r <= l && l != 0 && r != 0 {
 			right = "(" + right + ")"
 		}
 		return e.Left.Abbrev() + " " + e.Op + " " + right
@@ -1159,7 +1227,7 @@ func (e *Expr) Abbrev() string {
 		for i := range fields {
 			fields[i] = e.Fields[i].Name + ":" + e.Fields[i].Abbrev()
 		}
-		return "{" + strings.Join(fields, ", ") + ")"
+		return "{" + strings.Join(fields, ", ") + "}"
 	case ExprList:
 		elems := make([]string, len(e.List))
 		for i := range elems {

@@ -143,7 +143,7 @@ type Field struct {
 
 // Equal checks whether Field f is equivalent to Field e.
 func (f *Field) Equal(e *Field) bool {
-	return f.Name == e.Name && f.T.Equal(e.T)
+	return f.Name == e.Name && f.T.StructurallyEqual(e.T)
 }
 
 // FieldsString returns a parseable string representation of the
@@ -427,8 +427,8 @@ func (t *T) StructurallyEqual(u *T) bool {
 }
 
 func (t *T) equal(u *T, refok bool) bool {
-	if u == nil {
-		return false
+	if t == nil || u == nil {
+		return t == nil && u == nil
 	}
 	if t.Kind == ErrorKind {
 		return false
@@ -638,6 +638,18 @@ func (t *T) Sub(u *T) bool {
 // Symtab is a symbol table of *Ts.
 type Symtab map[string]*T
 
+func (s Symtab) equal(t Symtab) bool {
+	if len(s) != len(t) {
+		return false
+	}
+	for key, sv := range s {
+		if tv, ok := t[key]; !ok || !sv.Equal(tv) {
+			return false
+		}
+	}
+	return true
+}
+
 // Env represents a type environment that binds
 // value and type identifiers to *Ts.
 type Env struct {
@@ -702,4 +714,12 @@ func (e *Env) Symbols() map[string]*T {
 		}
 	}
 	return sym
+}
+
+// Equal tells whether environments e and f are equivalent.
+func (e *Env) Equal(f *Env) bool {
+	if e == nil || f == nil {
+		return e == nil && f == nil
+	}
+	return e.Values.equal(f.Values) && e.Types.equal(f.Types) && e.next.Equal(f.next)
 }

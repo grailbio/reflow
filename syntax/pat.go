@@ -58,6 +58,9 @@ type Pat struct {
 
 // Equal tells whether pattern p is equal to pattern q.
 func (p *Pat) Equal(q *Pat) bool {
+	if p == nil || q == nil {
+		return p == nil && q == nil
+	}
 	if p.Kind != q.Kind {
 		return false
 	}

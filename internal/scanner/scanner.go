@@ -476,7 +476,7 @@ func (s *Scanner) scanDigits(ch rune, base, n int) rune {
 }
 
 func (s *Scanner) scanEscape(quote rune) rune {
-	ch := s.next() // read character after '/'
+	ch := s.next() // read character after '\'
 	switch ch {
 	case 'a', 'b', 'f', 'n', 'r', 't', 'v', '\\', quote:
 		// nothing to do
@@ -669,7 +669,7 @@ redo:
 		case '`':
 			if s.Mode&ScanRawStrings != 0 {
 				s.scanRawString()
-				tok = String
+				tok = RawString
 			}
 			ch = s.next()
 		case '=':

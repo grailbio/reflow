@@ -113,7 +113,7 @@ func (d *Decl) Equal(e *Decl) bool {
 	case DeclAssign:
 		return d.Expr.Equal(e.Expr)
 	case DeclDeclare, DeclType:
-		return d.Type.Equal(e.Type)
+		return d.Type.StructurallyEqual(e.Type)
 	}
 }
 

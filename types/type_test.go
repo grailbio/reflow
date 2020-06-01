@@ -102,3 +102,29 @@ func TestEnv(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+func TestSymtab_equal(t *testing.T) {
+	var nilTab Symtab
+	if got, want := nilTab.equal(nil), true; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	st1 := Symtab{"ty1": ty1}
+	if got, want := st1.equal(st1), true; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := st1.equal(nilTab), false; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := st1.equal(Symtab{"ty1": ty1}), true; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := st1.equal(Symtab{"ty1b": ty1}), false; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := st1.equal(Symtab{"ty2": ty2}), false; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := st1.equal(Symtab{"ty1": ty1, "ty2": ty2}), false; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

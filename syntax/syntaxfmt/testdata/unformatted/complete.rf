@@ -1,0 +1,95 @@
+param (
+
+a, b int
+
+	t  = "t"
+	tt  string = "tt"
+
+// s is a thing
+// and more
+s  string;)
+
+mod1 := make("./mod.rf",
+	 // pun!
+s, t := tt,
+t2 := tt)
+
+func plus(i int, k  int) int= {
+// j
+val  j =   i
+
+// expr comment
+		j +
+	 // another expr comment
+	1
+}
+
+func  minus(i , k	int) = 1
+
+a :=  3 +
+7
+b := a
+c := exec(image := `a 	`) (out file) {"
+	echo hi
+"}
+val (d,
+e) =
+(
+1,
+2)
+ml  :=   `
+	two space
+ `
+ml2 := "\n  two space\n "
+
+l := [
+ 1, 2,
+3]
+l1 := l
+l2 := l
+l3 := [4,
+
+5 ...l
+
+... l1
+...l2]
+l4 := [4,
+	...l]
+
+m := [
+ "a" : [1,
+2,
+3],
+	"b": 	[4, 5,
+6],
+
+"c":
+
+[7]]
+m1 := m
+
+m2 := m
+m3 := [ "d":
+	4  ...m
+ ... m1
+...m2  ]
+m4 := ["d":4,
+...m]
+val BAD_BEHAVIOR_incorrect_blank_line_prepended =
+	if true {
+		1
+	} else {
+		2
+	}
+
+
+ type BAD_BEHAVIOR_not_preserving_line_breaks   {A,
+B string,
+	b int,
+		 C string, D string }
+
+// main
+ @requires(  cpu  := 1)
+
+val Main =  plus (
+3, 4 	) + minus (6, 3)

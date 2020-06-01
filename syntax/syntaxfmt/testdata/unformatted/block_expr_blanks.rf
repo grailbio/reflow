@@ -1,0 +1,9 @@
+func f(a int) = {
+// j
+val  j =   1
+
+// expr comment
+		j +
+	 // another expr comment
+	1
+}

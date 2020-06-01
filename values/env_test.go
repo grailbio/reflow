@@ -48,3 +48,36 @@ func TestConcat(t *testing.T) {
 		}
 	}
 }
+
+func TestEnv_Equal(t *testing.T) {
+	var nilEnv *Env
+	if got, want := nilEnv.Equal(nil), true; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	env1 := NewEnv()
+	env1.Bind("1", 1)
+	if got, want := env1.Equal(env1), true; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	env1a := NewEnv()
+	env1a.Bind("1", 1)
+	if got, want := env1.Equal(env1a), true; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	env1b := NewEnv()
+	env1b.Bind("1", 11)
+	if got, want := env1.Equal(env1b), false; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	env2 := NewEnv()
+	env2.Bind("2", 2)
+	if got, want := env1.Equal(env2), false; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	env12 := NewEnv()
+	env12.Bind("1", 1)
+	env12.Bind("2", 2)
+	if got, want := env1.Equal(env2), false; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

@@ -363,6 +363,7 @@ valdef:
 	{$$ = &Decl{Position: $1.Position, Comment: $1.Comment, Pat: &Pat{Kind: PatIdent, Ident: $1.Ident}, Kind: DeclAssign, Expr: $3}}
 |	tokFunc tokIdent '(' funcargs ')' '=' expr
 	{$$ = &Decl{Position: $1.Position, Comment: $1.comment, Pat: &Pat{Kind: PatIdent, Ident: $2.Ident}, Kind: DeclAssign, Expr: &Expr{
+		Position: $1.Position,
 		Kind: ExprFunc,
 		Args: $4,
 		Left: $7}}}
@@ -371,7 +372,7 @@ valdef:
 		Position: $1.Position,
 		Kind: ExprAscribe,
 		Type: types.Func($6, $4...),
-		Left: &Expr{Kind: ExprFunc, Args: $4, Left: $8}}}}
+		Left: &Expr{Position: $1.Position, Kind: ExprFunc, Args: $4, Left: $8}}}}
 
 typedef:
 	tokType tokIdent type
@@ -517,7 +518,7 @@ term:
 	{
 		$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprList, List: $2}
 		for _, list := range $4 {
-			$$ = &Expr{Position: $1.Position, Kind: ExprBinop, Op: "+", Left: $$, Right: list}
+			$$ = &Expr{Position: $1.Position, Kind: ExprBinop, Op: "+", Left: $$, Right: list, Fmt: FmtAppendArgs}
 		}
 	}
 |	'[' ':' ']'
@@ -528,7 +529,7 @@ term:
 	{
 		$$ = &Expr{Position: $1.Position, Comment: $1.comment, Kind: ExprMap, Map: $2}
 		for _, list := range $4 {
-			$$ = &Expr{Position: $1.Position, Kind: ExprBinop, Op: "+", Left: list, Right: $$}
+			$$ = &Expr{Position: $1.Position, Kind: ExprBinop, Op: "+", Left: list, Right: $$, Fmt: FmtAppendArgs}
 		}
 	}
 |	'[' expr '|' comprclauses ']'

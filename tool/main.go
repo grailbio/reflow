@@ -109,6 +109,7 @@ var commands = map[string]Func{
 	"shell":        (*Cmd).shell,
 	"repair":       (*Cmd).repair,
 	"collect":      (*Cmd).collect,
+	"fmt":          (*Cmd).fmt,
 }
 
 var intro = `The reflow command helps users run Reflow programs, inspect their
