@@ -108,7 +108,6 @@ flags override any parameters in the batch sample file.
 	}
 	var user *infra.User
 	c.must(c.Config.Instance(&user))
-	cluster := c.Cluster(c.Status.Group("ec2cluster"))
 	var repo reflow.Repository
 	c.must(c.Config.Instance(&repo))
 	var assoc assoc.Assoc
@@ -165,15 +164,14 @@ flags override any parameters in the batch sample file.
 			TaskDB:             tdb,
 			Scheduler:          scheduler,
 		},
-		Args:    flags.Args(),
-		Rundir:  c.rundir(),
-		User:    string(*user),
-		Cluster: cluster,
-		Status:  c.Status.Groupf("batch %s", wd),
+		Args:   flags.Args(),
+		Rundir: c.rundir(),
+		User:   string(*user),
+		Status: c.Status.Groupf("batch %s", wd),
 	}
 	c.must(config.Configure(&b.EvalConfig))
 	bc.Configure(b)
-	c.must(b.Init(*resetFlag))
+	c.must(b.Init(*resetFlag, *retryFlag))
 
 	defer b.Close()
 	if *idsFlag != "" {
@@ -186,22 +184,6 @@ flags override any parameters in the batch sample file.
 			if !ids[id] {
 				delete(b.Runs, id)
 			}
-		}
-	}
-	if *retryFlag {
-		for id, run := range b.Runs {
-			var retry bool
-			switch run.State.Phase {
-			case runner.Init, runner.Eval:
-				continue
-			case runner.Done, runner.Retry:
-				retry = run.State.Err != nil
-			}
-			if !retry {
-				continue
-			}
-			c.Errorf("retrying run %v\n", id)
-			run.State.Reset()
 		}
 	}
 	ctx, bgcancel := flow.WithBackground(ctx, &wg)
@@ -233,7 +215,7 @@ See runbatch -help for information about Reflow's batching mechanism.`
 	var b batch.Batch
 	b.Rundir = c.rundir()
 	bc.Configure(&b)
-	c.must(b.Init(false))
+	c.must(b.ReadState())
 	defer b.Close()
 	ids := make([]string, len(b.Runs))
 	i := 0
@@ -248,6 +230,9 @@ See runbatch -help for information about Reflow's batching mechanism.`
 
 	for _, id := range ids {
 		run := b.Runs[id]
+		if run == nil {
+			continue
+		}
 		fmt.Fprintf(&tw, "run %s: %s\n", id, run.State.ID.IDShort())
 		c.printRunInfo(ctx, &tw, digest.Digest(run.State.ID))
 		fmt.Fprintf(&tw, "\tlog:\t%s\n", filepath.Join(b.Dir, "log."+id))
@@ -274,7 +259,7 @@ The columns displayed by listbatch are:
 	var b batch.Batch
 	b.Rundir = c.rundir()
 	bc.Configure(&b)
-	c.must(b.Init(false))
+	c.must(b.ReadState())
 	defer b.Close()
 	ids := make([]string, len(b.Runs))
 	i := 0
@@ -289,6 +274,9 @@ The columns displayed by listbatch are:
 
 	for _, id := range ids {
 		run := b.Runs[id]
+		if run == nil {
+			continue
+		}
 		var state string
 		switch run.State.Phase {
 		case runner.Init:

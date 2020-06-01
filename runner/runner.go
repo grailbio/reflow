@@ -106,7 +106,10 @@ func (s State) String() string {
 	case Init:
 		return "init"
 	case Eval:
-		return fmt.Sprintf("eval alloc %v", s.AllocID)
+		if s.AllocID != "" {
+			return fmt.Sprintf("eval alloc %v", s.AllocID)
+		}
+		return fmt.Sprintf("eval")
 	case Retry:
 		return fmt.Sprintf("retry error %v try %d/%d last %v", s.Err, s.NumTries+1, maxTries, s.LastTry)
 	case Done:
@@ -178,6 +181,7 @@ func (r *Runner) Do(ctx context.Context) bool {
 	}
 	if r.Scheduler != nil && r.Phase == Init {
 		r.Phase = Eval
+		return true
 	}
 	switch r.Phase {
 	case Init:

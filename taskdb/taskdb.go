@@ -34,6 +34,11 @@ func (r RunID) ID() string {
 	return digest.Digest(r).String()
 }
 
+// Hex returns the padded hexadecimal representation of the Digest.
+func (r RunID) Hex() string {
+	return digest.Digest(r).Hex()
+}
+
 // IDShort returns a short string representation of the RunID.
 func (r RunID) IDShort() string {
 	return digest.Digest(r).HexN(4)
@@ -42,6 +47,16 @@ func (r RunID) IDShort() string {
 // IsValid returns whether or not the RunID has been set.
 func (r RunID) IsValid() bool {
 	return !digest.Digest(r).IsZero()
+}
+
+// MarshalJSON marshals the RunID into JSON format.
+func (r RunID) MarshalJSON() ([]byte, error) {
+	return digest.Digest(r).MarshalJSON()
+}
+
+// UnmarshalJSON unmarshals a RunID from JSON data.
+func (r *RunID) UnmarshalJSON(b []byte) error {
+	return (*digest.Digest)(r).UnmarshalJSON(b)
 }
 
 // TaskID is a unique identifier for a task.

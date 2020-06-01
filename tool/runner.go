@@ -147,8 +147,10 @@ func NewScheduler(config infra.Config, wg *wg.WaitGroup, logger *log.Logger, sta
 		repo    reflow.Repository
 		limit   int
 	)
-	if err = config.Instance(&logger); err != nil {
-		return nil, nil, err
+	if logger == nil {
+		if err = config.Instance(&logger); err != nil {
+			return nil, nil, err
+		}
 	}
 	if err = config.Instance(&tdb); err != nil {
 		if !strings.HasPrefix(err.Error(), "no providers for type taskdb.TaskDB") {
@@ -691,7 +693,7 @@ func (r Runner) Runbase() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(rundir, digest.Digest(r.RunID).Hex()), nil
+	return filepath.Join(rundir, r.RunID.Hex()), nil
 }
 
 // getPredictorConfig returns a PredictorConfig if the Predictor can be used by reflow. The Predictor can only

@@ -15,6 +15,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	golog "log"
 	"os"
 	"path/filepath"
@@ -147,6 +148,7 @@ func (r *Run) Go(ctx context.Context, initWG *sync.WaitGroup) error {
 	)
 	evalConfig := r.batch.EvalConfig
 	evalConfig.Log = r.log
+	evalConfig.RunID = r.RunID
 	run := &runner.Runner{
 		State:      r.State,
 		Cluster:    r.batch.Cluster,
@@ -306,10 +308,11 @@ type Batch struct {
 	// individual run statuses are reported as tasks in the group.
 	Status *status.Group
 
+	// BatchState is the state of the current batch.
+	BatchState
+
 	flow.EvalConfig
 
-	// Runs is the set of runs managed by this batch.
-	Runs map[string]*Run
 	// Admitter is a rate limiter to control the rate of new evaluations.
 	// This can be used to prevent "thundering herds" against systems
 	// like S3. Admitter should be set prior to running the batch.
@@ -321,37 +324,77 @@ type Batch struct {
 	flow   *flow.Flow
 }
 
-// Init initializes a batch. If reset is set to true, then previously saved
-// state is discarded.
-//
-// Init also upgrades old state files.
-func (b *Batch) Init(reset bool) error {
-	f, err := os.Open(filepath.Join(b.Dir, b.ConfigFilename))
-	if err != nil {
+// BatchState identifies a batch. It has a unique identifier based on the program and the batch being run.
+// It also includes the state of the runs in the batch.
+type BatchState struct {
+	// ID is the batch identifier. It uniquely identifies a batch (program and the contents of the batch).
+	ID digest.Digest
+	// Runs is the set of runs managed by this batch.
+	Runs map[string]*Run
+}
+
+// Init initializes a batch. If reset is set to true, then previously saved state is discarded.
+// If retry is set, then only failed runs in the batch are retried. Init also upgrades old state files.
+func (b *Batch) Init(reset bool, retry bool) error {
+	var (
+		err error
+		f   *os.File
+	)
+	if f, err = os.Open(filepath.Join(b.Dir, b.ConfigFilename)); err != nil {
 		return err
 	}
 	defer f.Close()
 	if err := json.NewDecoder(f).Decode(&b.config); err != nil {
 		return err
 	}
-	b.file, err = state.Open(filepath.Join(b.Dir, statePrefix))
-	if err != nil {
+	// Digest the contents of the config file and the runs file to see if we are rerunning an
+	// existing configuration or running a completely new configuration.
+	dw := reflow.Digester.NewWriter()
+	if _, err = dw.Write([]byte(b.config.Program)); err != nil {
+		return err
+	}
+	if _, err = dw.Write([]byte(b.config.RunsFile)); err != nil {
+		return err
+	}
+	var rf *os.File
+	if rf, err = os.Open(b.path(b.config.RunsFile)); err != nil {
+		return err
+	}
+	var rfb []byte
+	if rfb, err = ioutil.ReadAll(rf); err != nil {
+		rf.Close()
+		return err
+	}
+	rf.Close()
+	if _, err = dw.Write(rfb); err != nil {
+		return err
+	}
+	batchID := dw.Digest()
+
+	if b.file, err = state.Open(filepath.Join(b.Dir, statePrefix)); err != nil {
 		return err
 	}
 	b.states = map[string]*state.File{}
 	b.Runs = map[string]*Run{}
 	if reset {
-		if err := b.file.Marshal(b.Runs); err != nil {
+		b.ID = batchID
+		if err := b.file.Marshal(b.BatchState); err != nil {
 			b.Log.Errorf("marshal: %v", err)
 		}
 	} else {
-		if err := b.file.Unmarshal(&b.Runs); err != nil && err != state.ErrNoState {
+		if err := b.file.Unmarshal(&b.BatchState); err != nil && err != state.ErrNoState {
 			return err
+		}
+		if b.ID != batchID {
+			b.ID = batchID
+			if err := b.file.Marshal(b.BatchState); err != nil {
+				b.Log.Errorf("marshal: %v", err)
+			}
 		}
 	}
 	b.commit(nil)
 	b.Log.Printf("batch program %v runsfile %v", b.config.Program, b.config.RunsFile)
-	return b.read()
+	return b.read(retry)
 }
 
 // Close releases resources held by the batch.
@@ -395,14 +438,47 @@ func (b *Batch) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-done:
-			b.Status.Printf("remaining: %d", len(b.Runs)-n)
 			n++
+			b.Status.Printf("remaining: %d", len(b.Runs)-n)
 		}
 	}
 	return nil
 }
 
-func (b *Batch) read() error {
+// ReadState populates the current state of the batch run.
+func (b *Batch) ReadState() error {
+	var err error
+	b.file, err = state.Open(filepath.Join(b.Dir, statePrefix))
+	if err != nil {
+		return err
+	}
+	b.states = map[string]*state.File{}
+	err = b.file.Unmarshal(&b.BatchState)
+	if err != nil && err != state.ErrNoState {
+		return err
+	}
+	for _, run := range b.Runs {
+		if run == nil || !run.RunID.IsValid() {
+			continue
+		}
+		prefix := filepath.Join(b.Rundir, run.RunID.Hex())
+		run.Status = b.Status.Start(run.RunID.IDShort())
+		run.Status.Print("waiting")
+		run.batch = b
+		id := run.ID
+		run.State.ID = taskdb.RunID(reflow.Digester.FromString(id))
+		b.states[id], err = state.Open(filepath.Join(prefix))
+		if err != nil && err != state.ErrNoState {
+			return err
+		}
+		if err = b.states[id].Unmarshal(&run.State); err != nil && err != state.ErrNoState {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *Batch) read(retry bool) error {
 	f, err := os.Open(b.path(b.config.RunsFile))
 	if err != nil {
 		return err
@@ -432,17 +508,44 @@ func (b *Batch) read() error {
 		run := b.Runs[id]
 		if run == nil {
 			run = new(Run)
-			// Create fresh run ID the first time we encounted a run.
+			// Create fresh run ID the first time we encountered a run.
 			run.RunID = taskdb.NewRunID()
 		}
 		run.ID = id
 		run.Args = attrs
 		run.Argv = fields[len(header):]
 		run.Program = b.path(b.config.Program)
+		var prevRunID taskdb.RunID
+
+		if run.RunID.IsValid() {
+			prevRunID = run.RunID
+		}
+		// Assign a new run id, and restore state, if any, from the prev run id.
+		run.RunID = taskdb.NewRunID()
+		prefix := filepath.Join(b.Rundir, run.RunID.Hex())
+		if prevRunID.IsValid() {
+			var prevState runner.State
+			if err = state.Unmarshal(filepath.Join(b.Rundir, prevRunID.Hex()), &prevState); err != nil && err != state.ErrNoState {
+				return err
+			}
+			if err = state.Marshal(prefix, prevState); err != nil {
+				return err
+			}
+		}
+		if retry {
+			switch run.State.Phase {
+			case runner.Done, runner.Retry:
+				if run.State.Err != nil {
+					run.State.Reset()
+					b.Log.Printf("retrying run %v\n", id)
+				}
+			}
+		}
 		run.Status = b.Status.Start(run.RunID.IDShort())
 		run.Status.Print("waiting")
 		run.batch = b
-		b.states[id], err = state.Open(filepath.Join(b.Rundir, run.RunID.IDShort()))
+
+		b.states[id], err = state.Open(filepath.Join(prefix))
 		if err != nil {
 			return err
 		}
@@ -453,6 +556,7 @@ func (b *Batch) read() error {
 			run.State.ID = run.RunID
 		}
 		runs[id] = run
+		b.commit(run)
 	}
 	b.Runs = runs
 	b.commit(nil)
@@ -469,7 +573,7 @@ func (b *Batch) path(path string) string {
 func (b *Batch) commit(run *Run) {
 	if run == nil {
 		b.file.LockLocal()
-		if err := b.file.Marshal(b.Runs); err != nil {
+		if err := b.file.Marshal(b.BatchState); err != nil {
 			b.Log.Errorf("marshal: %v", err)
 		}
 		b.file.UnlockLocal()
