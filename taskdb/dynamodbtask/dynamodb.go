@@ -11,8 +11,8 @@
 // buckets stored. "Date-Keepalive-index" index allows querying runs/tasks based on time
 // buckets. Dynamodbtask also uses a bunch of secondary indices to help with run/task querying.
 // Schema:
-// run:  {ID, ID4, Labels, Bundle, Args, Date, Keepalive, StartTime, Type="run", User}
-// task: {ID, ID4, Labels, Date, Keepalive, StartTime, Type="task", FlowID, Inspect, ResultID, RunID, RunID4, ImgCmdID, Ident, Stderr, Stdout, URI}
+// run:  {ID, ID4, Labels, Bundle, Args, Date, Keepalive, StartTime, EndTime, Type="run", User}
+// task: {ID, ID4, Labels, Date, Keepalive, StartTime, EndTime, Type="task", FlowID, Inspect, Error, ResultID, RunID, RunID4, ImgCmdID, Ident, Stderr, Stdout, URI}
 // Indexes:
 // 1. Date-Keepalive-index - for time-based queries.
 // 2. RunID-index - for finding all tasks that belong to a run.
@@ -60,6 +60,7 @@ const (
 	Stdout
 	Stderr
 	ExecInspect
+	Error
 	URI
 	Labels
 	User
@@ -67,6 +68,7 @@ const (
 	Date
 	Bundle
 	Args
+	EndTime
 )
 
 func init() {
@@ -103,9 +105,11 @@ const (
 	colIdent     = "Ident"
 	colKeepalive = "Keepalive"
 	colStartTime = "StartTime"
+	colEndTime   = "EndTime"
 	colStdout    = "Stdout"
 	colStderr    = "Stderr"
 	colInspect   = "Inspect"
+	colError     = "Error"
 	colURI       = "URI"
 	colLabels    = "Labels"
 	colUser      = "User"
@@ -126,9 +130,11 @@ var colmap = map[taskdb.Kind]string{
 	ResultID:    colResultID,
 	KeepAlive:   colKeepalive,
 	StartTime:   colStartTime,
+	EndTime:     colEndTime,
 	Stdout:      colStdout,
 	Stderr:      colStderr,
 	ExecInspect: colInspect,
+	Error:       colError,
 	URI:         colURI,
 	Labels:      colLabels,
 	User:        colUser,
@@ -250,6 +256,27 @@ func (t *TaskDB) SetRunAttrs(ctx context.Context, id taskdb.RunID, bundle digest
 	return err
 }
 
+// SetRunComplete sets the result of the run post completion.
+func (t *TaskDB) SetRunComplete(ctx context.Context, id taskdb.RunID, end time.Time) error {
+	if end.IsZero() {
+		end = time.Now()
+	}
+	input := &dynamodb.UpdateItemInput{
+		TableName: aws.String(t.TableName),
+		Key: map[string]*dynamodb.AttributeValue{
+			colID: {
+				S: aws.String(id.ID()),
+			},
+		},
+		UpdateExpression: aws.String(fmt.Sprintf("SET %s = :endtime", colEndTime)),
+		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+			":endtime": {S: aws.String(end.UTC().Format(timeLayout))},
+		},
+	}
+	_, err := t.DB.UpdateItemWithContext(ctx, input)
+	return err
+}
+
 // CreateTask creates a new task in the taskdb with the provided taskID, runID and flowID, imgCmdID, ident, and uri.
 func (t *TaskDB) CreateTask(ctx context.Context, id taskdb.TaskID, runID taskdb.RunID, flowID digest.Digest, imgCmdID taskdb.ImgCmdID, ident, uri string) error {
 	now := time.Now().UTC()
@@ -319,6 +346,24 @@ func (t *TaskDB) SetTaskResult(ctx context.Context, id taskdb.TaskID, result dig
 	return err
 }
 
+// SetTaskUri updates the task URI.
+func (t *TaskDB) SetTaskUri(ctx context.Context, id taskdb.TaskID, uri string) error {
+	input := &dynamodb.UpdateItemInput{
+		TableName: aws.String(t.TableName),
+		Key: map[string]*dynamodb.AttributeValue{
+			colID: {
+				S: aws.String(id.ID()),
+			},
+		},
+		UpdateExpression: aws.String(fmt.Sprintf("SET %s = :uri", colURI)),
+		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+			":uri": {S: aws.String(uri)},
+		},
+	}
+	_, err := t.DB.UpdateItemWithContext(ctx, input)
+	return err
+}
+
 // SetTaskAttrs sets the stdout, stderr and inspect ids for the task.
 func (t *TaskDB) SetTaskAttrs(ctx context.Context, id taskdb.TaskID, stdout, stderr, inspect digest.Digest) error {
 	input := &dynamodb.UpdateItemInput{
@@ -337,6 +382,36 @@ func (t *TaskDB) SetTaskAttrs(ctx context.Context, id taskdb.TaskID, stdout, std
 	}
 	_, err := t.DB.UpdateItemWithContext(ctx, input)
 	return err
+}
+
+// SetTaskComplete mark the task as completed as of the given end time.
+func (t *TaskDB) SetTaskComplete(ctx context.Context, id taskdb.TaskID, err error, end time.Time) error {
+	if end.IsZero() {
+		end = time.Now()
+	}
+	update := aws.String(fmt.Sprintf("SET %s = :endtime", colEndTime))
+	values := map[string]*dynamodb.AttributeValue{
+		":endtime": {S: aws.String(end.UTC().Format(timeLayout))},
+	}
+	if err != nil {
+		update = aws.String(fmt.Sprintf("SET %s = :endtime, %s = :error", colEndTime, colError))
+		values = map[string]*dynamodb.AttributeValue{
+			":endtime": {S: aws.String(end.UTC().Format(timeLayout))},
+			":error":   {S: aws.String(err.Error())},
+		}
+	}
+	input := &dynamodb.UpdateItemInput{
+		TableName: aws.String(t.TableName),
+		Key: map[string]*dynamodb.AttributeValue{
+			colID: {
+				S: aws.String(id.ID()),
+			},
+		},
+		UpdateExpression:          update,
+		ExpressionAttributeValues: values,
+	}
+	_, uerr := t.DB.UpdateItemWithContext(ctx, input)
+	return uerr
 }
 
 func date(t time.Time) time.Time {
@@ -577,7 +652,7 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 	for _, it := range items {
 		var (
 			id, fid, runid, result, stderr, stdout, inspect, imgCmdID digest.Digest
-			keepalive                                                 time.Time
+			keepalive, et                                             time.Time
 			ident, uri                                                string
 		)
 
@@ -613,6 +688,12 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 		st, err := time.Parse(timeLayout, *it[colStartTime].S)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("parse starttime %v: %v", *it[colStartTime].S, err))
+		}
+		if v, ok := it[colEndTime]; ok {
+			et, err = time.Parse(timeLayout, *v.S)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("parse endtime %v: %v", *it[colEndTime].S, err))
+			}
 		}
 		if v, ok := it[colStdout]; ok {
 			stdout, err = digest.Parse(*v.S)
@@ -654,6 +735,7 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 			URI:       uri,
 			Keepalive: keepalive,
 			Start:     st,
+			End:       et,
 			Stdout:    stdout,
 			Stderr:    stderr,
 			Inspect:   inspect,
@@ -757,12 +839,21 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 		if err != nil {
 			errs = append(errs, fmt.Errorf("parse starttime %v: %v", *it[colStartTime].S, err))
 		}
+		var et time.Time
+		if v, ok := it[colEndTime]; ok {
+			et, err = time.Parse(timeLayout, *v.S)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("parse endtime %v: %v", *it[colEndTime].S, err))
+			}
+		}
 		runs = append(runs, taskdb.Run{
 			ID:        taskdb.RunID(id),
 			Labels:    l,
 			User:      *it["User"].S,
 			Keepalive: keepalive,
-			Start:     st})
+			Start:     st,
+			End:       et,
+		})
 	}
 	if len(errs) == 0 {
 		return runs, nil

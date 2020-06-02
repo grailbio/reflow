@@ -171,17 +171,38 @@ func (w *worker) do(ctx context.Context, f *flow.Flow) (err error) {
 		stateDone
 	)
 	var (
-		x      reflow.Exec
-		r      reflow.Result
-		n      = 0
-		s      = stateUpload
-		tctx   context.Context
-		cancel context.CancelFunc
+		x       reflow.Exec
+		r       reflow.Result
+		n       = 0
+		s       = stateUpload
+		cfg     = f.ExecConfig()
+		tctx    context.Context
+		tcancel context.CancelFunc
 	)
+	defer func() {
+		if tcancel == nil {
+			return
+		}
+		tdbErr := w.Eval.TaskDB.SetTaskComplete(tctx, f.TaskID, err, time.Now())
+		if tdbErr != nil {
+			w.Log.Debugf("taskdb settaskcomplete: %v\n", tdbErr)
+		}
+		tcancel()
+	}()
 	for n < numTries && s < stateDone {
 		switch s {
 		case stateUpload:
 			begin := time.Now()
+			if w.Eval.TaskDB != nil && tctx == nil {
+				// disable govet check due to https://github.com/golang/go/issues/29587
+				tctx, tcancel = context.WithCancel(ctx) //nolint: govet
+				err = w.Eval.TaskDB.CreateTask(tctx, f.TaskID, w.Eval.RunID, f.Digest(), taskdb.NewImgCmdID(cfg.Image, cfg.Cmd), cfg.Ident, "")
+				if err != nil {
+					w.Log.Debugf("taskdb createtask: %v\n", err)
+				} else {
+					go func() { _ = taskdb.KeepTaskAlive(tctx, w.Eval.TaskDB, f.TaskID) }()
+				}
+			}
 			w.Log.Debugf("transferring %s (%d files) to worker repository for flow %v", size, len(files), f)
 			err = w.Eval.Transferer.Transfer(ctx, w.Executor.Repository(), w.Eval.Executor.Repository(), files...)
 			if err == nil {
@@ -190,24 +211,11 @@ func (w *worker) do(ctx context.Context, f *flow.Flow) (err error) {
 				w.Log.Errorf("transfer error: %v", err)
 			}
 		case statePut:
-			cfg := reflow.ExecConfig{
-				Type:        "exec",
-				Ident:       f.Ident,
-				Image:       f.Image,
-				Cmd:         f.Cmd,
-				Args:        args,
-				Resources:   f.Resources,
-				OutputIsDir: f.OutputIsDir,
-			}
 			x, err = w.Executor.Put(ctx, f.ExecId, cfg)
 			if err == nil {
 				if w.Eval.TaskDB != nil {
-					tctx, cancel = context.WithCancel(ctx)
-					err = w.Eval.TaskDB.CreateTask(tctx, f.TaskID, w.Eval.RunID, f.Digest(), taskdb.NewImgCmdID(cfg.Image, cfg.Cmd), cfg.Ident, x.URI())
-					if err != nil {
-						log.Debugf("taskdb createtask: %v\n", err)
-					} else {
-						go func() { _ = taskdb.KeepTaskAlive(tctx, w.Eval.TaskDB, f.TaskID) }()
+					if taskdbErr := w.Eval.TaskDB.SetTaskUri(tctx, f.TaskID, x.URI()); taskdbErr != nil {
+						w.Log.Errorf("taskdb settaskuri: %v", taskdbErr)
 					}
 				}
 				f.Exec = x
@@ -218,9 +226,8 @@ func (w *worker) do(ctx context.Context, f *flow.Flow) (err error) {
 			if w.Eval.TaskDB != nil {
 				err = w.Eval.TaskDB.SetTaskResult(tctx, f.TaskID, x.ID())
 				if err != nil {
-					log.Debugf("taskdb settaskresult: %v\n", err)
+					w.Log.Debugf("taskdb settaskresult: %v\n", err)
 				}
-				cancel()
 			}
 		case stateInspect:
 			f.Inspect, err = x.Inspect(ctx)

@@ -118,12 +118,18 @@ type TaskDB interface {
 	CreateRun(ctx context.Context, id RunID, user string) error
 	// SetRunAttrs sets the reflow bundle and corresponding args for this run.
 	SetRunAttrs(ctx context.Context, id RunID, bundle digest.Digest, args []string) error
+	// SetRunComplete marsk the run as complete.
+	SetRunComplete(ctx context.Context, id RunID, end time.Time) error
 	// CreateTask creates a new task in the taskdb with the provided taskID, runID and flowID, imgCmdID, ident, and uri.
 	CreateTask(ctx context.Context, id TaskID, runID RunID, flowID digest.Digest, imgCmdID ImgCmdID, ident, uri string) error
 	// SetTaskResult sets the result of the task post completion.
 	SetTaskResult(ctx context.Context, id TaskID, result digest.Digest) error
-	// SetTaskLogs updates the task log ids.
+	// SetTaskUri updates the task URI.
+	SetTaskUri(ctx context.Context, id TaskID, uri string) error
+	// SetTaskAttrs updates the task log ids.
 	SetTaskAttrs(ctx context.Context, id TaskID, stdout, stderr, inspect digest.Digest) error
+	// SetTaskComplete mark the task as completed as of the given end time with the error (if any)
+	SetTaskComplete(ctx context.Context, id TaskID, err error, end time.Time) error
 	// KeepRunAlive updates the keepalive timer for the specified run id. Updating the keepalive timer
 	// allows the querying methods (Runs, Tasks) to see which runs/tasks are active and which are dead/complete.
 	KeepRunAlive(ctx context.Context, id RunID, keepalive time.Time) error
@@ -154,6 +160,8 @@ type Run struct {
 	Keepalive time.Time
 	// Start is the time the run was started.
 	Start time.Time
+	// End is the time the run ended (if it has).
+	End time.Time
 }
 
 func (r Run) String() string {
@@ -161,7 +169,11 @@ func (r Run) String() string {
 	for k, v := range r.Labels {
 		labels = append(labels, fmt.Sprintf("%s=%s", k, v))
 	}
-	return fmt.Sprintf("run %s %s %s %s %s", r.ID.IDShort(), r.User, strings.Join(labels, ","), r.Start.String(), r.Keepalive.String())
+	et := r.Keepalive
+	if !r.End.IsZero() {
+		et = r.End
+	}
+	return fmt.Sprintf("run %s %s %s %s %s", r.ID.IDShort(), r.User, strings.Join(labels, ","), r.Start.String(), et.String())
 }
 
 // Task is the task info stored in the taskdb.
@@ -184,6 +196,8 @@ type Task struct {
 	Keepalive time.Time
 	// Start is the time the task was started.
 	Start time.Time
+	// End is the time the task ended (if it has).
+	End time.Time
 	// URI is the uri of the task.
 	URI string
 	// Stdout, Stderr and Inspect are the stdout, stderr and inspect ids of the task.
@@ -191,7 +205,11 @@ type Task struct {
 }
 
 func (t Task) String() string {
-	return fmt.Sprintf("task %s %s %s %s %s", t.ID.IDShort(), t.RunID.IDShort(), t.FlowID.Short(), t.Start.String(), t.Keepalive.String())
+	et := t.Keepalive
+	if !t.End.IsZero() {
+		et = t.End
+	}
+	return fmt.Sprintf("task %s %s %s %s %s", t.ID.IDShort(), t.RunID.IDShort(), t.FlowID.Short(), t.Start.String(), et.String())
 }
 
 // TaskQuery is the task-querying struct for TaskDB.Tasks. There are two ways to query tasks:

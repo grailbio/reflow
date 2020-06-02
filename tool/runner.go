@@ -425,7 +425,15 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 	}
 
 	if r.runConfig.RunFlags.Local {
-		return r.runLocal(ctx, e.Main(), e.MainType(), e.ImageMap, cmdline)
+		s, serr := r.runLocal(ctx, e.Main(), e.MainType(), e.ImageMap, cmdline)
+		var et time.Time
+		if serr == nil {
+			et = s.Completion
+		}
+		if errTDB := r.tdb.SetRunComplete(tctx, r.RunID, et); errTDB != nil {
+			r.Log.Debugf("error writing run result to taskdb: %v", errTDB)
+		}
+		return s, serr
 	}
 	run := runner.Runner{
 		Flow: e.Main(),
@@ -485,6 +493,14 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 			r.Log.Errorf("failed to marshal state: %v", err)
 		}
 	}
+
+	r.wg.Add(1)
+	go func() {
+		if errTDB := r.tdb.SetRunComplete(tctx, r.RunID, run.State.Completion); errTDB != nil {
+			r.Log.Debugf("error writing run result to taskdb: %v", errTDB)
+		}
+		r.wg.Done()
+	}()
 
 	if run.Err != nil {
 		r.Log.Error(run.Err)

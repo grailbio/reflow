@@ -25,6 +25,11 @@ func (n nopTaskDB) SetRunAttrs(ctx context.Context, id taskdb.RunID, bundle dige
 	return nil
 }
 
+// SetRunComplete is a no op.
+func (n nopTaskDB) SetRunComplete(ctx context.Context, id taskdb.RunID, end time.Time) error {
+	return nil
+}
+
 // CreateTask is a no op.
 func (n nopTaskDB) CreateTask(ctx context.Context, id taskdb.TaskID, runID taskdb.RunID, flowID digest.Digest, imgCmdID taskdb.ImgCmdID, ident, uri string) error {
 	return nil
@@ -35,8 +40,18 @@ func (n nopTaskDB) SetTaskResult(ctx context.Context, id taskdb.TaskID, result d
 	return nil
 }
 
+// SetTaskUri does nothing.
+func (n nopTaskDB) SetTaskUri(ctx context.Context, id taskdb.TaskID, uri string) error {
+	return nil
+}
+
 // SetTaskAttrs does nothing.
 func (n nopTaskDB) SetTaskAttrs(ctx context.Context, id taskdb.TaskID, stdout, stderr, inspect digest.Digest) error {
+	return nil
+}
+
+// SetTaskComplete does nothing.
+func (n nopTaskDB) SetTaskComplete(ctx context.Context, id taskdb.TaskID, err error, end time.Time) error {
 	return nil
 }
 

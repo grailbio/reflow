@@ -1851,44 +1851,52 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 		stateDone
 	)
 	var (
-		err error
-		x   reflow.Exec
-		r   reflow.Result
-		n   = 0
-		s   = statePut
-		id  = f.Digest()
-		cfg = f.ExecConfig()
+		err     error
+		x       reflow.Exec
+		r       reflow.Result
+		n       = 0
+		s       = statePut
+		id      = f.Digest()
+		cfg     = f.ExecConfig()
+		tcancel context.CancelFunc
+		tctx    context.Context
 	)
 
 	// TODO(marius): we should distinguish between fatal and nonfatal errors.
 	// The fatal ones are useless to retry.
 
+	defer func() {
+		if tcancel == nil {
+			return
+		}
+		if tdbErr := e.TaskDB.SetTaskComplete(tctx, f.TaskID, err, time.Now()); tdbErr != nil {
+			e.Log.Debugf("taskdb settaskcomplete: %v\n", tdbErr)
+		}
+		tcancel()
+	}()
+
 	for n < numExecTries && s < stateDone {
 		switch s {
 		case statePut:
+			if e.TaskDB != nil {
+				// disable govet check due to https://github.com/golang/go/issues/29587
+				tctx, tcancel = context.WithCancel(ctx) //nolint: govet
+				err = e.TaskDB.CreateTask(tctx, f.TaskID, e.RunID, id, taskdb.NewImgCmdID(cfg.Image, cfg.Cmd), cfg.Ident, "")
+				if err != nil {
+					e.Log.Debugf("taskdb createtask: %v\n", err)
+				}
+				go func() { _ = taskdb.KeepTaskAlive(tctx, e.TaskDB, f.TaskID) }()
+			}
 			x, err = e.Executor.Put(ctx, f.ExecId, cfg)
 			if err == nil {
 				f.Exec = x
 				e.LogFlow(ctx, f)
 			}
 		case stateWait:
-			var (
-				tcancel context.CancelFunc
-				tctx    context.Context
-			)
-			if e.TaskDB != nil {
-				tctx, tcancel = context.WithCancel(ctx)
-				err = e.TaskDB.CreateTask(tctx, f.TaskID, e.RunID, id, taskdb.NewImgCmdID(cfg.Image, cfg.Cmd), cfg.Ident, x.URI())
-				if err != nil {
-					tcancel()
-					e.Log.Debugf("taskdb createtask: %v\n", err)
-				}
-				go func() { _ = taskdb.KeepTaskAlive(tctx, e.TaskDB, f.TaskID) }()
-			}
 			err = x.Wait(ctx)
 			if e.TaskDB != nil {
-				if err := e.TaskDB.SetTaskResult(tctx, f.TaskID, x.ID()); err != nil {
-					e.Log.Debugf("taskdb settaskresult: %v\n", err)
+				if tdbErr := e.TaskDB.SetTaskResult(tctx, f.TaskID, x.ID()); tdbErr != nil {
+					e.Log.Debugf("taskdb settaskresult: %v\n", tdbErr)
 				}
 				tcancel()
 			}

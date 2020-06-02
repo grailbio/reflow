@@ -221,6 +221,32 @@ func TestSetTaskResult(t *testing.T) {
 	}
 }
 
+func TestSetTaskUri(t *testing.T) {
+	var (
+		mockdb = mockDynamoDBUpdate{}
+		taskb  = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		taskID = taskdb.NewTaskID()
+		uri    = "some_uri"
+	)
+	err := taskb.SetTaskUri(context.Background(), taskID, uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		actual   string
+		expected string
+	}{
+		{*mockdb.uInput.TableName, "mockdynamodb"},
+		{*mockdb.uInput.Key[colID].S, taskID.ID()},
+		{*mockdb.uInput.ExpressionAttributeValues[":uri"].S, uri},
+		{*mockdb.uInput.UpdateExpression, "SET URI = :uri"},
+	} {
+		if test.expected != test.actual {
+			t.Errorf("expected %s, got %v", test.expected, test.actual)
+		}
+	}
+}
+
 func TestSetTaskAttrs(t *testing.T) {
 	var (
 		mockdb  = mockDynamoDBUpdate{}
@@ -247,6 +273,51 @@ func TestSetTaskAttrs(t *testing.T) {
 	} {
 		if test.expected != test.actual {
 			t.Errorf("expected %s, got %v", test.expected, test.actual)
+		}
+	}
+}
+
+func TestSetTaskComplete(t *testing.T) {
+	var (
+		mockdb = mockDynamoDBUpdate{}
+		taskb  = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		taskID = taskdb.NewTaskID()
+		tdbErr error
+		end    = time.Now()
+	)
+	err := taskb.SetTaskComplete(context.Background(), taskID, tdbErr, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		got, want string
+	}{
+		{*mockdb.uInput.TableName, "mockdynamodb"},
+		{*mockdb.uInput.Key[colID].S, taskID.ID()},
+		{*mockdb.uInput.ExpressionAttributeValues[":endtime"].S, end.UTC().Format(timeLayout)},
+		{*mockdb.uInput.UpdateExpression, "SET EndTime = :endtime"},
+	} {
+		if test.want != test.got {
+			t.Errorf("got %v, want %v", test.got, test.want)
+		}
+	}
+	tdbErr = errors.New("some error")
+	end = time.Now()
+	err = taskb.SetTaskComplete(context.Background(), taskID, tdbErr, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		got, want string
+	}{
+		{*mockdb.uInput.TableName, "mockdynamodb"},
+		{*mockdb.uInput.Key[colID].S, taskID.ID()},
+		{*mockdb.uInput.ExpressionAttributeValues[":endtime"].S, end.UTC().Format(timeLayout)},
+		{*mockdb.uInput.ExpressionAttributeValues[":error"].S, tdbErr.Error()},
+		{*mockdb.uInput.UpdateExpression, "SET EndTime = :endtime, Error = :error"},
+	} {
+		if test.want != test.got {
+			t.Errorf("got %v, want %v", test.got, test.want)
 		}
 	}
 }

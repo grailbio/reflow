@@ -26,8 +26,8 @@ import (
 )
 
 const (
-	runHeader                   = "runid\tuser"
-	taskHeader                  = "taskid\tident\ttime\tduration\tstate\tmem\tcpu\tdisk\tprocs"
+	runHeader                   = "runid\tuser\tstart\tend"
+	taskHeader                  = "taskid\tident\tstart\tend\tduration\tstate\tmem\tcpu\tdisk\tprocs"
 	taskHeaderLongWithTaskDB    = "uri/resultid\tinspect"
 	taskHeaderLongWithoutTaskDB = "uri"
 )
@@ -333,7 +333,7 @@ func (c *Cmd) taskInfo(ctx context.Context, q taskdb.TaskQuery, liveOnly bool) (
 	}
 	ti = b
 	sort.Slice(ti, func(i, j int) bool {
-		return ti[i].ExecInspect.Created.Before(ti[j].ExecInspect.Created)
+		return ti[i].Start.Before(ti[j].Start)
 	})
 	return ti, err
 }
@@ -377,8 +377,17 @@ func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing bool) {
 		if len(run.taskInfo) == 0 {
 			continue
 		}
+		var st, et string
+		layout := time.RFC822
+		if t := run.Run.Start; !t.IsZero() {
+			layout = format(t)
+			st = t.Local().Format(layout)
+		}
+		if t := run.Run.End; !t.IsZero() {
+			et = t.Local().Format(layout)
+		}
 		fmt.Fprint(w, runHeader, "\n")
-		fmt.Fprintf(w, "%s\t%s\n", run.Run.ID.IDShort(), run.Run.User)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", run.Run.ID.IDShort(), run.Run.User, st, et)
 		fmt.Fprint(w, "\t", taskHeader)
 		if longListing {
 			fmt.Fprint(w, "\t", taskHeaderLongWithTaskDB)
@@ -394,18 +403,33 @@ func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing bool) {
 	}
 }
 
-func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
-	info := task.ExecInspect
-	var layout = time.Kitchen
-	switch dur := time.Since(info.Created); {
+// format returns an appropriate time layout for the given start time.
+func format(start time.Time) string {
+	var format = time.Kitchen
+	switch dur := time.Since(start); {
 	case dur > 7*24*time.Hour:
-		layout = "2Jan06"
+		format = "2Jan06"
 	case dur > 24*time.Hour:
-		layout = "Mon3:04PM"
+		format = "Mon3:04PM"
 	}
-	var procs string
+	return format
+}
+
+func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
+	var (
+		procs, ident, state string
+		info                = task.ExecInspect
+		layout              = format(task.Start)
+		runtime             = info.Runtime()
+		startTime, endTime  = task.Start, task.End
+	)
 	switch info.Config.Type {
 	case "exec":
+		ident = task.Config.Ident
+		state = info.State
+		if endTime.IsZero() {
+			endTime = task.Start.Add(runtime)
+		}
 		if len(info.Commands) == 0 {
 			procs = "[exec]"
 		} else {
@@ -430,6 +454,12 @@ func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
 			procs = strings.Join(cmds, ",")
 		}
 	default:
+		ident = task.Ident
+		if !endTime.IsZero() {
+			state = "complete"
+		} else {
+			state = "unknown"
+		}
 		procs = "[" + info.Config.Type + "]"
 	}
 	var mem, cpu, disk float64
@@ -444,13 +474,13 @@ func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
 		// This is a conservative estimate--we don't keep track of total max.
 		disk = info.Profile["disk"].Max + info.Profile["tmp"].Max
 	}
-	runtime := info.Runtime()
-	fmt.Fprintf(w, "\t%s\t%s\t%s\t%d:%02d\t%s\t%s\t%.1f\t%s\t%s",
-		task.Task.ID.IDShort(), info.Config.Ident,
-		info.Created.Local().Format(layout),
+	fmt.Fprintf(w, "\t%s\t%s\t%s\t%s\t%d:%02d\t%s\t%s\t%.1f\t%s\t%s",
+		task.Task.ID.IDShort(), ident,
+		startTime.Local().Format(layout),
+		endTime.Local().Format(layout),
 		int(runtime.Hours()),
 		int(runtime.Minutes()-60*runtime.Hours()),
-		info.State,
+		state,
 		data.Size(mem), cpu, data.Size(disk),
 		procs,
 	)

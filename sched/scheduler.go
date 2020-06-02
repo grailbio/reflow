@@ -404,6 +404,15 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		loadedData     sync.Map
 		resultUnloaded bool
 	)
+	defer func() {
+		if tcancel == nil {
+			return
+		}
+		if taskdbErr := s.TaskDB.SetTaskComplete(tctx, task.ID, err, time.Now()); taskdbErr != nil {
+			task.Log.Errorf("taskdb settaskcomplete: %v", taskdbErr)
+		}
+		tcancel()
+	}()
 	// Save the original fileset. In cases, where we fail, we need to restore the original fileset,
 	// since after the load all the interned files are technically resolved w.r.t. the current alloc.
 	// If we get reassigned to a new alloc, that will not be true anymore, and hence we need to resolve
@@ -412,10 +421,21 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 	// TODO(marius): we should distinguish between fatal and nonfatal errors.
 	// The fatal ones are useless to retry.
 	for n < numExecTries && state < stateDone {
+		task.Log.Debugf("%s (try %d): started", state, n)
 		switch state {
 		default:
 			panic("bad state")
 		case stateLoad:
+			task.set(TaskStaging)
+			if s.TaskDB != nil && tctx == nil {
+				// disable govet check due to https://github.com/golang/go/issues/29587
+				tctx, tcancel = context.WithCancel(ctx) //nolint: govet
+				if taskdbErr := s.TaskDB.CreateTask(tctx, task.ID, task.RunID, task.FlowID, taskdb.NewImgCmdID(task.Config.Image, task.Config.Cmd), task.Config.Ident, ""); taskdbErr != nil {
+					task.Log.Errorf("taskdb createtask: %v", taskdbErr)
+				} else {
+					go func() { _ = taskdb.KeepTaskAlive(tctx, s.TaskDB, task.ID) }()
+				}
+			}
 			for i, arg := range task.Config.Args {
 				if arg.Fileset == nil {
 					continue
@@ -447,11 +467,8 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			x, err = alloc.Put(ctx, digest.Digest(task.ID), task.Config)
 		case stateWait:
 			if s.TaskDB != nil {
-				tctx, tcancel = context.WithCancel(ctx)
-				if taskdbErr := s.TaskDB.CreateTask(tctx, task.ID, task.RunID, task.FlowID, taskdb.NewImgCmdID(task.Config.Image, task.Config.Cmd), task.Config.Ident, x.URI()); taskdbErr != nil {
-					task.Log.Errorf("taskdb createtask: %v", taskdbErr)
-				} else {
-					go func() { _ = taskdb.KeepTaskAlive(tctx, s.TaskDB, task.ID) }()
+				if taskdbErr := s.TaskDB.SetTaskUri(tctx, task.ID, x.URI()); taskdbErr != nil {
+					task.Log.Errorf("taskdb settaskuri: %v", taskdbErr)
 				}
 			}
 			task.Exec = x
@@ -461,9 +478,6 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 				if taskdbErr := s.TaskDB.SetTaskResult(tctx, task.ID, x.ID()); taskdbErr != nil {
 					task.Log.Errorf("taskdb settaskresult: %v", taskdbErr)
 				}
-			}
-			if tcancel != nil {
-				tcancel()
 			}
 		case statePromote:
 			err = x.Promote(ctx)
@@ -510,15 +524,15 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			err = g.Wait()
 		}
 		if err == nil {
-			task.Log.Debugf("%s", state)
+			task.Log.Debugf("%s (try %d): successful", state, n)
 			n = 0
 			state++
 		} else if err == ctx.Err() {
 			break
 		} else {
 			// TODO(marius): terminate early on NotSupported, Invalid
-			task.Log.Debugf("%s: %s; try %d", state, err, n+1)
 			n++
+			task.Log.Debugf("%s (try %d): %s", state, n, err)
 		}
 	}
 	task.Err = err
@@ -532,13 +546,20 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 }
 
 func (s *Scheduler) directTransfer(ctx context.Context, task *Task) {
+	const identifier = "scheduler.directTransfer"
 	taskLogger := task.Log.Tee(nil, "direct transfer: ")
 	if s.TaskDB != nil {
-		if err := s.TaskDB.CreateTask(ctx, task.ID, task.RunID, task.FlowID, taskdb.NewImgCmdID(task.Config.Image, task.Config.Cmd), task.Config.Ident, "local"); err != nil {
-			taskLogger.Errorf("taskdb createtask: %v", err)
+		taskdbErr := s.TaskDB.CreateTask(ctx, task.ID, task.RunID, task.FlowID, taskdb.ImgCmdID(digest.Digest{}), identifier, "local")
+		if taskdbErr == nil {
+			taskLogger.Errorf("taskdb createtask: %v", taskdbErr)
 		} else {
 			tctx, tcancel := context.WithCancel(ctx)
-			defer tcancel()
+			defer func() {
+				if err := s.TaskDB.SetTaskComplete(ctx, task.ID, task.Err, time.Now()); err != nil {
+					taskLogger.Errorf("taskdb settaskcomplete: %v", err)
+				}
+				tcancel()
+			}()
 			go func() { _ = taskdb.KeepTaskAlive(tctx, s.TaskDB, task.ID) }()
 		}
 	}
