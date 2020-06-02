@@ -24,6 +24,7 @@ import (
 	"docker.io/go-docker/api/types/container"
 	"docker.io/go-docker/api/types/network"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/retry"
 	"github.com/grailbio/base/sync/once"
@@ -41,6 +42,10 @@ const (
 	inspectPath  = "inspect.json"
 	manifestPath = "manifest.json"
 	objectPath   = "obj"
+	// hardLimitSwapMem is the amount of memory swap allowed
+	// on top of a docker container's hard memory
+	// limit.
+	hardLimitSwapMem = 100 * data.MiB
 )
 
 var dockerUser = fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
@@ -199,13 +204,9 @@ func (e *dockerExec) create(ctx context.Context) (execState, error) {
 	// before the OOM Killer kills the process, the following message
 	// is recorded in /dev/kmsg:
 	// Memory cgroup out of memory: Kill process <pid>
-	// If MemorySwap is not set to be equal Memory, the container will be
-	// able to swap up to twice the amount of memory set in the memory limit.
-	// In order to ensure that Memory is set to a hard limit, MemorySwap is also
-	// set equal to memory.
 	if mem := e.Config.Resources["mem"]; mem > 0 && e.Executor.HardMemLimit {
 		hostConfig.Resources.Memory = int64(mem)
-		hostConfig.Resources.MemorySwap = int64(mem)
+		hostConfig.Resources.MemorySwap = int64(mem) + int64(hardLimitSwapMem)
 	}
 
 	env := []string{
