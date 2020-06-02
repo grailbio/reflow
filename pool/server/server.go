@@ -185,6 +185,22 @@ func (n allocNode) Walk(ctx context.Context, call *rest.Call, path string) rest.
 			}
 			call.Reply(http.StatusOK, "unloaded")
 		})
+	case "verify":
+		return rest.DoFunc(func(ctx context.Context, call *rest.Call) {
+			if !call.Allow("POST") {
+				return
+			}
+			var fs reflow.Fileset
+			if call.Unmarshal(&fs) != nil {
+				return
+			}
+			err := n.a.VerifyIntegrity(ctx, fs)
+			if err != nil {
+				call.Error(err)
+				return
+			}
+			call.Reply(http.StatusOK, "verified")
+		})
 	default:
 		return nil
 	}

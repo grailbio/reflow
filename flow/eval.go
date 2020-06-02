@@ -157,6 +157,9 @@ type EvalConfig struct {
 	// evaluation, skipping the top-down phase.
 	BottomUp bool
 
+	// PostUseChecksum indicates whether input filesets are checksummed after use.
+	PostUseChecksum bool
+
 	// Config stores the flow config to be used.
 	Config Config
 
@@ -237,6 +240,9 @@ func (e EvalConfig) String() string {
 		flags = append(flags, "bottomup")
 	} else {
 		flags = append(flags, "topdown")
+	}
+	if e.PostUseChecksum {
+		flags = append(flags, "postusechecksum")
 	}
 	fmt.Fprintf(&b, " flags %s", strings.Join(flags, ","))
 	fmt.Fprintf(&b, " flowconfig %s", e.Config)
@@ -1853,6 +1859,7 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 		stateWait
 		stateInspect
 		stateResult
+		stateVerify
 		statePromote
 		stateDone
 	)
@@ -1910,10 +1917,17 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 			f.Inspect, err = x.Inspect(ctx)
 		case stateResult:
 			r, err = x.Result(ctx)
-			if err == nil {
-				e.Mutate(f, r.Fileset, Incr, Propagate)
-			}
+		case stateVerify:
+			err = traverse.Each(f.NExecArg(), func(i int) error {
+				earg := f.ExecArg(i)
+				if earg.Out {
+					return nil
+				}
+				fs := f.Deps[earg.Index].Value.(reflow.Fileset)
+				return e.Executor.VerifyIntegrity(ctx, fs)
+			})
 		case statePromote:
+			e.Mutate(f, r.Fileset, Incr, Propagate)
 			err = x.Promote(ctx)
 		}
 		if err != nil {
@@ -1921,6 +1935,9 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 		} else {
 			n = 0
 			s++
+			if s == stateVerify && !e.PostUseChecksum {
+				s++
+			}
 		}
 	}
 	if err != nil {

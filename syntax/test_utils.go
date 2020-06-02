@@ -114,6 +114,10 @@ func (nopexecutor) Load(context.Context, *url.URL, reflow.Fileset) (reflow.Files
 	panic("not implemented")
 }
 
+func (nopexecutor) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) error {
+	panic("not implemented")
+}
+
 func (nopexecutor) Unload(context.Context, reflow.Fileset) error {
 	panic("not implemented")
 }

@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/grailbio/reflow/runner"
-
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
+	"github.com/grailbio/reflow/runner"
 )
 
 const defaultFlowDir = "/tmp/flow"
@@ -31,6 +30,8 @@ type CommonRunFlags struct {
 	Assert string
 	// Use scalable scheduler instead of the work stealer mode.
 	Sched bool
+	// PostUseChecksum indicates whether input filesets are checksummed after use.
+	PostUseChecksum bool
 }
 
 // Flags adds the common run flags to the provided flagset.
@@ -42,6 +43,7 @@ func (r *CommonRunFlags) Flags(flags *flag.FlagSet) {
 	flags.StringVar(&r.Invalidate, "invalidate", "", "regular expression for node identifiers that should be invalidated")
 	flags.StringVar(&r.Assert, "assert", "never", "policy used to Assert cached flow result compatibility (eg: never, exact)")
 	flags.BoolVar(&r.Sched, "sched", true, "use scalable scheduler instead of work stealing")
+	flags.BoolVar(&r.PostUseChecksum, "postusechecksum", false, "checksum files after use")
 }
 
 // Err checks if the flag values are consistent and valid.
@@ -72,6 +74,7 @@ func (r *CommonRunFlags) Configure(c *flow.EvalConfig) error {
 	c.GC = r.GC
 	c.RecomputeEmpty = r.RecomputeEmpty
 	c.BottomUp = r.EvalStrategy == "bottomup"
+	c.PostUseChecksum = r.PostUseChecksum
 	if r.Invalidate != "" {
 		re := regexp.MustCompile(r.Invalidate)
 		c.Invalidate = func(f *flow.Flow) bool {

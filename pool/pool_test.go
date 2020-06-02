@@ -29,10 +29,11 @@ func (idAlloc) Execs(ctx context.Context) ([]reflow.Exec, error)   { panic("not 
 func (idAlloc) Load(context.Context, *url.URL, reflow.Fileset) (reflow.Fileset, error) {
 	panic("not implemented")
 }
-func (idAlloc) Unload(context.Context, reflow.Fileset) error { panic("not implemented") }
-func (idAlloc) Resources() reflow.Resources                  { panic("not implemented") }
-func (idAlloc) Repository() reflow.Repository                { panic("not implemented") }
-func (idAlloc) Pool() Pool                                   { panic("not implemented") }
+func (idAlloc) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) error { panic("not implemented") }
+func (idAlloc) Unload(context.Context, reflow.Fileset) error                 { panic("not implemented") }
+func (idAlloc) Resources() reflow.Resources                                  { panic("not implemented") }
+func (idAlloc) Repository() reflow.Repository                                { panic("not implemented") }
+func (idAlloc) Pool() Pool                                                   { panic("not implemented") }
 func (idAlloc) Keepalive(ctx context.Context, interval time.Duration) (time.Duration, error) {
 	panic("not implemented")
 }

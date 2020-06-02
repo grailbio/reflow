@@ -257,6 +257,7 @@ func NewRunner(runConfig RunConfig, scheduler *sched.Scheduler, logger *log.Logg
 			scheduler.Repository = repo
 			scheduler.Transferer = transferer
 			scheduler.Mux = mux
+			scheduler.PostUseChecksum = runConfig.RunFlags.PostUseChecksum
 		}
 
 		// Configure the Predictor.

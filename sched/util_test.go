@@ -327,6 +327,33 @@ func (a *testAlloc) Load(ctx context.Context, url *url.URL, fs reflow.Fileset) (
 	return out, nil
 }
 
+// VerifyIntegrity verifies the integrity of the given set of files
+func (a *testAlloc) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) error {
+	a.refCountMu.Lock()
+	defer a.refCountMu.Unlock()
+	for _, file := range fs.Files() {
+		if file.IsRef() {
+			return errors.New("unexpected file reference")
+		}
+		rc, err := a.repository.Get(ctx, file.ID)
+		if err != nil {
+			return err
+		}
+		w := reflow.Digester.NewWriter()
+		if _, err = io.Copy(w, rc); err == nil {
+			d := w.Digest()
+			if file.ID != d {
+				err = fmt.Errorf("digest %s mismatches ID %s", d.Short(), file.ID.Short())
+			}
+		}
+		_ = rc.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (a *testAlloc) Unload(ctx context.Context, fs reflow.Fileset) error {
 	a.refCountMu.Lock()
 	defer a.refCountMu.Unlock()

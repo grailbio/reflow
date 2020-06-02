@@ -35,6 +35,7 @@ func newTestSchedulerWithRepo(t *testing.T, repo reflow.Repository) (scheduler *
 	scheduler.Transferer = testutil.Transferer
 	scheduler.Repository = repo
 	scheduler.Cluster = cluster
+	scheduler.PostUseChecksum = true
 	scheduler.MinAlloc = reflow.Resources{}
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup

@@ -122,6 +122,10 @@ func (z *zombie) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) (re
 	return reflow.Fileset{}, errors.E("load", errors.NotSupported, errZombieExec)
 }
 
+func (z *zombie) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) error {
+	return errors.E("verify", errors.NotSupported, errZombieExec)
+}
+
 func (z *zombie) Unload(ctx context.Context, fs reflow.Fileset) error {
 	return errors.E("unload", errors.NotSupported, errZombieExec)
 }

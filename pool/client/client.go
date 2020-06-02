@@ -316,6 +316,20 @@ func (a *clientAlloc) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset
 	return fs, err
 }
 
+// VerifyIntegrity verifies the integrity of the given set of files
+func (a *clientAlloc) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) error {
+	call := a.Call("POST", "allocs/%s/verify", a.id)
+	defer func() { _ = call.Close() }()
+	code, err := call.DoJSON(ctx, fs)
+	if err != nil {
+		return errors.E("verify", a.ID(), err)
+	}
+	if code != http.StatusOK {
+		return call.Error()
+	}
+	return nil
+}
+
 // Unload unloads the fileset from the alloc repository.
 func (a *clientAlloc) Unload(ctx context.Context, fs reflow.Fileset) error {
 	call := a.Call("POST", "allocs/%s/unload", a.id)

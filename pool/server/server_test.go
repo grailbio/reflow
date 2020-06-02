@@ -64,6 +64,12 @@ func (t *testAlloc) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) 
 	return fs, nil
 }
 
+// VerifyIntegrity verifies the integrity of the given set of files
+func (t *testAlloc) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) error {
+	// TODO(swami): Implement
+	return nil
+}
+
 func (t *testAlloc) Unload(ctx context.Context, fs reflow.Fileset) error {
 	file := fs.Map["."]
 	if _, ok := t.files[file.ID]; !ok {

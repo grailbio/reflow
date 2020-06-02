@@ -1123,6 +1123,10 @@ func (a *testAlloc) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) 
 	return fs, nil
 }
 
+func (a *testAlloc) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) error {
+	return nil
+}
+
 func (a *testAlloc) Unload(ctx context.Context, fs reflow.Fileset) error {
 	return nil
 }

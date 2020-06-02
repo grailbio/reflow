@@ -86,6 +86,9 @@ type Scheduler struct {
 	// the scheduler.
 	MinAlloc reflow.Resources
 
+	// PostUseChecksum indicates whether input filesets are checksummed after use.
+	PostUseChecksum bool
+
 	// Labels is the set of labels applied to newly created allocs.
 	Labels pool.Labels
 
@@ -358,6 +361,7 @@ const (
 	stateLoad execState = iota
 	statePut
 	stateWait
+	stateVerify
 	statePromote
 	stateInspect
 	stateResult
@@ -376,6 +380,8 @@ func (e execState) String() string {
 		return "submitting"
 	case stateWait:
 		return "waiting for completion"
+	case stateVerify:
+		return "verifying integrity"
 	case statePromote:
 		return "promoting objects"
 	case stateInspect:
@@ -479,6 +485,23 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 					task.Log.Errorf("taskdb settaskresult: %v", taskdbErr)
 				}
 			}
+		case stateVerify:
+			g, gctx := errgroup.WithContext(ctx)
+			loadedData.Range(func(key, value interface{}) bool {
+				i := key.(int)
+				fs := *task.Config.Args[i].Fileset
+				g.Go(func() error {
+					task.Log.Debugf("verifying %v", fs.Short())
+					uerr := alloc.VerifyIntegrity(gctx, fs)
+					if uerr == nil {
+						task.Log.Debugf("verified %v", fs.Short())
+					}
+					task.Log.Debugf("verify %v: %s", fs.Short(), uerr)
+					return uerr
+				})
+				return true
+			})
+			err = g.Wait()
 		case statePromote:
 			err = x.Promote(ctx)
 		case stateInspect:
@@ -527,6 +550,10 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			task.Log.Debugf("%s (try %d): successful", state, n)
 			n = 0
 			state++
+			// Skip stateVerify unless post-use checksumming is enabled
+			if state == stateVerify && !s.PostUseChecksum {
+				state++
+			}
 		} else if err == ctx.Err() {
 			break
 		} else {

@@ -487,6 +487,9 @@ type Executor interface {
 	// files to free them.
 	Load(ctx context.Context, repo *url.URL, fileset Fileset) (Fileset, error)
 
+	// VerifyIntegrity verifies the integrity of the given set of files
+	VerifyIntegrity(ctx context.Context, fileset Fileset) error
+
 	// Unload the data from the executor's repository. Any use of the unloaded files
 	// after the successful return of Unload is undefined.
 	Unload(ctx context.Context, fileset Fileset) error

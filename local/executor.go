@@ -8,10 +8,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -434,6 +436,40 @@ func (e *Executor) unload(ctx context.Context, fs reflow.Fileset) (done <-chan s
 func (e *Executor) Unload(ctx context.Context, fs reflow.Fileset) error {
 	_, err := e.unload(ctx, fs)
 	return err
+}
+
+// VerifyIntegrity verifies the integrity of the given set of files
+func (e *Executor) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	files := fs.Files()
+	err := traverse.Limit(runtime.NumCPU()).Each(len(files), func(i int) error {
+		file := files[i]
+		if file.IsRef() {
+			return errors.E(fmt.Sprintf("unresolved file %s", file), errors.Invalid)
+		}
+		if _, err := e.FileRepository.Stat(ctx, file.ID); err != nil {
+			return errors.E(errors.NotExist, err)
+		}
+		rc, err := e.FileRepository.Get(ctx, file.ID)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rc.Close() }()
+		w := reflow.Digester.NewWriter()
+		if _, err := io.Copy(w, rc); err != nil {
+			return err
+		}
+		d := w.Digest()
+		if file.ID != d {
+			return errors.E(fmt.Sprintf("digest %s mismatches ID %s", d.Short(), file.ID.Short()), file.ID, errors.Integrity)
+		}
+		return nil
+	})
+	if err != nil {
+		return errors.E("verifyintegrity", err)
+	}
+	return nil
 }
 
 func (e *Executor) refCount(fs reflow.Fileset) {
