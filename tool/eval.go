@@ -5,6 +5,7 @@
 package tool
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -105,22 +106,29 @@ func (e *Eval) Run() error {
 			return fmt.Errorf("type error: %s", err)
 		}
 		flags := prog.Flags()
-		flags.Usage = func() {
-			fmt.Fprintf(os.Stderr, "usage of %s:\n", file)
+		usage := func() error {
+			var b bytes.Buffer
+			saved := flags.Output()
+			flags.SetOutput(&b)
 			flags.PrintDefaults()
-			os.Exit(2)
+			flags.SetOutput(saved)
+			return fmt.Errorf("usage of %s:\n%s", file, b.String())
 		}
 		e.Params = make(map[string]string)
 		if err = flags.Parse(args); err != nil {
 			return err
 		}
+		var flagErr error
 		flags.VisitAll(func(f *flag.Flag) {
 			if f.Value.String() == "" {
-				fmt.Fprintf(os.Stderr, "parameter %q is undefined\n", f.Name)
-				flags.Usage()
+				flagErr = fmt.Errorf("parameter %q is undefined\n%v", f.Name, usage())
+				return
 			}
 			e.Params[f.Name] = f.Value.String()
 		})
+		if flagErr != nil {
+			return flagErr
+		}
 		prog.Args = flags.Args()
 		e.Args = prog.Args
 		e.Module = values.Module{
@@ -160,23 +168,24 @@ func (e *Eval) evalV1(sess *syntax.Session) error {
 	if err != nil {
 		return errors.E(errors.Fatal, err)
 	}
-	flags.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage of %s:\n", file)
+	usage := func() error {
+		var b bytes.Buffer
+		saved := flags.Output()
+		flags.SetOutput(&b)
 		flags.PrintDefaults()
-		os.Exit(2)
+		flags.SetOutput(saved)
+		return fmt.Errorf("usage of %s:\n%s", file, b.String())
 	}
 	if err = flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() > 0 {
 		err = fmt.Errorf("unrecognized parameters: %s", strings.Join(flags.Args(), " "))
-		fmt.Fprintln(os.Stderr, err)
-		flags.Usage()
+		return usage()
 	}
 	env := sess.Values.Push()
 	if err := m.FlagEnv(flags, env, types.NewEnv()); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		flags.Usage()
+		return fmt.Errorf("%v: \n%s", err, usage())
 	}
 	v, err := m.Make(sess, env)
 	if err != nil {
