@@ -32,7 +32,9 @@ var (
 // (and hence expose the EBS volumes as NVMe) as per:
 // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-types.html#ec2-nitro-instances
 // Note: www.ec2instances.info doesn't capture this correctly.
-var nitroBasedInstanceTypes = []string{"c5", "c5d", "c5n", "g4dn", "i3en", "m5", "m5a", "m5ad", "m5d", "r5", "r5a", "r5ad", "r5d", "t3", "t3a", "z1d"}
+var nitroInstanceTypePrefixes = []string{"A1", "C5", "C5a", "C5d", "C5n", "G4", "I3en", "Inf1", "M5", "M5a", "M5ad", "M5d", "M5dn", "M5n", "M6g", "p3dn.24xlarge", "R5", "R5a", "R5ad", "R5d", "R5dn", "R5n", "T3", "T3a", "z1d"}
+
+var avx512InstanceTypePrefixes = []string{"m5", "c5", "r5"}
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `usage: ec2instances dir
@@ -55,9 +57,8 @@ func main() {
 	}
 	dir := flag.Arg(0)
 
-	nvmeSet := make(map[string]bool, len(nitroBasedInstanceTypes))
-	for _, c := range nitroBasedInstanceTypes {
-		nvmeSet[c] = true
+	for i, t := range nitroInstanceTypePrefixes {
+		nitroInstanceTypePrefixes[i] = strings.ToLower(t)
 	}
 	var body io.Reader
 	if strings.HasPrefix(*url, "file://") {
@@ -196,20 +197,27 @@ func main() {
 		g.Printf("	Generation: %q,\n", e.Generation)
 		g.Printf("	Virt: %q,\n", virt)
 		nvme := false
-		if parts := strings.Split(e.Type, "."); len(parts) == 2 && nvmeSet[parts[0]] {
-			nvme = true
+		for _, prefix := range nitroInstanceTypePrefixes {
+			if strings.HasPrefix(e.Type, prefix) {
+				nvme = true
+				break
+			}
 		}
 		g.Printf("	NVMe: %v,\n", nvme)
 		g.Printf("	CPUFeatures: map[string]bool{\n")
 		if e.IntelAVX {
+			// TODO: This seems wrong (false negative) for many instances.
 			g.Printf("		%q: true,\n", "intel_avx")
 		}
 		if e.IntelAVX2 {
 			g.Printf("		%q: true,\n", "intel_avx2")
 		}
 		// AVX512 isn't yet exported by the data provided by AWS/ec2instances.info.
-		if strings.HasPrefix(e.Type, "c5.") || strings.HasPrefix(e.Type, "m5.") {
-			g.Printf("		%q: true,\n", "intel_avx512")
+		for _, prefix := range avx512InstanceTypePrefixes {
+			if strings.HasPrefix(e.Type, prefix) {
+				g.Printf("		%q: true,\n", "intel_avx512")
+				break
+			}
 		}
 		g.Printf("	},\n")
 		g.Printf("},\n")
