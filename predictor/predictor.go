@@ -212,7 +212,7 @@ func (p *Predictor) memUsage(ctx context.Context, group taskGroup) (float64, err
 		// Only use profiles with memory data
 		// to make memory predictions.
 		mu.Lock()
-		if _, ok := si.Profile["mem"]; ok {
+		if _, ok := si.Profile["mem"]; ok && si.Error == nil && si.ExecError == nil {
 			profiles = append(profiles, si.Profile)
 		}
 		mu.Unlock()
@@ -269,5 +269,7 @@ func maxValuePercentile(profiles []reflow.Profile, resource string, p float64) f
 // exclusively unmarshal Profile
 // from an ExecInspect.
 type smallInspect struct {
-	Profile reflow.Profile
+	Profile   reflow.Profile
+	Error     *errors.Error
+	ExecError *errors.Error
 }

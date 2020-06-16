@@ -19,6 +19,7 @@ import (
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/taskdb"
@@ -382,6 +383,48 @@ func TestMemUsageNoMem(t *testing.T) {
 			t.Fatal(err)
 		}
 		repo.files[d] = b
+	}
+
+	_, err := pred.memUsage(ctx, group)
+	if err == nil {
+		t.Fatalf("cannot predict memory if no mem Profile data is available")
+	}
+}
+
+func TestMemUsageInspectErrors(t *testing.T) {
+	var (
+		repo = newMockRepo()
+		tdb  = newMockdb()
+		ctx  = context.Background()
+	)
+
+	pred := New(repo, tdb, nil, defaultMinData, defaultMaxInspect, defaultMemPercentile)
+
+	tasks, group := generateData(t, ctx, repo, tdb, 0)
+	for i := 0; i < numTasks; i++ {
+		if got, want := tasks[i].Config.Resources["mem"], float64(20); got != want {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+
+	// Give each ExecInspect an Error or an ExecError.
+	var i int
+	for d, b := range repo.files {
+		var ei reflow.ExecInspect
+		if err := json.Unmarshal(b, &ei); err != nil {
+			t.Fatal(err)
+		}
+		if i%2 == 0 {
+			ei.Error = errors.Recover(errors.E(errors.NotExist, "filler error"))
+		} else {
+			ei.ExecError = errors.Recover(errors.E(errors.NotExist, "filler error"))
+		}
+		b, err := json.Marshal(ei)
+		if err != nil {
+			t.Fatal(err)
+		}
+		repo.files[d] = b
+		i++
 	}
 
 	_, err := pred.memUsage(ctx, group)
