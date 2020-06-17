@@ -273,6 +273,11 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 		}
 		c.instanceConfigs[config.Type] = config
 	}
+	for inst := range c.InstanceTypesMap {
+		if _, ok := instanceTypes[inst]; !ok {
+			c.Log.Debugf("instance type unknown: %v", inst)
+		}
+	}
 	if len(configs) == 0 {
 		return errors.New("no configured instance types")
 	}
