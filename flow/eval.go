@@ -625,19 +625,25 @@ func (e *Eval) Do(ctx context.Context) error {
 				tasks = append(tasks, task)
 				flows = append(flows, f)
 				e.step(f, func(f *Flow) error {
-					if err := e.taskWait(f, task, ctx); err != nil {
+					if err := e.taskWait(ctx, f, task); err != nil {
 						return err
+					}
+					// The Predictor can lower a task's memory requirements and cause a non-OOM memory error. This is
+					// because the linux OOM killer does not catch all OOM errors. In order to prevent such an error from
+					// causing a reflow program to fail, assume that if the Predictor lowers the memory of a task and
+					// that task returns a non-OOM error, the task should be retried with its original resources.
+					if task.Result.Err != nil && !errors.Is(errors.OOM, task.Result.Err) && f.Reserved["mem"] < f.Resources["mem"] {
+						var err error
+						if task, err = e.retryTask(ctx, f, f.Resources, "Predictor", "default resources"); err != nil {
+							return err
+						}
 					}
 					// Retry OOMs if needed.
 					for retries := 0; retries < maxOOMRetries && task.Result.Err != nil && errors.Is(errors.OOM, task.Result.Err); retries++ {
-						// Apply ExecReset so that the exec can be resubmitted to the scheduler with the flow's
-						// exec runtime parameters reset.
-						f.ExecReset()
-						e.Mutate(f, Unreserve(f.Reserved), Reserve(oomAdjust(f.Resources, task.Config.Resources)), Execing)
-						task = e.newTask(f)
-						e.Log.Printf("flow %s: OOM: re-submitting task %s with %v of memory (%v/%v)", task.FlowID.Short(), task.ID.IDShort(), data.Size(task.Config.Resources["mem"]), retries+1, maxOOMRetries)
-						e.Scheduler.Submit(task)
-						if err := e.taskWait(f, task, ctx); err != nil {
+						resources := oomAdjust(f.Resources, task.Config.Resources)
+						msg := fmt.Sprintf("%v of memory (%v/%v)", data.Size(resources["mem"]), retries+1, maxOOMRetries)
+						var err error
+						if task, err = e.retryTask(ctx, f, resources, "OOM", msg); err != nil {
 							return err
 						}
 					}
@@ -2394,7 +2400,7 @@ func (e *Eval) LogFlow(ctx context.Context, f *Flow) {
 }
 
 // taskWait waits for a task to finish running and updates the flow, cache, and taskdb accordingly.
-func (e *Eval) taskWait(f *Flow, task *sched.Task, ctx context.Context) error {
+func (e *Eval) taskWait(ctx context.Context, f *Flow, task *sched.Task) error {
 	if err := task.Wait(ctx, sched.TaskRunning); err != nil {
 		return err
 	}
@@ -2447,6 +2453,18 @@ func (e *Eval) reviseResources(ctx context.Context, tasks []*sched.Task, flows [
 			e.Log.Debugf("task %s (flow %s): modifying resources from %s to %s", task.ID.IDShort(), task.FlowID.Short(), oldResources, task.Config.Resources)
 		}
 	}
+}
+
+// retryTask retries a task with the specified resources and waits for it to complete.
+func (e *Eval) retryTask(ctx context.Context, f *Flow, resources reflow.Resources, retryType, msg string) (*sched.Task, error) {
+	// Apply ExecReset so that the exec can be resubmitted to the scheduler with the flow's
+	// exec runtime parameters reset.
+	f.ExecReset()
+	e.Mutate(f, Unreserve(f.Reserved), Reserve(resources), Execing)
+	task := e.newTask(f)
+	e.Log.Printf("flow %s: %s: re-submitting task %s with %s", f.Digest().Short(), retryType, task.ID.IDShort(), msg)
+	e.Scheduler.Submit(task)
+	return task, e.taskWait(ctx, f, task)
 }
 
 // oomAdjust returns a new set of resources with increased memory.
