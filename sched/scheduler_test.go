@@ -503,6 +503,119 @@ func TestSchedulerLoadUnloadExtern(t *testing.T) {
 	expectExists(t, repo, out)
 }
 
+func TestSchedulerLoadFailRetryTask(t *testing.T) {
+	scheduler, cluster, repo, shutdown := newTestScheduler(t)
+	defer shutdown()
+	ctx := context.Background()
+	in := randomFileset(repo)
+	expectExists(t, repo, in)
+
+	remote := testutil.NewInmemoryRepository()
+	remotes := randomRepoFileset(remote)
+	refs := reflow.Fileset{Map: make(map[string]reflow.File)}
+	for k := range remotes.Map {
+		v := reflow.File{Source: remotes.Map[k].Source}
+		refs.Map[k] = v
+	}
+
+	task := newTask(10, 10<<30, 0)
+	task.Config.Args = []reflow.Arg{{Fileset: &in}, {Fileset: &refs}}
+
+	scheduler.Submit(task)
+	req := <-cluster.Req()
+	if got, want := req.Requirements, newRequirements(10, 10<<30, 1); !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	// Start a task. Fail the alloc, so that the task gets assigned to a new alloc.
+	{
+		alloc := newTestAlloc(reflow.Resources{"cpu": 25, "mem": 20 << 30})
+		// TODO(pgopal): There is no way to wait for the tasks to be added to the scheduler queue.
+		// Hence we cannot check task stats here.
+		stats := scheduler.Stats.GetStats()
+		if got, want := len(stats.Allocs), 0; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		// pending allocs will not have an entry in stats.Allocs.
+		if got, want := stats.OverallStats.TotalTasks, int64(1); got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		req.Reply <- testClusterAllocReply{Alloc: alloc, Err: nil}
+
+		// By the time the task is running, it should have all of the dependent objects
+		// in its repository.
+		if err := task.Wait(ctx, sched.TaskRunning); err != nil {
+			t.Fatal(err)
+		}
+		expectExists(t, alloc.Repository(), remotes)
+
+		stats = scheduler.Stats.GetStats()
+		if got, want := len(stats.Tasks), 1; got != want {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+		if got, want := stats.Tasks[task.ID.ID()].State, 2; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		if got, want := len(stats.Allocs), 1; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		want := sched.OverallStats{TotalTasks: 1, TotalAllocs: 1}
+		if got := stats.OverallStats; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		expectExists(t, alloc.Repository(), in)
+		alloc.error(errors.E(errors.Fatal, "alloc failed"))
+		if err := task.Wait(ctx, sched.TaskInit); err != nil {
+			t.Fatal(err)
+		}
+		if task.Err != nil {
+			t.Errorf("unexpected task error: %v", task.Err)
+		}
+	}
+	// In the new alloc, the fileset which was loaded in the previous alloc (and hence resolved), should be still
+	// unresolved in this round of loading, since this is a completely new alloc.
+	{
+		req := <-cluster.Req()
+		alloc2 := newTestAlloc(reflow.Resources{"cpu": 25, "mem": 20 << 30})
+		req.Reply <- testClusterAllocReply{Alloc: alloc2, Err: nil}
+
+		if err := task.Wait(ctx, sched.TaskRunning); err != nil {
+			t.Fatal(err)
+		}
+		expectExists(t, alloc2.Repository(), remotes)
+		expectExists(t, alloc2.Repository(), in)
+
+		exec := alloc2.exec(digest.Digest(task.ID))
+		out := randomFileset(alloc2.Repository())
+		// Increment the refcount for the result files in the alloc repository, so that we can unload
+		// them later.
+		for _, f := range out.Files() {
+			alloc2.refCount[f.ID]++
+		}
+		exec.complete(reflow.Result{Fileset: out}, nil)
+		if err := task.Wait(ctx, sched.TaskDone); err != nil {
+			t.Fatal(err)
+		}
+		if task.Err != nil {
+			t.Errorf("unexpected task error: %v", task.Err)
+		}
+		stats := scheduler.Stats.GetStats()
+		if got, want := len(stats.Tasks), 1; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		if got, want := stats.Tasks[task.ID.ID()].State, 4; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		if got, want := len(stats.Allocs), 2; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		want := sched.OverallStats{TotalAllocs: 2, TotalTasks: 1}
+		if got := stats.OverallStats; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		expectExists(t, repo, out)
+	}
+}
+
 func TestSchedulerLoadUnloadFiles(t *testing.T) {
 	scheduler, cluster, repo, shutdown := newTestScheduler(t)
 	defer shutdown()

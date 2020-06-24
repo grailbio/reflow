@@ -404,6 +404,11 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		loadedData     sync.Map
 		resultUnloaded bool
 	)
+	// Save the original fileset. In cases, where we fail, we need to restore the original fileset,
+	// since after the load all the interned files are technically resolved w.r.t. the current alloc.
+	// If we get reassigned to a new alloc, that will not be true anymore, and hence we need to resolve
+	// the files all over again.
+	savedArgs := append([]reflow.Arg{}, task.Config.Args...)
 	// TODO(marius): we should distinguish between fatal and nonfatal errors.
 	// The fatal ones are useless to retry.
 	for n < numExecTries && state < stateDone {
@@ -518,6 +523,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 	}
 	task.Err = err
 	if err != nil && (err == ctx.Err() || errors.Restartable(err)) {
+		task.Config.Args = savedArgs
 		task.set(TaskLost)
 	} else {
 		task.set(TaskDone)
