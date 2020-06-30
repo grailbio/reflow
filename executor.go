@@ -352,6 +352,16 @@ func (r Resources) Equal(s Resources) bool {
 	return true
 }
 
+// Div returns a mapping of each key in s to the fraction r[key]/s[key].
+// Since the returned value cannot be treated as Resources, Div simply returns a map.
+func (r Resources) Div(s Resources) map[string]float64 {
+	f := make(map[string]float64)
+	for key := range s {
+		f[key] = r[key] / s[key]
+	}
+	return f
+}
+
 // Requirements stores resource requirements, comprising the minimum
 // amount of acceptable resources and a width.
 type Requirements struct {

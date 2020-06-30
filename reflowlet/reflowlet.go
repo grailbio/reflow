@@ -242,6 +242,7 @@ func (s *Server) ListenAndServe() error {
 		return err
 	}
 	if s.EC2Cluster {
+		log.Printf("reflowlet started")
 		ctx, cancel := context.WithCancel(context.Background())
 		if err := s.setupWatcher(ctx, sess, filepath.Join(s.Prefix, s.Dir), rc.VolumeWatcher); err != nil {
 			log.Fatal(err)
@@ -254,11 +255,21 @@ func (s *Server) ListenAndServe() error {
 			// than the expiry time.
 			time.Sleep(rc.MaxIdleDuration)
 			for {
-				if p.StopIfIdleFor(rc.MaxIdleDuration) {
+				if stopped, tte := p.StopIfIdleFor(rc.MaxIdleDuration); stopped {
 					log.Printf("reflowlet idle for %s; shutting down", rc.MaxIdleDuration)
 					cancel()
 					// Exit normally
 					os.Exit(0)
+				} else {
+					tot, free, freePct := p.Resources(), p.Available(), 1.0
+					freeFrac := free.Div(tot)
+					for _, k := range []string{"mem", "cpu"} {
+						if v := freeFrac[k]; v < freePct {
+							freePct = v
+						}
+					}
+					busyPct := 100.0 * (1.0 - freePct)
+					log.Printf("reflowlet %.2f%% busy for %s; resources total %s free %s", busyPct, tte, tot, free)
 				}
 				time.Sleep(period)
 			}

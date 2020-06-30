@@ -204,9 +204,15 @@ func (p *Pool) Start() error {
 	return nil
 }
 
-// available returns the amount of currently available resources:
+func (p *Pool) Resources() reflow.Resources {
+	var r reflow.Resources
+	r.Set(p.resources)
+	return r
+}
+
+// Available returns the amount of currently available resources:
 // The total less what is occupied by active allocs.
-func (p *Pool) available() reflow.Resources {
+func (p *Pool) Available() reflow.Resources {
 	var reserved reflow.Resources
 	for _, alloc := range p.allocs {
 		if !alloc.expired() {
@@ -400,16 +406,31 @@ func (p *Pool) Allocs(ctx context.Context) ([]pool.Alloc, error) {
 }
 
 // StopIfIdle stops the pool if it is idle. Returns whether the pool was stopped.
-func (p *Pool) StopIfIdleFor(d time.Duration) bool {
+// If the pool was not stopped (ie, it was not idle), returns the current max duration
+// to expiry of all allocs in the pool.  Note that further alloc
+// keepalive calls can make the pool unstoppable after the given duration passes.
+func (p *Pool) StopIfIdleFor(d time.Duration) (bool, time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	var (
+		idle            = true
+		maxTimeToExpiry time.Duration
+	)
 	for _, alloc := range p.allocs {
-		if alloc.expiredBy() < d {
-			return false
+		expiredBy := alloc.expiredBy()
+		if expiredBy < d {
+			idle = false
+		}
+		// if alloc isn't expired, expiredBy is negative.
+		if maxTimeToExpiry > expiredBy {
+			maxTimeToExpiry = expiredBy
 		}
 	}
-	p.stopped = true
-	return true
+	if idle {
+		p.stopped = true
+		return true, 0
+	}
+	return false, -maxTimeToExpiry
 }
 
 // Alloc implements a local alloc. It embeds a local executor which
@@ -555,6 +576,7 @@ func (a *alloc) Keepalive(ctx context.Context, next time.Duration) (time.Duratio
 	a.lastKeepalive = time.Now()
 	a.expires = a.lastKeepalive.Add(next)
 	a.mu.Unlock()
+	a.Log.Printf("keepalive until %s", a.expires.Format(time.RFC3339))
 	return next, nil
 }
 

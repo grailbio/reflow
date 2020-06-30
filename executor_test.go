@@ -5,6 +5,7 @@
 package reflow_test
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -42,6 +43,12 @@ func TestResources(t *testing.T) {
 	}
 	got.Max(r1, r2)
 	if want := (reflow.Resources{"mem": 10, "cpu": 5, "disk": 3}); !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := r1.Div(r2), map[string]float64{"mem": 2, "cpu": 2.5, "disk": 1 / 3}; reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := r2.Div(r1), map[string]float64{"mem": 0.5, "cpu": 2 / 5, "disk": 3}; reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
