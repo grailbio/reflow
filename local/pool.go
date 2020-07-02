@@ -21,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/grailbio/base/data"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/errors"
@@ -111,6 +112,21 @@ func (p *Pool) saveState() error {
 	return nil
 }
 
+// detectDiskSize detects the disk resources available on this pool.
+func (p *Pool) detectDiskSize() {
+	root := filepath.Join(p.Prefix, p.Dir)
+	diskSize := 2e12
+	if existing, ok := p.resources["disk"]; ok {
+		diskSize = existing
+	}
+	if usage, err := fs.Stat(root); err == nil {
+		p.resources["disk"] = float64(usage.Total)
+	} else {
+		p.Log.Printf("refresh disk size (assuming %s), stat %s: %v", data.Size(diskSize), root, err)
+		p.resources["disk"] = diskSize
+	}
+}
+
 // Start starts the pool. If the pool has a state snapshot, Start
 // will restore the pool's previous state. Start will also make sure
 // that all zombie allocs are collected.
@@ -137,12 +153,7 @@ func (p *Pool) Start() error {
 	if err := os.MkdirAll(root, 0777); err != nil {
 		log.Printf("mkdir %s: %v", root, err)
 	}
-	if usage, err := fs.Stat(root); err == nil {
-		p.resources["disk"] = float64(usage.Total)
-	} else {
-		log.Printf("stat %s: %v", root, err)
-		p.resources["disk"] = 2e12
-	}
+	p.detectDiskSize()
 
 	if err := os.MkdirAll(filepath.Join(p.Prefix, p.Dir, allocsPath), 0777); err != nil {
 		return err
@@ -205,6 +216,7 @@ func (p *Pool) Start() error {
 }
 
 func (p *Pool) Resources() reflow.Resources {
+	p.detectDiskSize()
 	var r reflow.Resources
 	r.Set(p.resources)
 	return r
@@ -220,7 +232,7 @@ func (p *Pool) Available() reflow.Resources {
 		}
 	}
 	var avail reflow.Resources
-	avail.Sub(p.resources, reserved)
+	avail.Sub(p.Resources(), reserved)
 	return avail
 }
 
@@ -234,6 +246,7 @@ func (p *Pool) new(ctx context.Context, meta pool.AllocMeta) (pool.Alloc, error)
 		return nil, errors.Errorf("alloc %v: shutting down", meta)
 	}
 	var (
+		total   = p.Resources()
 		used    reflow.Resources
 		expired []*alloc
 	)
@@ -248,10 +261,10 @@ func (p *Pool) new(ctx context.Context, meta pool.AllocMeta) (pool.Alloc, error)
 	collect := expired[:]
 	// TODO: preferentially prefer those allocs which will give us the
 	// resource types we need.
-	p.Log.Printf("alloc total%s used%s want%s", p.resources, used, meta.Want)
+	p.Log.Printf("alloc total%s used%s want%s", total, used, meta.Want)
 	var free reflow.Resources
 	for {
-		free.Sub(p.resources, used)
+		free.Sub(total, used)
 		if free.Available(meta.Want) || len(expired) == 0 {
 			break
 		}
@@ -369,7 +382,7 @@ func (p *Pool) Offers(ctx context.Context) ([]pool.Offer, error) {
 		}
 	}
 	var available reflow.Resources
-	available.Sub(p.resources, reserved)
+	available.Sub(p.Resources(), reserved)
 	if available["mem"] == 0 || available["cpu"] == 0 || available["disk"] == 0 {
 		return nil, nil
 	}
