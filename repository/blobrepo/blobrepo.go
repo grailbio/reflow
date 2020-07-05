@@ -56,7 +56,7 @@ func (r *Repository) Stat(ctx context.Context, id digest.Digest) (reflow.File, e
 	if err != nil {
 		return reflow.File{}, err
 	}
-	file, err := r.Bucket.File(ctx, path.Join(r.Prefix, objectsPath, id.String()))
+	file, err := r.Bucket.File(ctx, path.Join(r.Prefix, objectsPath, id.String()), false)
 	if err == nil {
 		file.ID = id
 	}
@@ -70,7 +70,7 @@ func (r *Repository) Location(ctx context.Context, id digest.Digest) (string, er
 		return "", err
 	}
 	var src string
-	file, err := r.Bucket.File(ctx, path.Join(r.Prefix, objectsPath, id.String()))
+	file, err := r.Bucket.File(ctx, path.Join(r.Prefix, objectsPath, id.String()), false)
 	if err == nil {
 		src = file.Source
 	}
@@ -101,24 +101,32 @@ func (r *Repository) GetFile(ctx context.Context, id digest.Digest, w io.WriterA
 func (r *Repository) Put(ctx context.Context, body io.Reader) (digest.Digest, error) {
 	dw := reflow.Digester.NewWriter()
 	uploadKey := path.Join(r.Prefix, uploadsPath, newID())
-	err := r.Bucket.Put(ctx, uploadKey, 0, io.TeeReader(body, dw), "")
-	if err != nil {
+	if err := r.Bucket.Put(ctx, uploadKey, 0, io.TeeReader(body, dw), ""); err != nil {
 		return digest.Digest{}, err
 	}
 	defer r.Bucket.Delete(ctx, uploadKey)
 	id := dw.Digest()
-	return id, r.Bucket.Copy(ctx, uploadKey, path.Join(r.Prefix, objectsPath, id.String()), id.Hex())
+	dstKey := path.Join(r.Prefix, objectsPath, id.String())
+	if err := r.Bucket.Copy(ctx, uploadKey, dstKey, id.Hex()); err != nil {
+		return digest.Digest{}, err
+	}
+	_, err := r.Bucket.File(ctx, dstKey, true)
+	return id, err
 }
 
-// PutFile installs a file into the repository. PutFile uses the S3 upload manager
-// directly.
+// PutFile installs a file into the repository and confirms its existence.
+// PutFile uses the S3 upload manager directly.
 func (r *Repository) PutFile(ctx context.Context, file reflow.File, body io.Reader) error {
 	// TODO: check that the sizes match, etc.
 	if _, err := r.Stat(ctx, file.ID); err == nil {
 		return nil
 	}
 	key := path.Join(r.Prefix, objectsPath, file.ID.String())
-	return r.Bucket.Put(ctx, key, file.Size, body, file.ID.Hex())
+	if err := r.Bucket.Put(ctx, key, file.Size, body, file.ID.Hex()); err != nil {
+		return err
+	}
+	_, err := r.Bucket.File(ctx, key, true)
+	return err
 }
 
 // WriteTo is unsupported by the blob repository.

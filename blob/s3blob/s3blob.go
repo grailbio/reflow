@@ -203,7 +203,7 @@ func NewBucket(name string, client s3iface.S3API) *Bucket {
 }
 
 // File returns metadata for the provided key.
-func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
+func (b *Bucket) File(ctx context.Context, key string, retryMissing bool) (reflow.File, error) {
 	var resp *s3.HeadObjectOutput
 	var err error
 	for retries := 0; ; retries++ {
@@ -226,7 +226,12 @@ func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 			}
 			return admit.Within, err
 		})
-		if !retryable(err) {
+		retryKinds := []errors.Kind{errors.Timeout, errors.Temporary}
+		if retryMissing {
+			// retry NotExist since it can mean transiently missing due to S3's eventual consistency model
+			retryKinds = append(retryKinds, errors.NotExist)
+		}
+		if !isAnyOf(err, retryKinds...) {
 			break
 		}
 		log.Printf("s3blob.File: %s/%s (attempt %d): %v\n", b.bucket, key, retries, err)
@@ -351,11 +356,21 @@ func timeout(policy retry.Policy, retries int) time.Duration {
 
 // retryable returns whether an error is retryable.
 func retryable(err error) bool {
+	return isAnyOf(err, errors.Timeout, errors.Temporary)
+}
+
+// isAnyOf returns whether an error is any of the given kinds.
+func isAnyOf(err error, kinds ...errors.Kind) bool {
 	if err == nil {
 		return false
 	}
 	kind := kind(err)
-	return kind == errors.Timeout || kind == errors.Temporary
+	for _, k := range kinds {
+		if kind == k {
+			return true
+		}
+	}
+	return false
 }
 
 // Download downloads the object named by the provided key. Download
@@ -364,7 +379,7 @@ func retryable(err error) bool {
 func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w io.WriterAt) (int64, error) {
 	// Determine size if unspecified
 	if size == 0 {
-		if rf, err := b.File(ctx, key); err == nil {
+		if rf, err := b.File(ctx, key, false); err == nil {
 			size = rf.Size
 		}
 	}
@@ -481,7 +496,7 @@ func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader
 // provided prefix.
 func (b *Bucket) Snapshot(ctx context.Context, prefix string) (reflow.Fileset, error) {
 	if prefix != "" && !strings.HasSuffix(prefix, "/") {
-		file, err := b.File(ctx, prefix)
+		file, err := b.File(ctx, prefix, false)
 		if err != nil {
 			return reflow.Fileset{}, errors.E("s3blob.Snapshot", b.bucket, prefix, err)
 		}
@@ -561,7 +576,7 @@ func (b *Bucket) Location() string {
 // only if not set in src's metadata (ie, src's contentHash if present takes precedence)
 func (b *Bucket) copyObject(ctx context.Context, key string, src *Bucket, srcKey string, contentHash string) error {
 	srcUrl, dstUrl := path.Join(src.bucket, srcKey), path.Join(b.bucket, key)
-	srcFile, err := src.File(ctx, srcKey)
+	srcFile, err := src.File(ctx, srcKey, false)
 	if err != nil {
 		return err
 	}
@@ -709,11 +724,8 @@ func awsKind(err error) errors.Kind {
 		// Best guess based on Amazon's descriptions:
 		switch aerr.Code() {
 		// Code NotFound is not documented, but it's what the API actually returns.
-		case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey, "NoSuchVersion":
+		case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey, "NoSuchVersion", "NotFound":
 			return errors.NotExist
-		case "NotFound":
-			// Treat as temporary because sometimes they are, due to S3's eventual consistency model
-			return errors.Temporary
 		case "AccessDenied":
 			return errors.NotAllowed
 		case "InvalidRequest", "InvalidArgument", "EntityTooSmall", "EntityTooLarge", "KeyTooLong", "MethodNotAllowed":

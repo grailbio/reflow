@@ -27,7 +27,9 @@ type Store interface {
 // streaming and "direct" (concurrent) downloads.
 type Bucket interface {
 	// File retrieves file metadata for the provided key.
-	File(ctx context.Context, key string) (reflow.File, error)
+	// retryMissing determines whether files reported as missing are retried,
+	// typically useful when dealing with eventually consistent storage systems.
+	File(ctx context.Context, key string, retryMissing bool) (reflow.File, error)
 
 	// Scan returns a scanner for the provided prefix, which is
 	// then used to retrieve all keys (in order) with this prefix.

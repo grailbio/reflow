@@ -329,7 +329,7 @@ func TestFileErrors(t *testing.T) {
 				ctx, cancel = context.WithCancel(context.Background())
 				cancel()
 			}
-			_, got := bucket.File(ctx, tc.key)
+			_, got := bucket.File(ctx, tc.key, false)
 			if got == nil {
 				t.Errorf("want error, got none")
 				continue
@@ -366,11 +366,14 @@ func TestShouldRetry(t *testing.T) {
 		{context.DeadlineExceeded, true},
 		{errors.E("test", errors.Temporary), true},
 		{awserr.New("RequestTimeout", "test", nil), true},
-		{awserr.New("NotFound", "something not found", nil), true},
 	} {
 		if got, want := retryable(tc.err), tc.want; got != want {
 			t.Errorf("got %v, want %v: %v", got, want, tc.err)
 		}
+	}
+	err := awserr.New("NotFound", "something not found", nil)
+	if got, want := isAnyOf(err, errors.NotExist), true; got != want {
+		t.Errorf("got %v, want %v: %v", got, want, err)
 	}
 }
 
