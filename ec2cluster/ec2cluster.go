@@ -693,6 +693,7 @@ func (s *state) Init() {
 					s.pool[*inst.InstanceId] = reflowletPool{inst, clnt}
 				}
 			}
+			stats.setInstancesStats(instances)
 			s.c.SetPools(vals(s.pool))
 			return nil
 		}
