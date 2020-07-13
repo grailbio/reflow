@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/grailbio/reflow/runner"
+
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
@@ -96,6 +98,8 @@ type RunFlags struct {
 	Resources reflow.Resources
 	Cache     bool
 	Pred      bool
+	// Cluster is the externally specified cluster provider. If non-nil, this cluster provider overrides the one specified in the reflow config.
+	Cluster runner.Cluster
 
 	resourcesFlag string
 	needAss       bool

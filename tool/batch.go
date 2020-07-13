@@ -148,7 +148,7 @@ flags override any parameters in the batch sample file.
 		wg         wg.WaitGroup
 	)
 	if config.Sched {
-		scheduler, donecancel, err = NewScheduler(c.Config, &wg, nil, c.Status)
+		scheduler, donecancel, err = NewScheduler(c.Config, &wg, nil, nil, c.Status)
 		c.must(err)
 	}
 

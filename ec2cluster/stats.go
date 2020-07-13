@@ -16,10 +16,6 @@ type trackedInstance struct {
 	InstanceType string
 }
 
-var (
-	stats = newStats()
-)
-
 // InstanceTypeStat is a tuple that stores the count of instances of a specified type
 // within an AWS EC2 cluster.
 type InstanceTypeStat struct {
@@ -47,11 +43,14 @@ type statsImpl struct {
 }
 
 func newStats() *statsImpl {
-	si := &statsImpl{
+	return &statsImpl{
 		reflowletInstances: make(map[string]*trackedInstance),
 	}
+}
+
+// Publish the expvar to ExpVarCluster.
+func (si *statsImpl) publish() {
 	expvar.Publish(ExpVarCluster, expvar.Func(func() interface{} { return si.getStats() }))
-	return si
 }
 
 func (si *statsImpl) setInstancesStats(instances map[string]*reflowletInstance) {

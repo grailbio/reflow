@@ -153,6 +153,7 @@ type Cluster struct {
 	wait  chan *waiter
 
 	initOnce once.Task
+	stats    *statsImpl
 }
 
 type header interface {
@@ -282,7 +283,13 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 		return errors.New("no configured instance types")
 	}
 	c.instanceState = newInstanceState(configs, 5*time.Minute, c.Region)
+	c.stats = newStats()
 	return nil
+}
+
+// ExportStats exports the cluster stats to expvar.
+func (c *Cluster) ExportStats() {
+	c.stats.publish()
 }
 
 type waiter struct {
@@ -693,7 +700,7 @@ func (s *state) Init() {
 					s.pool[*inst.InstanceId] = reflowletPool{inst, clnt}
 				}
 			}
-			stats.setInstancesStats(instances)
+			s.c.stats.setInstancesStats(instances)
 			s.c.SetPools(vals(s.pool))
 			return nil
 		}

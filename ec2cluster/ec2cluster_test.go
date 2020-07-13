@@ -59,7 +59,7 @@ func TestStateInit(t *testing.T) {
 		ec2Is = append(ec2Is, i)
 	}
 	dio := &ec2.DescribeInstancesOutput{Reservations: []*ec2.Reservation{{Instances: ec2Is}}}
-	s := &state{c: &Cluster{EC2: &mockEC2Client{output: dio}}}
+	s := &state{c: &Cluster{EC2: &mockEC2Client{output: dio}, stats: newStats()}}
 	s.Init()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	if err := s.reconcile(ctx); err != nil {
@@ -77,7 +77,7 @@ func TestStateReconcile(t *testing.T) {
 	}
 	dio := &ec2.DescribeInstancesOutput{Reservations: []*ec2.Reservation{{Instances: ec2Is}}}
 	mockEC2 := mockEC2Client{output: dio}
-	s := &state{c: &Cluster{EC2: &mockEC2}}
+	s := &state{c: &Cluster{EC2: &mockEC2, stats: newStats()}}
 	s.Init()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -134,7 +134,7 @@ func TestStateMaintain(t *testing.T) {
 	}
 	dio := &ec2.DescribeInstancesOutput{Reservations: []*ec2.Reservation{{Instances: ec2Is}}}
 	mockEC2 := mockEC2Client{output: dio}
-	s := &state{c: &Cluster{EC2: &mockEC2}, pollInterval: time.Millisecond}
+	s := &state{c: &Cluster{EC2: &mockEC2, stats: newStats()}, pollInterval: time.Millisecond}
 	s.Init()
 
 	okToReconcile := make(chan struct{})

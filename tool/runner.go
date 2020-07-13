@@ -139,13 +139,12 @@ func clusterInstance(config infra.Config, status *status.Status) (runner.Cluster
 
 // NewScheduler returns a new scheduler with the specified configuration.
 // Cancelling the returned context.CancelFunc stops the scheduler.
-func NewScheduler(config infra.Config, wg *wg.WaitGroup, logger *log.Logger, status *status.Status) (*sched.Scheduler, context.CancelFunc, error) {
+func NewScheduler(config infra.Config, wg *wg.WaitGroup, cluster runner.Cluster, logger *log.Logger, status *status.Status) (*sched.Scheduler, context.CancelFunc, error) {
 	var (
-		err     error
-		tdb     taskdb.TaskDB
-		cluster runner.Cluster
-		repo    reflow.Repository
-		limit   int
+		err   error
+		tdb   taskdb.TaskDB
+		repo  reflow.Repository
+		limit int
 	)
 	if logger == nil {
 		if err = config.Instance(&logger); err != nil {
@@ -158,8 +157,10 @@ func NewScheduler(config infra.Config, wg *wg.WaitGroup, logger *log.Logger, sta
 		}
 		logger.Debug(err)
 	}
-	if cluster, err = clusterInstance(config, status); err != nil {
-		return nil, nil, err
+	if cluster == nil {
+		if cluster, err = clusterInstance(config, status); err != nil {
+			return nil, nil, err
+		}
 	}
 	if err = config.Instance(&repo); err != nil {
 		return nil, nil, err
@@ -205,17 +206,20 @@ func NewScheduler(config infra.Config, wg *wg.WaitGroup, logger *log.Logger, sta
 // it will be used for scheduling tasks.
 func NewRunner(runConfig RunConfig, scheduler *sched.Scheduler, logger *log.Logger) (*Runner, error) {
 	var (
-		cluster     runner.Cluster
 		mux         blob.Mux
 		repo        reflow.Repository
+		cluster     runner.Cluster
 		schedCancel context.CancelFunc
 		err         error
 		wg          wg.WaitGroup
 		limit       int
 	)
 	if !runConfig.RunFlags.Local {
-		if cluster, err = clusterInstance(runConfig.Config, runConfig.Status); err != nil {
-			return nil, err
+		cluster = runConfig.RunFlags.Cluster
+		if cluster == nil {
+			if cluster, err = clusterInstance(runConfig.Config, runConfig.Status); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err = runConfig.Config.Instance(&repo); err != nil {
@@ -246,7 +250,7 @@ func NewRunner(runConfig RunConfig, scheduler *sched.Scheduler, logger *log.Logg
 			repo = scheduler.Repository
 			transferer = scheduler.Transferer
 		} else {
-			scheduler, schedCancel, err = NewScheduler(runConfig.Config, &wg, logger, runConfig.Status)
+			scheduler, schedCancel, err = NewScheduler(runConfig.Config, &wg, cluster, logger, runConfig.Status)
 			if err != nil {
 				return nil, err
 			}

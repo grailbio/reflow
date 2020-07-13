@@ -55,7 +55,7 @@ func getTestReflowConfigKeys() infra.Keys {
 
 func TestSchedulerDefaultPendingTransferLimit(t *testing.T) {
 	config := getTestReflowConfig()
-	scheduler, cancel, err := NewScheduler(config, &wg2.WaitGroup{}, log.Std, new(status.Status))
+	scheduler, cancel, err := NewScheduler(config, &wg2.WaitGroup{}, nil, log.Std, new(status.Status))
 	if err != nil {
 		t.Fatal(err)
 	}
