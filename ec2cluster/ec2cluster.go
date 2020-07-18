@@ -31,6 +31,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/grailbio/base/status"
+	"github.com/grailbio/base/sync/ctxsync"
 	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/infra"
 	"github.com/grailbio/infra/tls"
@@ -313,9 +314,17 @@ func (c *Cluster) verifyAndInitialize() error {
 	ctx := context.Background()
 	c.state = &state{c: c}
 	c.state.Init()
+
+	// This go-routine maintains the local state of the cluster by periodically syncing with EC2.
+	// Sync-ing of state (periodic/immediate) is achieved by communicating with this go-routine.
 	go c.state.Maintain(ctx)
-	c.state.Sync()
+
+	// This go-routine services requests to expand cluster capacity
 	go c.loop()
+
+	// Sync forces an immediate syncing of cluster state (and will block until its complete)
+	c.state.Sync()
+
 	return nil
 }
 
@@ -364,9 +373,9 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 			// We didn't get it--try again!
 			needch = c.allocate(ctx, req)
 		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			alloc, err := pool.Allocate(ctx, c, req, labels)
-			cancel()
+			actx, acancel := context.WithTimeout(ctx, 30*time.Second)
+			alloc, err := pool.Allocate(actx, c, req, labels)
+			acancel()
 			if err == nil {
 				return alloc, nil
 			}
@@ -510,6 +519,26 @@ func (c *Cluster) loop() {
 		i.Task = c.Status.Startf("%s", config.Type)
 		i.Go(context.Background())
 		i.Task.Done()
+		switch {
+		case i.Err() == nil:
+			// While the instance is ready, we wait for it to be reconciled with the cluster state
+			// upto a minute after which we give up and assume the instance is no longer available.
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			if err := c.state.Wait(ctx, *i.Instance().InstanceId); err != nil {
+				i = nil
+			}
+			cancel()
+		case errors.Is(errors.Unavailable, i.Err()):
+			c.Log.Debugf("instance type %s unavailable in region %s: %v", i.Config.Type, c.Region, i.Err())
+			c.instanceState.Unavailable(i.Config)
+			fallthrough
+		// TODO(swami): Deal with Fatal errors appropriately by propagating them up the stack.
+		// In case of Fatal errors, retrying is going to result in the same error, so its better
+		// to just escalate up the stack and stop trying.
+		// case errors.Is(errors.Fatal, inst.Err()):
+		default:
+			i = nil
+		}
 		done <- i
 	}
 
@@ -592,28 +621,18 @@ func (c *Cluster) loop() {
 			n += ntyp
 		}
 		sort.Strings(counts)
-		c.Status.Printf("%d instances: %s (<=$%.1f/hr), total%s, waiting%s, pending%s",
+		msg := fmt.Sprintf("%d instances: %s (<=$%.1f/hr), total%s, waiting%s, pending%s",
 			n, strings.Join(counts, ","), totalPrice, total, waiting, pending)
+		c.Status.Print(msg)
+		c.Log.Debug(msg)
 		select {
 		case <-pollch:
 		case inst := <-done:
 			pending.Sub(pending, inst.Config.Resources)
 			npending--
-			switch {
-			case inst.Err() == nil:
-			case errors.Is(errors.Unavailable, inst.Err()):
-				c.Log.Debugf("instance type %s unavailable in region %s: %v", inst.Config.Type, c.Region, inst.Err())
-				c.instanceState.Unavailable(inst.Config)
-				fallthrough
-			// TODO(swami): Deal with Fatal errors appropriately by propagating them up the stack.
-			// In case of Fatal errors, retrying is going to result in the same error, so its better
-			// to just escalate up the stack and stop trying.
-			// case errors.Is(errors.Fatal, inst.Err()):
-			default:
+			if inst == nil {
 				continue
 			}
-			// Initiate a sync and wait for it to be done.
-			c.state.Sync()
 			var (
 				ws        []*waiter
 				available = inst.Config.Resources
@@ -636,14 +655,14 @@ func (c *Cluster) loop() {
 			waiters = ws
 			c.Log.Debugf("added instance %s resources%s pending%s available%s npending:%d waiters:%d notified:%d",
 				inst.Config.Type, inst.Config.Resources, pending, available, npending, len(waiters), nnotify)
-		case w := <-c.wait:
+		case reqs := <-c.wait:
 			var ws []*waiter
 			for _, w := range waiters {
 				if w.ctx.Err() == nil {
 					ws = append(ws, w)
 				}
 			}
-			waiters = append(ws, w)
+			waiters = append(ws, reqs)
 		}
 	}
 }
@@ -659,9 +678,9 @@ type state struct {
 	reconcile func(ctx context.Context) error
 
 	mu   sync.Mutex
+	cond *ctxsync.Cond
 	pool map[string]reflowletPool
 
-	smu  sync.Mutex
 	sync chan struct{}
 
 	pollInterval time.Duration
@@ -702,11 +721,13 @@ func (s *state) Init() {
 			}
 			s.c.stats.setInstancesStats(instances)
 			s.c.SetPools(vals(s.pool))
+			s.cond.Broadcast()
 			return nil
 		}
 	}
 	s.pool = make(map[string]reflowletPool)
 	s.sync = make(chan struct{})
+	s.cond = ctxsync.NewCond(&s.mu)
 }
 
 // InstanceTypeCounts returns number of instances of each instance type present in the cluster pool.
@@ -727,15 +748,38 @@ func (s *state) InstancesCount() int {
 	return len(s.pool)
 }
 
-// Sync reconciles immediately and waits till its complete.
+// Wait waits until the given EC2 instance becomes part of the cluster or if the ctx is complete.
+// An error returns with the context's error if the context completes while waiting.
+func (s *state) Wait(ctx context.Context, id string) (err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for {
+		if _, ok := s.pool[id]; ok {
+			break
+		}
+		select {
+		case s.sync <- struct{}{}:
+		default:
+		}
+		err = s.cond.Wait(ctx)
+		if err != nil {
+			break
+		}
+	}
+	return
+}
+
+// Sync initiates a cluster state refresh and waits for it to complete.
 func (s *state) Sync() {
-	s.smu.Lock()
-	defer s.smu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.sync <- struct{}{}
-	<-s.sync
+	_ = s.cond.Wait(context.Background())
 }
 
 // Maintain periodically reconciles local state with EC2.
+// It also services requests for immediate sync-ing of cluster state
+// which are achieved by calling either `Sync` or `Wait` on the state.
 func (s *state) Maintain(ctx context.Context) {
 	tick := time.NewTicker(s.pollInterval)
 	defer tick.Stop()
@@ -749,14 +793,17 @@ func (s *state) Maintain(ctx context.Context) {
 			if err := s.reconcile(ctx); err != nil {
 				s.c.Log.Errorf("maintain: %v", err)
 			}
-			// Notify that sync is done.
-			s.sync <- struct{}{}
 		case <-ctx.Done():
 			return
 		}
 	}
 }
 
+// getEC2State gets the current state of the cluster by querying EC2.
+// The cluster consists of all EC2 instances returned by AWS (at that moment)
+// which have the set of tags returned by `QueryTags`.
+// At the time of writing this, its unclear how much (if any) propagation delay
+// exists between tagging an instance and the instance being returned by the AWS API.
 func (s *state) getEC2State(ctx context.Context) (map[string]*reflowletInstance, error) {
 	var filters []*ec2.Filter
 	for k, v := range s.c.QueryTags() {
@@ -776,9 +823,9 @@ func (s *state) getEC2State(ctx context.Context) (map[string]*reflowletInstance,
 		for _, resv := range resp.Reservations {
 			for _, inst := range resv.Instances {
 				switch *inst.State.Name {
-				case "shutting-down", "terminated", "stopping", "stopped":
-				default:
+				case "running":
 					instances[*inst.InstanceId] = newReflowletInstance(inst)
+				default:
 				}
 			}
 		}
