@@ -31,7 +31,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/grailbio/base/status"
-	"github.com/grailbio/base/sync/ctxsync"
 	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/infra"
 	"github.com/grailbio/infra/tls"
@@ -52,8 +51,6 @@ func init() {
 }
 
 const (
-	// ec2PollInterval defines how often we refresh the local cluster state with EC2.
-	ec2PollInterval = time.Minute
 	// allocAttemptInterval defines how often we attempt to allocate from existing pool
 	// while waiting for an explicit allocation request to be completed.
 	allocAttemptInterval = 30 * time.Second
@@ -153,9 +150,11 @@ type Cluster struct {
 	instanceState   *instanceState
 	instanceConfigs map[string]instanceConfig
 
-	// state maintains the state of the cluster by keeping it in-sync with EC2.
-	state *state
-	wait  chan *waiter
+	mu    sync.Mutex
+	pools map[string]reflowletPool
+
+	// manager manages the cluster
+	manager *Manager
 
 	initOnce once.Task
 	stats    *statsImpl
@@ -265,8 +264,6 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	if c.SecurityGroup == "" {
 		return errors.New("missing EC2 security group")
 	}
-	c.wait = make(chan *waiter)
-
 	c.InstanceTags["managedby"] = "reflow"
 
 	// Construct the set of legal instances and set available disk space.
@@ -288,6 +285,8 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 		return errors.New("no configured instance types")
 	}
 	c.instanceState = newInstanceState(configs, 5*time.Minute, c.Region)
+	c.manager = NewManager(c, c.MaxInstances, c.MaxPendingInstances, c.Log)
+	c.pools = make(map[string]reflowletPool)
 	c.stats = newStats()
 	return nil
 }
@@ -295,16 +294,6 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 // ExportStats exports the cluster stats to expvar.
 func (c *Cluster) ExportStats() {
 	c.stats.publish()
-}
-
-type waiter struct {
-	reflow.Requirements
-	ctx context.Context
-	c   chan struct{}
-}
-
-func (w *waiter) Notify() {
-	close(w.c)
 }
 
 // VerifyAndInitialize verifies any configuration settings and runs the maintenance goroutines.
@@ -316,19 +305,7 @@ func (c *Cluster) verifyAndInitialize() error {
 	c.EC2 = ec2.New(c.Session, &aws.Config{MaxRetries: aws.Int(13)})
 	// TODO(swami):  Pass through a context from somewhere upstream as appropriate.
 	ctx := context.Background()
-	c.state = &state{c: c}
-	c.state.Init()
-
-	// This go-routine maintains the local state of the cluster by periodically syncing with EC2.
-	// Sync-ing of state (periodic/immediate) is achieved by communicating with this go-routine.
-	go c.state.Maintain(ctx)
-
-	// This go-routine services requests to expand cluster capacity
-	go c.loop()
-
-	// Sync forces an immediate syncing of cluster state (and will block until its complete)
-	c.state.Sync()
-
+	c.manager.Start(ctx)
 	return nil
 }
 
@@ -362,7 +339,7 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 	defer cancel()
 	ticker := time.NewTicker(allocAttemptInterval)
 	defer ticker.Stop()
-	needch := c.allocate(ctx, req)
+	needch := c.manager.Allocate(ctx, req)
 	for {
 		select {
 		case <-ctx.Done():
@@ -376,7 +353,7 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 			}
 			c.Log.Errorf("failed to allocate from pool: %v; provisioning new instances", err)
 			// We didn't get it--try again!
-			needch = c.allocate(ctx, req)
+			needch = c.manager.Allocate(ctx, req)
 		case <-ticker.C:
 			actx, acancel := context.WithTimeout(ctx, allocTimeout)
 			alloc, err := pool.Allocate(actx, c, req, labels)
@@ -407,16 +384,6 @@ func (c *Cluster) QueryTags() map[string]string {
 	return qtags
 }
 
-func (c *Cluster) allocate(ctx context.Context, req reflow.Requirements) <-chan struct{} {
-	w := &waiter{
-		Requirements: req,
-		ctx:          ctx,
-		c:            make(chan struct{}),
-	}
-	c.wait <- w
-	return w.c
-}
-
 // Probe attempts to instantiate an EC2 instance of the given type and returns a duration and an error.
 // In case of a nil error the duration represents how long it took (single data point) for a usable
 // Reflowlet to come up on that instance type.
@@ -427,9 +394,9 @@ func (c *Cluster) Probe(ctx context.Context, instanceType string) (time.Duration
 		return time.Duration(0), err
 	}
 	config := c.instanceConfigs[instanceType]
-	i := c.newInstance(config, config.Price[c.Region])
+	i := c.newInstance(config)
 probe:
-	i.Task = c.Status.Startf("%s", config.Type)
+	i.Task = c.Status.Startf("%s", instanceType)
 	i.Go(context.Background())
 	i.ec2TerminateInstance()
 	if i.Err() != nil {
@@ -448,7 +415,7 @@ probe:
 	return dur.Round(time.Second), i.Err()
 }
 
-func (c *Cluster) newInstance(config instanceConfig, price float64) *instance {
+func (c *Cluster) newInstance(config instanceConfig) *instance {
 	return &instance{
 		HTTPClient:      c.HTTPClient,
 		ReflowConfig:    c.Configuration,
@@ -463,7 +430,7 @@ func (c *Cluster) newInstance(config instanceConfig, price float64) *instance {
 		InstanceProfile: c.InstanceProfile,
 		SecurityGroup:   c.SecurityGroup,
 		BootstrapImage:  c.BootstrapImage,
-		Price:           price,
+		Price:           config.Price[c.Region],
 		EBSType:         c.DiskType,
 		EBSSize:         uint64(config.Resources["disk"]) >> 30,
 		NEBS:            c.DiskSlices,
@@ -476,343 +443,94 @@ func (c *Cluster) newInstance(config instanceConfig, price float64) *instance {
 	}
 }
 
-// getInstanceAllocations returns the instances needed to satisfy the waiters.
-// It uses a greedy algorithm to group as many waiter requests as possible into a instance.
-func (c *Cluster) getInstanceAllocations(waiters []*waiter) (todo []instanceConfig) {
-	var resources []reflow.Resources
-	for _, w := range waiters {
-		width := w.Width
-		if width == 0 {
-			width = 1
-		}
-		for i := width; i > 0; i-- {
-			resources = append(resources, w.Min)
-		}
-	}
-	var (
-		need        reflow.Resources
-		group       int
-		oldMin, min instanceConfig
-		ok          bool
-		i           int
-	)
-	for i < len(resources) {
-		res := resources[i]
-		need.Add(need, res)
-		min, ok = c.instanceState.MinAvailable(need, c.Spot)
-		switch {
-		case group == 0 && !ok:
-			i++
-			need.Set(reflow.Resources{})
-			c.Log.Debugf("no currently available instance type can satisfy resource requirements %v", res)
-		case !ok:
-			todo = append(todo, oldMin)
-			need.Set(reflow.Resources{})
-			group = 0
-		case ok:
-			oldMin = min
-			group++
-			i++
-		}
-	}
-	if group > 0 {
-		todo = append(todo, oldMin)
-	}
-	return
+// Available returns the cheapest available instance specification that
+// has at least the required resources.
+func (c *Cluster) Available(need reflow.Resources) (InstanceSpec, bool) {
+	config, ok := c.instanceState.MinAvailable(need, c.Spot)
+	return InstanceSpec{config.Type, config.Resources}, ok
 }
 
-// loop services requests to expand the cluster's capacity.
-func (c *Cluster) loop() {
-	var (
-		waiters  []*waiter
-		pending  reflow.Resources
-		npending int
-		done     = make(chan *instance)
-	)
-	launch := func(config instanceConfig, price float64) {
-		i := c.newInstance(config, price)
-		i.Task = c.Status.Startf("%s", config.Type)
-		i.Go(context.Background())
-		i.Task.Done()
-		switch {
-		case i.Err() == nil:
-			// While the instance is ready, we wait for it to be reconciled with the cluster state
-			// upto a minute after which we give up and assume the instance is no longer available.
-			timeout := time.Minute
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
-			id := *i.Instance().InstanceId
-			if err := c.state.Wait(ctx, id); err != nil {
-				i.err = fmt.Errorf("gave up after waiting %s for instance: %s", timeout, id)
-			}
-			cancel()
-		case errors.Is(errors.Unavailable, i.Err()):
-			c.Log.Debugf("instance type %s unavailable in region %s: %v", i.Config.Type, c.Region, i.Err())
-			c.instanceState.Unavailable(i.Config)
-			fallthrough
-		// TODO(swami): Deal with Fatal errors appropriately by propagating them up the stack.
-		// In case of Fatal errors, retrying is going to result in the same error, so its better
-		// to just escalate up the stack and stop trying.
-		// case errors.Is(errors.Fatal, inst.Err()):
-		default:
-		}
-		done <- i
+// Launch launches an EC2 instance based on the given spec and returns a ManagedInstance.
+func (c *Cluster) Launch(ctx context.Context, spec InstanceSpec) ManagedInstance {
+	config, ok := c.instanceConfigs[spec.Type]
+	if !ok {
+		return spec.Instance("")
 	}
+	i := c.newInstance(config)
+	i.Task = c.Status.Startf("%s", spec.Type)
+	i.Go(ctx)
+	i.Task.Done()
+	switch {
+	case i.Err() == nil:
+	case errors.Is(errors.Unavailable, i.Err()):
+		c.Log.Debugf("instance type %s unavailable in region %s: %v", i.Config.Type, c.Region, i.Err())
+		c.instanceState.Unavailable(i.Config)
+		fallthrough
+	// TODO(swami): Deal with Fatal errors appropriately by propagating them up the stack.
+	// In case of Fatal errors, retrying is going to result in the same error, so its better
+	// to just escalate up the stack and stop trying.
+	// case errors.Is(errors.Fatal, inst.Err()):
+	default:
+	}
+	return i.ManagedInstance()
+}
 
-	for {
-		var needPoll bool
-		// Here we try to pack resource requests. First, we order each
-		// request by the "magnitude" of the request (as defined by
-		// (Resources).ScaledDistance) and then greedily pack the requests
-		// until there is no instance type that can accommodate them.
-		sort.Slice(waiters, func(i, j int) bool {
-			return waiters[i].Min.ScaledDistance(nil) < waiters[j].Min.ScaledDistance(nil)
-		})
-		s := make([]string, len(waiters))
-		if c.Log.At(log.DebugLevel) {
-			for i, w := range waiters {
-				s[i] = fmt.Sprintf("waiter%d%s", i, w.Min)
-			}
-			if len(pending) > 0 {
-				c.Log.Debugf("pending%s %s", pending, strings.Join(s, ", "))
-			}
+func (c *Cluster) Notify(waiting, pending reflow.Resources) {
+	var (
+		counts     []string
+		totalPrice float64
+		total      reflow.Resources
+	)
+	n := 0
+	for typ, ntyp := range c.instanceTypeCounts() {
+		counts = append(counts, fmt.Sprintf("%s:%d", typ, ntyp))
+		config := c.instanceConfigs[typ]
+		var r reflow.Resources
+		r.Scale(config.Resources, float64(ntyp))
+		total.Add(total, r)
+		totalPrice += config.Price[c.Region] * float64(ntyp)
+		n += ntyp
+	}
+	sort.Strings(counts)
+	msg := fmt.Sprintf("%d instances: %s (<=$%.1f/hr), total%s, waiting%s, pending%s",
+		n, strings.Join(counts, ","), totalPrice, total, waiting, pending)
+	c.Status.Print(msg)
+	c.Log.Debug(msg)
+}
+
+func (c *Cluster) Refresh(ctx context.Context) (map[string]bool, error) {
+	state, err := c.getEC2State(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Remove from pool instances that are not available on EC2.
+	for id := range c.pools {
+		if _, ok := state[id]; !ok {
+			delete(c.pools, id)
 		}
-		var waiting reflow.Resources
-		for _, w := range waiters {
-			waiting.Add(waiting, w.Max())
-		}
-		// First skip waiters that are already getting their resources
-		// satisfied.
-		//
-		// TODO(marius): this should take into account the actual
-		// granularity of the pending instances. This doesn't matter too
-		// much since allocation is ordered by size, and thus we'll make
-		// progress since no instances smaller than the smallest allocation
-		// are ever launched. But it could be wasteful if there's a lot of
-		// churn.
-		var (
-			i       int
-			howmuch reflow.Resources
-		)
-		for i < len(waiters) {
-			howmuch.Add(howmuch, waiters[i].Min)
-			if !pending.Available(howmuch) {
-				break
-			}
-			i++
-		}
-		needMore := len(waiters) > 0 && i != len(waiters)
-		todo := c.getInstanceAllocations(waiters[i:])
-		n := c.state.InstancesCount()
-		if needMore && len(todo) == 0 {
-			c.Log.Print("resource requirements are unsatisfiable by current instance selection")
-			needPoll = true
-			goto sleep
-		}
-		for len(todo) > 0 && npending < c.MaxPendingInstances && n+npending < c.MaxInstances {
-			var config instanceConfig
-			config, todo = todo[0], todo[1:]
-			pending.Add(pending, config.Resources)
-			npending++
-			c.Log.Debugf("launch %v%v pending%v", config.Type, config.Resources, pending)
-			go launch(config, config.Price[c.Region])
-		}
-	sleep:
-		var pollch <-chan time.Time
-		if needPoll {
-			pollch = time.After(time.Minute)
-		}
-		var (
-			counts     []string
-			totalPrice float64
-			total      reflow.Resources
-		)
-		n = 0
-		for typ, ntyp := range c.state.InstanceTypeCounts() {
-			counts = append(counts, fmt.Sprintf("%s:%d", typ, ntyp))
-			config := c.instanceConfigs[typ]
-			var r reflow.Resources
-			r.Scale(config.Resources, float64(ntyp))
-			total.Add(total, r)
-			totalPrice += config.Price[c.Region] * float64(ntyp)
-			n += ntyp
-		}
-		sort.Strings(counts)
-		msg := fmt.Sprintf("%d instances: %s (<=$%.1f/hr), total%s, waiting%s, pending%s",
-			n, strings.Join(counts, ","), totalPrice, total, waiting, pending)
-		c.Status.Print(msg)
-		c.Log.Debug(msg)
-		select {
-		case <-pollch:
-		case inst := <-done:
-			pending.Sub(pending, inst.Config.Resources)
-			npending--
-			if inst.Err() != nil {
+	}
+	// Add instances on EC2 that are not in the pool.
+	for id, inst := range state {
+		if _, ok := c.pools[id]; !ok {
+			baseurl := fmt.Sprintf("https://%s:9000/v1/", *inst.PublicDnsName)
+			clnt, cerr := client.New(baseurl, c.HTTPClient, nil)
+			if cerr != nil {
+				c.Log.Errorf("client %s: %v", baseurl, cerr)
 				continue
 			}
-			var (
-				ws        []*waiter
-				available = inst.Config.Resources
-				nnotify   int
-			)
-			for _, w := range waiters {
-				if w.ctx.Err() != nil {
-					continue
-				}
-				if available.Available(w.Min) {
-					var tmp reflow.Resources
-					tmp.Min(w.Max(), available)
-					available.Sub(available, tmp)
-					w.Notify()
-					nnotify++
-				} else {
-					ws = append(ws, w)
-				}
-			}
-			waiters = ws
-			c.Log.Debugf("added instance %s resources%s pending%s available%s npending:%d waiters:%d notified:%d",
-				inst.Config.Type, inst.Config.Resources, pending, available, npending, len(waiters), nnotify)
-		case reqs := <-c.wait:
-			var ws []*waiter
-			for _, w := range waiters {
-				if w.ctx.Err() == nil {
-					ws = append(ws, w)
-				}
-			}
-			waiters = append(ws, reqs)
+			// Add instance to the pool.
+			c.pools[*inst.InstanceId] = reflowletPool{inst, clnt}
 		}
 	}
-}
-
-type reflowletPool struct {
-	inst *reflowletInstance
-	pool pool.Pool
-}
-
-// state helps maintain the state of the underlying cluster.
-type state struct {
-	c         *Cluster
-	reconcile func(ctx context.Context) error
-
-	mu   sync.Mutex
-	cond *ctxsync.Cond
-	pool map[string]reflowletPool
-
-	sync chan struct{}
-
-	pollInterval time.Duration
-}
-
-// Init initializes the state.
-func (s *state) Init() {
-	if s.pollInterval == 0 {
-		s.pollInterval = ec2PollInterval
+	c.stats.setInstancesStats(state)
+	c.SetPools(vals(c.pools))
+	m := make(map[string]bool, len(c.pools))
+	for iid := range c.pools {
+		m[iid] = true
 	}
-	if s.reconcile == nil {
-		s.reconcile = func(ctx context.Context) error {
-			instances, err := s.getEC2State(ctx)
-			if err != nil {
-				return err
-			}
-			s.mu.Lock()
-			defer s.mu.Unlock()
-
-			// Remove from pool instances that are not available on EC2.
-			for id := range s.pool {
-				if instances[id] == nil {
-					delete(s.pool, id)
-				}
-			}
-			// Add instances on EC2 that are not in the pool.
-			for id, inst := range instances {
-				if _, ok := s.pool[id]; !ok {
-					baseurl := fmt.Sprintf("https://%s:9000/v1/", *inst.PublicDnsName)
-					clnt, err := client.New(baseurl, s.c.HTTPClient, nil)
-					if err != nil {
-						s.c.Log.Errorf("client %s: %v", baseurl, err)
-						continue
-					}
-					// Add instance to the pool.
-					s.pool[*inst.InstanceId] = reflowletPool{inst, clnt}
-				}
-			}
-			s.c.stats.setInstancesStats(instances)
-			s.c.SetPools(vals(s.pool))
-			s.cond.Broadcast()
-			return nil
-		}
-	}
-	s.pool = make(map[string]reflowletPool)
-	s.sync = make(chan struct{})
-	s.cond = ctxsync.NewCond(&s.mu)
-}
-
-// InstanceTypeCounts returns number of instances of each instance type present in the cluster pool.
-func (s *state) InstanceTypeCounts() map[string]int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	instanceTypes := make(map[string]int)
-	for _, instance := range s.pool {
-		instanceTypes[*instance.inst.InstanceType]++
-	}
-	return instanceTypes
-}
-
-// InstancesCount returns total number of instances (across all instance types) present in the cluster pool.
-func (s *state) InstancesCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.pool)
-}
-
-// Wait waits until the given EC2 instance becomes part of the cluster or if the ctx is complete.
-// An error returns with the context's error if the context completes while waiting.
-func (s *state) Wait(ctx context.Context, id string) (err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for {
-		if _, ok := s.pool[id]; ok {
-			break
-		}
-		select {
-		case s.sync <- struct{}{}:
-		default:
-		}
-		err = s.cond.Wait(ctx)
-		if err != nil {
-			break
-		}
-	}
-	return
-}
-
-// Sync initiates a cluster state refresh and waits for it to complete.
-func (s *state) Sync() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sync <- struct{}{}
-	_ = s.cond.Wait(context.Background())
-}
-
-// Maintain periodically reconciles local state with EC2.
-// It also services requests for immediate sync-ing of cluster state
-// which are achieved by calling either `Sync` or `Wait` on the state.
-func (s *state) Maintain(ctx context.Context) {
-	tick := time.NewTicker(s.pollInterval)
-	defer tick.Stop()
-	for {
-		select {
-		case <-tick.C:
-			if err := s.reconcile(ctx); err != nil {
-				s.c.Log.Errorf("maintain: %v", err)
-			}
-		case <-s.sync:
-			if err := s.reconcile(ctx); err != nil {
-				s.c.Log.Errorf("maintain: %v", err)
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
+	return m, err
 }
 
 // getEC2State gets the current state of the cluster by querying EC2.
@@ -820,18 +538,18 @@ func (s *state) Maintain(ctx context.Context) {
 // which have the set of tags returned by `QueryTags`.
 // At the time of writing this, its unclear how much (if any) propagation delay
 // exists between tagging an instance and the instance being returned by the AWS API.
-func (s *state) getEC2State(ctx context.Context) (map[string]*reflowletInstance, error) {
+func (c *Cluster) getEC2State(ctx context.Context) (map[string]*reflowletInstance, error) {
 	var filters []*ec2.Filter
-	for k, v := range s.c.QueryTags() {
+	for k, v := range c.QueryTags() {
 		filters = append(filters, &ec2.Filter{
 			Name: aws.String("tag:" + k), Values: []*string{aws.String(v)},
 		})
 	}
 	req := &ec2.DescribeInstancesInput{Filters: filters, MaxResults: aws.Int64(1000)}
-	instances := make(map[string]*reflowletInstance)
+	state := make(map[string]*reflowletInstance)
 	for req != nil {
 		ctx2, cancel := context.WithTimeout(ctx, 30*time.Second)
-		resp, err := s.c.EC2.DescribeInstancesWithContext(ctx2, req)
+		resp, err := c.EC2.DescribeInstancesWithContext(ctx2, req)
 		cancel()
 		if err != nil {
 			return nil, err
@@ -840,7 +558,7 @@ func (s *state) getEC2State(ctx context.Context) (map[string]*reflowletInstance,
 			for _, inst := range resv.Instances {
 				switch *inst.State.Name {
 				case "running":
-					instances[*inst.InstanceId] = newReflowletInstance(inst)
+					state[*inst.InstanceId] = newReflowletInstance(inst)
 				default:
 				}
 			}
@@ -851,7 +569,22 @@ func (s *state) getEC2State(ctx context.Context) (map[string]*reflowletInstance,
 			req = nil
 		}
 	}
-	return instances, nil
+	return state, nil
+}
+
+func (c *Cluster) instanceTypeCounts() map[string]int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	instanceTypes := make(map[string]int)
+	for _, instance := range c.pools {
+		instanceTypes[*instance.inst.InstanceType]++
+	}
+	return instanceTypes
+}
+
+type reflowletPool struct {
+	inst *reflowletInstance
+	pool pool.Pool
 }
 
 func vals(m map[string]reflowletPool) []pool.Pool {

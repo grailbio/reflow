@@ -366,6 +366,14 @@ func (i *instance) Instance() *reflowletInstance {
 	return newReflowletInstance(i.ec2inst)
 }
 
+func (i *instance) ManagedInstance() ManagedInstance {
+	var id string
+	if i.err == nil && i.ec2inst != nil {
+		id = *i.ec2inst.InstanceId
+	}
+	return InstanceSpec{i.Config.Type, i.Config.Resources}.Instance(id)
+}
+
 // Go launches an instance, and returns when it fails or the context is done.
 // On success (i.Err() == nil), the returned instance is in running state.
 // Launch status is reported to the instance's task, if any.

@@ -39,8 +39,8 @@ func TestGetEC2State(t *testing.T) {
 	ec2Is = append(ec2Is, i2)
 	dio := &ec2.DescribeInstancesOutput{Reservations: []*ec2.Reservation{{Instances: ec2Is}}}
 	client := mockEC2Client{output: dio}
-	state := &state{c: &Cluster{EC2: &client}}
-	instances, _ := state.getEC2State(context.Background())
+	c := &Cluster{EC2: &client}
+	instances, _ := c.getEC2State(context.Background())
 	if got, want := len(instances), 2; got != want {
 		t.Fatalf("got %d, want %d", got, want)
 	}
@@ -52,24 +52,7 @@ func TestGetEC2State(t *testing.T) {
 	}
 }
 
-func TestStateInit(t *testing.T) {
-	var ec2Is []*ec2.Instance
-	for _, state := range []string{"terminated", "shutting-down", "running"} {
-		i, _ := create("i-"+state, state, "", "")
-		ec2Is = append(ec2Is, i)
-	}
-	dio := &ec2.DescribeInstancesOutput{Reservations: []*ec2.Reservation{{Instances: ec2Is}}}
-	s := &state{c: &Cluster{EC2: &mockEC2Client{output: dio}, stats: newStats()}}
-	s.Init()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	if err := s.reconcile(ctx); err != nil {
-		t.Errorf("reconcile: %v", err)
-	}
-	checkState(t, s, []string{"i-running"}, []string{"i-running"})
-	cancel()
-}
-
-func TestStateReconcile(t *testing.T) {
+func TestRefresh(t *testing.T) {
 	var ec2Is []*ec2.Instance
 	for _, state := range []string{"terminated", "shutting-down", "running"} {
 		i, _ := create("i-"+state, state, "", "")
@@ -77,25 +60,24 @@ func TestStateReconcile(t *testing.T) {
 	}
 	dio := &ec2.DescribeInstancesOutput{Reservations: []*ec2.Reservation{{Instances: ec2Is}}}
 	mockEC2 := mockEC2Client{output: dio}
-	s := &state{c: &Cluster{EC2: &mockEC2, stats: newStats()}}
-	s.Init()
+	c := &Cluster{EC2: &mockEC2, stats: newStats(), pools: make(map[string]reflowletPool)}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	if err := s.reconcile(ctx); err != nil {
+	if _, err := c.Refresh(ctx); err != nil {
 		t.Errorf("reconcile: %v", err)
 	}
-	checkState(t, s, []string{"i-running"}, []string{"i-running"})
+	checkState(t, c, "i-running")
 
 	// Alter EC2 state (add instance) and reconcile
 	i, _ := create("i-another", "running", "", "")
 	ec2Is = append(ec2Is, i)
 	dio.Reservations[0].Instances = ec2Is
 	mockEC2.output = dio
-	if err := s.reconcile(ctx); err != nil {
+	if _, err := c.Refresh(ctx); err != nil {
 		t.Errorf("reconcile: %v", err)
 	}
 	// Verify
-	checkState(t, s, []string{"i-running", "i-another"}, []string{"i-running", "i-another"})
+	checkState(t, c, "i-running", "i-another")
 
 	// Alter EC2 state (terminate instance) and reconcile
 	for _, inst := range dio.Reservations[0].Instances {
@@ -104,78 +86,18 @@ func TestStateReconcile(t *testing.T) {
 		}
 	}
 	mockEC2.output = dio
-	if err := s.reconcile(ctx); err != nil {
+	if _, err := c.Refresh(ctx); err != nil {
 		t.Errorf("reconcile: %v", err)
 	}
 	// Verify
-	checkState(t, s, []string{"i-running"}, []string{"i-running"})
-
-	cancel()
-}
-
-func testReconciler(reconcile func(ctx context.Context) error, okToReconcile, reconciled chan struct{}) func(ctx context.Context) error {
-	return func(ctx context.Context) error {
-		if _, ok := <-okToReconcile; !ok {
-			return nil
-		}
-		fmt.Printf("[%v] received: ok to reconcile\n", time.Now())
-		err := reconcile(ctx)
-		reconciled <- struct{}{}
-		fmt.Printf("[%v] sent: reconciled\n", time.Now())
-		return err
-	}
-}
-
-func TestStateMaintain(t *testing.T) {
-	var ec2Is []*ec2.Instance
-	for _, state := range []string{"terminated", "shutting-down", "running"} {
-		i, _ := create("i-"+state, state, "", "")
-		ec2Is = append(ec2Is, i)
-	}
-	dio := &ec2.DescribeInstancesOutput{Reservations: []*ec2.Reservation{{Instances: ec2Is}}}
-	mockEC2 := mockEC2Client{output: dio}
-	s := &state{c: &Cluster{EC2: &mockEC2, stats: newStats()}, pollInterval: time.Millisecond}
-	s.Init()
-
-	okToReconcile := make(chan struct{})
-	reconciled := make(chan struct{})
-	defer close(okToReconcile)
-	defer close(reconciled)
-	s.reconcile = testReconciler(s.reconcile, okToReconcile, reconciled)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-
-	go s.Maintain(ctx)
-	okToReconcile <- struct{}{}
-	<-reconciled // Wait for Init() to complete.
-	checkState(t, s, []string{"i-running"}, []string{"i-running"})
-
-	// Alter EC2 state (add instance) and check state update.
-	i, _ := create("i-another", "running", "", "")
-	ec2Is = append(ec2Is, i)
-	dio.Reservations[0].Instances = ec2Is
-	mockEC2.output = dio
-	okToReconcile <- struct{}{}
-	<-reconciled // Wait for reconcile() to complete.
-	checkState(t, s, []string{"i-running", "i-another"}, []string{"i-running", "i-another"})
-
-	// Alter EC2 state (terminate instance) and check state update.
-	for _, inst := range dio.Reservations[0].Instances {
-		if *inst.InstanceId == "i-another" {
-			inst.State = &ec2.InstanceState{Name: aws.String("terminated")}
-		}
-	}
-	mockEC2.output = dio
-	okToReconcile <- struct{}{}
-	<-reconciled // Wait for reconcile() to complete.
-	checkState(t, s, []string{"i-running"}, []string{"i-running"})
-
+	checkState(t, c, "i-running")
 	cancel()
 }
 
 func create(id, state, version, digest string) (*ec2.Instance, *reflowletInstance) {
 	inst := &ec2.Instance{
 		InstanceId:    aws.String(id),
+		InstanceType:  aws.String("type-" + id),
 		PublicDnsName: aws.String(id + ".test.grail.com"),
 		State:         &ec2.InstanceState{Name: aws.String(state)},
 	}
@@ -188,13 +110,13 @@ func create(id, state, version, digest string) (*ec2.Instance, *reflowletInstanc
 	return inst, &reflowletInstance{*inst, version, digest}
 }
 
-func checkState(t *testing.T, s *state, instanceIds, poolIds []string) {
+func checkState(t *testing.T, c *Cluster, instanceIds ...string) {
 	t.Helper()
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	var gots []string
-	for g := range s.pool {
+	for g := range c.pools {
 		gots = append(gots, g)
 	}
 	setEquals(t, "pool", gots, instanceIds)
@@ -510,7 +432,7 @@ func TestInstanceAllocationRequest(t *testing.T) {
 			},
 		},
 	} {
-		reqs := cluster.getInstanceAllocations(tc.waiters)
+		reqs := cluster.manager.getInstanceAllocations(tc.waiters)
 		if got, want := len(reqs), len(tc.reqs); got != want {
 			t.Fatalf("%v: expected %v allocation request, got %v", tc.index, want, got)
 		}
