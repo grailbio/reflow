@@ -523,9 +523,11 @@ func (c *Cluster) loop() {
 		case i.Err() == nil:
 			// While the instance is ready, we wait for it to be reconciled with the cluster state
 			// upto a minute after which we give up and assume the instance is no longer available.
-			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			if err := c.state.Wait(ctx, *i.Instance().InstanceId); err != nil {
-				i = nil
+			timeout := time.Minute
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			id := *i.Instance().InstanceId
+			if err := c.state.Wait(ctx, id); err != nil {
+				i.err = fmt.Errorf("gave up after waiting %s for instance: %s", timeout, id)
 			}
 			cancel()
 		case errors.Is(errors.Unavailable, i.Err()):
@@ -537,7 +539,6 @@ func (c *Cluster) loop() {
 		// to just escalate up the stack and stop trying.
 		// case errors.Is(errors.Fatal, inst.Err()):
 		default:
-			i = nil
 		}
 		done <- i
 	}
@@ -630,7 +631,7 @@ func (c *Cluster) loop() {
 		case inst := <-done:
 			pending.Sub(pending, inst.Config.Resources)
 			npending--
-			if inst == nil {
+			if inst.Err() != nil {
 				continue
 			}
 			var (
