@@ -20,7 +20,7 @@ func (c *Cluster) Setup(sess *session.Session) error {
 		c.DiskSpace = 250
 	}
 	if c.AMI == "" {
-		c.AMI = "ami-4296ec3a"
+		c.AMI = "ami-0bb54692374ac10a7"
 	}
 	if c.MaxInstances == 0 {
 		c.MaxInstances = 10
