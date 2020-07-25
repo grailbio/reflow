@@ -1032,27 +1032,86 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 	toctx, cancel := context.WithTimeout(ctx, time.Minute+10*time.Second)
 	defer cancel()
 	if err := i.ec2WaitForSpotFulfillment(toctx, reqid); err != nil {
-		// If we're not fulfilled by our deadline, we consider spot instances
-		// unavailable. Boot this up to the caller so they can pick a different
-		// instance types.
-		return "", errors.E(errors.Unavailable, err)
+		// If we're not fulfilled by our deadline, we consider spot instances unavailable.
+		// Since we've given up, cleanup the request.
+		msg := i.ec2CleanupSpotRequest(ctx, reqid)
+		// Boot this up to the caller so they can pick a different instance types.
+		return "", errors.E(errors.Unavailable, fmt.Errorf("spot request %s cleanup:\n%s\ndue to: %v", reqid, msg, err))
 	}
-	describe, err := i.EC2.DescribeSpotInstanceRequests(&ec2.DescribeSpotInstanceRequestsInput{
-		SpotInstanceRequestIds: []*string{aws.String(reqid)},
+	id, state, err := i.ec2SpotRequestStatus(ctx, reqid)
+	if err != nil {
+		return "", err
+	}
+	fyi := fmt.Sprintf("ID: %s, state: %s", id, state)
+	i.Task.Printf("spot request %s fulfilled (%s)", reqid, fyi)
+	i.Log.Debugf("ec2 spot request %s fulfilled (%s)", reqid, fyi)
+	return id, nil
+}
+
+func (i *instance) ec2SpotRequestStatus(ctx context.Context, spotID string) (id, state string, err error) {
+	var out *ec2.DescribeSpotInstanceRequestsOutput
+	out, err = i.EC2.DescribeSpotInstanceRequests(&ec2.DescribeSpotInstanceRequestsInput{
+		SpotInstanceRequestIds: []*string{aws.String(spotID)},
+	})
+	if err != nil {
+		return
+	}
+	if n := len(out.SpotInstanceRequests); n != 1 {
+		err = errors.Errorf("ec2.describespotinstancerequests: got %v entries, want 1", n)
+		return
+	}
+	id = aws.StringValue(out.SpotInstanceRequests[0].InstanceId)
+	state = aws.StringValue(out.SpotInstanceRequests[0].State)
+	if id == "" {
+		err = errors.Errorf("ec2.describespotinstancerequests: missing instance ID")
+		return
+	}
+	return
+}
+
+// ec2CleanupSpotRequest attempts to clean up a spot request by cancelling it
+// and terminating associated EC2 instance (if any).
+// Returns a text summary of what happened appropriate for logging.
+func (i *instance) ec2CleanupSpotRequest(ctx context.Context, spotID string) string {
+	var b strings.Builder
+	iid, state, rerr := i.ec2SpotRequestStatus(ctx, spotID)
+	b.WriteString(fmt.Sprintf("spot request %s status: ", spotID))
+	if rerr == nil {
+		b.WriteString(fmt.Sprintf("%s (instance %s)\n", state, iid))
+		b.WriteString(fmt.Sprintf("cancel spot request %s: ", spotID))
+		if state, cerr := i.ec2CancelSpotRequest(ctx, spotID); cerr != nil {
+			b.WriteString(fmt.Sprintf("%v\n", cerr))
+		} else {
+			b.WriteString(fmt.Sprintf("%s\n", state))
+		}
+		if iid != "" {
+			req := &ec2.TerminateInstancesInput{InstanceIds: aws.StringSlice([]string{iid})}
+			if resp, terr := i.EC2.TerminateInstancesWithContext(ctx, req); terr != nil {
+				b.WriteString(fmt.Sprintf("terminate instance %s: %v\n", iid, terr))
+			} else {
+				for _, ti := range resp.TerminatingInstances {
+					b.WriteString(fmt.Sprintf("terminate instance %s: %s -> %s\n", iid, *ti.PreviousState.Name, *ti.CurrentState.Name))
+				}
+			}
+		}
+	} else {
+		b.WriteString(fmt.Sprintf("%v", rerr))
+	}
+	return b.String()
+}
+
+// ec2CancelSpotRequest cancels the spot request spotID and returns its state (or error if applicable)
+func (i *instance) ec2CancelSpotRequest(ctx context.Context, spotID string) (string, error) {
+	out, err := i.EC2.CancelSpotInstanceRequests(&ec2.CancelSpotInstanceRequestsInput{
+		SpotInstanceRequestIds: []*string{aws.String(spotID)},
 	})
 	if err != nil {
 		return "", err
 	}
-	if n := len(describe.SpotInstanceRequests); n != 1 {
-		return "", errors.Errorf("ec2.describespotinstancerequests: got %v entries, want 1", n)
+	if n := len(out.CancelledSpotInstanceRequests); n != 1 {
+		return "", errors.Errorf("ec2.cancelspotinstancerequests: got %v entries, want 1", n)
 	}
-	id := aws.StringValue(describe.SpotInstanceRequests[0].InstanceId)
-	if id == "" {
-		return "", errors.Errorf("ec2.describespotinstancerequests: missing instance ID")
-	}
-	i.Task.Printf("spot request %s fulfilled", reqid)
-	i.Log.Debugf("ec2 spot request %s fulfilled", reqid)
-	return id, nil
+	return aws.StringValue(out.CancelledSpotInstanceRequests[0].State), err
 }
 
 // ec2WaitForSpotFulfillment waits until the spot request spotID has been fulfilled.
