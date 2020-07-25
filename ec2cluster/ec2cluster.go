@@ -52,9 +52,13 @@ func init() {
 }
 
 const (
-	ec2PollInterval     = time.Minute
-	defaultMaxInstances = 100
-	defaultClusterName  = "default"
+	// ec2PollInterval defines how often we refresh the local cluster state with EC2.
+	ec2PollInterval = time.Minute
+	// allocAttemptInterval defines how often we attempt to allocate from existing pool
+	// while waiting for an explicit allocation request to be completed.
+	allocAttemptInterval = 30 * time.Second
+	defaultMaxInstances  = 100
+	defaultClusterName   = "default"
 )
 
 // validateBootstrap is func for validating the bootstrap image
@@ -342,12 +346,12 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 		return nil, errors.E(errors.ResourcesExhausted,
 			errors.Errorf("requested resources %s not satisfiable by any available instance type", req))
 	}
-
+	const allocTimeout = 30 * time.Second
 	if c.Size() > 0 {
 		c.Log.Debug("attempting to allocate from existing pool")
-		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		alloc, err := pool.Allocate(ctx, c, req, labels)
-		cancel()
+		actx, acancel := context.WithTimeout(ctx, allocTimeout)
+		alloc, err := pool.Allocate(actx, c, req, labels)
+		acancel()
 		if err == nil {
 			return alloc, nil
 		}
@@ -355,7 +359,7 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(allocAttemptInterval)
 	defer ticker.Stop()
 	needch := c.allocate(ctx, req)
 	for {
@@ -363,7 +367,7 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-needch:
-			actx, acancel := context.WithTimeout(ctx, 30*time.Second)
+			actx, acancel := context.WithTimeout(ctx, allocTimeout)
 			alloc, err := pool.Allocate(actx, c, req, labels)
 			acancel()
 			if err == nil {
@@ -373,7 +377,7 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 			// We didn't get it--try again!
 			needch = c.allocate(ctx, req)
 		case <-ticker.C:
-			actx, acancel := context.WithTimeout(ctx, 30*time.Second)
+			actx, acancel := context.WithTimeout(ctx, allocTimeout)
 			alloc, err := pool.Allocate(actx, c, req, labels)
 			acancel()
 			if err == nil {
