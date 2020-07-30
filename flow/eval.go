@@ -761,9 +761,9 @@ func (e *Eval) LogSummary(log *log.Logger) {
 		}
 		if v.Op == Exec {
 			a.CPU.Add(v.Inspect.Profile["cpu"].Mean)
-			a.Memory.Add(v.Inspect.Profile["mem"].Max / (1 << 30))
-			a.Disk.Add(v.Inspect.Profile["disk"].Max / (1 << 30))
-			a.Temp.Add(v.Inspect.Profile["tmp"].Max / (1 << 30))
+			a.Memory.Add(v.Inspect.Profile["mem"].Max)
+			a.Disk.Add(v.Inspect.Profile["disk"].Max)
+			a.Temp.Add(v.Inspect.Profile["tmp"].Max)
 			a.Requested = v.Inspect.Config.Resources
 		}
 		if d := v.Inspect.Runtime().Minutes(); d > 0 {
@@ -786,6 +786,7 @@ func (e *Eval) LogSummary(log *log.Logger) {
 	}
 	sort.Strings(idents)
 	var warningIdents []string
+	const byteScale = 1.0 / (1 << 30)
 	for _, ident := range idents {
 		stats := stats[ident]
 		fmt.Fprintf(&tw, "%s\t%d\t%d\t%s", ident, stats.N, stats.Ncache, stats.Transfer)
@@ -793,12 +794,13 @@ func (e *Eval) LogSummary(log *log.Logger) {
 			fmt.Fprintf(&tw, "\t%s\t%s\t%s\t%s\t%s\t%s",
 				stats.Runtime.Summary("%.0f"),
 				stats.CPU.Summary("%.1f"),
-				stats.Memory.Summary("%.1f"),
-				stats.Disk.Summary("%.1f"),
-				stats.Temp.Summary("%.1f"),
+				stats.Memory.SummaryScaled("%.1f", byteScale),
+				stats.Disk.SummaryScaled("%.1f", byteScale),
+				stats.Temp.SummaryScaled("%.1f", byteScale),
 				stats.Requested,
 			)
-			if memRatio := stats.Memory.Mean() / stats.Requested["mem"]; memRatio <= memSuggestThreshold && stats.Requested["mem"] > minExecMemory {
+			reqMem, minMem := stats.Requested["mem"], float64(minExecMemory)
+			if memRatio := stats.Memory.Mean() / reqMem; memRatio <= memSuggestThreshold && reqMem > minMem {
 				warningIdents = append(warningIdents, ident)
 			}
 		} else {

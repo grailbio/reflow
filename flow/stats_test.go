@@ -35,4 +35,13 @@ func TestStats(t *testing.T) {
 			t.Fatalf("got %v, want %v", got, want)
 		}
 	}
+	if got, want := s.Summary("%.1f"), "10.0/15.0/20.0"; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := s.SummaryScaled("%.1f", 0.1), "1.0/1.5/2.0"; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := s.SummaryScaled("%.2f", 0.033), "0.33/0.49/0.66"; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
 }

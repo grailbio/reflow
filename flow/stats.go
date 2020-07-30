@@ -53,6 +53,11 @@ func (s stats) Summary(format string) string {
 		s.Percentile(0), s.Mean(), s.Percentile(100))
 }
 
+func (s stats) SummaryScaled(format string, scale float64) string {
+	return fmt.Sprintf(format+"/"+format+"/"+format,
+		s.Percentile(0)*scale, s.Mean()*scale, s.Percentile(100)*scale)
+}
+
 func (s stats) Len() int           { return len(s.samples) }
 func (s stats) Less(i, j int) bool { return s.samples[i] < s.samples[j] }
 func (s stats) Swap(i, j int)      { s.samples[i], s.samples[j] = s.samples[j], s.samples[i] }
