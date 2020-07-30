@@ -436,9 +436,6 @@ func TestInstanceAllocationRequest(t *testing.T) {
 				{
 					Type: "r3.8xlarge",
 				},
-				{
-					Type: "r3.8xlarge",
-				},
 			},
 		},
 		{
@@ -459,7 +456,7 @@ func TestInstanceAllocationRequest(t *testing.T) {
 				},
 			},
 		},
-		{
+		{ // NOTE: 6 One r3.8xlarge fits 4 of the 5-width requirement and a c5.4xlarge fits the remaining.
 			6,
 			[]*waiter{
 				{
@@ -473,11 +470,11 @@ func TestInstanceAllocationRequest(t *testing.T) {
 					Type: "r3.8xlarge",
 				},
 				{
-					Type: "r3.8xlarge",
+					Type: "c5.4xlarge",
 				},
 			},
 		},
-		{
+		{ // NOTE: 7 We need a total of 2+15*2=32 cpu and mem, all of which fit in one r3.8xlarge.
 			7,
 			[]*waiter{
 				{
@@ -490,9 +487,6 @@ func TestInstanceAllocationRequest(t *testing.T) {
 				{
 					Type: "r3.8xlarge",
 				},
-				{
-					Type: "c5.large",
-				},
 			},
 		},
 		{
@@ -502,6 +496,18 @@ func TestInstanceAllocationRequest(t *testing.T) {
 					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 33, "mem": 2 * float64(data.GiB)}},
 				}},
 			[]instanceConfig{},
+		},
+		{
+			9,
+			[]*waiter{
+				{
+					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 1, "mem": 1 * float64(data.GiB)}, Width: 2},
+				}},
+			[]instanceConfig{
+				{
+					Type: "c5.large",
+				},
+			},
 		},
 	} {
 		reqs := cluster.getInstanceAllocations(tc.waiters)

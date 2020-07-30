@@ -474,7 +474,11 @@ func (c *Cluster) newInstance(config instanceConfig, price float64) *instance {
 func (c *Cluster) getInstanceAllocations(waiters []*waiter) (todo []instanceConfig) {
 	var resources []reflow.Resources
 	for _, w := range waiters {
-		for i := w.Width; i >= 0; i-- {
+		width := w.Width
+		if width == 0 {
+			width = 1
+		}
+		for i := width; i > 0; i-- {
 			resources = append(resources, w.Min)
 		}
 	}
