@@ -343,8 +343,9 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 
 	c.Log.Debugf("allocate %s", req)
 	if !c.instanceState.Available(req.Min) {
+		max := c.instanceState.Largest()
 		return nil, errors.E(errors.ResourcesExhausted,
-			errors.Errorf("requested resources %s not satisfiable by any available instance type", req))
+			errors.Errorf("requested resources %s not satisfiable even by largest available instance type %s with resources %s", req, max.Type, max.Resources))
 	}
 	const allocTimeout = 30 * time.Second
 	if c.Size() > 0 {

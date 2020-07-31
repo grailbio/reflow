@@ -173,7 +173,7 @@ func newInstanceState(configs []instanceConfig, sleep time.Duration, region stri
 	}
 	copy(s.configs, configs)
 	sort.Slice(s.configs, func(i, j int) bool {
-		return s.configs[j].Resources["mem"] < s.configs[i].Resources["mem"]
+		return s.configs[j].Resources.ScaledDistance(nil) < s.configs[i].Resources.ScaledDistance(nil)
 	})
 	return s
 }
@@ -196,6 +196,11 @@ func (s *instanceState) Available(need reflow.Resources) bool {
 	return false
 }
 
+// Largest returns the "largest" instance type from the current configuration.
+func (s *instanceState) Largest() instanceConfig {
+	return s.configs[0]
+}
+
 // MaxAvailable returns the "largest" instance type that has at least
 // the required resources and is also believed to be currently
 // available. Spot restricts instances to those that may be launched
@@ -206,7 +211,7 @@ func (s *instanceState) MaxAvailable(need reflow.Resources, spot bool) (instance
 	defer s.mu.Unlock()
 	var (
 		best     instanceConfig
-		distance float64 = -math.MaxFloat64
+		distance = -math.MaxFloat64
 	)
 	for _, config := range s.configs {
 		if time.Since(s.unavailable[config.Type]) < s.sleepTime || (spot && !config.SpotOk) {
