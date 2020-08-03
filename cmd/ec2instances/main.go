@@ -139,6 +139,11 @@ func main() {
 			log.Printf("excluding instance type %s because it uses ARM (would need a different AMI)", e.Type)
 			continue
 		}
+		parts := strings.Split(e.Type, ".")
+		if strings.HasSuffix(parts[0], "gd") || strings.HasSuffix(parts[0], "g") {
+			log.Printf("excluding instance type %s because it uses AWS Graviton (would need a different AMI)", e.Type)
+			continue
+		}
 		ok = false
 		// TODO(marius): should we prefer a particular virtualization type?
 		var virt string
