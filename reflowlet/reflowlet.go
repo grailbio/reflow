@@ -64,7 +64,9 @@ type Server struct {
 	Dir string
 	// EC2Cluster tells whether this reflowlet is part of an EC2cluster.
 	// When true, the reflowlet shuts down if it is idle after 10 minutes.
-	EC2Cluster bool
+	EC2Cluster  bool
+	ec2Identity ec2metadata.EC2InstanceIdentityDocument
+
 	// HTTPDebug determines whether HTTP debug logging is turned on.
 	HTTPDebug bool
 
@@ -130,14 +132,15 @@ func (s *Server) setTags(sess *session.Session) error {
 	if !s.EC2Cluster {
 		return nil
 	}
+	var err error
 	msvc := ec2metadata.New(sess)
-	doc, err := msvc.GetInstanceIdentityDocument()
+	s.ec2Identity, err = msvc.GetInstanceIdentityDocument()
 	if err != nil {
 		return err
 	}
 	svc := ec2.New(sess, &aws.Config{MaxRetries: aws.Int(3)})
 	input := &ec2.CreateTagsInput{
-		Resources: []*string{aws.String(doc.InstanceID)},
+		Resources: []*string{aws.String(s.ec2Identity.InstanceID)},
 		Tags:      []*ec2.Tag{{Key: aws.String("reflowlet:version"), Value: aws.String(s.version)}}}
 	_, err = svc.CreateTags(input)
 	return err
@@ -242,7 +245,8 @@ func (s *Server) ListenAndServe() error {
 		return err
 	}
 	if s.EC2Cluster {
-		log.Printf("reflowlet started")
+		ec2Log := log.Std.Tee(nil, fmt.Sprintf("reflowlet (%s) ", s.ec2Identity.InstanceType))
+		ec2Log.Printf("started")
 		ctx, cancel := context.WithCancel(context.Background())
 		if err := s.setupWatcher(ctx, sess, filepath.Join(s.Prefix, s.Dir), rc.VolumeWatcher); err != nil {
 			log.Fatal(err)
@@ -256,7 +260,7 @@ func (s *Server) ListenAndServe() error {
 			time.Sleep(rc.MaxIdleDuration)
 			for {
 				if stopped, tte := p.StopIfIdleFor(rc.MaxIdleDuration); stopped {
-					log.Printf("reflowlet idle for %s; shutting down", rc.MaxIdleDuration)
+					ec2Log.Printf("idle for %s; shutting down", rc.MaxIdleDuration)
 					cancel()
 					// Exit normally
 					os.Exit(0)
@@ -269,7 +273,7 @@ func (s *Server) ListenAndServe() error {
 						}
 					}
 					busyPct := 100.0 * (1.0 - freePct)
-					log.Printf("reflowlet %.2f%% busy for %s; resources total %s free %s", busyPct, tte, tot, free)
+					ec2Log.Printf("%.2f%% busy for %s; resources total %s free %s", busyPct, tte, tot, free)
 				}
 				time.Sleep(period)
 			}

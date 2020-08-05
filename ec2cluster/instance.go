@@ -429,13 +429,8 @@ func (i *instance) Go(ctx context.Context) {
 				i.Task.Printf("launch error: %v", i.err)
 				i.Log.Errorf("instance launch error: %v", i.err)
 			} else {
-				spot := ""
-				if i.Spot {
-					spot = "spot "
-				}
 				i.Task.Title(id)
 				i.Task.Print("launched")
-				i.Log.Debugf("launched %sinstance %v: %s%s", spot, id, i.Config.Type, i.Config.Resources)
 			}
 		case stateTag:
 			vids, err := getVolumeIds(i.EC2, id)
@@ -460,6 +455,11 @@ func (i *instance) Go(ctx context.Context) {
 					dns = *i.ec2inst.PublicDnsName
 				}
 			}
+			spot := ""
+			if i.Spot {
+				spot = "spot "
+			}
+			i.Log.Debugf("launched %sinstance %v (%s): %s%s", spot, id, dns, i.Config.Type, i.Config.Resources)
 		case stateWaitBootstrap:
 			i.Task.Print("waiting for bootstrap to become available")
 			var c *bootc.Client
