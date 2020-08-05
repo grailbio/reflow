@@ -46,6 +46,9 @@ func (c *Cmd) Cluster(status *status.Group) runner.Cluster {
 	if err := c.Config.Instance(&ec); err == nil {
 		ec.Status = status
 		ec.Configuration = c.Config
+		if ierr := ec.VerifyAndInit(); ierr != nil {
+			c.Fatal(ierr)
+		}
 	} else {
 		log.Printf("not a ec2cluster! : %v", err)
 	}

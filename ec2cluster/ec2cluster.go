@@ -337,7 +337,7 @@ func (c *Cluster) verifyAndInitialize() error {
 // the request, it is returned immediately; otherwise new instance(s)
 // are spun up to handle the allocation.
 func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (alloc pool.Alloc, err error) {
-	if err = c.initOnce.Do(func() error { return c.verifyAndInitialize() }); err != nil {
+	if err = c.VerifyAndInit(); err != nil {
 		return
 	}
 
@@ -388,6 +388,12 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 	}
 }
 
+// VerifyAndInit verifies and initializes the cluster.  This should be called
+// before any `pool.Pool` operations are performed on the cluster.
+func (c *Cluster) VerifyAndInit() error {
+	return c.initOnce.Do(func() error { return c.verifyAndInitialize() })
+}
+
 // QueryTags returns the list of tags to use to query for instances belonging to this cluster.
 // This includes all InstanceTags that are set on any instance brought up by this cluster,
 // and a "reflowlet:version" tag (set on the instance by the reflowlet once it comes up)
@@ -417,7 +423,7 @@ func (c *Cluster) allocate(ctx context.Context, req reflow.Requirements) <-chan 
 // A non-nil error means that the reflowlet failed to come up on this instance type.  The error
 // could be due to context deadline, in case we gave up waiting for it to come up.
 func (c *Cluster) Probe(ctx context.Context, instanceType string) (time.Duration, error) {
-	if err := c.initOnce.Do(func() error { return c.verifyAndInitialize() }); err != nil {
+	if err := c.VerifyAndInit(); err != nil {
 		return time.Duration(0), err
 	}
 	config := c.instanceConfigs[instanceType]
