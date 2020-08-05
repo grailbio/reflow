@@ -1036,16 +1036,24 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 	// Also set a timeout context in case the AWS API is stuck.
 	toctx, cancel := context.WithTimeout(ctx, time.Minute+10*time.Second)
 	defer cancel()
-	if err := i.ec2WaitForSpotFulfillment(toctx, reqid); err != nil {
-		// If we're not fulfilled by our deadline, we consider spot instances unavailable.
-		// Since we've given up, cleanup the request.
-		msg := i.ec2CleanupSpotRequest(ctx, reqid)
+	waitErr := i.ec2WaitForSpotFulfillment(toctx, reqid)
+	var id, state string
+	switch {
+	case waitErr == nil:
+		id, state, err = ec2SpotRequestStatus(ctx, i.EC2, reqid)
+		if err == nil {
+			break
+		}
+		// Here, we were supposedly able to fulfil the request, but were unable to read the spot request status
+		// which means we don't have a usable spot instance ID.
+		fallthrough
+	default:
+		// We were unable to fulfill by our deadline, or we were unable to get the instance ID after (supposed) fulfillment.
+		// Since we consider the spot instance unavailable, cleanup the request.
+		msg := ec2CleanupSpotRequest(context.Background(), i.EC2, reqid)
+		i.Log.Debugf("ec2 spot request %s failed\n%s", reqid, msg)
 		// Boot this up to the caller so they can pick a different instance types.
 		return "", errors.E(errors.Unavailable, fmt.Errorf("spot request %s cleanup:\n%s\ndue to: %v", reqid, msg, err))
-	}
-	id, state, err := i.ec2SpotRequestStatus(ctx, reqid)
-	if err != nil {
-		return "", err
 	}
 	fyi := fmt.Sprintf("ID: %s, state: %s", id, state)
 	i.Task.Printf("spot request %s fulfilled (%s)", reqid, fyi)
@@ -1053,9 +1061,9 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 	return id, nil
 }
 
-func (i *instance) ec2SpotRequestStatus(ctx context.Context, spotID string) (id, state string, err error) {
+func ec2SpotRequestStatus(ctx context.Context, api ec2iface.EC2API, spotID string) (id, state string, err error) {
 	var out *ec2.DescribeSpotInstanceRequestsOutput
-	out, err = i.EC2.DescribeSpotInstanceRequests(&ec2.DescribeSpotInstanceRequestsInput{
+	out, err = api.DescribeSpotInstanceRequestsWithContext(ctx, &ec2.DescribeSpotInstanceRequestsInput{
 		SpotInstanceRequestIds: []*string{aws.String(spotID)},
 	})
 	if err != nil {
@@ -1077,37 +1085,38 @@ func (i *instance) ec2SpotRequestStatus(ctx context.Context, spotID string) (id,
 // ec2CleanupSpotRequest attempts to clean up a spot request by cancelling it
 // and terminating associated EC2 instance (if any).
 // Returns a text summary of what happened appropriate for logging.
-func (i *instance) ec2CleanupSpotRequest(ctx context.Context, spotID string) string {
+func ec2CleanupSpotRequest(ctx context.Context, api ec2iface.EC2API, spotID string) string {
 	var b strings.Builder
-	iid, state, rerr := i.ec2SpotRequestStatus(ctx, spotID)
+	iid, state, rerr := ec2SpotRequestStatus(ctx, api, spotID)
 	b.WriteString(fmt.Sprintf("spot request %s status: ", spotID))
-	if rerr == nil {
+	if rerr != nil {
+		b.WriteString(fmt.Sprintf("%v", rerr))
+	}
+	if state != ec2.SpotInstanceStateCancelled {
 		b.WriteString(fmt.Sprintf("%s (instance %s)\n", state, iid))
 		b.WriteString(fmt.Sprintf("cancel spot request %s: ", spotID))
-		if state, cerr := i.ec2CancelSpotRequest(ctx, spotID); cerr != nil {
+		if state, cerr := ec2CancelSpotRequest(ctx, api, spotID); cerr != nil {
 			b.WriteString(fmt.Sprintf("%v\n", cerr))
 		} else {
 			b.WriteString(fmt.Sprintf("%s\n", state))
 		}
-		if iid != "" {
-			req := &ec2.TerminateInstancesInput{InstanceIds: aws.StringSlice([]string{iid})}
-			if resp, terr := i.EC2.TerminateInstancesWithContext(ctx, req); terr != nil {
-				b.WriteString(fmt.Sprintf("terminate instance %s: %v\n", iid, terr))
-			} else {
-				for _, ti := range resp.TerminatingInstances {
-					b.WriteString(fmt.Sprintf("terminate instance %s: %s -> %s\n", iid, *ti.PreviousState.Name, *ti.CurrentState.Name))
-				}
+	}
+	if iid != "" {
+		req := &ec2.TerminateInstancesInput{InstanceIds: aws.StringSlice([]string{iid})}
+		if resp, terr := api.TerminateInstancesWithContext(ctx, req); terr != nil {
+			b.WriteString(fmt.Sprintf("terminate instance %s: %v\n", iid, terr))
+		} else {
+			for _, ti := range resp.TerminatingInstances {
+				b.WriteString(fmt.Sprintf("terminate instance %s: %s -> %s\n", iid, *ti.PreviousState.Name, *ti.CurrentState.Name))
 			}
 		}
-	} else {
-		b.WriteString(fmt.Sprintf("%v", rerr))
 	}
 	return b.String()
 }
 
 // ec2CancelSpotRequest cancels the spot request spotID and returns its state (or error if applicable)
-func (i *instance) ec2CancelSpotRequest(ctx context.Context, spotID string) (string, error) {
-	out, err := i.EC2.CancelSpotInstanceRequests(&ec2.CancelSpotInstanceRequestsInput{
+func ec2CancelSpotRequest(ctx context.Context, api ec2iface.EC2API, spotID string) (string, error) {
+	out, err := api.CancelSpotInstanceRequestsWithContext(ctx, &ec2.CancelSpotInstanceRequestsInput{
 		SpotInstanceRequestIds: []*string{aws.String(spotID)},
 	})
 	if err != nil {
