@@ -514,14 +514,16 @@ func (c *Cluster) Refresh(ctx context.Context) (map[string]bool, error) {
 	// Add instances on EC2 that are not in the pool.
 	for id, inst := range state {
 		if _, ok := c.pools[id]; !ok {
-			baseurl := fmt.Sprintf("https://%s:9000/v1/", *inst.PublicDnsName)
+			iid, typ, dns := *inst.InstanceId, *inst.InstanceType, *inst.PublicDnsName
+			baseurl := fmt.Sprintf("https://%s:9000/v1/", dns)
 			clnt, cerr := client.New(baseurl, c.HTTPClient, nil)
 			if cerr != nil {
 				c.Log.Errorf("client %s: %v", baseurl, cerr)
 				continue
 			}
+			c.Log.Printf("discovered instance %s (%s) %s", iid, typ, dns)
 			// Add instance to the pool.
-			c.pools[*inst.InstanceId] = reflowletPool{inst, clnt}
+			c.pools[iid] = reflowletPool{inst, clnt}
 		}
 	}
 	c.stats.setInstancesStats(state)
