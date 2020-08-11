@@ -7,15 +7,20 @@ package sched_test
 import (
 	"context"
 	"fmt"
+	golog "log"
+	"os"
 	"sort"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/testblob"
 	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/test/testutil"
@@ -37,6 +42,8 @@ func newTestSchedulerWithRepo(t *testing.T, repo reflow.Repository) (scheduler *
 	scheduler.Cluster = cluster
 	scheduler.PostUseChecksum = true
 	scheduler.MinAlloc = reflow.Resources{}
+	out := golog.New(os.Stderr, "scheduler: ", golog.LstdFlags)
+	scheduler.Log = log.New(out, log.DebugLevel)
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -333,6 +340,72 @@ func TestTaskNetError(t *testing.T) {
 	// Confirm the other task is still on the first alloc.
 	_ = tasks[1].Wait(ctx, sched.TaskRunning)
 	allocs[0].exec(digest.Digest(tasks[1].ID))
+}
+
+// TestLostTasksSwitchAllocs tests scenarios where lost tasks are re-allocated.
+// Only some type of task errors are considered 'lost' (and retries are attempted),
+// whereas any error from alloc keepalives will result in tasks being considered as lost.
+func TestLostTasksSwitchAllocs(t *testing.T) {
+	old := pool.KeepaliveRetryWaitInterval
+	pool.KeepaliveRetryWaitInterval = 50 * time.Millisecond
+	defer func() {
+		pool.KeepaliveRetryWaitInterval = old
+	}()
+	allocFatal := errors.E("fatal alloc failure", errors.Fatal)
+	allocCancel := errors.E("alloc cancelled", errors.Canceled)
+	taskNet := errors.E("network error", errors.Net)
+	taskCancel := errors.E("task cancelled", errors.Canceled)
+	tests := []struct {
+		allocErr, taskErr error
+	}{
+		{allocFatal, nil},
+		{allocCancel, nil},
+		{errors.New("some error"), nil},
+		{nil, taskNet},
+		{nil, taskCancel},
+	}
+	for _, tt := range tests {
+		scheduler, cluster, _, shutdown := newTestScheduler(t)
+		defer shutdown()
+		tasks := []*sched.Task{
+			newTask(1, 1, 0),
+		}
+		scheduler.Submit(tasks...)
+		allocs := []*testAlloc{
+			newTestAlloc(reflow.Resources{"cpu": 2, "mem": 2}),
+			newTestAlloc(reflow.Resources{"cpu": 2, "mem": 2}),
+		}
+		req := <-cluster.Req()
+		req.Reply <- testClusterAllocReply{Alloc: allocs[0]}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		// Wait for the task to stage, so we know it started processing.
+		if err := tasks[0].Wait(ctx, sched.TaskStaging); err != nil {
+			t.Fatal(err)
+		}
+		cancel()
+		// Let the alloc's keepalive fail with an error in a bit.
+		if tt.allocErr != nil {
+			allocs[0].error(tt.allocErr)
+		}
+		// Fail the task
+		exec := allocs[0].exec(digest.Digest(tasks[0].ID))
+		if tt.taskErr != nil {
+			exec.complete(reflow.Result{}, tt.taskErr)
+		}
+		// The task should be considered lost and then re-initialized resulting
+		// in another cluster allocation request.
+		req = <-cluster.Req()
+		if got, want := tasks[0].State(), sched.TaskInit; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		req.Reply <- testClusterAllocReply{Alloc: allocs[1]}
+		allocs[1].exec(digest.Digest(tasks[0].ID)).complete(reflow.Result{}, nil)
+		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+		if err := tasks[0].Wait(ctx, sched.TaskDone); err != nil {
+			t.Fatal(err)
+		}
+		cancel()
+	}
 }
 
 func TestSchedulerDirectTransfer(t *testing.T) {

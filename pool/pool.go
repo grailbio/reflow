@@ -30,11 +30,12 @@ const (
 	keepaliveTimeout     = 10 * time.Second
 	keepaliveMaxInterval = 5 * time.Minute
 	keepaliveTries       = 5
-
-	offersTimeout = 10 * time.Second
-
-	pollInterval = 10 * time.Second
+	offersTimeout        = 10 * time.Second
 )
+
+// KeepaliveRetryWaitInterval is the duration to wait between retries
+// if a keepalive attempt fails on an alloc (with a retryable failure)
+var KeepaliveRetryWaitInterval = 2 * time.Second
 
 // Alloc represent a resource allocation attached to a single
 // executor, a reservation of resources on a single node.
@@ -115,7 +116,7 @@ func Keepalive(ctx context.Context, log *log.Logger, alloc Alloc) error {
 		var (
 			iv   time.Duration
 			err  error
-			wait = 2 * time.Second
+			wait = KeepaliveRetryWaitInterval
 			last time.Time
 		)
 		for i := 0; i < keepaliveTries; i++ {
@@ -127,7 +128,7 @@ func Keepalive(ctx context.Context, log *log.Logger, alloc Alloc) error {
 				break
 			}
 			// Context errors indicate that our caller has given up.
-			// We blindly retry other errors.
+			// We blindly retry other (non-Fatal) errors.
 			if err := ctx.Err(); err != nil {
 				return err
 			}

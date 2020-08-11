@@ -247,8 +247,11 @@ func (s *Scheduler) Do(ctx context.Context) error {
 				// In this case we're done, and we can forget about the task.
 			}
 			s.Stats.ReturnTask(task, alloc)
-			// Tasks failing due to network errors imply that the alloc is unusable.
-			if errors.Is(errors.Net, task.Err) && alloc.index != -1 {
+			// Network errors imply that the alloc is unreachable.
+			// Context cancelled errors indicate that the alloc's context is done and therefore unusable.
+			// While in both these cases, the alloc's keepalive mechanism will eventually mark it as dead,
+			// we do it early here to immediately avoid scheduling tasks on it.
+			if (errors.Is(errors.Canceled, task.Err) || errors.Is(errors.Net, task.Err)) && alloc.index != -1 {
 				heap.Remove(&live, alloc.index)
 				alloc.index = -1
 			}
@@ -350,7 +353,7 @@ func (s *Scheduler) allocate(ctx context.Context, alloc *alloc, notify, dead cha
 		cancel()
 	}
 	if err != nil {
-		s.Log.Errorf("alloc keepalive failed: %v", err)
+		s.Log.Errorf("alloc %s keepalive failed: %v", alloc.id, err)
 	}
 	dead <- alloc
 }
@@ -414,7 +417,8 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		if tcancel == nil {
 			return
 		}
-		if taskdbErr := s.TaskDB.SetTaskComplete(tctx, task.ID, err, time.Now()); taskdbErr != nil {
+		// Use background context for setting task completion status.
+		if taskdbErr := s.TaskDB.SetTaskComplete(context.Background(), task.ID, err, time.Now()); taskdbErr != nil {
 			task.Log.Errorf("taskdb settaskcomplete: %v", taskdbErr)
 		}
 		tcancel()
@@ -554,19 +558,28 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			if state == stateVerify && !s.PostUseChecksum {
 				state++
 			}
-		} else if err == ctx.Err() {
-			break
 		} else {
 			// TODO(marius): terminate early on NotSupported, Invalid
-			n++
-			task.Log.Debugf("%s (try %d): %s", state, n, err)
+			if ctx.Err() != nil {
+				task.Log.Debugf("%s (try %d): %v\nctx.Err(): %v", state, n, err, ctx.Err())
+				break
+			} else {
+				task.Log.Debugf("%s (try %d): %v", state, n, err)
+				n++
+			}
 		}
 	}
 	task.Err = err
-	if err != nil && (err == ctx.Err() || errors.Restartable(err)) {
+	switch {
+	case err == nil:
+		task.set(TaskDone)
+	case errors.Is(errors.Canceled, err):
 		task.Config.Args = savedArgs
 		task.set(TaskLost)
-	} else {
+	case errors.Restartable(err):
+		task.Config.Args = savedArgs
+		task.set(TaskLost)
+	default:
 		task.set(TaskDone)
 	}
 	returnc <- task
