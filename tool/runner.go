@@ -516,7 +516,7 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 	if run.Err != nil {
 		r.Log.Error(run.Err)
 	} else {
-		r.Log.Print(run.Result)
+		r.Log.Printf("result: %s", run.Result)
 	}
 	if r.schedCancel != nil {
 		r.schedCancel()
@@ -653,7 +653,7 @@ func (r *Runner) runLocal(ctx context.Context, f *flow.Flow, typ *types.T, image
 	if result.Err != nil {
 		r.Log.Error(result.Err)
 	} else {
-		r.Log.Print(result.Result)
+		r.Log.Printf("result: %s", result.Result)
 	}
 	return result, nil
 }
