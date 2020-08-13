@@ -131,7 +131,7 @@ printed on the console.`
 				return nil
 			})
 		}
-		g.Wait() // ignore errors
+		_ = g.Wait() // ignore errors
 
 		var infos []execInfo
 		for i, alloc := range allocInfos {
@@ -265,14 +265,22 @@ func (c *Cmd) execInfos(ctx context.Context, execs []reflow.Exec) []execInfo {
 		g.Go(func() error {
 			inspect, err := exec.Inspect(ctx)
 			if err != nil {
-				c.Log.Errorf("inspect %s: %v", exec.URI(), err)
+				c.Log.Errorf("inspect %s: %v", exec.ID(), err)
+			} else {
+				infos[i] = execInfo{URI: exec.URI(), ID: exec.ID(), ExecInspect: inspect}
 			}
-			infos[i] = execInfo{URI: exec.URI(), ID: exec.ID(), ExecInspect: inspect}
 			return nil
 		})
 	}
-	g.Wait()
-	return infos
+	_ = g.Wait() // ignore errors g.Wait()
+	var validInfos []execInfo
+	for _, info := range infos {
+		if info.ID.IsZero() {
+			continue
+		}
+		validInfos = append(validInfos, info)
+	}
+	return validInfos
 }
 
 func (c *Cmd) taskInfo(ctx context.Context, q taskdb.TaskQuery, liveOnly bool) ([]taskInfo, error) {
@@ -485,11 +493,16 @@ func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
 		procs,
 	)
 	if longListing {
+		result, inspect := "NA", "NA"
 		if task.Task.ResultID.IsZero() {
-			fmt.Fprint(w, "\t", task.Task.URI, "\tNA")
+			result = task.Task.URI
 		} else {
-			fmt.Fprintf(w, "\t%s\t%s", task.Task.ResultID.Short(), task.Task.Inspect.Short())
+			result = task.Task.ResultID.Short()
 		}
+		if !task.Task.Inspect.IsZero() {
+			inspect = task.Task.Inspect.Short()
+		}
+		fmt.Fprintf(w, "\t%s\t%s", result, inspect)
 	}
 	fmt.Fprint(w, "\n")
 }
