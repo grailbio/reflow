@@ -47,7 +47,7 @@ var (
 )
 
 // RunServer runs the bootstrap server.
-func RunServer(schema infra.Schema, schemaKeys infra.Keys, configFile, addr string, insecure bool) {
+func RunServer(schema infra.Schema, schemaKeys infra.Keys, configFile, addr string, insecure bool, expiry time.Duration) {
 	if configFile != "" {
 		b, err := ioutil.ReadFile(configFile)
 		if err != nil {
@@ -86,6 +86,7 @@ func RunServer(schema infra.Schema, schemaKeys infra.Keys, configFile, addr stri
 		insecure: insecure,
 		sess:     sess,
 		config:   serverConfig,
+		expiry:   expiry,
 	}
 
 	log.Fatal(serv.listenAndServe())
@@ -105,10 +106,14 @@ type server struct {
 
 	// insecure listens on HTTP, not HTTPS.
 	insecure bool
+
+	// expiry is the duration after which the server will stop running (if no image is installed)
+	expiry time.Duration
 }
 
 // listenAndServe serves the bootstrap server on the configured address.
 func (s *server) listenAndServe() error {
+	start := time.Now()
 	bl := &blob.Mux{"s3": s3blob.New(s.sess)}
 
 	http.Handle("/v1/execimage", rest.DoFuncHandler(newExecImageNode(bl), nil))
@@ -120,10 +125,9 @@ func (s *server) listenAndServe() error {
 			call.Reply(http.StatusOK, struct{}{})
 		}, nil))
 
-	const expiry = 10 * time.Minute
-	log.Printf("bootstrap server running, waiting (%s) for image...", expiry)
-	time.AfterFunc(expiry, func() {
-		log.Fatalf("no bootstrap image installed after %s; shutting down", expiry)
+	log.Printf("bootstrap server running, waiting (%s) for image...", s.expiry)
+	time.AfterFunc(s.expiry, func() {
+		log.Fatalf("no bootstrap image installed after %s (> expiry %s); shutting down", time.Since(start), s.expiry)
 	})
 
 	server := &http.Server{Addr: s.addr}
