@@ -647,8 +647,9 @@ func (r *Runner) runLocal(ctx context.Context, f *flow.Flow, typ *types.T, image
 	var result runner.State
 	if err := eval.Err(); err != nil {
 		result.Err = errors.Recover(err)
+	} else {
+		result.Result = sprintval(eval.Value(), typ)
 	}
-	result.Result = sprintval(eval.Value(), typ)
 	eval.LogSummary(r.Log)
 	if result.Err != nil {
 		r.Log.Error(result.Err)
