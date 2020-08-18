@@ -7,6 +7,7 @@ package sched
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/sync/ctxsync"
@@ -80,6 +81,10 @@ type Task struct {
 	// Priority is the task priority. Lower numbers indicate higher priority.
 	// Higher priority tasks will get scheduler before any lower priority tasks.
 	Priority int
+
+	// ExpectedDuration is the duration the task is expected to take used only as a hint
+	// by the scheduler for better scheduling.
+	ExpectedDuration time.Duration
 
 	// RunID that created this task.
 	RunID taskdb.RunID

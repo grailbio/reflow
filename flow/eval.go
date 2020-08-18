@@ -2459,20 +2459,22 @@ func (e *Eval) reviseResources(ctx context.Context, tasks []*sched.Task, flows [
 	if e.Predictor == nil {
 		return
 	}
-	predictedResources := e.Predictor.Predict(ctx, tasks...)
+	predictions := e.Predictor.Predict(ctx, tasks...)
 	for i, task := range tasks {
-		if predicted, ok := predictedResources[task]; ok {
+		if predicted, ok := predictions[task]; ok {
 			oldResources := task.Config.Resources.String()
 			f := flows[i]
 			newReserved := make(reflow.Resources)
 			newReserved.Set(f.Reserved)
-			for k, v := range predicted {
+			for k, v := range predicted.Resources {
 				newReserved[k] = v
 			}
 			newReserved["mem"] = math.Max(newReserved["mem"], minExecMemory)
 			e.Mutate(f, Unreserve(f.Reserved), Reserve(newReserved))
 			task.Config = f.ExecConfig()
 			e.Log.Debugf("task %s (flow %s): modifying resources from %s to %s", task.ID.IDShort(), task.FlowID.Short(), oldResources, task.Config.Resources)
+			task.ExpectedDuration = predicted.Duration
+			e.Log.Debugf("task %s (flow %s): predicted duration %s", task.ID.IDShort(), task.FlowID.Short(), predicted.Duration.Round(time.Second))
 		}
 	}
 }

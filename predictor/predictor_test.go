@@ -225,13 +225,13 @@ func TestPredictImgCmdID(t *testing.T) {
 		}
 	}
 
-	resources := pred.Predict(ctx, tasks...)
-	if len(resources) != numTasks {
+	predictions := pred.Predict(ctx, tasks...)
+	if len(predictions) != numTasks {
 		t.Fatalf("predict did not return 1 Resource per predicted task")
 	}
 	// 95th percentile of 1, 2, 3, ..., 20 is 19.
-	for _, v := range resources {
-		if got, want := v["mem"], float64(19); got != want {
+	for _, p := range predictions {
+		if got, want := p.Resources["mem"], float64(19); got != want {
 			t.Errorf("mem: got %v, want %v", got, want)
 		}
 	}
@@ -253,13 +253,13 @@ func TestPredictIdent(t *testing.T) {
 		}
 	}
 
-	resources := pred.Predict(ctx, tasks...)
-	if len(resources) != numTasks {
+	predictions := pred.Predict(ctx, tasks...)
+	if len(predictions) != numTasks {
 		t.Fatalf("predict did not return 1 Resource per predicted task")
 	}
 	// 95th percentile of 1, 2, 3, ..., 20 is 19.
-	for _, v := range resources {
-		if got, want := v["mem"], float64(19); got != want {
+	for _, p := range predictions {
+		if got, want := p.Resources["mem"], float64(19); got != want {
 			t.Errorf("mem: got %v, want %v", got, want)
 		}
 	}
@@ -297,19 +297,19 @@ func TestPredictMultiGroup(t *testing.T) {
 		}
 	}
 
-	resources := pred.Predict(ctx, tasks...)
-	if len(resources) == numTasks+1 {
+	predictions := pred.Predict(ctx, tasks...)
+	if len(predictions) == numTasks+1 {
 		t.Fatalf("predict returned resources for a task whose resources were not predicted")
 	}
-	if len(resources) != numTasks {
+	if len(predictions) != numTasks {
 		t.Fatalf("predict did not return 1 Resource per predicted task")
 	}
 	var (
-		resourceSlice = make([]reflow.Resources, len(resources))
+		resourceSlice = make([]reflow.Resources, len(predictions))
 		i             int
 	)
-	for _, v := range resources {
-		resourceSlice[i] = v
+	for _, p := range predictions {
+		resourceSlice[i] = p.Resources
 		i++
 	}
 	sort.Slice(resourceSlice, func(i, j int) bool {
@@ -330,32 +330,42 @@ func TestPredictMultiGroup(t *testing.T) {
 	}
 }
 
+func generateProfiles(memVals []float64) []reflow.Profile {
+	profiles := make([]reflow.Profile, numTasks)
+	for i := 0; i < len(memVals); i++ {
+		profiles[i] = reflow.Profile{"mem": {Max: memVals[i]}}
+	}
+	return profiles
+}
+
 func TestMemUsage(t *testing.T) {
-	var (
-		repo = newMockRepo()
-		tdb  = newMockdb()
-		ctx  = context.Background()
-	)
-
-	pred := New(repo, tdb, nil, defaultMinData, defaultMaxInspect, defaultMemPercentile)
-
-	tasks, group := generateData(t, ctx, repo, tdb, 0)
-	for i := 0; i < numTasks; i++ {
-		if got, want := tasks[i].Config.Resources["mem"], float64(20); got != want {
-			t.Fatalf("got %v, want %v", got, want)
+	for _, tc := range []struct {
+		minData, memPct int
+		profiles        []reflow.Profile
+		want            float64
+		wantErr         bool
+	}{
+		{defaultMinData, defaultMemPercentile, generateProfiles([]float64{}), 0.0, true},
+		// 95th percentile of 1, 2, 3, ..., 20 is 19.
+		{defaultMinData, defaultMemPercentile, generateProfiles([]float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}), 19.0, false},
+		{5, 50, generateProfiles([]float64{1, 2, 3, 4}), 0.0, true},
+		{5, 50, generateProfiles([]float64{1, 2, 3, 4, 5}), 3.0, false},
+	} {
+		pred := New(newMockRepo(), newMockdb(), nil, tc.minData, defaultMaxInspect, float64(tc.memPct))
+		mem, err := pred.memUsage(tc.profiles)
+		if (err != nil) != tc.wantErr {
+			t.Errorf("got %v, want error %v", err, tc.wantErr)
 		}
-	}
-	mem, err := pred.memUsage(ctx, group)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// 95th percentile of 1, 2, 3, ..., 20 is 19.
-	if got, want := mem, float64(19); got != want {
-		t.Errorf("got %v, want %v", got, want)
+		if tc.wantErr {
+			continue
+		}
+		if got, want := mem, tc.want; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
 	}
 }
 
-func TestMemUsageNoMem(t *testing.T) {
+func TestGetProfilesInspectErrors(t *testing.T) {
 	var (
 		repo = newMockRepo()
 		tdb  = newMockdb()
@@ -370,43 +380,6 @@ func TestMemUsageNoMem(t *testing.T) {
 			t.Fatalf("got %v, want %v", got, want)
 		}
 	}
-
-	// Remove all "mem" Profile entries from each cached ExecInspect.
-	for d, b := range repo.files {
-		var ei reflow.ExecInspect
-		if err := json.Unmarshal(b, &ei); err != nil {
-			t.Fatal(err)
-		}
-		delete(ei.Profile, "mem")
-		b, err := json.Marshal(ei)
-		if err != nil {
-			t.Fatal(err)
-		}
-		repo.files[d] = b
-	}
-
-	_, err := pred.memUsage(ctx, group)
-	if err == nil {
-		t.Fatalf("cannot predict memory if no mem Profile data is available")
-	}
-}
-
-func TestMemUsageInspectErrors(t *testing.T) {
-	var (
-		repo = newMockRepo()
-		tdb  = newMockdb()
-		ctx  = context.Background()
-	)
-
-	pred := New(repo, tdb, nil, defaultMinData, defaultMaxInspect, defaultMemPercentile)
-
-	tasks, group := generateData(t, ctx, repo, tdb, 0)
-	for i := 0; i < numTasks; i++ {
-		if got, want := tasks[i].Config.Resources["mem"], float64(20); got != want {
-			t.Fatalf("got %v, want %v", got, want)
-		}
-	}
-
 	// Give each ExecInspect an Error or an ExecError.
 	var i int
 	for d, b := range repo.files {
@@ -414,10 +387,13 @@ func TestMemUsageInspectErrors(t *testing.T) {
 		if err := json.Unmarshal(b, &ei); err != nil {
 			t.Fatal(err)
 		}
-		if i%2 == 0 {
+
+		switch i % 3 {
+		case 0:
 			ei.Error = errors.Recover(errors.E(errors.NotExist, "filler error"))
-		} else {
+		case 1:
 			ei.ExecError = errors.Recover(errors.E(errors.NotExist, "filler error"))
+		default:
 		}
 		b, err := json.Marshal(ei)
 		if err != nil {
@@ -426,10 +402,9 @@ func TestMemUsageInspectErrors(t *testing.T) {
 		repo.files[d] = b
 		i++
 	}
-
-	_, err := pred.memUsage(ctx, group)
-	if err == nil {
-		t.Fatalf("cannot predict memory if no mem Profile data is available")
+	profiles, _ := pred.getProfiles(ctx, group)
+	if got, want := len(profiles), numTasks/3; got != want {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }
 
@@ -476,38 +451,89 @@ func TestGroupByLevel(t *testing.T) {
 	}
 }
 
-func TestMaxValuePercentile(t *testing.T) {
+const nanosInSecs = float64(time.Second)
+
+func TestValuePercentile(t *testing.T) {
 	const numData = 100
 	// testdata is a the sequence of Max "mem" profile values 1, 2, 3, ..., 20
 	testData := make([]reflow.Profile, numData)
 	for i := 0; i < numData; i++ {
-		testData[i] = reflow.Profile{"mem": {Max: float64(i + 1)}}
+		testData[i] = reflow.Profile{"mem": {Max: float64(i + 1), First: time.Unix(0, 0), Last: time.Unix(int64(i+1)*100, 0)}}
 	}
 
 	// 0th percentile of testdata is 1.
-	if got, want := maxValuePercentile(testData, "mem", 0), float64(1); got != want {
+	p, n := valuePercentile(testData, 0, memMaxGetter)
+	if got, want := p, float64(1); got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := n, numData; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 
 	// ith percentile is i for i in 1, 2, 3, ..., 100.
 	for i := 1; i <= 100; i++ {
-		if got, want := maxValuePercentile(testData, "mem", float64(i)), float64(i); got != want {
+		p, n = valuePercentile(testData, float64(i), memMaxGetter)
+		if got, want := p, float64(i); got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
+		if got, want := n, numData; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		p, n = valuePercentile(testData, float64(i), maxDurationGetter)
+		if got, want := p, float64(i)*100*nanosInSecs; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		if got, want := n, numData; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+
 	}
 
 	// i-0.1th percentile is i for i in 1, 2, 3, ..., 100.
 	for i := 1; i <= 99; i++ {
-		if got, want := maxValuePercentile(testData, "mem", float64(i)-0.1), float64(i); got != want {
+		p, n = valuePercentile(testData, float64(i)-0.1, memMaxGetter)
+		if got, want := p, float64(i); got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		if got, want := n, numData; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		p, n = valuePercentile(testData, float64(i), maxDurationGetter)
+		if got, want := p, float64(i)*100*nanosInSecs; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		if got, want := n, numData; got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
 	}
 
 	// i+0.1th percentile is i+1 for i in 1, 2, 3, ..., 99.
 	for i := 1; i <= 99; i++ {
-		if got, want := maxValuePercentile(testData, "mem", float64(i)+0.1), float64(i+1); got != want {
+		p, n = valuePercentile(testData, float64(i)+0.1, memMaxGetter)
+		if got, want := p, float64(i+1); got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
+		if got, want := n, numData; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	}
+
+	// Remove "mem" from a couple of profiles.
+	delete(testData[0], "mem")
+	delete(testData[1], "mem")
+	p, n = valuePercentile(testData, 0, memMaxGetter)
+	if got, want := p, float64(3); got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := n, numData-2; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	p, n = valuePercentile(testData, 0, maxDurationGetter)
+	if got, want := p, 300.0*nanosInSecs; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := n, numData-2; got != want {
+		t.Errorf("got %v, want %v", got, want)
 	}
 
 	// Test panics for percentiles < 0 and > 100
@@ -518,7 +544,6 @@ func TestMaxValuePercentile(t *testing.T) {
 	}
 	for _, p := range []float64{-1, 101} {
 		defer r(p)
-		_ = maxValuePercentile(testData, "mem", p)
+		_, _ = valuePercentile(testData, p, memMaxGetter)
 	}
-
 }

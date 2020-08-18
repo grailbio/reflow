@@ -65,6 +65,16 @@ type Predictor struct {
 	inspectLimiter *limiter.Limiter
 }
 
+// Prediction consists of various predicted attributes.
+type Prediction struct {
+	// Resources is the predicted amount of resources a task is expected to require.
+	Resources reflow.Resources
+	// Duration is the predicted duration of a task.  Currently this is populated with
+	// the duration of the task's `exec` and does not include load/unload times, etc.
+	// TODO(swami): Predict and use total task duration instead.
+	Duration time.Duration
+}
+
 // New returns a new Predictor instance. New will panic if either repo or tdb is nil because
 // a Predictor requires both a taskdb and a repository to function. NewPred will also panic if
 // minData <= 0 because a prediction requires at least one data point.
@@ -100,7 +110,7 @@ func New(repo reflow.Repository, tdb taskdb.TaskDB, log *log.Logger, minData, ma
 // Predict returns the predicted Resources of submitted tasks. If Predict fails
 // to predict the Resources of a particular task, it will return no resources
 // for the task.
-func (p *Predictor) Predict(ctx context.Context, tasks ...*sched.Task) map[*sched.Task]reflow.Resources {
+func (p *Predictor) Predict(ctx context.Context, tasks ...*sched.Task) map[*sched.Task]Prediction {
 	// Only predict the resources of tasks of type "exec" because
 	// "exec" tasks are the only tasks with configured resources and
 	// profiling data.
@@ -116,8 +126,8 @@ func (p *Predictor) Predict(ctx context.Context, tasks ...*sched.Task) map[*sche
 		// all taskGroups will have the same taskLevel.
 		maxLevel = len(getTaskGroups(tasks[0]))
 
-		mu     sync.Mutex
-		resMap = make(map[*sched.Task]reflow.Resources)
+		mu      sync.Mutex
+		predMap = make(map[*sched.Task]Prediction)
 		// todo keeps track of which tasks do not yet have their resources predicted.
 		// Since all tasks have the same list of taskGroups, all the tasks in todo
 		// can be grouped by their taskGroup's level.
@@ -135,38 +145,53 @@ func (p *Predictor) Predict(ctx context.Context, tasks ...*sched.Task) map[*sche
 		// Model each taskGroup's resource usage concurrently. All predicted Resources
 		// are mapped to their respective task.
 		_ = traverse.Each(len(groups), func(i int) error {
-			if mem, err := p.memUsage(ctx, groups[i]); err != nil {
-				p.log.Debugf("error while predicting memory: %s", err)
-			} else {
-				p.log.Debugf("successfully modeled memory usage: %s", groups[i].Name())
-				doneTasks := groupMap[groups[i]]
-				for j := 0; j < len(doneTasks); j++ {
-					predictedResources := make(reflow.Resources)
-					predictedResources["mem"] = mem
+			profiles, err := p.getProfiles(ctx, groups[i])
+			if err != nil {
+				p.log.Debugf("getting profiles for group %s: %v", groups[i], err)
+				return nil
+			}
+			durNanos, err := p.durationNanos(profiles)
+			if err != nil {
+				p.log.Debugf("predicting duration (from %d profiles): %v", len(profiles), err)
+			}
+			mem, err := p.memUsage(profiles)
+			if err != nil {
+				p.log.Debugf("predicting memory (from %d profiles): %v", len(profiles), err)
+				return nil
+			}
+			p.log.Debugf("successfully modeled memory usage: %s", groups[i].Name())
+			doneTasks := groupMap[groups[i]]
+			for j := 0; j < len(doneTasks); j++ {
+				predictedResources := make(reflow.Resources)
+				predictedResources["mem"] = mem
 
-					mu.Lock()
-					todo.RemoveAll(doneTasks[j])
-					resMap[doneTasks[j]] = predictedResources
-					mu.Unlock()
+				mu.Lock()
+				todo.RemoveAll(doneTasks[j])
+				predMap[doneTasks[j]] = Prediction{
+					Resources: predictedResources,
+					// TODO(swami): Predict and use total task duration instead of just the time
+					// taken to run the exec  (ie, we should include object load/unload times, etc).
+					Duration: time.Duration(int64(durNanos)),
 				}
+				mu.Unlock()
 			}
 			return nil
 		})
 		p.log.Debugf("successfully modeled memory usage for %d/%d tasks", len(tasks)-todo.Len(), len(tasks))
 	}
 
-	return resMap
+	return predMap
 }
 
-// memUsage returns the predicted memory usage of a task in group.
-func (p *Predictor) memUsage(ctx context.Context, group taskGroup) (float64, error) {
+// getProfiles returns a list of profiles the predicted memory usage of a task in group.
+func (p *Predictor) getProfiles(ctx context.Context, group taskGroup) ([]reflow.Profile, error) {
 	// Query taskdb for all tasks in the taskGroup.
 	tasks, err := p.taskDB.Tasks(ctx, group.Query())
 	if err != nil {
-		return 0, errors.E(group.Name(), "taskdb query", err)
+		return nil, errors.E(group.Name(), "taskdb query", err)
 	}
 	if len(tasks) < p.minData {
-		return 0, errors.E(group.Name(), fmt.Errorf("insufficient tasks (%d < %d)", len(tasks), p.minData))
+		return nil, errors.E(group.Name(), fmt.Errorf("insufficient tasks (%d < %d)", len(tasks), p.minData))
 	}
 
 	var inspectDigests = make([]digest.Digest, len(tasks))
@@ -218,12 +243,57 @@ func (p *Predictor) memUsage(ctx context.Context, group taskGroup) (float64, err
 		mu.Unlock()
 		return nil
 	})
-	if len(profiles) < p.minData {
-		return 0, errors.E(group.Name(), fmt.Errorf("insufficient profiles (%d < %d)", len(profiles), p.minData))
+	return profiles, nil
+}
+
+var (
+	// memMaxGetter gets the max value of "mem" resource from the given profile.
+	memMaxGetter = func(rp reflow.Profile) (float64, bool) {
+		if v, ok := rp["mem"]; !ok {
+			return 0.0, false
+		} else {
+			return v.Max, true
+		}
 	}
 
+	// maxDurationGetter gets the max duration (in nanoseconds) across all resources from the given profile.
+	maxDurationGetter = func(rp reflow.Profile) (float64, bool) {
+		var (
+			dur   time.Duration
+			valid bool
+		)
+		for _, v := range rp {
+			if v.First.IsZero() || v.Last.IsZero() {
+				continue
+			}
+			d := v.Last.Sub(v.First)
+			if d > dur {
+				dur = d
+				valid = true
+			}
+		}
+		return float64(dur.Nanoseconds()), valid
+	}
+)
+
+// durationNanos returns the predicted duration from the given profiles.
+func (p *Predictor) durationNanos(profiles []reflow.Profile) (float64, error) {
 	// Predict the memory usage of the taskGroup.
-	return maxValuePercentile(profiles, "mem", p.memPercentile), nil
+	pv, n := valuePercentile(profiles, 100, maxDurationGetter)
+	if n < p.minData {
+		return 0, fmt.Errorf("insufficient profiles (%d < %d)", n, p.minData)
+	}
+	return pv, nil
+}
+
+// memUsage returns the predicted memory usage (in bytes) from the given profiles.
+func (p *Predictor) memUsage(profiles []reflow.Profile) (float64, error) {
+	// Predict the memory usage of the taskGroup.
+	pv, n := valuePercentile(profiles, p.memPercentile, memMaxGetter)
+	if n < p.minData {
+		return 0, fmt.Errorf("insufficient profiles (%d < %d)", n, p.minData)
+	}
+	return pv, nil
 }
 
 // groupByLevel maps all tasks by their respective taskGroups at the specified level.
@@ -240,29 +310,34 @@ func groupByLevel(tasks []*sched.Task, level int) map[taskGroup][]*sched.Task {
 	return groupSetMap
 }
 
-// maxValuePercentile computes the 'p'th percentile of the max values for the given resource
-// across all the given profiles. A valid percentile is in the range [0, 100]. Any
-// percentile outside of this range will result in a panic.
-func maxValuePercentile(profiles []reflow.Profile, resource string, p float64) float64 {
+// valuePercentile computes the 'p'th percentile of the value extracted across all the given profiles
+// by the given extractFunc.  If the extractFunc returns false, the value is ignored.
+// A valid percentile is in the range [0, 100].  Any percentile outside of this range will result in a panic.
+func valuePercentile(profiles []reflow.Profile, p float64, extractFunc func(reflow.Profile) (float64, bool)) (float64, int) {
 	if p < 0 || p > 100 {
 		panic(fmt.Sprintf("percentile %v is outside of range [0, 100].", p))
 	}
-	maxMem := make([]float64, len(profiles))
-	for i, profile := range profiles {
-		maxMem[i] = profile[resource].Max
+	maxVals := make([]float64, 0, len(profiles))
+	for _, profile := range profiles {
+		v, ok := extractFunc(profile)
+		if !ok {
+			continue
+		}
+		maxVals = append(maxVals, v)
 	}
-	sort.Float64s(maxMem)
-	n := len(maxMem)
-	if n == 0 {
-		return 0
+	sort.Float64s(maxVals)
+	n := len(maxVals)
+	switch {
+	case n == 0:
+		return 0, 0
+	case p == 0:
+		return maxVals[0], n
+	case p == 100:
+		return maxVals[len(maxVals)-1], n
+	default:
+		idx := int(math.Ceil((float64(n) * p / 100) - 1))
+		return maxVals[idx], n
 	}
-	if p == 100 {
-		return maxMem[len(maxMem)-1]
-	} else if p == 0 {
-		return maxMem[0]
-	}
-	idx := int(math.Ceil((float64(n) * p / 100) - 1))
-	return maxMem[idx]
 }
 
 // smallInspect is used to
