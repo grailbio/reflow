@@ -37,7 +37,7 @@ var version = "broken"
 var configFile = os.ExpandEnv("$HOME/.reflow/config.yaml")
 
 // bootstrapimage is the URL of the bootstrap binary (hosted on a publicly accessible S3 path)
-const bootstrapimage = "https://grail-public-bin.s3-us-west-2.amazonaws.com/linux/amd64/reflowbootstrap0.1"
+const bootstrapimage = "https://grail-public-bin.s3-us-west-2.amazonaws.com/linux/amd64/reflowbootstrap0.2"
 
 const intro = `Cluster computing and caching
 

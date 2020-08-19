@@ -9,7 +9,7 @@
 set -e
 set -x
 
-VERSION=reflowbootstrap0.1
+VERSION=reflowbootstrap0.2
 
 GOOS=linux GOARCH=amd64 go build -o /tmp/$VERSION .
 cloudkey ti-apps/admin aws s3 cp --acl public-read /tmp/$VERSION s3://grail-public-bin/linux/amd64/$VERSION
