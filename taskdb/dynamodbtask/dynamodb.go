@@ -389,16 +389,20 @@ func (t *TaskDB) SetTaskComplete(ctx context.Context, id taskdb.TaskID, err erro
 	if end.IsZero() {
 		end = time.Now()
 	}
-	update := aws.String(fmt.Sprintf("SET %s = :endtime", colEndTime))
-	values := map[string]*dynamodb.AttributeValue{
-		":endtime": {S: aws.String(end.UTC().Format(timeLayout))},
-	}
+	var (
+		update = aws.String(fmt.Sprintf("SET %s = :endtime", colEndTime))
+		values = map[string]*dynamodb.AttributeValue{
+			":endtime": {S: aws.String(end.UTC().Format(timeLayout))},
+		}
+		keys map[string]*string
+	)
 	if err != nil {
-		update = aws.String(fmt.Sprintf("SET %s = :endtime, %s = :error", colEndTime, colError))
+		update = aws.String(fmt.Sprintf("SET %s = :endtime, #Err = :error", colEndTime))
 		values = map[string]*dynamodb.AttributeValue{
 			":endtime": {S: aws.String(end.UTC().Format(timeLayout))},
 			":error":   {S: aws.String(err.Error())},
 		}
+		keys = map[string]*string{"#Err": aws.String(colError)}
 	}
 	input := &dynamodb.UpdateItemInput{
 		TableName: aws.String(t.TableName),
@@ -409,6 +413,7 @@ func (t *TaskDB) SetTaskComplete(ctx context.Context, id taskdb.TaskID, err erro
 		},
 		UpdateExpression:          update,
 		ExpressionAttributeValues: values,
+		ExpressionAttributeNames:  keys,
 	}
 	_, uerr := t.DB.UpdateItemWithContext(ctx, input)
 	return uerr

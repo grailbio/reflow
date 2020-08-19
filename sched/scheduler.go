@@ -595,7 +595,7 @@ func (s *Scheduler) directTransfer(ctx context.Context, task *Task) {
 		} else {
 			tctx, tcancel := context.WithCancel(ctx)
 			defer func() {
-				if err := s.TaskDB.SetTaskComplete(ctx, task.ID, task.Err, time.Now()); err != nil {
+				if err := s.TaskDB.SetTaskComplete(context.Background(), task.ID, task.Err, time.Now()); err != nil {
 					taskLogger.Errorf("taskdb settaskcomplete: %v", err)
 				}
 				tcancel()

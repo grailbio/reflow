@@ -1884,12 +1884,15 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 		if tcancel == nil {
 			return
 		}
-		if tdbErr := e.TaskDB.SetTaskComplete(tctx, f.TaskID, err, time.Now()); tdbErr != nil {
+		terr := err
+		if err == nil {
+			terr = r.Err
+		}
+		if tdbErr := e.TaskDB.SetTaskComplete(context.Background(), f.TaskID, terr, time.Now()); tdbErr != nil {
 			e.Log.Debugf("taskdb settaskcomplete: %v\n", tdbErr)
 		}
 		tcancel()
 	}()
-
 	for n < numExecTries && s < stateDone {
 		switch s {
 		case statePut:

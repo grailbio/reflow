@@ -183,7 +183,11 @@ func (w *worker) do(ctx context.Context, f *flow.Flow) (err error) {
 		if tcancel == nil {
 			return
 		}
-		tdbErr := w.Eval.TaskDB.SetTaskComplete(tctx, f.TaskID, err, time.Now())
+		terr := err
+		if err == nil {
+			terr = r.Err
+		}
+		tdbErr := w.Eval.TaskDB.SetTaskComplete(context.Background(), f.TaskID, terr, time.Now())
 		if tdbErr != nil {
 			w.Log.Debugf("taskdb settaskcomplete: %v\n", tdbErr)
 		}

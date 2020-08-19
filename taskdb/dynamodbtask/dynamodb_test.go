@@ -314,7 +314,8 @@ func TestSetTaskComplete(t *testing.T) {
 		{*mockdb.uInput.Key[colID].S, taskID.ID()},
 		{*mockdb.uInput.ExpressionAttributeValues[":endtime"].S, end.UTC().Format(timeLayout)},
 		{*mockdb.uInput.ExpressionAttributeValues[":error"].S, tdbErr.Error()},
-		{*mockdb.uInput.UpdateExpression, "SET EndTime = :endtime, Error = :error"},
+		{*mockdb.uInput.ExpressionAttributeNames["#Err"], "Error"},
+		{*mockdb.uInput.UpdateExpression, "SET EndTime = :endtime, #Err = :error"},
 	} {
 		if test.want != test.got {
 			t.Errorf("got %v, want %v", test.got, test.want)
