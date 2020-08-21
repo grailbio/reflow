@@ -285,14 +285,24 @@ func (s *Scheduler) Do(ctx context.Context) error {
 		}
 
 		// We have more to do, and potential to allocate. We mock allocate remaining
-		// tasks to pending allocs, and then allocate any remaining.
+		// tasks to pending allocs, and then allocate any remaining (if any).
 		assigned = s.assign(&todo, &pending, nil)
-		req := requirements(todo)
+		var (
+			req reflow.Requirements
+			// needMore tells whether any tasks remain after mock allocation.
+			// This is needed in addition to `req` because if all tasks have empty resources
+			// we end up getting empty requirements, but we should trigger at least one allocation.
+			needMore bool
+		)
+		if len(todo) > 0 {
+			req = requirements(todo)
+			needMore = true
+		}
 		for _, task := range assigned {
 			task.alloc.Unassign(task)
 			heap.Push(&todo, task)
 		}
-		if req.Equal(reflow.Requirements{}) {
+		if req.Equal(reflow.Requirements{}) && !needMore {
 			continue
 		}
 
@@ -647,18 +657,37 @@ func (s *Scheduler) directTransfer(ctx context.Context, task *Task) {
 
 func requirements(tasks []*Task) reflow.Requirements {
 	// TODO(marius): We should revisit this requirements model and how
-	// it interacts with the underlying cluster providers. Specifically,
-	// this approach can be very conservative if we have a mix of tasks
-	// that require different resource types or vary widely in
-	// magnitudes across the same resource dimensions. This could even
-	// lead to unattainable allocations that could theoretically be
-	// satisfied by multiple allocs. Doing this properly requires
-	// changing the interaction model between the scheduler and cluster
-	// so that the cluster presents a "menu" of different alloc types,
-	// and the scheduler is allowed to pick from this menu.
-	var req reflow.Requirements
-	for _, task := range tasks {
-		req.AddParallel(task.Config.Resources)
+	// it interacts with the underlying cluster providers. Doing this
+	// optimally requires changing the interaction model between the
+	// scheduler and cluster so that the cluster presents a "menu" of
+	// different alloc types, and the scheduler is allowed to pick from this menu.
+
+	// We create a minimum requirement matching the resource needs of the largest task
+	// and then expand its width by packing tasks as tightly as possible.
+	var (
+		req  reflow.Requirements
+		have reflow.Resources
+		i    int
+	)
+	tasksCopy := append([]*Task{}, tasks...)
+	// Sort the tasks by resource needs
+	sort.Slice(tasksCopy, func(i, j int) bool {
+		return tasksCopy[i].Config.Resources.ScaledDistance(nil) > tasksCopy[j].Config.Resources.ScaledDistance(nil)
+	})
+	for len(tasksCopy) > 0 {
+		i = sort.Search(len(tasksCopy), func(i int) bool {
+			return have.Available(tasksCopy[i].Config.Resources)
+		})
+		if i == len(tasksCopy) {
+			// Found nothing, so add the current biggest task's resources
+			req.AddParallel(tasksCopy[0].Config.Resources)
+			i = 0
+			// Reset current available resources
+			have.Set(req.Min)
+		}
+		// Found the biggest one which'll fit in the current available resources.
+		have.Sub(have, tasksCopy[i].Config.Resources)
+		tasksCopy = append(tasksCopy[0:i], tasksCopy[i+1:]...)
 	}
 	return req
 }

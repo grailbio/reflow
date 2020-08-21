@@ -888,3 +888,52 @@ func TestTaskSet(t *testing.T) {
 		t.Errorf("set delete altered task: got %s, want %s", got, want)
 	}
 }
+
+func TestRequirements(t *testing.T) {
+	for _, tc := range []struct {
+		tasks []*sched.Task
+		req   reflow.Requirements
+	}{
+		{
+			[]*sched.Task{
+				newTask(1, 1, 0),
+				newTask(1, 1, 0),
+				newTask(3, 5, 0),
+				newTask(5, 8, 0),
+			},
+			reflow.Requirements{Min: reflow.Resources{"cpu": 5, "mem": 8}, Width: 2},
+		},
+		{
+			[]*sched.Task{
+				newTask(1, 4, 0),
+				newTask(1, 4, 0),
+				newTask(1, 4, 0),
+				newTask(8, 32, 0),
+				newTask(1, 4, 0),
+				newTask(1, 4, 0),
+				newTask(1, 4, 0),
+				newTask(1, 4, 0),
+				newTask(1, 4, 0),
+			},
+			reflow.Requirements{Min: reflow.Resources{"cpu": 8, "mem": 32}, Width: 2},
+		},
+		{
+			[]*sched.Task{
+				newTask(1, 4, 0),
+				newTask(2, 8, 0),
+				newTask(3, 10, 0),
+				newTask(8, 32, 0),
+				newTask(4, 10, 0),
+				newTask(2, 12, 0),
+				newTask(1, 5, 0),
+				newTask(1, 5, 0),
+				newTask(2, 10, 0),
+			},
+			reflow.Requirements{Min: reflow.Resources{"cpu": 8, "mem": 32}, Width: 4},
+		},
+	} {
+		if got, want := sched.Requirements(tc.tasks), tc.req; !got.Equal(want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	}
+}
