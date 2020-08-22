@@ -266,7 +266,11 @@ func (m *Manager) loop() {
 		todo := m.getInstanceAllocations(waiters[i:])
 
 		if needMore && len(todo) == 0 {
-			m.log.Print("resource requirements are unsatisfiable by current instance selection")
+			var r reflow.Requirements
+			for _, w := range waiters[i:] {
+				r.Add(w.Requirements)
+			}
+			m.log.Printf("resource requirements are unsatisfiable by current instance selection: %s", r)
 			needPoll = true
 			goto sleep
 		}

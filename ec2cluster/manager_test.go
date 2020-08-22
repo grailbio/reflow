@@ -37,6 +37,7 @@ type testManagedCluster struct {
 
 // newCluster creates a new
 func newCluster(configs []testConfig) *testManagedCluster {
+	rand.Seed(time.Now().Unix())
 	m := make(map[string]testConfig, len(configs))
 	for _, c := range configs {
 		m[c.typ] = c
@@ -141,16 +142,68 @@ func TestManagerBasic(t *testing.T) {
 
 	// req won't be met
 	second := m.Allocate(ctx, reflow.Requirements{Min: reflow.Resources{"cpu": 2, "mem": 4 * float64(data.GiB)}})
-	time.Sleep(50 * time.Millisecond)
-	if got, want := len(c.live), 1; got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
+	assertManager(t, m, 1, 0)
 	// add an config which'll satisfy the new requirement
 	c.addConfig(testConfig{"type-b", 0.5, reflow.Resources{"cpu": 2, "mem": 6 * float64(data.GiB)}})
 
 	// req should be met
 	<-second
-	if got, want := len(c.live), 2; got != want {
+	assertManager(t, m, 2, 0)
+}
+
+func assertManager(t *testing.T, m *Manager, nPool, nPending int) {
+	t.Helper()
+	if got, want := m.nPool(), nPool; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := m.nPending(), nPending; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestManagerBasicWide(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	c := newCluster([]testConfig{
+		{"type-a", 0.25, reflow.Resources{"cpu": 2, "mem": 4 * float64(data.GiB)}},
+	})
+	m := NewManager(c, 5, 5, log.Std)
+	m.refreshInterval = 50 * time.Millisecond
+	m.launchTimeout = 500 * time.Millisecond
+	m.Start(ctx)
+
+	// req should be met
+	var req reflow.Requirements
+	req.AddParallel(reflow.Resources{"cpu": 1, "mem": 2 * float64(data.GiB)})
+	req.AddParallel(reflow.Resources{"cpu": 1, "mem": 2 * float64(data.GiB)})
+	<-m.Allocate(ctx, req)
+	assertManager(t, m, 1, 0)
+
+	req = reflow.Requirements{}
+	req.AddParallel(reflow.Resources{"cpu": 1, "mem": 4 * float64(data.GiB)})
+	req.AddParallel(reflow.Resources{"cpu": 2, "mem": 2 * float64(data.GiB)})
+	req.AddParallel(reflow.Resources{"cpu": 6, "mem": 20 * float64(data.GiB)})
+
+	// req won't be met
+	second := m.Allocate(ctx, req)
+	assertManager(t, m, 1, 0)
+	// add an config which'll satisfy the new requirement
+	c.addConfig(testConfig{"type-b", 0.5, reflow.Resources{"cpu": 18, "mem": 60 * float64(data.GiB)}})
+	c.mu.Lock()
+	delete(c.configs, "type-a")
+	c.mu.Unlock()
+
+	<-second
+	assertManager(t, m, 2, 0)
+
+	counts := make(map[string]int)
+	for _, inst := range c.live {
+		counts[inst.Type] = counts[inst.Type] + 1
+	}
+	if got, want := counts["type-a"], 1; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := counts["type-b"], 1; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
