@@ -53,17 +53,40 @@ func TestResources(t *testing.T) {
 	}
 }
 
-func TestRequirements(t *testing.T) {
-	var (
-		req  reflow.Requirements
-		res1 = reflow.Resources{"mem": 10, "cpu": 5, "disk": 1}
-		res2 = reflow.Resources{"mem": 20, "cpu": 3, "disk": 1}
-	)
-	req.AddSerial(res1)
-	req.AddSerial(res2)
-	if got, want := req.Min, (reflow.Resources{"mem": 20, "cpu": 5, "disk": 1}); !got.Equal(want) {
+func assertRequirements(t *testing.T, req reflow.Requirements, min, max reflow.Resources) {
+	t.Helper()
+	if got, want := req.Min, min; !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
+	if got, want := req.Max(), max; !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestRequirements(t *testing.T) {
+	var req reflow.Requirements
+	req.AddSerial(reflow.Resources{"mem": 10, "cpu": 5, "disk": 5})
+	req.AddSerial(reflow.Resources{"mem": 20, "cpu": 3, "disk": 1})
+	assertRequirements(t, req,
+		reflow.Resources{"mem": 20, "cpu": 5, "disk": 5},
+		reflow.Resources{"mem": 20, "cpu": 5, "disk": 5})
+	req.AddParallel(reflow.Resources{"mem": 10, "cpu": 5, "disk": 1})
+	assertRequirements(t, req,
+		reflow.Resources{"mem": 20, "cpu": 5, "disk": 5},
+		reflow.Resources{"mem": 40, "cpu": 10, "disk": 10})
+
+	req = reflow.Requirements{Min: reflow.Resources{"mem": 2, "cpu": 1}, Width: 10}
+	assertRequirements(t, req, reflow.Resources{"mem": 2, "cpu": 1}, reflow.Resources{"mem": 22, "cpu": 11})
+
+	req = reflow.Requirements{}
+	req.AddSerial(reflow.Resources{"mem": 3, "cpu": 1})
+	assertRequirements(t, req, reflow.Resources{"mem": 3, "cpu": 1}, reflow.Resources{"mem": 3, "cpu": 1})
+
+	req.AddParallel(reflow.Resources{"mem": 5, "cpu": 2})
+	assertRequirements(t, req, reflow.Resources{"mem": 5, "cpu": 2}, reflow.Resources{"mem": 10, "cpu": 4})
+
+	req.AddParallel(reflow.Resources{"mem": 10, "cpu": 4})
+	assertRequirements(t, req, reflow.Resources{"mem": 10, "cpu": 4}, reflow.Resources{"mem": 30, "cpu": 12})
 }
 
 func TestRuntime(t *testing.T) {
