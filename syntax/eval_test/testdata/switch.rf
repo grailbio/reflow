@@ -64,18 +64,18 @@ val TestDigestSwitchValue = {
 val TestDigestCasePat = {
 	f := func(x [[int]]) =>
 		switch x {
-        case [[a], [_]]:
-             a
-        case _:
-             0
+				case [[a], [_]]:
+						 a
+				case _:
+						 0
 		}
 	g := func(x [[int]]) =>
 		switch x {
-        case [[_, a], [_]]:
-             a
-        case _:
-             0
+				case [[_, a], [_]]:
+						 a
+				case _:
+						 0
 		}
-    v := delay([delay([1]), delay([2])])
-    f(v) != g(v)
+		v := delay([delay([1]), delay([2])])
+		f(v) != g(v)
 }

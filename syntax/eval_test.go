@@ -270,32 +270,6 @@ func TestExecDelay(t *testing.T) {
 	}
 }
 
-func TestEval(t *testing.T) {
-	tests := []string{
-		"testdata/test1.rf",
-		"testdata/arith.rf",
-		"testdata/prec.rf",
-		"testdata/missingnewline.rf",
-		"testdata/strings.rf",
-		"testdata/path.rf",
-		"testdata/typealias.rf",
-		"testdata/typealias2.rf",
-		"testdata/newmodule.rf",
-		"testdata/delayed.rf",
-		"testdata/float.rf",
-		"testdata/regexp.rf",
-		"testdata/compare.rf",
-		"testdata/if.rf",
-		"testdata/dirs.rf",
-		"testdata/switch.rf",
-		"testdata/builtin_override.rf",
-		"testdata/reduce.rf",
-		"testdata/fold.rf",
-		"testdata/test_flag_dependence.rf",
-	}
-	RunReflowTests(t, tests)
-}
-
 func TestEvalErr(t *testing.T) {
 	sess := NewSession(nil)
 	for _, c := range []struct {

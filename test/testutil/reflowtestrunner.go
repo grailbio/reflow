@@ -1,4 +1,4 @@
-package syntax
+package testutil
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/flow"
-	"github.com/grailbio/reflow/test/testutil"
+	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
 )
@@ -19,7 +19,7 @@ import (
 // RunReflowTests executes .rf tests from disk
 func RunReflowTests(t *testing.T, testFiles []string) {
 	t.Helper()
-	sess := NewSession(nil)
+	sess := syntax.NewSession(nil)
 Prog:
 	for _, prog := range testFiles {
 		var err error
@@ -55,7 +55,7 @@ Prog:
 				// We have to evaluate the flow. We do so through a no-op executor.
 				// We do provide an in-memory repository so that local interns work.
 				eval := flow.NewEval(v, flow.EvalConfig{
-					Executor: nopexecutor{repo: testutil.NewInmemoryRepository()},
+					Executor: nopexecutor{repo: NewInmemoryRepository()},
 				})
 				if err := eval.Do(context.Background()); err != nil {
 					t.Errorf("%s.%s: %v", prog, test, err)
