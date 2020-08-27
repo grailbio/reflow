@@ -105,6 +105,8 @@ type Cluster struct {
 	InstanceTypesMap map[string]bool `yaml:"-"`
 	// BootstrapImage is the URL of the image used for instance bootstrap.
 	BootstrapImage string `yaml:"-"`
+	// BootstrapExpiry is the maximum duration the bootstrap will wait for a reflowlet image after which it dies.
+	BootstrapExpiry time.Duration `yaml:"-"`
 	// ReflowVersion is the version of reflow binary compatible with this cluster.
 	ReflowVersion string `yaml:"-"`
 	// MaxInstances is the maximum number of concurrent instances permitted.
@@ -302,6 +304,12 @@ func (c *Cluster) verifyAndInitialize() error {
 		err = errors.E(errors.Fatal, fmt.Sprintf("bootstrap image: %s", c.BootstrapImage), err)
 		return err
 	}
+	if c.BootstrapExpiry == 0 {
+		var rc *infra2.ReflowletConfig
+		if rcerr := c.Configuration.Instance(&rc); rcerr == nil {
+			c.BootstrapExpiry = rc.MaxIdleDuration
+		}
+	}
 	c.EC2 = ec2.New(c.Session, &aws.Config{MaxRetries: aws.Int(13)})
 	// TODO(swami):  Pass through a context from somewhere upstream as appropriate.
 	ctx := context.Background()
@@ -430,6 +438,7 @@ func (c *Cluster) newInstance(config instanceConfig) *instance {
 		InstanceProfile: c.InstanceProfile,
 		SecurityGroup:   c.SecurityGroup,
 		BootstrapImage:  c.BootstrapImage,
+		BootstrapExpiry: c.BootstrapExpiry,
 		Price:           config.Price[c.Region],
 		EBSType:         c.DiskType,
 		EBSSize:         uint64(config.Resources["disk"]) >> 30,

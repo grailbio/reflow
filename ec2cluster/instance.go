@@ -310,6 +310,7 @@ type instance struct {
 	SecurityGroup   string
 	Region          string
 	BootstrapImage  string
+	BootstrapExpiry time.Duration
 	Price           float64
 	EBSType         string
 	EBSSize         uint64
@@ -737,6 +738,17 @@ func (i *instance) configureEBS() {
 	}
 }
 
+func (i *instance) bootstrapExpiryArgs() []string {
+	// We don't want to set too small of an expiry
+	const minExpiry = 30 * time.Second
+	expiry := i.BootstrapExpiry
+	if expiry < minExpiry {
+		i.Log.Debugf("overriding bootstrap expiry %s with minimum %s", expiry, minExpiry)
+		expiry = minExpiry
+	}
+	return []string{"-expiry", fmt.Sprintf("%s", expiry)}
+}
+
 func (i *instance) launch(ctx context.Context) (string, error) {
 	// First we need to construct the cloud-config that's passed to
 	// our instances via EC2's user-data mechanism.
@@ -812,11 +824,13 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 		$bin {{.bootstrapArgs}} || true
         sleep 5
         exit 1
-		`, args{"binary": i.BootstrapImage, "bootstrapArgs": strings.Join(bootstrapArgs, " ")}),
+		`, args{
+			"binary":        i.BootstrapImage,
+			"bootstrapArgs": strings.Join(append(bootstrapArgs, i.bootstrapExpiryArgs()...), " "),
+		}),
 	})
 
-	// Turn off CoreOS services that would restart or otherwise disrupt
-	// the instances.
+	// Turn off CoreOS services that would restart or otherwise disrupt the instances.
 	c.CoreOS.Update.RebootStrategy = "off"
 	c.AppendUnit(CloudUnit{Name: "update-engine.service", Command: "stop"})
 	c.AppendUnit(CloudUnit{Name: "locksmithd.service", Command: "stop"})
