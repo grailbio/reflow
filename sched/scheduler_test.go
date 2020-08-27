@@ -342,6 +342,51 @@ func TestTaskNetError(t *testing.T) {
 	allocs[0].exec(digest.Digest(tasks[1].ID))
 }
 
+func TestTaskErrors(t *testing.T) {
+	tests := []struct {
+		name          string
+		err           error
+		wantTaskState sched.TaskState
+		wantTaskError errors.Kind
+	}{
+		{"non-retryable error", errors.E(errors.Fatal, "some fatal error"), sched.TaskDone, errors.Fatal},
+		{"transient error", errors.E(errors.Unavailable, "some transient error"), sched.TaskLost, errors.Unavailable},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			scheduler, cluster, _, shutdown := newTestScheduler(t)
+			defer shutdown()
+			ctx := context.Background()
+			task := newTask(1, 1, 0)
+			scheduler.Submit(task)
+			alloc := newTestAlloc(reflow.Resources{"cpu": 2, "mem": 2})
+			req := <-cluster.Req()
+			req.Reply <- testClusterAllocReply{Alloc: alloc}
+
+			// Wait for the task (which will fit in the first alloc) to be allocated.
+			if err := task.Wait(ctx, sched.TaskRunning); err != nil {
+				t.Fatal(err)
+			}
+
+			// Complete the exec with the test case provided error
+			exec := alloc.exec(digest.Digest(task.ID))
+			exec.complete(reflow.Result{}, tt.err)
+
+			if e := task.Wait(ctx, tt.wantTaskState); e != nil {
+				t.Fatal(e)
+			}
+			if got, want := task.State(), tt.wantTaskState; got != want {
+				t.Errorf("got state: %v, want: %v", got, want)
+			}
+			if got, want := errors.Recover(task.Err).Kind, tt.wantTaskError; got != want {
+				t.Errorf("got error: %v, want: %v", got, want)
+			}
+		})
+	}
+}
+
 // TestLostTasksSwitchAllocs tests scenarios where lost tasks are re-allocated.
 // Only some type of task errors are considered 'lost' (and retries are attempted),
 // whereas any error from alloc keepalives will result in tasks being considered as lost.
@@ -480,6 +525,7 @@ func TestSchedulerDirectTransferUnsupported(t *testing.T) {
 	default:
 	}
 }
+
 func TestSchedulerLoadUnloadExtern(t *testing.T) {
 	scheduler, cluster, repo, shutdown := newTestScheduler(t)
 	defer shutdown()

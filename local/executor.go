@@ -239,7 +239,7 @@ func (e *Executor) Start() error {
 // at the local Docker client.
 // TODO(marius): image pulling may be(?) better off as part of the executor interface
 func (e *Executor) ensureImage(ctx context.Context, ref string) error {
-	return ensureImage(ctx, e.Client, e.Authenticator, ref)
+	return ensureImage(ctx, e.Client, e.Authenticator, ref, e.Log)
 }
 
 // execPath constructs a path for the exec with the given id.

@@ -30,7 +30,7 @@ import (
 )
 
 // Separator is inserted between chained errors while rendering.
-// The default value (":\n\t") is inteded for interactive tools. A
+// The default value (":\n\t") is intended for interactive tools. A
 // server can set this to a different value to be more log friendly.
 var Separator = ":\n\t"
 
@@ -328,8 +328,8 @@ var Errorf = fmt.Errorf
 // New is an alternate spelling of errors.New.
 var New = goerrors.New
 
-// Recover recovers any error into an *Error. If the passed-in Error
-// is already an error, it is simply returned; otherwise it is wrapped.
+// Recover recovers any error into an *Error. If the passed-in err is
+// already an *Error or nil, it is simply returned; otherwise it is wrapped.
 func Recover(err error) *Error {
 	if err == nil {
 		return nil
@@ -487,7 +487,7 @@ func is(kind Kind, e *Error) bool {
 }
 
 // Transient tells whether error err is likely transient, and thus may
-// be usefully retried.
+// be usefully retried. The passed in error must not be nil.
 func Transient(err error) bool {
 	switch Recover(err).Kind {
 	case Timeout, Temporary, TooManyTries, Unavailable:
@@ -499,6 +499,22 @@ func Transient(err error) bool {
 
 // Restartable determines if the provided error is restartable.
 // Restartable errors include transient errors and network errors.
+// The passed in error must not be nil.
 func Restartable(err error) bool {
 	return Transient(err) || Is(Net, err)
+}
+
+// NonRetryable tells whether error err is likely fatal, and thus not
+// useful to retry. The passed in error must not be nil.
+// Note that NonRetryable != !Restartable; these functions are not the
+// inverse of each other. They each report on the errors they know to
+// be either non-retryable or restartable, but there exist errors which
+// don't belong to either category.
+func NonRetryable(err error) bool {
+	switch Recover(err).Kind {
+	case NotSupported, Invalid, NotExist, Fatal:
+		return true
+	default:
+		return false
+	}
 }

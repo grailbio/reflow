@@ -20,6 +20,7 @@ import (
 	"github.com/grailbio/base/retry"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/ecrauth"
+	"github.com/grailbio/reflow/log"
 )
 
 // imageExists checks whether an image exists at a Docker client.
@@ -67,7 +68,7 @@ func imageExists(ctx context.Context, client *docker.Client, id string) (bool, e
 }
 
 // pullImage pulls an image (by reference) to a Docker client using an authenticator.
-func pullImage(ctx context.Context, client *docker.Client, authenticator ecrauth.Interface, ref string) error {
+func pullImage(ctx context.Context, client docker.APIClient, authenticator ecrauth.Interface, ref string, log *log.Logger) error {
 	var options types.ImagePullOptions
 	if authenticator != nil {
 		if ok, err := authenticator.Authenticates(ctx, ref); ok && err == nil {
@@ -85,10 +86,12 @@ func pullImage(ctx context.Context, client *docker.Client, authenticator ecrauth
 		}
 	}
 	var (
-		resp   io.ReadCloser
-		policy = retry.MaxTries(retry.Backoff(time.Second, 10*time.Second, 1.5), 5)
+		resp     io.ReadCloser
+		maxTries = 5
+		policy   = retry.MaxTries(retry.Backoff(time.Second, 10*time.Second, 1.5), maxTries)
 	)
 	for retries := 0; ; retries++ {
+		log.Debugf("pulling image (try %d/%d): %s", retries+1, maxTries, ref)
 		var err error
 		resp, err = client.ImagePull(ctx, ref, options)
 		if err == nil {
@@ -99,8 +102,13 @@ func pullImage(ctx context.Context, client *docker.Client, authenticator ecrauth
 		if strings.HasSuffix(err.Error(), "not found") {
 			return errors.E("pull image", ref, errors.NotExist, err)
 		}
+		if strings.Contains(err.Error(), "net/http") {
+			return errors.E("pull image", ref, errors.Net, err)
+		}
 		if err := retry.Wait(ctx, policy, retries); err != nil {
-			return errors.E("pull image", ref, errors.Unavailable, err)
+			// if we've exhausted the retry policy and the error is not one that we recognize,
+			// return an errors.Other so that the scheduler does not retry it on the same alloc
+			return errors.E("pull image", ref, err)
 		}
 	}
 	defer resp.Close()
@@ -140,7 +148,7 @@ var (
 // ensureImage returns nil when the image is known to be present
 // at the given Docker client. ensureImage ensures that there is only
 // one concurrent pull per image, per client.
-func ensureImage(ctx context.Context, client *docker.Client, authenticator ecrauth.Interface, ref string) error {
+func ensureImage(ctx context.Context, client *docker.Client, authenticator ecrauth.Interface, ref string, log *log.Logger) error {
 	clientMu.Lock()
 	images := clientIm[client]
 	if images == nil {
@@ -170,7 +178,7 @@ func ensureImage(ctx context.Context, client *docker.Client, authenticator ecrau
 	if ok, _ := imageExists(ctx, client, ref); ok {
 		return nil
 	}
-	im.err = pullImage(ctx, client, authenticator, ref)
+	im.err = pullImage(ctx, client, authenticator, ref, log)
 	if im.err != nil {
 		// Let subsequent fetches retry.
 		clientMu.Lock()

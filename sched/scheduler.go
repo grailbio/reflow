@@ -400,6 +400,30 @@ func (e execState) String() string {
 	}
 }
 
+// next returns the next state considering the `err` encountered after completing this state.
+// It also returns a message (suitable for logging) explaining why the next state was chosen.
+func (e execState) next(ctx context.Context, err error, postUseChecksum bool) (next execState, msg string) {
+	switch {
+	case ctx.Err() != nil:
+		msg = fmt.Sprintf("ctx.Err(): %v", ctx.Err())
+		next = stateDone
+	case err == nil:
+		msg = "successful"
+		next = e + 1
+	case errors.NonRetryable(err):
+		msg = fmt.Sprintf("non-retryable error: %v", err)
+		next = stateDone
+	default:
+		msg = fmt.Sprintf("retryable error: %v", err)
+		next = e
+	}
+	// Skip stateVerify unless post-use checksumming is enabled
+	if next == stateVerify && !postUseChecksum {
+		next++
+	}
+	return
+}
+
 func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 	var (
 		err            error
@@ -428,8 +452,6 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 	// If we get reassigned to a new alloc, that will not be true anymore, and hence we need to resolve
 	// the files all over again.
 	savedArgs := append([]reflow.Arg{}, task.Config.Args...)
-	// TODO(marius): we should distinguish between fatal and nonfatal errors.
-	// The fatal ones are useless to retry.
 	for n < numExecTries && state < stateDone {
 		task.Log.Debugf("%s (try %d): started", state, n)
 		switch state {
@@ -532,9 +554,9 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 				})
 				return true
 			})
-			// Extern loads the files to be externed and gets unloaded above. Extern's result
-			// fileset includes files that were externed and not necessarily any new data
-			// that was produced. Hence we don't need to unload the result.
+			// Extern loads the files to be externed and gets unloaded above, when we iterate over
+			// loadedData.Range. Extern's result fileset includes files that were externed and not
+			// necessarily any new data that was produced. Hence we don't need to unload the result.
 			if task.Config.Type != "extern" && !resultUnloaded {
 				g.Go(func() error {
 					fs := task.Result.Fileset
@@ -550,24 +572,14 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			}
 			err = g.Wait()
 		}
-		if err == nil {
-			task.Log.Debugf("%s (try %d): successful", state, n)
-			n = 0
-			state++
-			// Skip stateVerify unless post-use checksumming is enabled
-			if state == stateVerify && !s.PostUseChecksum {
-				state++
-			}
+		next, msg := state.next(ctx, err, s.PostUseChecksum)
+		task.Log.Debugf("%s (try %d): %s, next state: %s", state, n, msg, next)
+		if next == state {
+			n++
 		} else {
-			// TODO(marius): terminate early on NotSupported, Invalid
-			if ctx.Err() != nil {
-				task.Log.Debugf("%s (try %d): %v\nctx.Err(): %v", state, n, err, ctx.Err())
-				break
-			} else {
-				task.Log.Debugf("%s (try %d): %v", state, n, err)
-				n++
-			}
+			n = 0
 		}
+		state = next
 	}
 	task.Err = err
 	switch {
