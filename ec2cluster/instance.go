@@ -449,7 +449,7 @@ func (i *instance) Go(ctx context.Context) {
 			_, i.err = i.EC2.CreateTags(&ec2.CreateTagsInput{
 				Resources: append([]*string{aws.String(id)}, aws.StringSlice(vids)...), Tags: i.getTags()})
 		case stateWaitInstance:
-			i.Task.Print("waiting for instance to become ready")
+			i.print(id, "waiting for instance to become ready")
 			i.err = i.EC2.WaitUntilInstanceRunning(&ec2.DescribeInstancesInput{
 				InstanceIds: []*string{aws.String(id)},
 			})
@@ -470,7 +470,13 @@ func (i *instance) Go(ctx context.Context) {
 			}
 			i.Log.Debugf("launched %sinstance %v (%s): %s%s", spot, id, dns, i.Config.Type, i.Config.Resources)
 		case stateWaitBootstrap:
-			i.Task.Print("waiting for bootstrap to become available")
+			i.print(id, "confirming instance still running")
+			if err := ec2StillRunning(ctx, i.EC2, id); err != nil {
+				// Instance not running anymore
+				i.err = errors.E("wait bootstrap instance running", errors.Fatal, err)
+				break
+			}
+			i.print(id, "waiting for bootstrap to become available")
 			var c *bootc.Client
 			c, i.err = bootc.New(fmt.Sprintf("https://%s:9000/v1/", dns), i.HTTPClient, nil)
 			if i.err != nil {
@@ -484,7 +490,7 @@ func (i *instance) Go(ctx context.Context) {
 				i.err = errors.E(errors.Temporary, i.err)
 			}
 		case stateInstallImage:
-			i.Task.Print("installing reflowlet image")
+			i.print(id, "installing reflowlet image")
 			clnt, err := bootc.New(fmt.Sprintf("https://%s:9000/v1/", *i.ec2inst.PublicDnsName), i.HTTPClient, nil)
 			if err != nil {
 				i.err = errors.E(errors.Fatal, err)
@@ -519,7 +525,13 @@ func (i *instance) Go(ctx context.Context) {
 				break
 			}
 		case stateWaitReflowlet:
-			i.Task.Print("waiting for reflowlet to become available")
+			i.print(id, "confirming instance still running")
+			if err := ec2StillRunning(ctx, i.EC2, id); err != nil {
+				// Instance not running anymore
+				i.err = errors.E("wait bootstrap instance running", errors.Fatal, err)
+				break
+			}
+			i.print(id, "waiting for reflowlet to become available")
 			var c *poolc.Client
 			c, i.err = poolc.New(fmt.Sprintf("https://%s:9000/v1/", dns), i.HTTPClient, nil)
 			if i.err != nil {
@@ -533,7 +545,7 @@ func (i *instance) Go(ctx context.Context) {
 				i.err = errors.E(errors.Temporary, i.err)
 			}
 		case stateDescribeTags:
-			i.Task.Print("waiting for reflowlet version tag")
+			i.print(id, "waiting for reflowlet version tag")
 			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			i.ec2inst, i.err = describeInstance(ctx, i.EC2, id)
 			cancel()
@@ -568,10 +580,10 @@ func (i *instance) Go(ctx context.Context) {
 		switch {
 		case i.err == nil:
 		case errors.Is(errors.Fatal, i.err):
-			i.Log.Errorf("instance %v fatal: %v", id, i.err)
+			i.Log.Errorf("instance %v: %v", id, i.err)
 			return
 		case errors.Is(errors.Unavailable, i.err):
-			i.Log.Errorf("instance %v unavailable: %v", id, i.err)
+			i.Log.Errorf("instance %v: %v", id, i.err)
 			// Return these immediately because our caller may be able to handle
 			// them by selecting a different instance type.
 			return
@@ -610,13 +622,19 @@ func (i *instance) Go(ctx context.Context) {
 		i.Log.Debugf("%s recoverable error (%d/%d): %v", id, n, maxTries, i.err)
 	}
 	if i.err != nil {
-		i.Task.Print(i.err)
+		i.print(id, fmt.Sprintf("%v", i.err))
 		return
 	}
 	i.err = ctx.Err()
 	if i.err == nil {
-		i.Task.Print("instance ready")
+		i.print(id, "instance ready")
 	}
+}
+
+func (i *instance) print(id, msg string) {
+	msg = fmt.Sprintf("[%s] %s", id, msg)
+	i.Log.Debug(msg)
+	i.Task.Print(msg)
 }
 
 func describeInstance(ctx context.Context, EC2 ec2iface.EC2API, id string) (*ec2.Instance, error) {
@@ -747,6 +765,19 @@ func (i *instance) bootstrapExpiryArgs() []string {
 		expiry = minExpiry
 	}
 	return []string{"-expiry", fmt.Sprintf("%s", expiry)}
+}
+
+func ec2StillRunning(ctx context.Context, api ec2iface.EC2API, id string) error {
+	const (
+		attempts = 5
+		delay    = 2 * time.Second
+	)
+	ctx, cancel := context.WithTimeout(ctx, (attempts+1)*delay)
+	defer cancel()
+	return api.WaitUntilInstanceRunningWithContext(
+		ctx, &ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String(id)}},
+		request.WithWaiterMaxAttempts(attempts),
+		request.WithWaiterDelay(request.ConstantWaiterDelay(delay)))
 }
 
 func (i *instance) launch(ctx context.Context) (string, error) {
