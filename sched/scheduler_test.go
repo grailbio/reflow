@@ -356,10 +356,17 @@ func TestTaskErrors(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			scheduler, cluster, _, shutdown := newTestScheduler(t)
+			scheduler, cluster, repo, shutdown := newTestScheduler(t)
 			defer shutdown()
 			ctx := context.Background()
 			task := newTask(1, 1, 0)
+
+			// create a random fileset which will be loaded onto the alloc
+			// later we will check that all the filesets are properly unloaded, even when tasks fail
+			in := randomFileset(repo)
+			expectExists(t, repo, in)
+			task.Config.Args = []reflow.Arg{{Fileset: &in}}
+
 			scheduler.Submit(task)
 			alloc := newTestAlloc(reflow.Resources{"cpu": 2, "mem": 2})
 			req := <-cluster.Req()
@@ -368,6 +375,16 @@ func TestTaskErrors(t *testing.T) {
 			// Wait for the task (which will fit in the first alloc) to be allocated.
 			if err := task.Wait(ctx, sched.TaskRunning); err != nil {
 				t.Fatal(err)
+			}
+
+			// check that the input fileset got loaded
+			wantRefCounts := int64(len(in.Map))
+			var gotRefCounts int64
+			for _, v := range alloc.refCount {
+				gotRefCounts += v
+			}
+			if gotRefCounts != wantRefCounts {
+				t.Errorf("got loaded ref count: %v, want: %v", gotRefCounts, wantRefCounts)
 			}
 
 			// Complete the exec with the test case provided error
@@ -382,6 +399,15 @@ func TestTaskErrors(t *testing.T) {
 			}
 			if got, want := errors.Recover(task.Err).Kind, tt.wantTaskError; got != want {
 				t.Errorf("got error: %v, want: %v", got, want)
+			}
+
+			// check that the input fileset got unloaded
+			gotRefCounts = 0
+			for _, v := range alloc.refCount {
+				gotRefCounts += v
+			}
+			if gotRefCounts != 0 {
+				t.Errorf("got unloaded ref count: %v, want: 0", gotRefCounts)
 			}
 		})
 	}

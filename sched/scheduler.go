@@ -538,39 +538,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			files := task.Result.Fileset.Files()
 			err = s.Transferer.Transfer(ctx, s.Repository, alloc.Repository(), files...)
 		case stateUnload:
-			g, gctx := errgroup.WithContext(ctx)
-			loadedData.Range(func(key, value interface{}) bool {
-				i := key.(int)
-				fs := *task.Config.Args[i].Fileset
-				g.Go(func() error {
-					task.Log.Debugf("unloading %v", fs.Short())
-					uerr := alloc.Unload(gctx, fs)
-					if uerr != nil {
-						return uerr
-					}
-					task.Log.Debugf("unloaded %v", fs.Short())
-					loadedData.Delete(i)
-					return nil
-				})
-				return true
-			})
-			// Extern loads the files to be externed and gets unloaded above, when we iterate over
-			// loadedData.Range. Extern's result fileset includes files that were externed and not
-			// necessarily any new data that was produced. Hence we don't need to unload the result.
-			if task.Config.Type != "extern" && !resultUnloaded {
-				g.Go(func() error {
-					fs := task.Result.Fileset
-					task.Log.Debugf("unloading %v", fs.Short())
-					uerr := alloc.Unload(gctx, fs)
-					if uerr != nil {
-						return uerr
-					}
-					task.Log.Debugf("unloaded %v", fs.Short())
-					resultUnloaded = true
-					return nil
-				})
-			}
-			err = g.Wait()
+			err = unload(ctx, task, &loadedData, alloc, &resultUnloaded)
 		}
 		next, msg := state.next(ctx, err, s.PostUseChecksum)
 		task.Log.Debugf("%s (try %d): %s, next state: %s", state, n, msg, next)
@@ -580,6 +548,12 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			n = 0
 		}
 		state = next
+	}
+	// Clean up the loaded data in case we exited early without unloading (usually due to an error in an earlier state)
+	if err != nil {
+		if unloadErr := unload(ctx, task, &loadedData, alloc, &resultUnloaded); unloadErr != nil {
+			task.Log.Debugf("error unloading data after task failure, this wastes disk space on the alloc: %s", unloadErr)
+		}
 	}
 	task.Err = err
 	switch {
@@ -595,6 +569,42 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		task.set(TaskDone)
 	}
 	returnc <- task
+}
+
+func unload(ctx context.Context, task *Task, loadedData *sync.Map, alloc *alloc, resultUnloaded *bool) error {
+	g, gctx := errgroup.WithContext(ctx)
+	loadedData.Range(func(key, value interface{}) bool {
+		i := key.(int)
+		fs := *task.Config.Args[i].Fileset
+		g.Go(func() error {
+			task.Log.Debugf("unloading %v", fs.Short())
+			uerr := alloc.Unload(gctx, fs)
+			if uerr != nil {
+				return uerr
+			}
+			task.Log.Debugf("unloaded %v", fs.Short())
+			loadedData.Delete(i)
+			return nil
+		})
+		return true
+	})
+	// Extern loads the files to be externed and gets unloaded above. Extern's result
+	// fileset includes files that were externed and not necessarily any new data
+	// that was produced. Hence we don't need to unload the result.
+	if task.Config.Type != "extern" && !*resultUnloaded {
+		g.Go(func() error {
+			fs := task.Result.Fileset
+			task.Log.Debugf("unloading %v", fs.Short())
+			uerr := alloc.Unload(gctx, fs)
+			if uerr != nil {
+				return uerr
+			}
+			task.Log.Debugf("unloaded %v", fs.Short())
+			*resultUnloaded = true
+			return nil
+		})
+	}
+	return g.Wait()
 }
 
 func (s *Scheduler) directTransfer(ctx context.Context, task *Task) {
