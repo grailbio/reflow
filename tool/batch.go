@@ -143,12 +143,12 @@ flags override any parameters in the batch sample file.
 	}
 
 	var (
-		scheduler  *sched.Scheduler
-		donecancel func()
-		wg         wg.WaitGroup
+		scheduler             *sched.Scheduler
+		wg                    wg.WaitGroup
+		schedCtx, schedCancel = context.WithCancel(ctx)
 	)
 	if config.Sched {
-		scheduler, donecancel, err = NewScheduler(c.Config, &wg, nil, nil, c.Status)
+		scheduler, err = NewScheduler(schedCtx, c.Config, &wg, nil, nil, c.Status)
 		c.must(err)
 	}
 
@@ -191,8 +191,8 @@ flags override any parameters in the batch sample file.
 	if err != nil {
 		c.Log.Errorf("batch failed with error %v", err)
 	}
-	if donecancel != nil {
-		donecancel()
+	if schedCancel != nil {
+		schedCancel()
 	}
 	c.WaitForBackgroundTasks(&wg, 20*time.Minute)
 	bgcancel()

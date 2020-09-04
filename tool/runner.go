@@ -139,7 +139,7 @@ func clusterInstance(config infra.Config, status *status.Status) (runner.Cluster
 
 // NewScheduler returns a new scheduler with the specified configuration.
 // Cancelling the returned context.CancelFunc stops the scheduler.
-func NewScheduler(config infra.Config, wg *wg.WaitGroup, cluster runner.Cluster, logger *log.Logger, status *status.Status) (*sched.Scheduler, context.CancelFunc, error) {
+func NewScheduler(ctx context.Context, config infra.Config, wg *wg.WaitGroup, cluster runner.Cluster, logger *log.Logger, status *status.Status) (*sched.Scheduler, error) {
 	var (
 		err   error
 		tdb   taskdb.TaskDB
@@ -148,25 +148,25 @@ func NewScheduler(config infra.Config, wg *wg.WaitGroup, cluster runner.Cluster,
 	)
 	if logger == nil {
 		if err = config.Instance(&logger); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 	if err = config.Instance(&tdb); err != nil {
 		if !strings.HasPrefix(err.Error(), "no providers for type taskdb.TaskDB") {
-			return nil, nil, err
+			return nil, err
 		}
 		logger.Debug(err)
 	}
 	if cluster == nil {
 		if cluster, err = clusterInstance(config, status); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 	if err = config.Instance(&repo); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if limit, err = transferLimit(config); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	transferer := &repository.Manager{
 		Status:           status.Group("transfers"),
@@ -177,7 +177,6 @@ func NewScheduler(config infra.Config, wg *wg.WaitGroup, cluster runner.Cluster,
 	if repo != nil {
 		transferer.PendingTransfers.Set(repo.URL().String(), int(^uint(0)>>1))
 	}
-	ctx := context.Background()
 	scheduler := sched.New()
 	scheduler.Cluster = cluster
 	scheduler.Repository = repo
@@ -187,46 +186,50 @@ func NewScheduler(config infra.Config, wg *wg.WaitGroup, cluster runner.Cluster,
 	scheduler.ExportStats()
 	mux, err := blobMux(config)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	scheduler.Mux = mux
-	schedCtx, schedCancel := context.WithCancel(ctx)
 	wg.Add(1)
 	go func() {
-		err := scheduler.Do(schedCtx)
-		if err != nil && err != schedCtx.Err() {
+		err := scheduler.Do(ctx)
+		if err != nil && err != ctx.Err() {
 			logger.Printf("scheduler: %v,", err)
 		}
 		wg.Done()
 	}()
-	return scheduler, schedCancel, nil
+	return scheduler, nil
 }
 
 // NewRunner returns a new runner that can run the given run config. If scheduler is non nil,
 // it will be used for scheduling tasks.
-func NewRunner(runConfig RunConfig, scheduler *sched.Scheduler, logger *log.Logger) (*Runner, error) {
+func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger) (r *Runner, err error) {
 	var (
 		mux         blob.Mux
 		repo        reflow.Repository
 		cluster     runner.Cluster
 		schedCancel context.CancelFunc
-		err         error
 		wg          wg.WaitGroup
 		limit       int
 	)
+	defer func() {
+		// Cancel scheduler (if applicable) in case of an error
+		if err != nil && schedCancel != nil {
+			schedCancel()
+		}
+	}()
 	if !runConfig.RunFlags.Local {
 		cluster = runConfig.RunFlags.Cluster
 		if cluster == nil {
 			if cluster, err = clusterInstance(runConfig.Config, runConfig.Status); err != nil {
-				return nil, err
+				return
 			}
 		}
 	}
 	if err = runConfig.Config.Instance(&repo); err != nil {
-		return nil, err
+		return
 	}
 	if limit, err = transferLimit(runConfig.Config); err != nil {
-		return nil, err
+		return
 	}
 	manager := &repository.Manager{
 		Status:           runConfig.Status.Group("transfers"),
@@ -240,25 +243,24 @@ func NewRunner(runConfig RunConfig, scheduler *sched.Scheduler, logger *log.Logg
 	}
 	mux, err = blobMux(runConfig.Config)
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	var pred *predictor.Predictor
+	var scheduler *sched.Scheduler
 	if runConfig.RunFlags.Sched {
-		if scheduler != nil {
-			mux = scheduler.Mux
-			repo = scheduler.Repository
-			transferer = scheduler.Transferer
-		} else {
-			scheduler, schedCancel, err = NewScheduler(runConfig.Config, &wg, cluster, logger, runConfig.Status)
-			if err != nil {
-				return nil, err
-			}
-			scheduler.Repository = repo
-			scheduler.Transferer = transferer
-			scheduler.Mux = mux
-			scheduler.PostUseChecksum = runConfig.RunFlags.PostUseChecksum
+		var schedCtx context.Context
+		// disable govet check due to https://github.com/golang/go/issues/29587
+		// schedCancel is called, if appropriate, in a defer above.
+		schedCtx, schedCancel = context.WithCancel(ctx) //nolint: govet
+		scheduler, err = NewScheduler(schedCtx, runConfig.Config, &wg, cluster, logger, runConfig.Status)
+		if err != nil {
+			return //nolint: govet
 		}
+		scheduler.Repository = repo
+		scheduler.Transferer = transferer
+		scheduler.Mux = mux
+		scheduler.PostUseChecksum = runConfig.RunFlags.PostUseChecksum
 
 		// Configure the Predictor.
 		if runConfig.RunFlags.Pred {
@@ -272,9 +274,8 @@ func NewRunner(runConfig RunConfig, scheduler *sched.Scheduler, logger *log.Logg
 				pred = predictor.New(repo, tdb, logger.Tee(nil, "predictor: "), predConfig.MinData, predConfig.MaxInspect, predConfig.MemPercentile)
 			}
 		}
-
 	}
-	runner := &Runner{
+	r = &Runner{
 		runConfig:   runConfig,
 		RunID:       taskdb.NewRunID(),
 		scheduler:   scheduler,
@@ -287,10 +288,10 @@ func NewRunner(runConfig RunConfig, scheduler *sched.Scheduler, logger *log.Logg
 		transferer:  transferer,
 		cluster:     cluster,
 	}
-	if err := runner.initInfra(); err != nil {
-		return nil, err
+	if err = r.initInfra(); err != nil {
+		return
 	}
-	return runner, nil
+	return
 }
 
 // RunConfig defines all the material (configuration, program and args) for a specific run.

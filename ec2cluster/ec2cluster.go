@@ -406,7 +406,7 @@ func (c *Cluster) Probe(ctx context.Context, instanceType string) (time.Duration
 probe:
 	i.Task = c.Status.Startf("%s", instanceType)
 	i.Go(context.Background())
-	i.ec2TerminateInstance()
+	ec2TerminateInstance(i.EC2, *i.ec2inst.InstanceId)
 	if i.Err() != nil {
 		// If the error was due to Spot unavailability, try on-demand instead.
 		if err := errors.Recover(i.Err()); i.Spot && errors.Is(errors.Unavailable, err) {

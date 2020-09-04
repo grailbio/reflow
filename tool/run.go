@@ -122,7 +122,6 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 
 	defer cancel()
 	var (
-		wg     wg.WaitGroup
 		result runner.State
 		err    error
 	)
@@ -180,7 +179,7 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 			}()
 		}
 	}
-	r, err := NewRunner(runConfig, nil, c.Log)
+	r, err := NewRunner(ctx, runConfig, c.Log)
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -194,7 +193,6 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 		c.Errorln(err)
 		c.Exit(1)
 	}
-	c.WaitForBackgroundTasks(&wg, 1*time.Minute)
 	if result.Err != nil {
 		if errors.Is(errors.Eval, result.Err) {
 			// Error that occurred during evaluation. Probably not recoverable.

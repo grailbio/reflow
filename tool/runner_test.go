@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -54,12 +55,13 @@ func getTestReflowConfigKeys() infra.Keys {
 }
 
 func TestSchedulerDefaultPendingTransferLimit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	config := getTestReflowConfig()
-	scheduler, cancel, err := NewScheduler(config, &wg2.WaitGroup{}, nil, log.Std, new(status.Status))
+	scheduler, err := NewScheduler(ctx, config, &wg2.WaitGroup{}, nil, log.Std, new(status.Status))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cancel()
 	// This is fragile. Due to lack of better ideas, for now...
 	// TODO(pgopal): may be expose this as an API?
 	manager, ok := scheduler.Transferer.(*repository.Manager)

@@ -375,35 +375,64 @@ func (i *instance) ManagedInstance() ManagedInstance {
 	return InstanceSpec{i.Config.Type, i.Config.Resources}.Instance(id)
 }
 
+type stateT int
+
+const (
+	// Perform capacity check for EC2 spot.
+	stateCapacity stateT = iota
+	// Launch the instance via EC2.
+	stateLaunch
+	// Tag the instance
+	stateTag
+	// Wait for the instance to enter running state.
+	stateWaitInstance
+	// Describe the instance via EC2 to get the DNS name.
+	stateDescribeDns
+	// Wait for the bootstrap to become live (and metadata to become available).
+	stateWaitBootstrap
+	// Install the reflowlet image.
+	stateInstallImage
+	// Wait for reflowlet to become live (and metadata to become available).
+	stateWaitReflowlet
+	// Describe the instance via EC2 to get an updated version tag.
+	stateDescribeTags
+
+	stateDone
+)
+
+func (s stateT) String() string {
+	var what string
+	switch s {
+	case stateCapacity:
+		what = "probing for EC2 capacity"
+	case stateLaunch:
+		what = "launching EC2 instance"
+	case stateTag:
+		what = "tagging instance and EBS volumes"
+	case stateWaitInstance:
+		what = "waiting for instance to become ready"
+	case stateDescribeDns:
+		what = "describing instance (dns)"
+	case stateWaitBootstrap:
+		what = "waiting for the bootstrap to load"
+	case stateInstallImage:
+		what = "installing reflowlet image"
+	case stateWaitReflowlet:
+		what = "waiting for the reflowlet to load"
+	case stateDescribeTags:
+		what = "waiting for reflowlet version tag"
+	case stateDone:
+		what = "instance ready"
+	}
+	return what
+}
+
 // Go launches an instance, and returns when it fails or the context is done.
 // On success (i.Err() == nil), the returned instance is in running state.
 // Launch status is reported to the instance's task, if any.
 func (i *instance) Go(ctx context.Context) {
 	i.configureEBS()
 	const maxTries = 10
-	type stateT int
-	const (
-		// Perform capacity check for EC2 spot.
-		stateCapacity stateT = iota
-		// Launch the instance via EC2.
-		stateLaunch
-		// Tag the instance
-		stateTag
-		// Wait for the instance to enter running state.
-		stateWaitInstance
-		// Describe the instance via EC2 to get the DNS name.
-		stateDescribeDns
-		// Wait for the bootstrap to become live (and metadata to become available).
-		stateWaitBootstrap
-		// Install the reflowlet image.
-		stateInstallImage
-		// Wait for reflowlet to become live (and metadata to become available).
-		stateWaitReflowlet
-		// Describe the instance via EC2 to get an updated version tag.
-		stateDescribeTags
-
-		stateDone
-	)
 	var (
 		state       stateT
 		id          string
@@ -412,14 +441,21 @@ func (i *instance) Go(ctx context.Context) {
 		retryPolicy = retry.MaxTries(retry.Backoff(5*time.Second, 30*time.Second, 1.75), maxTries)
 	)
 	spotProbeDepth := i.SpotProbeDepth
-	// TODO(marius): propagate context to the underlying AWS calls
+
+	defer func() {
+		// At exit, we terminate a successfully provisioned but un-viable instance.
+		if id != "" && state > stateLaunch && state < stateWaitReflowlet {
+			i.Log.Debugf("terminating non-reflowlet EC2 instance: %s (state: %s)", id, state)
+			ec2TerminateInstance(i.EC2, id)
+		}
+	}()
 	for state < stateDone && ctx.Err() == nil {
 		switch state {
 		case stateCapacity:
 			if !i.Spot || spotProbeDepth == 0 {
 				break
 			}
-			i.Task.Printf("probing for EC2 capacity (depth=%d)", spotProbeDepth)
+			i.Task.Printf("%s (depth=%d)", state, spotProbeDepth)
 			var ok bool
 			ok, i.err = i.ec2HasCapacity(ctx, spotProbeDepth)
 			if i.err == nil && !ok {
@@ -432,31 +468,31 @@ func (i *instance) Go(ctx context.Context) {
 				continue
 			}
 		case stateLaunch:
-			i.Task.Print("launching EC2 instance")
+			i.Task.Print(state.String())
 			id, i.err = i.launch(ctx)
 			if i.err != nil {
 				i.Task.Printf("launch error: %v", i.err)
 				i.Log.Errorf("instance launch error: %v", i.err)
 			} else {
 				i.Task.Title(id)
-				i.Task.Print("launched")
+				i.print(id, "launched")
 			}
 		case stateTag:
-			vids, err := getVolumeIds(i.EC2, id)
+			i.print(id, state.String())
+			vids, err := getVolumeIds(ctx, i.EC2, id)
 			if err != nil {
 				i.Log.Errorf("get attached volumes %s: %v", id, err)
 			}
 			_, i.err = i.EC2.CreateTags(&ec2.CreateTagsInput{
 				Resources: append([]*string{aws.String(id)}, aws.StringSlice(vids)...), Tags: i.getTags()})
 		case stateWaitInstance:
-			i.print(id, "waiting for instance to become ready")
+			i.print(id, state.String())
 			i.err = i.EC2.WaitUntilInstanceRunning(&ec2.DescribeInstancesInput{
 				InstanceIds: []*string{aws.String(id)},
 			})
 		case stateDescribeDns:
-			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			i.print(id, state.String())
 			i.ec2inst, i.err = describeInstance(ctx, i.EC2, id)
-			cancel()
 			if i.err == nil {
 				if i.ec2inst.PublicDnsName == nil || *i.ec2inst.PublicDnsName == "" {
 					i.err = errors.Errorf("ec2.describeinstances %v: no public DNS name", id)
@@ -476,7 +512,7 @@ func (i *instance) Go(ctx context.Context) {
 				i.err = errors.E("wait bootstrap instance running", errors.Fatal, err)
 				break
 			}
-			i.print(id, "waiting for bootstrap to become available")
+			i.print(id, state.String())
 			var c *bootc.Client
 			c, i.err = bootc.New(fmt.Sprintf("https://%s:9000/v1/", dns), i.HTTPClient, nil)
 			if i.err != nil {
@@ -490,7 +526,7 @@ func (i *instance) Go(ctx context.Context) {
 				i.err = errors.E(errors.Temporary, i.err)
 			}
 		case stateInstallImage:
-			i.print(id, "installing reflowlet image")
+			i.print(id, state.String())
 			clnt, err := bootc.New(fmt.Sprintf("https://%s:9000/v1/", *i.ec2inst.PublicDnsName), i.HTTPClient, nil)
 			if err != nil {
 				i.err = errors.E(errors.Fatal, err)
@@ -531,7 +567,7 @@ func (i *instance) Go(ctx context.Context) {
 				i.err = errors.E("wait bootstrap instance running", errors.Fatal, err)
 				break
 			}
-			i.print(id, "waiting for reflowlet to become available")
+			i.print(id, state.String())
 			var c *poolc.Client
 			c, i.err = poolc.New(fmt.Sprintf("https://%s:9000/v1/", dns), i.HTTPClient, nil)
 			if i.err != nil {
@@ -545,10 +581,8 @@ func (i *instance) Go(ctx context.Context) {
 				i.err = errors.E(errors.Temporary, i.err)
 			}
 		case stateDescribeTags:
-			i.print(id, "waiting for reflowlet version tag")
-			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			i.print(id, state.String())
 			i.ec2inst, i.err = describeInstance(ctx, i.EC2, id)
-			cancel()
 			if i.err != nil {
 				i.err = errors.E(errors.Temporary, "%s: describe instance: %v", id)
 				break
@@ -588,28 +622,7 @@ func (i *instance) Go(ctx context.Context) {
 			// them by selecting a different instance type.
 			return
 		case !errors.Recover(i.err).Timeout() && !errors.Recover(i.err).Temporary():
-			var what string
-			switch state {
-			case stateCapacity:
-				what = "checking capacity"
-			case stateLaunch:
-				what = "launching instance"
-			case stateTag:
-				what = "tagging instance"
-			case stateWaitInstance:
-				what = "waiting for instance"
-			case stateDescribeDns:
-				what = "describing instance (dns)"
-			case stateWaitBootstrap:
-				what = "waiting for the bootstrap to load"
-			case stateInstallImage:
-				what = "installing reflowlet image"
-			case stateWaitReflowlet:
-				what = "waiting for the reflowlet to load"
-			case stateDescribeTags:
-				what = "describing instance (version)"
-			}
-			i.Log.Errorf("error while %s: %v", what, i.err)
+			i.Log.Errorf("error while %s: %v", state, i.err)
 		}
 		if err := retry.Wait(ctx, retryPolicy, n); err != nil {
 			if state == stateWaitReflowlet && errors.Is(errors.TooManyTries, err) {
@@ -638,6 +651,8 @@ func (i *instance) print(id, msg string) {
 }
 
 func describeInstance(ctx context.Context, EC2 ec2iface.EC2API, id string) (*ec2.Instance, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	resp, err := EC2.DescribeInstancesWithContext(ctx, &ec2.DescribeInstancesInput{
 		InstanceIds: []*string{aws.String(id)},
 	})
@@ -701,13 +716,13 @@ func hasEmbedded() bool {
 }
 
 // getVolumeIds gets the IDs of the volumes currently attached (or attaching) to the given EC2 instance.
-func getVolumeIds(api ec2iface.EC2API, instanceId string) ([]string, error) {
+func getVolumeIds(ctx context.Context, api ec2iface.EC2API, instanceId string) ([]string, error) {
 	req := &ec2.DescribeVolumesInput{
 		Filters: []*ec2.Filter{
 			{Name: aws.String("attachment.instance-id"), Values: aws.StringSlice([]string{instanceId})},
 		},
 	}
-	resp, err := api.DescribeVolumes(req)
+	resp, err := api.DescribeVolumesWithContext(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -1108,9 +1123,7 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 		// Boot this up to the caller so they can pick a different instance types.
 		return "", errors.E(errors.Unavailable, fmt.Errorf("spot request %s cleanup:\n%s\ndue to: %v", reqid, msg, err))
 	}
-	fyi := fmt.Sprintf("ID: %s, state: %s", id, state)
-	i.Task.Printf("spot request %s fulfilled (%s)", reqid, fyi)
-	i.Log.Debugf("ec2 spot request %s fulfilled (%s)", reqid, fyi)
+	i.print(id, fmt.Sprintf("ec2 request (spot) %s fulfilled, state: %s", reqid, state))
 	return id, nil
 }
 
@@ -1271,21 +1284,15 @@ func (i *instance) ec2HasCapacity(ctx context.Context, n int) (bool, error) {
 	return false, fmt.Errorf("expected awserr.Error or context error, got %T", err)
 }
 
-func (i *instance) ec2TerminateInstance() {
-	if i.ec2inst == nil {
-		return
-	}
-	i.Task.Print("terminating...")
-	req := &ec2.TerminateInstancesInput{
-		InstanceIds: aws.StringSlice([]string{*i.ec2inst.InstanceId}),
-	}
-	resp, err := i.EC2.TerminateInstancesWithContext(context.Background(), req)
+func ec2TerminateInstance(api ec2iface.EC2API, id string) {
+	req := &ec2.TerminateInstancesInput{InstanceIds: aws.StringSlice([]string{id})}
+	resp, err := api.TerminateInstances(req)
 	if err != nil {
-		i.Task.Print(err)
+		log.Errorf("terminating instance %s: %v", id, err)
 		return
 	}
 	for _, ti := range resp.TerminatingInstances {
-		i.Task.Printf("%s -> %s", *ti.PreviousState.Name, *ti.CurrentState.Name)
+		log.Printf("%s: %s -> %s", *ti.InstanceId, *ti.PreviousState.Name, *ti.CurrentState.Name)
 	}
 }
 
@@ -1320,7 +1327,9 @@ func (i *instance) ec2RunInstance() (string, error) {
 	if n := len(resv.Instances); n != 1 {
 		return "", fmt.Errorf("expected 1 instance; got %d", n)
 	}
-	return *resv.Instances[0].InstanceId, nil
+	id, state := *resv.Instances[0].InstanceId, *resv.Instances[0].State
+	i.print(id, fmt.Sprintf("ec2 request fulfilled, state: %s", state))
+	return id, nil
 }
 
 // ebsDeviceMappings returns the set of device mappings requested by
