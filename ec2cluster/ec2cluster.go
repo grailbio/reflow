@@ -485,26 +485,7 @@ func (c *Cluster) Launch(ctx context.Context, spec InstanceSpec) ManagedInstance
 }
 
 func (c *Cluster) Notify(waiting, pending reflow.Resources) {
-	var (
-		counts     []string
-		totalPrice float64
-		total      reflow.Resources
-	)
-	n := 0
-	for typ, ntyp := range c.instanceTypeCounts() {
-		counts = append(counts, fmt.Sprintf("%s:%d", typ, ntyp))
-		config := c.instanceConfigs[typ]
-		var r reflow.Resources
-		r.Scale(config.Resources, float64(ntyp))
-		total.Add(total, r)
-		totalPrice += config.Price[c.Region] * float64(ntyp)
-		n += ntyp
-	}
-	sort.Strings(counts)
-	msg := fmt.Sprintf("%d instances: %s (<=$%.1f/hr), total%s, waiting%s, pending%s",
-		n, strings.Join(counts, ","), totalPrice, total, waiting, pending)
-	c.Status.Print(msg)
-	c.Log.Debug(msg)
+	c.printState(fmt.Sprintf("waiting%s, pending%s", waiting, pending))
 }
 
 func (c *Cluster) Refresh(ctx context.Context) (map[string]bool, error) {
@@ -512,6 +493,7 @@ func (c *Cluster) Refresh(ctx context.Context) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer c.printState("")
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// Remove from pool instances that are not available on EC2.
@@ -583,14 +565,35 @@ func (c *Cluster) getEC2State(ctx context.Context) (map[string]*reflowletInstanc
 	return state, nil
 }
 
-func (c *Cluster) instanceTypeCounts() map[string]int {
+func (c *Cluster) printState(suffix string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	instanceTypes := make(map[string]int)
+	var (
+		counts     []string
+		totalPrice float64
+		total      reflow.Resources
+	)
+	n := 0
+	instanceTypeCounts := make(map[string]int)
 	for _, instance := range c.pools {
-		instanceTypes[*instance.inst.InstanceType]++
+		instanceTypeCounts[*instance.inst.InstanceType]++
 	}
-	return instanceTypes
+	for typ, ntyp := range instanceTypeCounts {
+		counts = append(counts, fmt.Sprintf("%s:%d", typ, ntyp))
+		config := c.instanceConfigs[typ]
+		var r reflow.Resources
+		r.Scale(config.Resources, float64(ntyp))
+		total.Add(total, r)
+		totalPrice += config.Price[c.Region] * float64(ntyp)
+		n += ntyp
+	}
+	sort.Strings(counts)
+	msg := fmt.Sprintf("%d instances: %s (<=$%.1f/hr), total%s", n, strings.Join(counts, ","), totalPrice, total)
+	if suffix != "" {
+		msg = fmt.Sprintf("%s, %s", msg, suffix)
+	}
+	c.Status.Print(msg)
+	c.Log.Debug(msg)
 }
 
 type reflowletPool struct {
