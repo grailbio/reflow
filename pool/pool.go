@@ -11,6 +11,7 @@
 package pool
 
 import (
+	"container/heap"
 	"context"
 	"fmt"
 	"os/user"
@@ -78,15 +79,29 @@ var (
 func Allocate(ctx context.Context, pool Pool, req reflow.Requirements, labels Labels) (Alloc, error) {
 	const maxRetries = 6
 	for n := 0; n < maxRetries; n++ {
-		offers, err := pool.Offers(ctx)
-		if err != nil {
-			return nil, err
+		alloc, err := allocate(ctx, pool, req, labels)
+		if err == nil {
+			return alloc, nil
 		}
-		pick := Pick(offers, req.Min, req.Max())
-		if pick == nil {
-			return nil, errors.E(errors.Unavailable, errUnavailable)
+		if err != errUnavailable {
+			return nil, errors.E(errors.Unavailable, err)
 		}
-		// Pick the smallest of max and what's available. If memory, disk,
+	}
+	return nil, errors.E(errors.Unavailable, errTooManyTries)
+}
+
+const maxOffersToConsider = 10
+
+func allocate(ctx context.Context, pool Pool, req reflow.Requirements, labels Labels) (Alloc, error) {
+	offers, err := pool.Offers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// TODO(swami): Instead of fixed n, should we vary based on number of offers ?
+	ordered := pickN(offers, maxOffersToConsider, req.Min, req.Max())
+
+	for _, pick := range ordered {
+		// pick the smallest of max and what's available. If memory, disk,
 		// or CPU are left zero, we grab the whole alloc so that we don't
 		// unnecessarily leave resources on the table; they can become
 		// useful later in execution, and it leaves the rest of the offer
@@ -117,31 +132,7 @@ func Allocate(ctx context.Context, pool Pool, req reflow.Requirements, labels La
 			return nil, err
 		}
 	}
-	return nil, errors.E(errors.Unavailable, errTooManyTries)
-}
-
-// Pick selects an offer best matching a minimum and maximum resource
-// requirements. It picks the offer which has at least the minimum
-// amount of resources but as close to maximum as possible.
-func Pick(offers []Offer, min, max reflow.Resources) Offer {
-	var pick Offer
-	var distance float64
-	for _, offer := range offers {
-		switch {
-		case !offer.Available().Available(min):
-			continue
-		case pick == nil:
-			pick = offer
-			distance = offer.Available().ScaledDistance(max)
-		default:
-			curDist := offer.Available().ScaledDistance(max)
-			if curDist < distance {
-				pick = offer
-				distance = curDist
-			}
-		}
-	}
-	return pick
+	return nil, errUnavailable
 }
 
 // Allocs fetches all of the allocs from the provided pool. If it
@@ -179,4 +170,100 @@ func Allocs(ctx context.Context, pool Pool, log *log.Logger) []Alloc {
 		allocs = append(allocs, a...)
 	}
 	return allocs
+}
+
+// pick selects an offer best matching a minimum and maximum resource
+// requirements. It picks the offer which has at least the minimum
+// amount of resources but as close to maximum as possible.
+func pick(offers []Offer, min, max reflow.Resources) Offer {
+	var pick Offer
+	var distance float64
+	for _, offer := range offers {
+		switch {
+		case !offer.Available().Available(min):
+			continue
+		case pick == nil:
+			pick = offer
+			distance = offer.Available().ScaledDistance(max)
+		default:
+			curDist := offer.Available().ScaledDistance(max)
+			if curDist < distance {
+				pick = offer
+				distance = curDist
+			}
+		}
+	}
+	return pick
+}
+
+// pickN returns upto n offers in decreasing order of "best match" defined as follows:
+// - all offers >= max appear first, in increasing order of distance from max.
+// - offers less than max appear next, again in increasing order of distance from max.
+// - offers less than min are omitted.
+func pickN(offers []Offer, n int, min, max reflow.Resources) []Offer {
+	q := &offerq{max: max}
+	for _, offer := range offers {
+		if !offer.Available().Available(min) {
+			continue
+		}
+		heap.Push(q, offer)
+		// prune the heap if larger than n.
+		if q.Len() > n {
+			heap.Pop(q)
+		}
+	}
+	// return the reverse of the queue.
+	ordered := make([]Offer, q.Len())
+	for i := len(ordered) - 1; i >= 0; i-- {
+		x := heap.Pop(q)
+		ordered[i] = x.(Offer)
+	}
+	return ordered
+}
+
+// offerq implements a priority queue of offers, ordered in the following manner:
+// - offers less than max appear first, in decreasing order of distance from max.
+// - offers >= max appear next, again in decreasing order of distance from max.
+type offerq struct {
+	max    reflow.Resources
+	offers []Offer
+}
+
+// Len implements sort.Interface/heap.Interface.
+func (q offerq) Len() int { return len(q.offers) }
+
+// Less implements sort.Interface/heap.Interface.
+func (q offerq) Less(i, j int) bool {
+	ri, rj := q.offers[i].Available(), q.offers[j].Available()
+	availi, availj := ri.Available(q.max), rj.Available(q.max)
+	disti, distj := ri.ScaledDistance(q.max), rj.ScaledDistance(q.max)
+	switch {
+	case availi && availj:
+		return disti > distj
+	case !availi && !availj:
+		return disti > distj
+	case !availi:
+		return true
+	}
+	return false
+}
+
+// Swap implements heap.Interface/sort.Interface
+func (q offerq) Swap(i, j int) {
+	q.offers[i], q.offers[j] = q.offers[j], q.offers[i]
+}
+
+// Push implements heap.Interface.
+func (q *offerq) Push(x interface{}) {
+	o := x.(Offer)
+	q.offers = append(q.offers, o)
+}
+
+// Pop implements heap.Interface.
+func (q *offerq) Pop() interface{} {
+	old := q.offers
+	n := len(old)
+	x := old[n-1]
+	q.offers = old[0 : n-1]
+	return x
 }
