@@ -318,8 +318,8 @@ func TestFileErrors(t *testing.T) {
 			wantE     error
 		}{
 			{"key_nosuchkey", errors.NotExist, false, nil},
-			{"key_deadlineexceeded", errors.Other, false, fmt.Errorf("s3blob.File (*errors.Error) errorbucket key_deadlineexceeded: gave up after 3 tries: too many tries")},
-			{"key_awsrequesttimeout", errors.Other, false, fmt.Errorf("s3blob.File (*errors.Error) errorbucket key_awsrequesttimeout: gave up after 3 tries: too many tries")},
+			{"key_deadlineexceeded", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_deadlineexceeded: gave up after 3 tries: too many tries")},
+			{"key_awsrequesttimeout", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_awsrequesttimeout: gave up after 3 tries: too many tries")},
 			{"key_canceled", errors.Canceled, true, nil},
 			{"key_awscanceled", errors.Canceled, false, nil},
 		} {
@@ -359,6 +359,12 @@ func TestShouldRetry(t *testing.T) {
 		{awserr.New("MultipartUpload", "test", awserr.New("SerializationError", "test2", fmt.Errorf("unexpected EOF"))), true},
 		{awserr.New("RequestError", "send request failed", fmt.Errorf("read: connection reset by peer")), true},
 		{awserr.New("RequestError", "send request failed", fmt.Errorf("some other type of error")), true},
+		{awserr.New("RequestError", "send request failed",
+			awserr.New("Get https://bucket.s3.us-west-2.amazonaws.com/key: read tcp 10.6.130.2:51722->52.218.220.161:443: read:", "connection reset by peer", nil)), true},
+		{awserr.New("RequestError", "send request failed",
+			awserr.New("Get https://bucket.s3.us-west-2.amazonaws.com/key: read tcp 10.6.130.2:51722->52.218.220.161:443:", "read: connection reset by peer", nil)), true},
+		{awserr.New("RequestError", "send request failed",
+			awserr.New("Get https://bucket.s3.us-west-2.amazonaws.com/key:", "read tcp 10.6.130.2:51722->52.218.220.161:443: read: connection reset by peer", nil)), true},
 		{fmt.Errorf("RequestError"), false},
 		{aws.ErrMissingRegion, false},
 		{aws.ErrMissingEndpoint, false},
