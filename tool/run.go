@@ -139,7 +139,7 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 	base := c.Runbase(runID)
 	c.must(os.MkdirAll(filepath.Dir(base), 0777))
 	var (
-		execfile, logfile *os.File
+		execfile, logfile, dotfile *os.File
 	)
 	if execfile, err = os.Create(base + ".execlog"); err != nil {
 		c.Fatal(err)
@@ -149,6 +149,11 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 		c.Fatal(err)
 	}
 	defer logfile.Close()
+
+	if dotfile, err = os.Create(base + ".gv"); err != nil {
+		c.Fatal(err)
+	}
+	defer dotfile.Close()
 
 	// execLogger is the target for exec status; we also output
 	// this to the main logger's outputter. The file-based log always
@@ -182,6 +187,7 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 	// Tee the exec logs in a separate (.execlog) file.
 	r.Log = execLogger
 	r.RunID = runID
+	r.DotWriter = dotfile
 
 	result, err = r.Go(ctx)
 	if err != nil {

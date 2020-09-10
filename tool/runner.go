@@ -314,6 +314,8 @@ type Runner struct {
 	RunID taskdb.RunID
 	// Log is the logger to log to.
 	Log *log.Logger
+	// DotWriter is the writer to write the flow evaluation graph to write to, in dot format.
+	DotWriter io.Writer
 
 	runConfig   RunConfig
 	scheduler   *sched.Scheduler
@@ -460,6 +462,7 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 			ImageMap:           e.ImageMap,
 			TaskDB:             r.tdb,
 			RunID:              r.RunID,
+			DotWriter:          r.DotWriter,
 		},
 		Type:    e.MainType(),
 		Labels:  labels,
@@ -624,6 +627,7 @@ func (r *Runner) runLocal(ctx context.Context, f *flow.Flow, typ *types.T, image
 		ImageMap:           imageMap,
 		TaskDB:             r.tdb,
 		RunID:              r.RunID,
+		DotWriter:          r.DotWriter,
 	}
 	if err = flags.CommonRunFlags.Configure(&evalConfig); err != nil {
 		return runner.State{}, err

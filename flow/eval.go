@@ -42,6 +42,8 @@ import (
 	"github.com/grailbio/reflow/values"
 	"github.com/willf/bloom"
 	"golang.org/x/sync/errgroup"
+	"gonum.org/v1/gonum/graph/encoding/dot"
+	"gonum.org/v1/gonum/graph/simple"
 )
 
 const (
@@ -107,6 +109,9 @@ type EvalConfig struct {
 
 	// An (optional) logger to which the evaluation transcript is printed.
 	Log *log.Logger
+
+	// DotWriter is an (optional) writer where the evaluator will write the flowgraph to in dot format.
+	DotWriter io.Writer
 
 	// Status gets evaluation status reports.
 	Status *status.Group
@@ -321,6 +326,8 @@ type Eval struct {
 	// so we limit how many we load concurrently.
 	// TODO(swami): Better solution is to use a more optimized file format (instead of JSON).
 	marshalLimiter *limiter.Limiter
+
+	flowgraph *simple.DirectedGraph
 }
 
 // NewEval creates and initializes a new evaluator using the provided
@@ -349,6 +356,7 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 		wakeupch:       make(chan bool, 1),
 		pending:        newWorkingset(),
 		marshalLimiter: limiter.New(),
+		flowgraph:      simple.NewDirectedGraph(),
 	}
 	// Limit the number of concurrent marshal/unmarshal to the number of CPUs we have.
 	e.marshalLimiter.Release(runtime.NumCPU())
@@ -459,6 +467,19 @@ func (e *Eval) Err() error {
 // this setup is that the parent must contain some sort of global
 // repository (e.g., S3).
 func (e *Eval) Do(ctx context.Context) error {
+	defer func() {
+		if e.DotWriter != nil {
+			b, err := dot.Marshal(e.flowgraph, fmt.Sprintf("reflow flowgraph %v", e.EvalConfig.RunID.ID()), "", "")
+			if err != nil {
+				e.Log.Debugf("err dot marshal: %v", err)
+				return
+			}
+			_, err = e.DotWriter.Write(b)
+			if err != nil {
+				e.Log.Debugf("err writing dot file: %v", err)
+			}
+		}
+	}()
 	e.Log.Debugf("evaluating with configuration: %s", e.EvalConfig)
 	e.begin = time.Now()
 	defer func() {
@@ -471,6 +492,7 @@ func (e *Eval) Do(ctx context.Context) error {
 
 	root := e.root
 	e.roots.Push(root)
+	e.printDeps(root, false)
 
 	var (
 		todo  FlowVisitor
@@ -501,6 +523,7 @@ func (e *Eval) Do(ctx context.Context) error {
 	dequeue:
 		for todo.Walk() {
 			f := todo.Flow
+			e.printDeps(f, true)
 			if e.pending.Pending(f) {
 				continue
 			}
@@ -1358,6 +1381,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 		for i, dep := range f.Deps {
 			vs[i] = dep.Value
 		}
+
 		ff := f.K(vs)
 		e.Mutate(f, Fork(ff), Init)
 		e.Mutate(f.Parent, Done)
