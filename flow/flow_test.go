@@ -125,7 +125,7 @@ func TestFlowRequirements(t *testing.T) {
 		return op.Exec("image", "command", reflow.Resources{}, f)
 	}, merge)
 	req = mapflow.Requirements()
-	if !req.Wide() {
+	if req.Width != 1 {
 		t.Errorf("expected wide, got %v", req)
 	}
 	if got, want := req.Min, (reflow.Resources{"mem": 20, "cpu": 1, "disk": 110}); !got.Equal(want) {

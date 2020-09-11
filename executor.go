@@ -370,20 +370,8 @@ type Requirements struct {
 	Min Resources
 	// Width is the width of the requirements. A width of zero indicates
 	// a "narrow" job: minimum describes the exact resources needed.
-	// Widths greater than zero are "wide" requests: they require some
-	// multiple of the minimum requirement. The distinction between a
-	// width of zero and a width of one is a little subtle: width
-	// represents the smallest acceptable width, and thus a width of 1
-	// can be taken as a hint to allocate a higher multiple of the
-	// minimum requirements, whereas a width of 0 represents a precise
-	// requirement: allocating any more is likely to be wasteful.
+	// Widths greater than zero require a multiple of the minimum requirement.
 	Width int
-}
-
-// Wide returns whether these requirements represent a
-// wide resource request.
-func (r *Requirements) Wide() bool {
-	return r.Width > 0
 }
 
 // AddParallel adds the provided resources s to the requirements,

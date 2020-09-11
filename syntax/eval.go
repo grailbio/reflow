@@ -906,7 +906,7 @@ func (e *Expr) evalRequirements(sess *Session, env *values.Env, ident string) (r
 	}
 	req.Min = makeResources(env2)
 	if v := env2.Value("wide"); v != nil && v.(bool) {
-		// TODO(marius): allow the user to pass down the desired width
+		log.Printf("WARNING: setting `wide := true` has no real effect: %s %s", e.Position, e.Ident)
 		req.Width = 1
 	}
 	return req, nil

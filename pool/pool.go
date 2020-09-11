@@ -111,7 +111,7 @@ func allocate(ctx context.Context, pool Pool, req reflow.Requirements, labels La
 		want.Min(req.Max(), avail)
 		var tmp reflow.Resources
 		tmp.Sub(avail, want)
-		if tmp["cpu"] <= 0 || tmp["mem"] <= 0 || tmp["disk"] <= 0 || req.Wide() {
+		if tmp["cpu"] <= 0 || tmp["mem"] <= 0 || tmp["disk"] <= 0 {
 			want.Set(avail)
 		}
 		meta := AllocMeta{Want: want, Labels: labels}
