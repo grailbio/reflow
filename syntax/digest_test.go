@@ -8,22 +8,43 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/flow"
+	"github.com/grailbio/reflow/values"
 )
 
 func TestDigestExec(t *testing.T) {
-	for _, expr := range []string{
-		`exec(image := "ubuntu") (out file) {" cp {{file("s3://blah")}} {{out}} "}`,
-		`exec(image := "ubuntu") (out file) {" cp {{    file("s3://blah")  }} {{  out}} "}`,
-		`exec(image := "ubuntu") (x file) {" cp {{file("s3://blah")}} {{x}} "}`,
-		`exec(image := "ubuntu", mem := 32*GiB) (x file) {" cp {{file("s3://blah")}} {{x}} "}`,
+	for _, expr := range []struct {
+		template string
+		kSha     string
+	}{
+		{
+			`exec(image := "ubuntu") (out file) {" cp {{file("s3://blah")}} {{out}} "}`,
+			"sha256:8452af59a381c85ee9f0e46d54f90ace40068b034a69d732967a1eb9cd7ed3b5"},
+		{
+			`exec(image := "ubuntu") (out file) {" cp {{    file("s3://blah")  }} {{  out}} "}`,
+			"sha256:217db429e085cd6cda825b6ef848491e26d28cc149fb1d522a6efc0f9039b701"},
+		{
+			`exec(image := "ubuntu") (x file) {" cp {{file("s3://blah")}} {{x}} "}`,
+			"sha256:983af1e08bc0f1f84afa8660440c15361009d6cc1b3f1dc2e2872f5a7a47474a"},
+		{
+			`exec(image := "ubuntu", mem := 32*GiB) (x file) {" cp {{file("s3://blah")}} {{x}} "}`,
+			"sha256:531ff51daa9804678e04b76e03bfc86d45a3028302574324e17e485144b5718a"},
 	} {
-		v, _, _, err := eval(expr)
+		v, _, _, err := eval(expr.template)
 		if err != nil {
 			t.Fatalf("%s: %v", expr, err)
 		}
 		f := v.(*flow.Flow)
-		if got, want := f.Digest().String(), "sha256:ceff79828962397af02d8e2ea30cf6388f2858e0deefbecaa73fad1c6fc88816"; got != want {
+		if got, want := f.Digest().String(), expr.kSha; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		if got, want := f.Op, flow.K; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		fd := reflow.File{ID: reflow.Digester.FromString("test")}
+		f = f.K([]values.T{fd})
+		if got, want := f.Digest().String(), "sha256:d8e460ec44666ed75cc4d41a46b961646e9c669266a2698cdb54f0323ebf7be4"; got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
 	}

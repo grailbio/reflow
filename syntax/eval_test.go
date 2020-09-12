@@ -162,6 +162,19 @@ func TestExec(t *testing.T) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	f := v.(*flow.Flow)
+
+	// We get a K here due to the delay. But it has zero deps
+	// so we can satisfy it.
+	if got, want := f.Op, flow.K; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := len(f.Deps), 1; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+
+	// We get a K here due to the file intern. We satisfy that here.
+	fd := reflow.File{ID: reflow.Digester.FromString("test")}
+	f = f.K([]values.T{fd})
 	if got, want := f.Op, flow.Coerce; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -191,34 +204,11 @@ func TestExec(t *testing.T) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	f = f.Deps[0]
-	if got, want := f.Op, flow.Coerce; got != want {
+	if got, want := f.Op, flow.Val; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
-	if got, want := len(f.Deps), 1; got != want {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	f = f.Deps[0]
-	if got, want := f.Op, flow.K; got != want {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	if got, want := len(f.Deps), 1; got != want {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	f = f.Deps[0]
-	if got, want := f.Op, flow.Coerce; got != want {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	if got, want := len(f.Deps), 1; got != want {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	f = f.Deps[0]
-	if got, want := f.Op, flow.Intern; got != want {
-		t.Fatalf("got %s, want %s", got, want)
-	}
-	if got, want := len(f.Deps), 0; got != want {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	if got, want := f.URL.String(), "s3://blah"; got != want {
+	fs := reflow.Fileset{Map: map[string]reflow.File{".": fd}}
+	if got, want := f.Value.(reflow.Fileset), fs; !got.Equal(want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	if got, want := sess.Images(), []string{"ubuntu"}; !reflect.DeepEqual(got, want) {
@@ -267,6 +257,180 @@ func TestExecDelay(t *testing.T) {
 	// value correctly.
 	if got, want := f.Cmd, "\n\t\t\techo 123\n\t\t"; got != want {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// evalDecls parses, type checks, and then evaluates a set of declarations
+// and returns the value, type associated with the identifier "test".
+func evalDecls(e string) (values.T, *types.T, *Session, error) {
+	p := Parser{Body: bytes.NewReader([]byte(e)), Mode: ParseDecls}
+	if err := p.Parse(); err != nil {
+		return nil, nil, nil, err
+	}
+	tenv, venv := Stdlib()
+	sess := NewSession(nil)
+	var typ *types.T
+	for _, d := range p.Decls {
+		if err := d.Init(sess, tenv); err != nil {
+			return nil, nil, nil, err
+		}
+		switch d.Kind {
+		case DeclAssign, DeclDeclare:
+			if err := d.Pat.BindTypes(tenv, d.Type, types.Always); err != nil {
+				return nil, nil, nil, err
+			}
+		}
+	}
+	for _, d := range p.Decls {
+		switch d.Kind {
+		case DeclAssign, DeclDeclare:
+			env := types.NewEnv()
+			if err := d.Pat.BindTypes(env, d.Type, types.Unexported); err != nil {
+				return nil, nil, nil, err
+			}
+			for id, t := range env.Symbols() {
+				if id == "test" {
+					typ = t
+					break
+				}
+			}
+		}
+	}
+	for _, d := range p.Decls {
+		v, err := d.Expr.eval(sess, venv, d.ID(""))
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		venv = venv.Push()
+		for _, m := range d.Pat.Matchers() {
+			w, err := coerceMatch(v, d.Type, d.Pat.Position, m.Path())
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			if m.Ident != "" {
+				venv.Bind(m.Ident, w)
+			}
+		}
+	}
+	return venv.Value("test"), typ, sess, nil
+}
+
+func TestExecDifferentImages(t *testing.T) {
+	v1, typ1, _, err := evalDecls(`
+		s := delay("str")
+		f := file("s3://tmp/foo")
+		image := "ubuntu1"
+		test := exec(image := image) (out file) {"
+            echo {{s}}
+			cat {{f}} > {{out}}
+		"}
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2, _, _, err := evalDecls(`
+		s := delay("str")
+		f := file("s3://tmp/foo")
+		image := "ubuntu2"
+		test := exec(image := image) (out file) {"
+            echo {{s}}
+			cat {{f}} > {{out}}
+		"}
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := typ1, types.File; !got.Equal(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	f1 := v1.(*flow.Flow)
+	if got, want := f1.Op, flow.K; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	f2 := v2.(*flow.Flow)
+	if got, want := f2.Op, flow.K; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if f1.Digest() == f2.Digest() {
+		t.Fatalf("digests of different exec flows are not different: %v vs %v", f1.Digest(), f2.Digest())
+	}
+}
+
+func TestExecImmediateNonFileDirDeps(t *testing.T) {
+	v1, typ1, _, err := evalDecls(`
+		s := "str"
+		f := file("s3://tmp/foo")
+		test := exec(image := "ubuntu", mem := 32*GiB, cpu := 32) (out file) {"
+            echo {{s}}
+			cat {{f}} > {{out}}
+		"}
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2, _, _, err := evalDecls(`
+		s := "str"
+		f := file("s3://tmp/bar")
+		test := exec(image := "ubuntu", mem := 32*GiB, cpu := 32) (out file) {"
+            echo {{s}}
+			cat {{f}} > {{out}}
+		"}
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := typ1, types.File; !got.Equal(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	f1 := v1.(*flow.Flow)
+	if got, want := f1.Op, flow.K; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	f2 := v2.(*flow.Flow)
+	if got, want := f2.Op, flow.K; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if f1.Digest() == f2.Digest() {
+		t.Fatalf("digests of execs with different deps are not different: %v vs %v", f1.Digest(), f2.Digest())
+	}
+}
+
+func TestExecDelayedNonFileDirDeps(t *testing.T) {
+	v1, typ1, _, err := evalDecls(`
+		s := delay("str")
+		f := file("s3://tmp/foo")
+		test := exec(image := "ubuntu", mem := 32*GiB, cpu := 32) (out file) {"
+            echo {{s}}
+			cat {{f}} > {{out}}
+		"}
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2, _, _, err := evalDecls(`
+		s := delay("str")
+		f := file("s3://tmp/bar")
+		test := exec(image := "ubuntu", mem := 32*GiB, cpu := 32) (out file) {"
+            echo {{s}}
+			cat {{f}} > {{out}}
+		"}
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := typ1, types.File; !got.Equal(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	f1 := v1.(*flow.Flow)
+	if got, want := f1.Op, flow.K; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	f2 := v2.(*flow.Flow)
+	if got, want := f2.Op, flow.K; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if f1.Digest() == f2.Digest() {
+		t.Fatalf("digests of execs with different deps are not different: %v vs %v", f1.Digest(), f2.Digest())
 	}
 }
 

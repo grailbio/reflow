@@ -89,7 +89,7 @@ retriable.`
 	if e.Main() == nil {
 		c.Fatal("module has no Main")
 	}
-	if !config.Sched && e.Main().Requirements().Equal(reflow.Requirements{}) && e.Main().Op != flow.Val {
+	if !config.Sched && !config.Local && e.Main().Requirements().Equal(reflow.Requirements{}) && e.Main().Op != flow.Val {
 		c.Fatal("Main requirements unspecified; add a @requires annotation")
 	}
 	c.runCommon(ctx, config, e, file, args)

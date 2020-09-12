@@ -345,9 +345,6 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			outputs[f.Name] = f.T
 		}
 		for i, arg := range e.Template.Args {
-			if arg.Type.Kind == types.FileKind || arg.Type.Kind == types.DirKind {
-				continue
-			}
 			if arg.Kind == ExprIdent && outputs[arg.Ident] != nil {
 				continue
 			}
@@ -1561,7 +1558,6 @@ var stdEvalK evalK = func(e *Expr, env *values.Env, dw io.Writer) {
 		}
 		e.Left.digest(dw, env2)
 	}
-
 }
 
 // makeResources constructs a resource specification
