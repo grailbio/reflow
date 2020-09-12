@@ -1560,6 +1560,8 @@ var stdEvalK evalK = func(e *Expr, env *values.Env, dw io.Writer) {
 			}
 		}
 		e.Left.digest(dw, env2)
+	case ExprExec:
+		e.digest(dw, env)
 	}
 
 }
