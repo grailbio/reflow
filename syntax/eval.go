@@ -1571,7 +1571,6 @@ var stdEvalK evalK = func(e *Expr, env *values.Env, dw io.Writer) {
 			}
 		}
 	case ExprBuiltin:
-		e.digest(dw, env)
 	default:
 		panic(fmt.Sprintf("stdEvalK used for %v", e.Kind))
 	}
