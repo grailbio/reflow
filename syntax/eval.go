@@ -1561,9 +1561,20 @@ var stdEvalK evalK = func(e *Expr, env *values.Env, dw io.Writer) {
 		}
 		e.Left.digest(dw, env2)
 	case ExprExec:
+		fm := e.Type.Tupled().FieldMap()
+		for _, arg := range e.Template.Args {
+			if arg.Kind == ExprIdent && fm[arg.Ident] != nil {
+				continue
+			}
+			if arg.Type.Kind == types.FileKind || arg.Type.Kind == types.DirKind {
+				arg.digest(dw, env)
+			}
+		}
+	case ExprBuiltin:
 		e.digest(dw, env)
+	default:
+		panic(fmt.Sprintf("stdEvalK used for %v", e.Kind))
 	}
-
 }
 
 // makeResources constructs a resource specification
