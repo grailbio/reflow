@@ -1548,6 +1548,8 @@ var stdEvalK evalK = func(e *Expr, env *values.Env, dw io.Writer) {
 		for _, f := range e.Fields {
 			f.Expr.digest(dw, env)
 		}
+	case ExprCompr:
+		panic("stdEvalK used for ExprCompr")
 	case ExprBlock:
 		env2 := env.Push()
 		i := 0
@@ -1558,6 +1560,7 @@ var stdEvalK evalK = func(e *Expr, env *values.Env, dw io.Writer) {
 			}
 		}
 		e.Left.digest(dw, env2)
+		
 	case ExprExec:
 		fm := e.Type.Tupled().FieldMap()
 		for _, arg := range e.Template.Args {
@@ -1568,9 +1571,6 @@ var stdEvalK evalK = func(e *Expr, env *values.Env, dw io.Writer) {
 				arg.digest(dw, env)
 			}
 		}
-	case ExprBuiltin:
-	default:
-		panic(fmt.Sprintf("stdEvalK used for %v", e.Kind))
 	}
 }
 
