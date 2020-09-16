@@ -20,8 +20,11 @@ type Cluster interface {
 	// Allocate reserves an alloc of at least min, and at most max resources.
 	// The cluster may scale elastically in order to meet this demand.
 	// Labels are passed down to the underlying pool.
-	// Progress is reported to the provided status object.
 	Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error)
+
+	// Shutdown instructs the cluster to perform any shutting-down operations.
+	// Implementations are allowed to (but not required to) bring down all the allocs.
+	Shutdown() error
 }
 
 // A StaticCluster implements a pass-through Cluster on top of a pool.Pool.
@@ -32,6 +35,11 @@ type StaticCluster struct {
 // Allocate reserves an alloc from the underlying static pool.
 func (s *StaticCluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error) {
 	return pool.Allocate(ctx, s, req, labels)
+}
+
+// Shutdown does not impact the underlying static pool.
+func (s *StaticCluster) Shutdown() error {
+	return nil
 }
 
 // TracingCluster is a cluster that traces the actions of an underlying

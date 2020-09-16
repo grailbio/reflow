@@ -765,6 +765,10 @@ func runbase(rundir string, runID taskdb.RunID) string {
 	return filepath.Join(rundir, runID.Hex())
 }
 
+func (r *Runner) clusterShutdown() error {
+	return r.cluster.Shutdown()
+}
+
 // getPredictorConfig returns a PredictorConfig if the Predictor can be used by reflow. The Predictor can only
 // be used if the following conditions are true:
 // 1. A repo is present for retrieving cached ExecInspects.

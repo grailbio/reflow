@@ -311,9 +311,7 @@ func (c *Cluster) verifyAndInitialize() error {
 		}
 	}
 	c.EC2 = ec2.New(c.Session, &aws.Config{MaxRetries: aws.Int(13)})
-	// TODO(swami):  Pass through a context from somewhere upstream as appropriate.
-	ctx := context.Background()
-	c.manager.Start(ctx)
+	c.manager.Start()
 	return nil
 }
 
@@ -371,6 +369,13 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 			}
 		}
 	}
+}
+
+// Shutdown will instruct the manager to clear out any pending instances.
+// But we don't bring down any existing reflowlet instances (they are designed to expire and terminate after a while)
+func (c *Cluster) Shutdown() error {
+	c.manager.Shutdown()
+	return nil
 }
 
 // VerifyAndInit verifies and initializes the cluster.  This should be called

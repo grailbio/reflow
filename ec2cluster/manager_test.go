@@ -123,7 +123,8 @@ func TestManagerStart(t *testing.T) {
 	dio := &ec2.DescribeInstancesOutput{Reservations: []*ec2.Reservation{{Instances: ec2Is}}}
 	c := &Cluster{EC2: &mockEC2Client{output: dio}, stats: newStats(), pools: make(map[string]reflowletPool)}
 	m := &Manager{cluster: c, refreshInterval: time.Millisecond}
-	m.Start(context.Background())
+	m.Start()
+	defer m.Shutdown()
 	checkState(t, c, "i-running")
 }
 
@@ -135,7 +136,8 @@ func TestManagerBasic(t *testing.T) {
 	})
 	m := NewManager(c, 2, 2, log.Std)
 	m.refreshInterval = 50 * time.Millisecond
-	m.Start(ctx)
+	m.Start()
+	defer m.Shutdown()
 
 	// req should be met
 	<-m.Allocate(ctx, reflow.Requirements{Min: reflow.Resources{"cpu": 1, "mem": 2 * float64(data.GiB)}})
@@ -170,7 +172,8 @@ func TestManagerBasicWide(t *testing.T) {
 	m := NewManager(c, 5, 5, log.Std)
 	m.refreshInterval = 50 * time.Millisecond
 	m.launchTimeout = 500 * time.Millisecond
-	m.Start(ctx)
+	m.Start()
+	defer m.Shutdown()
 
 	// req should be met
 	var req reflow.Requirements
@@ -233,7 +236,8 @@ func testCluster(t *testing.T, c *testManagedCluster, numAllocs, maxInstances, m
 	m := NewManager(c, maxInstances, maxPending, log.Std)
 	m.refreshInterval = 50 * time.Millisecond
 	m.launchTimeout = 500 * time.Millisecond
-	m.Start(ctx)
+	m.Start()
+	defer m.Shutdown()
 
 	// Goroutine to keep checking if max pending and max live are within limits
 	// Also if the manager hits maxInstances, clear the pool to allow for

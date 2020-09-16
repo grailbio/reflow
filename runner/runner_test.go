@@ -58,6 +58,8 @@ func (t *testCluster) Allocate(ctx context.Context, req reflow.Requirements, lab
 	}
 }
 
+func (t *testCluster) Shutdown() error { return nil }
+
 func (t *testCluster) Grant(req reflow.Requirements, result allocateResult) {
 	t.allocate(req) <- result
 }

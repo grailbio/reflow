@@ -90,7 +90,9 @@ type Manager struct {
 	// Logger for manager events.
 	log *log.Logger
 
-	waitc chan *waiter
+	waitc  chan *waiter
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 
 	mu   sync.Mutex
 	cond *ctxsync.Cond
@@ -115,7 +117,9 @@ func NewManager(c ManagedCluster, maxInstances, maxPending int, log *log.Logger)
 }
 
 // Start initializes and starts the cluster manager (and its management goroutines)
-func (m *Manager) Start(ctx context.Context) {
+func (m *Manager) Start() {
+	var ctx context.Context
+	ctx, m.cancel = context.WithCancel(context.Background())
 	m.waitc = make(chan *waiter)
 	m.sync = make(chan struct{})
 	m.cond = ctxsync.NewCond(&m.mu)
@@ -123,11 +127,22 @@ func (m *Manager) Start(ctx context.Context) {
 
 	// This go-routine maintains the state of the cluster by periodically `Refresh`ing it.
 	// Refreshing the cluster (periodic/forced-immediate) is achieved by communicating with this go-routine.
+	m.wg.Add(1)
 	go m.maintain(ctx)
 	// Sync forces an immediate syncing of cluster state (and will block until its complete)
 	m.forceSync()
 	// This go-routine services requests to expand cluster capacity
-	go m.loop()
+	m.wg.Add(1)
+	go m.loop(ctx)
+}
+
+// Shutdown shuts down the manager and waits for all its go-routines to finish.
+func (m *Manager) Shutdown() {
+	if m.cancel == nil { // Start was never called
+		return
+	}
+	m.cancel()
+	m.wg.Wait()
 }
 
 // Allocate requests the Manager to allocate an instance for the given requirements
@@ -202,15 +217,22 @@ func (m *Manager) getInstanceAllocations(waiters []*waiter) (todo []InstanceSpec
 }
 
 // loop services requests to expand the cluster's capacity.
-func (m *Manager) loop() {
+func (m *Manager) loop(pctx context.Context) {
 	var (
-		waiters []*waiter
-		pending reflow.Resources
-		done    = make(chan ManagedInstance)
+		waiters  []*waiter
+		launched sync.WaitGroup
+		pending  reflow.Resources
+		done     = make(chan ManagedInstance)
 	)
+	defer func() {
+		// Before we exit, we cancel all launchers (make sure they are done) and notify all waiters.
+		launched.Wait()
+		m.wg.Done()
+	}()
 
 	launch := func(spec InstanceSpec) {
-		ctx, cancel := context.WithTimeout(context.Background(), m.launchTimeout)
+		defer launched.Done()
+		ctx, cancel := context.WithTimeout(pctx, m.launchTimeout)
 		defer cancel()
 		i := m.cluster.Launch(ctx, spec)
 		if i.Valid() {
@@ -218,6 +240,10 @@ func (m *Manager) loop() {
 			if err := m.wait(ctx, i.ID); err != nil {
 				i = spec.Instance("")
 			}
+		}
+		// If pctx is done, then there's nobody listening on `done` channel
+		if pctx.Err() != nil {
+			return
 		}
 		done <- i
 	}
@@ -280,6 +306,7 @@ func (m *Manager) loop() {
 			pending.Add(pending, spec.Resources)
 			m.nPendingAdd(1)
 			m.log.Debugf("launch %v%v pending%v", spec.Type, spec.Resources, pending)
+			launched.Add(1)
 			go launch(spec)
 		}
 	sleep:
@@ -289,6 +316,8 @@ func (m *Manager) loop() {
 		}
 		m.cluster.Notify(waiting, pending)
 		select {
+		case <-pctx.Done():
+			return
 		case <-pollch:
 		case inst := <-done:
 			pending.Sub(pending, inst.Resources)
@@ -363,6 +392,7 @@ func (m *Manager) forceSync() {
 // maintain periodically refreshes the managed cluster. Also services requests
 // (through calls to `forceSync` or `wait`) to refresh the managed cluster's state.
 func (m *Manager) maintain(ctx context.Context) {
+	defer m.wg.Done()
 	tick := time.NewTicker(m.refreshInterval)
 	defer tick.Stop()
 	for {

@@ -28,3 +28,5 @@ func (c *Cluster) Init() error {
 func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error) {
 	return nil, nil
 }
+
+func (c *Cluster) Shutdown() error { return nil }

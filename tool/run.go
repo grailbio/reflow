@@ -183,6 +183,13 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 	if err != nil {
 		c.Fatal(err)
 	}
+	if !r.runConfig.RunFlags.Local {
+		c.onexit(func() {
+			if err = r.clusterShutdown(); err != nil {
+				r.Log.Errorf("cluster shutdown: %v", err)
+			}
+		})
+	}
 	// Tee the exec logs in a separate (.execlog) file.
 	r.Log = execLogger
 	r.RunID = runID
