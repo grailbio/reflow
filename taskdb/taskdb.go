@@ -134,7 +134,7 @@ type TaskDB interface {
 	// SetRunAttrs sets the reflow bundle and corresponding args for this run.
 	SetRunAttrs(ctx context.Context, id RunID, bundle digest.Digest, args []string) error
 	// SetRunComplete marsk the run as complete.
-	SetRunComplete(ctx context.Context, id RunID, end time.Time) error
+	SetRunComplete(ctx context.Context, id RunID, execLog, sysLog, evalGraph digest.Digest, end time.Time) error
 	// CreateTask creates a new task in the taskdb with the provided taskID, runID and flowID, imgCmdID, ident, and uri.
 	CreateTask(ctx context.Context, id TaskID, runID RunID, flowID digest.Digest, imgCmdID ImgCmdID, ident, uri string) error
 	// SetTaskResult sets the result of the task post completion.
@@ -177,6 +177,8 @@ type Run struct {
 	Start time.Time
 	// End is the time the run ended (if it has).
 	End time.Time
+	// Various logs and other run info generated for the run.
+	ExecLog, SysLog, EvalGraph digest.Digest
 }
 
 func (r Run) String() string {

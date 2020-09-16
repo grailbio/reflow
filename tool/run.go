@@ -209,23 +209,16 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 
 // rundir returns the directory that stores run state, creating it if necessary.
 func (c *Cmd) rundir() string {
-	var rundir string
-	if home, ok := os.LookupEnv("HOME"); ok {
-		rundir = filepath.Join(home, ".reflow", "runs")
-		os.MkdirAll(rundir, 0777)
-	} else {
-		var err error
-		rundir, err = ioutil.TempDir("", "prefix")
-		if err != nil {
-			c.Fatalf("failed to create temporary directory: %v", err)
-		}
+	rundir, err := rundir()
+	if err != nil {
+		c.Fatalf("failed to create temporary directory: %v", err)
 	}
 	return rundir
 }
 
 // Runbase returns the base path for the run with the provided name
 func (c Cmd) Runbase(runID taskdb.RunID) string {
-	return filepath.Join(c.rundir(), runID.Hex())
+	return runbase(c.rundir(), runID)
 }
 
 // WaitForBackgroundTasks waits until all background tasks complete, or if the provided

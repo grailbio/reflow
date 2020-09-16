@@ -441,7 +441,7 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 			et = s.Completion
 		}
 		if r.tdb != nil {
-			if errTDB := r.tdb.SetRunComplete(tctx, r.RunID, et); errTDB != nil {
+			if errTDB := r.setRunComplete(tctx, et); errTDB != nil {
 				r.Log.Debugf("error writing run result to taskdb: %v", errTDB)
 			}
 		}
@@ -509,12 +509,12 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 
 	r.wg.Add(1)
 	go func() {
+		defer r.wg.Done()
 		if r.tdb != nil {
-			if errTDB := r.tdb.SetRunComplete(tctx, r.RunID, run.State.Completion); errTDB != nil {
+			if errTDB := r.setRunComplete(tctx, run.State.Completion); errTDB != nil {
 				r.Log.Debugf("error writing run result to taskdb: %v", errTDB)
 			}
 		}
-		r.wg.Done()
 	}()
 
 	if run.Err != nil {
@@ -533,6 +533,57 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 // GetRunID is a getter for the runID associated with the runner.
 func (r *Runner) GetRunID() taskdb.RunID {
 	return r.RunID
+}
+
+func (r *Runner) setRunComplete(ctx context.Context, endTime time.Time) error {
+	var (
+		execLog, sysLog, dotFile digest.Digest
+		rc                       io.ReadCloser
+	)
+	runbase, err := r.Runbase()
+	if err == nil {
+		if rc, err = os.Open(runbase + ".execlog"); err == nil {
+			pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			if execLog, err = r.repo.Put(pctx, rc); err != nil {
+				r.Log.Debugf("put execlog in repo %s: %v", r.repo.URL(), err)
+			}
+			cancel()
+			_ = rc.Close()
+		}
+		if rc, err = os.Open(runbase + ".syslog"); err == nil {
+			pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			if sysLog, err = r.repo.Put(pctx, rc); err != nil {
+				r.Log.Debugf("put syslog in repo %s: %v", r.repo.URL(), err)
+			}
+			cancel()
+			_ = rc.Close()
+		}
+		if rc, err = os.Open(runbase + ".gv"); err == nil {
+			pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			if dotFile, err = r.repo.Put(pctx, rc); err != nil {
+				r.Log.Debugf("put dotfile in repo %s: %v", r.repo.URL(), err)
+			}
+			cancel()
+			_ = rc.Close()
+		}
+	} else {
+		r.Log.Debugf("unable to determine runbase: %v", err)
+	}
+	err = r.tdb.SetRunComplete(ctx, r.RunID, execLog, sysLog, dotFile, endTime)
+	if err == nil {
+		var ds []string
+		if !execLog.IsZero() {
+			ds = append(ds, fmt.Sprintf("execLog: %s", execLog.Short()))
+		}
+		if !sysLog.IsZero() {
+			ds = append(ds, fmt.Sprintf("sysLog: %s", sysLog.Short()))
+		}
+		if !dotFile.IsZero() {
+			ds = append(ds, fmt.Sprintf("evalGraph: %s", dotFile.Short()))
+		}
+		r.Log.Debugf("Saved all logs in task db %s", strings.Join(ds, ", "))
+	}
+	return err
 }
 
 // UploadBundle generates a bundle and updates taskdb with its digest. If the bundle does not already exist in taskdb,
@@ -684,8 +735,16 @@ func (r Runner) waitForBackgroundTasks(timeout time.Duration) {
 	}
 }
 
-// rundir returns the directory that stores run state, creating it if necessary.
-func (r *Runner) rundir() (string, error) {
+// Runbase returns the base path for the run
+func (r Runner) Runbase() (string, error) {
+	rundir, err := rundir()
+	if err != nil {
+		return "", err
+	}
+	return runbase(rundir, r.RunID), nil
+}
+
+func rundir() (string, error) {
 	var rundir string
 	if home, ok := os.LookupEnv("HOME"); ok {
 		rundir = filepath.Join(home, ".reflow", "runs")
@@ -702,13 +761,8 @@ func (r *Runner) rundir() (string, error) {
 	return rundir, nil
 }
 
-// Runbase returns the base path for the run
-func (r Runner) Runbase() (string, error) {
-	rundir, err := r.rundir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(rundir, r.RunID.Hex()), nil
+func runbase(rundir string, runID taskdb.RunID) string {
+	return filepath.Join(rundir, runID.Hex())
 }
 
 // getPredictorConfig returns a PredictorConfig if the Predictor can be used by reflow. The Predictor can only
