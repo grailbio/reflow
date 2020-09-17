@@ -203,7 +203,7 @@ func NewBucket(name string, client s3iface.S3API) *Bucket {
 }
 
 // File returns metadata for the provided key.
-func (b *Bucket) File(ctx context.Context, key string, retryMissing bool) (reflow.File, error) {
+func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 	var resp *s3.HeadObjectOutput
 	var err error
 	for retries := 0; ; retries++ {
@@ -226,12 +226,7 @@ func (b *Bucket) File(ctx context.Context, key string, retryMissing bool) (reflo
 			}
 			return admit.Within, err
 		})
-		retryKinds := []errors.Kind{errors.Timeout, errors.Temporary}
-		if retryMissing {
-			// retry NotExist since it can mean transiently missing due to S3's eventual consistency model
-			retryKinds = append(retryKinds, errors.NotExist)
-		}
-		if !isAnyOf(err, retryKinds...) {
+		if !retryable(err) {
 			break
 		}
 		log.Printf("s3blob.File: %s/%s (attempt %d): %v\n", b.bucket, key, retries, err)
@@ -379,7 +374,7 @@ func isAnyOf(err error, kinds ...errors.Kind) bool {
 func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w io.WriterAt) (int64, error) {
 	// Determine size if unspecified
 	if size == 0 {
-		if rf, err := b.File(ctx, key, false); err == nil {
+		if rf, err := b.File(ctx, key); err == nil {
 			size = rf.Size
 		}
 	}
@@ -496,7 +491,7 @@ func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader
 // provided prefix.
 func (b *Bucket) Snapshot(ctx context.Context, prefix string) (reflow.Fileset, error) {
 	if prefix != "" && !strings.HasSuffix(prefix, "/") {
-		file, err := b.File(ctx, prefix, false)
+		file, err := b.File(ctx, prefix)
 		if err != nil {
 			return reflow.Fileset{}, errors.E("s3blob.Snapshot", b.bucket, prefix, err)
 		}
@@ -576,7 +571,7 @@ func (b *Bucket) Location() string {
 // only if not set in src's metadata (ie, src's contentHash if present takes precedence)
 func (b *Bucket) copyObject(ctx context.Context, key string, src *Bucket, srcKey string, contentHash string) error {
 	srcUrl, dstUrl := path.Join(src.bucket, srcKey), path.Join(b.bucket, key)
-	srcFile, err := src.File(ctx, srcKey, false)
+	srcFile, err := src.File(ctx, srcKey)
 	if err != nil {
 		return err
 	}
@@ -724,8 +719,12 @@ func awsKind(err error) errors.Kind {
 		// Best guess based on Amazon's descriptions:
 		switch aerr.Code() {
 		// Code NotFound is not documented, but it's what the API actually returns.
-		case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey, "NoSuchVersion", "NotFound":
+		case s3.ErrCodeNoSuchBucket, "NoSuchVersion", "NotFound":
 			return errors.NotExist
+		case s3.ErrCodeNoSuchKey:
+			// Treat as temporary because sometimes they are, due to S3's eventual consistency model
+			// https://aws.amazon.com/premiumsupport/knowledge-center/404-error-nosuchkey-s3/
+			return errors.Temporary
 		case "AccessDenied":
 			return errors.NotAllowed
 		case "InvalidRequest", "InvalidArgument", "EntityTooSmall", "EntityTooLarge", "KeyTooLong", "MethodNotAllowed":

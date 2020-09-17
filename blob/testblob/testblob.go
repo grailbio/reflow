@@ -78,7 +78,7 @@ func (b *bucket) file(key string) (reflow.File, []byte, bool) {
 	}, p, ok
 }
 
-func (b *bucket) File(ctx context.Context, key string, retryMissing bool) (reflow.File, error) {
+func (b *bucket) File(ctx context.Context, key string) (reflow.File, error) {
 	file, _, ok := b.file(key)
 	if !ok {
 		return reflow.File{}, errors.E("testblob.File", b.name, key, errors.NotExist)

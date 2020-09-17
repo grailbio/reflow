@@ -104,8 +104,9 @@ func TestSnapshot(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := bucket.Snapshot(ctx, "foobar")
-	if !errors.Is(errors.NotExist, err) {
-		t.Errorf("got %v, want NotExist", err)
+	want := fmt.Errorf("s3blob.Snapshot testbucket foobar:\n\ts3blob.File testbucket foobar: gave up after 3 tries: too many tries")
+	if err.Error() != want.Error() {
+		t.Errorf("got %v, want %s", err, want)
 	}
 
 	fs, err := bucket.Snapshot(ctx, "blah/")
@@ -166,8 +167,8 @@ func TestGet(t *testing.T) {
 	ctx := context.Background()
 
 	_, _, err := bucket.Get(ctx, "xyz", "")
-	if !errors.Is(errors.NotExist, err) {
-		t.Errorf("expected NotExist, got %v", err)
+	if !errors.Is(errors.Temporary, err) {
+		t.Errorf("expected Temporary, got %v", err)
 	}
 
 	rc, file, err := bucket.Get(ctx, "test/x", "")
@@ -258,8 +259,9 @@ func TestDownload(t *testing.T) {
 
 	b := aws.NewWriteAtBuffer(nil)
 	_, err := bucket.Download(ctx, "notexist", "", 0, b)
-	if !errors.Is(errors.NotExist, err) {
-		t.Errorf("expected NotExist, got %v", err)
+	want := fmt.Errorf("s3blob.Download testbucket notexist: gave up after 3 tries: too many tries")
+	if err.Error() != want.Error() {
+		t.Errorf("got %v, want %s", err, want)
 	}
 
 	_, err = bucket.Download(ctx, "test/z/foobar", "", 0, b)
@@ -317,7 +319,7 @@ func TestFileErrors(t *testing.T) {
 			cancelCtx bool
 			wantE     error
 		}{
-			{"key_nosuchkey", errors.NotExist, false, nil},
+			{"key_nosuchkey", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_nosuchkey: gave up after 3 tries: too many tries")},
 			{"key_deadlineexceeded", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_deadlineexceeded: gave up after 3 tries: too many tries")},
 			{"key_awsrequesttimeout", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_awsrequesttimeout: gave up after 3 tries: too many tries")},
 			{"key_canceled", errors.Canceled, true, nil},
@@ -329,7 +331,7 @@ func TestFileErrors(t *testing.T) {
 				ctx, cancel = context.WithCancel(context.Background())
 				cancel()
 			}
-			_, got := bucket.File(ctx, tc.key, false)
+			_, got := bucket.File(ctx, tc.key)
 			if got == nil {
 				t.Errorf("want error, got none")
 				continue
@@ -354,7 +356,7 @@ func TestShouldRetry(t *testing.T) {
 	}{
 		{nil, false},
 		{awserr.New(request.CanceledErrorCode, "test", nil), false},
-		{awserr.New(s3.ErrCodeNoSuchKey, "test", nil), false},
+		{awserr.New(s3.ErrCodeNoSuchKey, "test", nil), true},
 		{awserr.New("MultipartUpload", "test", awserr.New("RequestTimeout", "test2", nil)), true},
 		{awserr.New("MultipartUpload", "test", awserr.New("SerializationError", "test2", fmt.Errorf("unexpected EOF"))), true},
 		{awserr.New("RequestError", "send request failed", fmt.Errorf("read: connection reset by peer")), true},
@@ -372,14 +374,11 @@ func TestShouldRetry(t *testing.T) {
 		{context.DeadlineExceeded, true},
 		{errors.E("test", errors.Temporary), true},
 		{awserr.New("RequestTimeout", "test", nil), true},
+		{awserr.New("NotFound", "something not found", nil), false},
 	} {
 		if got, want := retryable(tc.err), tc.want; got != want {
 			t.Errorf("got %v, want %v: %v", got, want, tc.err)
 		}
-	}
-	err := awserr.New("NotFound", "something not found", nil)
-	if got, want := isAnyOf(err, errors.NotExist), true; got != want {
-		t.Errorf("got %v, want %v: %v", got, want, err)
 	}
 }
 

@@ -338,7 +338,7 @@ func (e *blobExec) doIntern(ctx context.Context) error {
 	nprefix := len(prefix)
 
 	if !strings.HasSuffix(prefix, "/") {
-		file, err := bucket.File(ctx, prefix, false)
+		file, err := bucket.File(ctx, prefix)
 		if err != nil {
 			return err
 		}

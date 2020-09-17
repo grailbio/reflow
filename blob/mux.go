@@ -53,7 +53,7 @@ func (m Mux) File(ctx context.Context, url string) (reflow.File, error) {
 	if err != nil {
 		return reflow.File{}, err
 	}
-	return bucket.File(ctx, key, false)
+	return bucket.File(ctx, key)
 }
 
 // Scan returns a scanner for the provided URL (which represents a
