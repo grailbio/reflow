@@ -313,7 +313,7 @@ func (c *Cmd) Main() {
 		c.Log.Errorf("Unable to increase file descriptor soft limit: %v", err)
 	}
 
-	c.Log.Debug("reflow version ", c.version())
+	c.Log.Debug("reflow version: ", c.version())
 	c.Log.Debug("bootstrap binary: ", bootstrapimage.Value())
 
 	// Create a context and cancel it if we receive an interrupt.
