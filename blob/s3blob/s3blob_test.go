@@ -349,7 +349,8 @@ func TestFileErrors(t *testing.T) {
 	}
 }
 
-func TestShouldRetry(t *testing.T) {
+func TestShouldRetryDefaultErrors(t *testing.T) {
+	ctx := context.Background()
 	for _, tc := range []struct {
 		err  error
 		want bool
@@ -376,8 +377,27 @@ func TestShouldRetry(t *testing.T) {
 		{awserr.New("RequestTimeout", "test", nil), true},
 		{awserr.New("NotFound", "something not found", nil), false},
 	} {
-		if got, want := retryable(tc.err), tc.want; got != want {
-			t.Errorf("got %v, want %v: %v", got, want, tc.err)
+		if got, want := retryable(ctx, tc.err), tc.want; got != want {
+			t.Errorf("got %v, want %v for: %v", got, want, tc.err)
+		}
+	}
+}
+
+func TestShouldRetryAddedErrors(t *testing.T) {
+	for _, tc := range []struct {
+		retryable []errors.Kind
+		err       error
+		want      bool
+	}{
+		{[]errors.Kind{}, awserr.New(s3.ErrCodeNoSuchBucket, "test", nil), false},
+		{[]errors.Kind{errors.NotExist}, awserr.New(s3.ErrCodeNoSuchBucket, "test", nil), true},
+		{[]errors.Kind{errors.ResourcesExhausted}, awserr.New("ThrottledException", "test", nil), true},
+		{[]errors.Kind{errors.ResourcesExhausted}, awserr.New(s3.ErrCodeNoSuchBucket, "test", nil), false},
+		{[]errors.Kind{errors.ResourcesExhausted, errors.NotExist}, awserr.New(s3.ErrCodeNoSuchBucket, "test", nil), true},
+	} {
+		ctx := errors.WithRetryableKinds(context.Background(), tc.retryable...)
+		if got, want := retryable(ctx, tc.err), tc.want; got != want {
+			t.Errorf("got %v, want %v for: %v", got, want, tc.err)
 		}
 	}
 }

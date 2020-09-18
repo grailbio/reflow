@@ -518,3 +518,37 @@ func NonRetryable(err error) bool {
 		return false
 	}
 }
+
+// retryableErrorKey is used to store and access retryable error kinds in a context.
+// Intentionally not exported, use WithRetryableKinds and GetRetryableKinds instead.
+type retryableErrorKey struct{}
+
+// WithRetryableKinds returns a child context of ctx with the given error kinds and
+// any pre-existing ones. WithRetryableKinds should be used rather than directly
+// setting the value to avoid overwriting any previously set retryable errors.
+func WithRetryableKinds(ctx context.Context, ks ...Kind) context.Context {
+	set, ok := ctx.Value(retryableErrorKey{}).(map[Kind]bool)
+	if !ok {
+		set = make(map[Kind]bool)
+	}
+	for _, k := range ks {
+		set[k] = true
+	}
+	return context.WithValue(ctx, retryableErrorKey{}, set)
+}
+
+// GetRetryableKinds returns a slice of any retryable error kinds stored in ctx.
+func GetRetryableKinds(ctx context.Context) []Kind {
+	kinds, ok := ctx.Value(retryableErrorKey{}).(map[Kind]bool)
+	if !ok {
+		return []Kind{}
+	}
+	return getKeys(kinds)
+}
+
+func getKeys(m map[Kind]bool) (out []Kind) {
+	for k, _ := range m {
+		out = append(out, k)
+	}
+	return out
+}

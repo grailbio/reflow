@@ -16,9 +16,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/grailbio/base/errors"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
+	"github.com/grailbio/reflow/errors"
 )
 
 type store struct {

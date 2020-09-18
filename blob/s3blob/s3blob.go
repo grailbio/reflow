@@ -226,7 +226,7 @@ func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 			}
 			return admit.Within, err
 		})
-		if !retryable(err) {
+		if !retryable(ctx, err) {
 			break
 		}
 		log.Printf("s3blob.File: %s/%s (attempt %d): %v\n", b.bucket, key, retries, err)
@@ -349,9 +349,11 @@ func timeout(policy retry.Policy, retries int) time.Duration {
 	return timeout
 }
 
-// retryable returns whether an error is retryable.
-func retryable(err error) bool {
-	return isAnyOf(err, errors.Timeout, errors.Temporary)
+// retryable returns whether an error is retryable based on the request context
+func retryable(ctx context.Context, err error) bool {
+	kinds := []errors.Kind{errors.Temporary, errors.Timeout}
+	kinds = append(kinds, errors.GetRetryableKinds(ctx)...)
+	return isAnyOf(err, kinds...)
 }
 
 // isAnyOf returns whether an error is any of the given kinds.
@@ -406,7 +408,7 @@ func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w i
 			}
 			return admit.Within, err
 		})
-		if !retryable(err) {
+		if !retryable(ctx, err) {
 			break
 		}
 		log.Printf("s3blob.Download: %s/%s (attempt %d): %v\n", b.bucket, key, retries, err)
@@ -473,7 +475,7 @@ func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader
 			}
 			return admit.Within, err
 		})
-		if !retryable(err) {
+		if !retryable(ctx, err) {
 			break
 		}
 		log.Printf("s3blob.Put: %s/%s (attempt %d): %v\n", b.bucket, key, retries, err)
@@ -628,7 +630,7 @@ func (b *Bucket) copyObject(ctx context.Context, key string, src *Bucket, srcKey
 				CopySourceRange: aws.String(fmt.Sprintf("bytes=%d-%d", firstByte, lastByte)),
 			})
 			err = ctxErr(ctx, err)
-			if err == nil || !retryable(err) {
+			if err == nil || !retryable(ctx, err) {
 				break
 			}
 			log.Debugf("s3blob.copyObject: attempt (%d) (part %d/%d): %s -> %s\n%v\n", retries, i, numParts, srcUrl, dstUrl, err)

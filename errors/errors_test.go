@@ -119,3 +119,68 @@ func TestIs(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+func TestWithRetryableKinds(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		existing map[Kind]bool
+		added    []Kind
+		want     map[Kind]bool
+	}{
+		{
+			name:     "no_existing",
+			existing: map[Kind]bool{},
+			added:    []Kind{NotExist},
+			want:     map[Kind]bool{NotExist: true},
+		},
+		{
+			name:     "with_existing",
+			existing: map[Kind]bool{Unavailable: true},
+			added:    []Kind{NotExist},
+			want:     map[Kind]bool{Unavailable: true, NotExist: true},
+		},
+		{
+			name:     "none_added",
+			existing: map[Kind]bool{Unavailable: true},
+			added:    []Kind{},
+			want:     map[Kind]bool{Unavailable: true},
+		},
+		{
+			name:     "duplicates_added",
+			existing: map[Kind]bool{Unavailable: true},
+			added:    []Kind{Unavailable, NotExist, TooManyTries, NotExist},
+			want:     map[Kind]bool{Unavailable: true, NotExist: true, TooManyTries: true},
+		},
+		{
+			name:     "empty",
+			existing: map[Kind]bool{},
+			added:    []Kind{},
+			want:     map[Kind]bool{},
+		},
+		{
+			name:     "nil",
+			existing: nil,
+			added:    nil,
+			want:     map[Kind]bool{},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tc.existing != nil {
+				ctx = context.WithValue(ctx, retryableErrorKey{}, tc.existing)
+			}
+			if tc.added != nil {
+				ctx = WithRetryableKinds(ctx, tc.added...)
+			}
+			got := GetRetryableKinds(ctx)
+			if len(got) != len(tc.want) {
+				t.Errorf("got %s, want %s", got, getKeys(tc.want))
+			}
+			for _, k := range got {
+				if !tc.want[k] {
+					t.Errorf("got %s, want %s", got, getKeys(tc.want))
+				}
+			}
+		})
+	}
+}
