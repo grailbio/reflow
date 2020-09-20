@@ -18,53 +18,16 @@ func IsReflowSemVer(v string) bool {
 	return semver.IsValid(toSemver(v))
 }
 
-// CompareResult defines how two versions compare.  See `CompareVersions`.
-type CompareResult int
-
-const (
-	Equal CompareResult = iota
-	Greater
-	Lesser
-)
-
 // IsOlderVersion returns whether the first of the given two Reflow version strings is strictly older.
-// Panics if the either version is not valid version (so user should call `IsReflowSemVer` first)
-func CompareVersions(v, w string) CompareResult {
-	must(v)
-	must(w)
-	switch semver.Compare(toSemver(v), toSemver(w)) {
-	case -1:
-		return Lesser
-	case 1:
-		return Greater
-	default:
-		return Equal
+// Panics if the either version is not valid (so user should call `IsReflowSemVer` first)
+func IsOlderVersion(rv1, rv2 string) bool {
+	if !IsReflowSemVer(rv1) {
+		panic(fmt.Errorf("not a valid reflow version: %s", rv1))
 	}
-}
-
-// IsAnySameOrNewerVersion returns whether any of the given versions in `vs` is same or newer than `v`.
-// Panics if `v` is not a valid (so user should call `IsReflowSemVer` first)
-// Any invalid version in `vs` is ignored.
-func IsAnySameOrNewerVersion(v string, vs []string) bool {
-	must(v)
-	for _, vi := range vs {
-		if !IsReflowSemVer(vi) {
-			continue
-		}
-		switch CompareVersions(vi, v) {
-		case Lesser:
-			break
-		default:
-			return true
-		}
+	if !IsReflowSemVer(rv2) {
+		panic(fmt.Errorf("not a valid reflow version: %s", rv2))
 	}
-	return false
-}
-
-func must(v string) {
-	if !IsReflowSemVer(v) {
-		panic(fmt.Errorf("not a valid reflow version: %s", v))
-	}
+	return semver.Compare(toSemver(rv1), toSemver(rv2)) < 0
 }
 
 // toSemver converts reflow versioning string to match semver format
