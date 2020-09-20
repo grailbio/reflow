@@ -200,11 +200,13 @@ func (e EvalConfig) String() string {
 	if e.Transferer != nil {
 		fmt.Fprintf(&b, " transferer %T", e.Transferer)
 	}
-	repo := fmt.Sprintf("%T", e.Repository)
-	if u := e.Repository.URL(); u != nil {
-		repo += fmt.Sprintf(",url=%s", u)
+	if e.Repository != nil {
+		repo := fmt.Sprintf("%T", e.Repository)
+		if u := e.Repository.URL(); u != nil {
+			repo += fmt.Sprintf(",url=%s", u)
+		}
+		fmt.Fprintf(&b, " repository %s", repo)
 	}
-	fmt.Fprintf(&b, " repository %s", repo)
 	if e.Assoc != nil {
 		fmt.Fprintf(&b, " assoc %s", e.Assoc)
 	}
@@ -263,13 +265,6 @@ type Eval struct {
 	EvalConfig
 
 	root *Flow
-
-	// The list of Flows available for execution.
-	list []*Flow
-	// The set of completed flows, used for reporting.
-	completed []*Flow
-	// The set of cached flows, used for reporting
-	cached []*Flow
 
 	// assertions is an accumulation of assertions from computed flows (cache-hit or not)
 	// used to ensure that no two flows can be computed with conflicting assertions.
@@ -1183,6 +1178,13 @@ func (e *Eval) valid(f *Flow) bool {
 func (e *Eval) todo(f *Flow, visited flowOnce, v *FlowVisitor) {
 	if f == nil || !visited.Visit(f) {
 		return
+	}
+	for _, dep := range f.Deps {
+		if dep.ExecDepIncorrectCacheKeyBug {
+			// If the dependency was affected by the bug, then so is the parent.
+			f.ExecDepIncorrectCacheKeyBug = true
+			break
+		}
 	}
 	switch f.State {
 	case Init:

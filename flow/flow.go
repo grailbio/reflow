@@ -366,6 +366,11 @@ type Flow struct {
 	// NonDeterministic, in the case of Execs, denotes if the exec is non-deterministic.
 	NonDeterministic bool
 
+	// ExecDepIncorrectCacheKeyBug is set for nodes that are known to be impacted by a bug
+	// which causes the cache keys to be incorrectly computed.
+	// See https://github.com/grailbio/reflow/pull/128 or T41260.
+	ExecDepIncorrectCacheKeyBug bool
+
 	digestOnce sync.Once
 	digest     digest.Digest
 }
@@ -473,6 +478,9 @@ func (f *Flow) Fork(flow *Flow) {
 // Strings returns a shallow and human readable string representation of the flow.
 func (f *Flow) String() string {
 	s := fmt.Sprintf("flow %s state %s %s %s", f.Digest().Short(), f.State, f.Resources, f.Op)
+	if f.ExecDepIncorrectCacheKeyBug {
+		s += " (affected by bug T41260)"
+	}
 	switch f.Op {
 	case Exec:
 		s += fmt.Sprintf(" image %s cmd %q", f.Image, f.Cmd)

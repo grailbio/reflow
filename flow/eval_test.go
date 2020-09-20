@@ -11,6 +11,7 @@ import (
 	"fmt"
 	golog "log"
 	"math"
+	"math/rand"
 	"net/url"
 	"os"
 	"reflect"
@@ -31,6 +32,7 @@ import (
 	"github.com/grailbio/reflow/sched"
 	op "github.com/grailbio/reflow/test/flow"
 	"github.com/grailbio/reflow/test/testutil"
+	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
 	grailtest "github.com/grailbio/testutil"
 )
@@ -104,6 +106,106 @@ func TestSimpleEval(t *testing.T) {
 	}
 	if got := r.Val; !got.Empty() {
 		t.Fatalf("got %v, want <empty>", got)
+	}
+}
+
+func TestSimpleK(t *testing.T) {
+	runTestKWithN(t, 4, false)
+	runTestKWithN(t, 4, true)
+}
+
+func TestComplexK(t *testing.T) {
+	runTestKWithN(t, 100, false)
+	runTestKWithN(t, 100, true)
+}
+
+func runTestKWithN(t *testing.T, n int, bugT41260 bool) {
+	interns, execs, eOuts := make([]*flow.Flow, n), make([]*flow.Flow, n), make([]reflow.Fileset, n)
+	for i := 0; i < n; i++ {
+		interns[i] = op.Intern(fmt.Sprintf("internurl%d", i))
+		execs[i] = op.Exec(fmt.Sprintf("image%d", i), fmt.Sprintf("command%d", i), testutil.Resources, interns[i])
+		path := fmt.Sprintf("execout%d", i)
+		fs := testutil.Files(path)
+		fs.Map["."] = fs.Map[path]
+		eOuts[i] = fs
+	}
+	if bugT41260 {
+		// Randomly assign some intern or exec to be affected by ExecDepIncorrectCacheKeyBug
+		r := rand.Intn(n)
+		switch rand.Intn(2) {
+		case 0:
+			interns[r].ExecDepIncorrectCacheKeyBug = true
+		case 1:
+			execs[r].ExecDepIncorrectCacheKeyBug = true
+		}
+	}
+	assertKEval(t, interns, execs, eOuts, bugT41260)
+}
+
+func assertKEval(t *testing.T, interns, execs []*flow.Flow, eOuts []reflow.Fileset, bugT41260 bool) {
+	if ni := len(interns); ni%2 != 0 {
+		panic(fmt.Sprintf("requires even number: %d", ni))
+	}
+	n, nk := len(interns), len(interns)/2
+	if ni, ne := len(interns), len(execs); ni != ne {
+		panic(fmt.Sprintf("#interns %d != #execs %d", ni, ne))
+	}
+	if ne, no := len(execs), len(eOuts); ne != no {
+		panic(fmt.Sprintf("#execs %d != #execouts %d", ne, no))
+	}
+	kfn := func(vs []values.T) *flow.Flow {
+		fs := reflow.Fileset{Map: map[string]reflow.File{}}
+		for i, v := range vs {
+			fs.Map[fmt.Sprintf("path_%d", i)] = v.(reflow.Fileset).Map["."]
+		}
+		return &flow.Flow{Op: flow.Val, Value: fs, FlowDigest: values.Digest(fs, types.Fileset)}
+	}
+	ks := make([]*flow.Flow, nk)
+	wantFsEntries := make([]reflow.Fileset, nk)
+	for i := 0; i < nk; i++ {
+		ks[i] = op.K(fmt.Sprintf("%s_%d", t.Name(), i), kfn, execs[i*2], execs[i*2+1])
+		wantFsEntries[i] = reflow.Fileset{Map: map[string]reflow.File{"path_0": eOuts[i*2].Map["."], "path_1": eOuts[i*2+1].Map["."]}}
+	}
+	finalk := op.K(t.Name(), func(vs []values.T) *flow.Flow {
+		fs := reflow.Fileset{List: make([]reflow.Fileset, len(vs))}
+		for i, v := range vs {
+			fs.List[i] = v.(reflow.Fileset)
+		}
+		return &flow.Flow{Op: flow.Val, Value: fs, FlowDigest: values.Digest(fs, types.Fileset)}
+	}, ks...)
+
+	testutil.AssignExecId(nil, interns...)
+	testutil.AssignExecId(nil, execs...)
+	e := testutil.Executor{Have: testutil.Resources}
+	e.Init()
+	eval := flow.NewEval(finalk, flow.EvalConfig{
+		Executor: &e,
+		Log:      logger(),
+		Trace:    logger(),
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	rc := testutil.EvalAsync(ctx, eval)
+	_ = traverse.Each(n, func(i int) error {
+		e.Ok(interns[i], testutil.Files(fmt.Sprintf("a/b/c/%d", i)))
+		e.Ok(execs[i], eOuts[i])
+		return nil
+	})
+	r := <-rc
+	if r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if got, want := r.Val, testutil.List(wantFsEntries...); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if bugT41260 {
+		finalKCopy := eval.FindFlowCopy(finalk)
+		if finalKCopy == nil {
+			t.Fatalf("cannot find equivalent for flow: %v", finalk)
+		}
+		if !finalKCopy.ExecDepIncorrectCacheKeyBug {
+			t.Errorf("root node %v: not tagged with ExecDepIncorrectCacheKeyBug when expected", finalKCopy)
+		}
 	}
 }
 

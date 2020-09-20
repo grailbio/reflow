@@ -38,6 +38,11 @@ func Extern(rawurl string, dep *flow.Flow) *flow.Flow {
 	return &flow.Flow{Op: flow.Extern, Deps: []*flow.Flow{dep}, URL: u}
 }
 
+// K constructs a new flow.K node.
+func K(id string, k func(vs []values.T) *flow.Flow, deps ...*flow.Flow) *flow.Flow {
+	return &flow.Flow{Op: flow.K, Deps: deps, K: k, FlowDigest: reflow.Digester.FromString(id), Ident: id}
+}
+
 // Groupby constructs a new flow.Groupby node.
 func Groupby(re string, dep *flow.Flow) *flow.Flow {
 	return &flow.Flow{Op: flow.Groupby, Deps: []*flow.Flow{dep}, Re: regexp.MustCompile(re)}

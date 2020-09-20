@@ -34,3 +34,16 @@ func RefreshAssertions(ctx context.Context, e *Eval, a []*reflow.Assertions, cac
 func OomAdjust(specified, used reflow.Resources) reflow.Resources {
 	return oomAdjust(specified, used)
 }
+
+// FindFlowCopy finds the copy of a given flow in the flow graph maintained by the Eval.
+// Useful for performing assertions on Flow properties post-evaluation.
+func (e *Eval) FindFlowCopy(f *Flow) *Flow {
+	v := e.root.Visitor()
+	for v.Walk() {
+		if f.Digest() == v.Digest() {
+			return v.Flow
+		}
+		v.Visit()
+	}
+	return nil
+}

@@ -35,7 +35,10 @@ func lim64(s string) string {
 func (n Node) DOTID() string {
 	msg := fmt.Sprintf("%v-%v-%v", n.Digest().Short(), n.Op, n.Ident)
 	if n.Op == Intern || n.Op == Extern {
-		msg = fmt.Sprintf("%v-%v-%v-%v", n.Digest().Short(), n.Op, n.Ident, lim64(n.URL.String()))
+		msg += fmt.Sprintf("-%v", lim64(n.URL.String()))
+	}
+	if n.ExecDepIncorrectCacheKeyBug {
+		msg += "-ExecDepIncorrectCacheKeyBug"
 	}
 	return msg
 }
@@ -43,8 +46,14 @@ func (n Node) DOTID() string {
 // Attributes implments encoding.Attributer.
 func (n Node) Attributes() []encoding.Attribute {
 	var attrs []encoding.Attribute
-	if n.Flow.Op.External() {
-		attrs = append(attrs, encoding.Attribute{Key: "fillcolor", Value: "green"})
+	if n.Op.External() {
+		switch n.ExecDepIncorrectCacheKeyBug {
+		case true:
+			attrs = append(attrs, encoding.Attribute{Key: "execdepincorrectcachekeybug", Value: "true"})
+			attrs = append(attrs, encoding.Attribute{Key: "fillcolor", Value: "red"})
+		case false:
+			attrs = append(attrs, encoding.Attribute{Key: "fillcolor", Value: "green"})
+		}
 		attrs = append(attrs, encoding.Attribute{Key: "style", Value: "filled"})
 	}
 	return attrs

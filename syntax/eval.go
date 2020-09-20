@@ -357,7 +357,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			v = Force(v, arg.Type)
 			tvals = append(tvals, tval{arg.Type, v})
 		}
-		return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+		k, err := e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 			penv := values.NewEnv()
 			for i, d := range e.Decls {
 				v := vs[i]
@@ -371,6 +371,9 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}
 			return e.exec(sess, env, ident, args, makeResources(penv))
 		}, tvals...)
+		kf := k.(*flow.Flow)
+		kf.ExecDepIncorrectCacheKeyBug = true
+		return kf, err
 	case ExprCond:
 		return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 			if vs[0].(bool) {
