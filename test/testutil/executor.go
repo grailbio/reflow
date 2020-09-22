@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/sync/ctxsync"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
@@ -146,13 +147,13 @@ type Executor struct {
 
 	Repo  reflow.Repository
 	mu    sync.Mutex
-	cond  *sync.Cond
+	cond  *ctxsync.Cond
 	execs map[digest.Digest]*Exec
 }
 
 // Init initializes the test executor.
 func (e *Executor) Init() {
-	e.cond = sync.NewCond(&e.mu)
+	e.cond = ctxsync.NewCond(&e.mu)
 	e.execs = map[digest.Digest]*Exec{}
 	e.Repo = &panicRepository{}
 }
@@ -241,20 +242,22 @@ func (e *Executor) Equiv(flows ...*flow.Flow) bool {
 }
 
 // Exec rendeszvous the Exec for the provided flow.
-func (e *Executor) Exec(f *flow.Flow) *Exec {
+func (e *Executor) Exec(ctx context.Context, f *flow.Flow) *Exec {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for {
 		if x := e.execs[e.flowId(f)]; x != nil {
 			return x
 		}
-		e.cond.Wait()
+		if err := e.cond.Wait(ctx); err != nil {
+			panic(fmt.Sprintf("ctx done waiting for result %v: %v", f, err))
+		}
 	}
 }
 
 // Wait blocks until a Flow is defined in the executor.
-func (e *Executor) Wait(f *flow.Flow) {
-	e.Exec(f)
+func (e *Executor) Wait(ctx context.Context, f *flow.Flow) {
+	e.Exec(ctx, f)
 }
 
 // Pending returns whether the flow f has a pending execution.
@@ -266,7 +269,7 @@ func (e *Executor) Pending(f *flow.Flow) bool {
 }
 
 // WaitAny returns the first of flows to be defined.
-func (e *Executor) WaitAny(flows ...*flow.Flow) *flow.Flow {
+func (e *Executor) WaitAny(ctx context.Context, flows ...*flow.Flow) *flow.Flow {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for {
@@ -275,25 +278,27 @@ func (e *Executor) WaitAny(flows ...*flow.Flow) *flow.Flow {
 				return flow
 			}
 		}
-		e.cond.Wait()
+		if err := e.cond.Wait(ctx); err != nil {
+			panic(fmt.Sprintf("ctx done waiting for result %v: %v", flows, err))
+		}
 	}
 }
 
 // Ok defines a successful result for a Flow.
-func (e *Executor) Ok(f *flow.Flow, res interface{}) {
+func (e *Executor) Ok(ctx context.Context, f *flow.Flow, res interface{}) {
 	switch arg := res.(type) {
 	case reflow.Fileset:
-		e.Exec(f).Ok(reflow.Result{Fileset: arg})
+		e.Exec(ctx, f).Ok(reflow.Result{Fileset: arg})
 	case error:
-		e.Exec(f).Ok(reflow.Result{Err: errors.Recover(arg)})
+		e.Exec(ctx, f).Ok(reflow.Result{Err: errors.Recover(arg)})
 	default:
 		panic("invalid result")
 	}
 }
 
 // Error defines an erroneous result for the flow.
-func (e *Executor) Error(f *flow.Flow, err error) {
-	e.Exec(f).Error(err)
+func (e *Executor) Error(ctx context.Context, f *flow.Flow, err error) {
+	e.Exec(ctx, f).Error(err)
 }
 
 // AssignExecId assigns ExecIds for the given set of flows using the given assertions.

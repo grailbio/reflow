@@ -96,10 +96,12 @@ func TestSimpleEval(t *testing.T) {
 		Log:      logger(),
 		Trace:    logger(),
 	})
-	rc := testutil.EvalAsync(context.Background(), eval)
-	e.Ok(intern, testutil.Files("a/b/c", "a/b/d", "x/y/z"))
-	e.Ok(exec, testutil.Files("execout"))
-	e.Ok(extern, reflow.Fileset{})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc := testutil.EvalAsync(ctx, eval)
+	e.Ok(ctx, intern, testutil.Files("a/b/c", "a/b/d", "x/y/z"))
+	e.Ok(ctx, exec, testutil.Files("execout"))
+	e.Ok(ctx, extern, reflow.Fileset{})
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
@@ -183,12 +185,12 @@ func assertKEval(t *testing.T, interns, execs []*flow.Flow, eOuts []reflow.Files
 		Log:      logger(),
 		Trace:    logger(),
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	rc := testutil.EvalAsync(ctx, eval)
 	_ = traverse.Each(n, func(i int) error {
-		e.Ok(interns[i], testutil.Files(fmt.Sprintf("a/b/c/%d", i)))
-		e.Ok(execs[i], eOuts[i])
+		e.Ok(ctx, interns[i], testutil.Files(fmt.Sprintf("a/b/c/%d", i)))
+		e.Ok(ctx, execs[i], eOuts[i])
 		return nil
 	})
 	r := <-rc
@@ -224,8 +226,10 @@ func TestGroupbyMapCollect(t *testing.T) {
 		Log:      logger(),
 		Trace:    logger(),
 	})
-	rc := testutil.EvalAsync(context.Background(), eval)
-	e.Ok(intern, testutil.Files("a/one:one", "a/two:two", "a/three:three", "b/1:four", "b/2:five", "c/xxx:six"))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc := testutil.EvalAsync(ctx, eval)
+	e.Ok(ctx, intern, testutil.Files("a/one:one", "a/two:two", "a/three:three", "b/1:four", "b/2:five", "c/xxx:six"))
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
@@ -247,9 +251,11 @@ func TestExecRetry(t *testing.T) {
 		Log:      logger(),
 		Trace:    logger(),
 	})
-	rc := testutil.EvalAsync(context.Background(), eval)
-	e.Error(exec, errors.New("failed"))
-	e.Ok(exec, testutil.Files("execout"))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc := testutil.EvalAsync(ctx, eval)
+	e.Error(ctx, exec, errors.New("failed"))
+	e.Ok(ctx, exec, testutil.Files("execout"))
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
@@ -276,11 +282,13 @@ func TestSteal(t *testing.T) {
 		Log:      logger(),
 		Trace:    logger(),
 	})
-	rc := testutil.EvalAsync(context.Background(), eval)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc := testutil.EvalAsync(ctx, eval)
 	stolen := []*flow.Flow{execs[N-1]}
 	for i := 0; i < N; i++ {
 		exec := stolen[0]
-		e.Wait(exec)
+		e.Wait(ctx, exec)
 		s := eval.Stealer()
 		stolen = make([]*flow.Flow, N-i-1)
 		for j := 0; j < N-i-1; j++ {
@@ -291,7 +299,7 @@ func TestSteal(t *testing.T) {
 			t.Errorf("stole too much %d: %v", i, f)
 		default:
 		}
-		e.Ok(exec, reflow.Fileset{})
+		e.Ok(ctx, exec, reflow.Fileset{})
 		// Return the rest undone.
 		for _, f := range stolen {
 			s.Return(f)
@@ -328,14 +336,16 @@ func TestCacheWrite(t *testing.T) {
 			Log:        logger(),
 			Trace:      logger(),
 		})
-		rc := testutil.EvalAsync(context.Background(), eval)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		rc := testutil.EvalAsync(ctx, eval)
 		var (
 			internValue = testutil.WriteFiles(e.Repo, "ignored")
 			execValue   = testutil.WriteFiles(e.Repo, "a", "b", "c", "d")
 		)
-		e.Ok(intern, internValue)
-		e.Ok(exec, execValue)
+		e.Ok(ctx, intern, internValue)
+		e.Ok(ctx, exec, execValue)
 		r := <-rc
+		cancel()
 		if r.Err != nil {
 			t.Fatal(r.Err)
 		}
@@ -379,8 +389,10 @@ func TestCacheLookup(t *testing.T) {
 	})
 
 	testutil.WriteCache(eval, extern.Digest())
-	rc := testutil.EvalAsync(context.Background(), eval)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	rc := testutil.EvalAsync(ctx, eval)
 	r := <-rc
+	cancel()
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
@@ -400,14 +412,16 @@ func TestCacheLookup(t *testing.T) {
 		Trace:      logger(),
 	})
 	testutil.WriteCache(eval, intern.Digest(), "a", "b")
-	rc = testutil.EvalAsync(context.Background(), eval)
+	ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc = testutil.EvalAsync(ctx, eval)
 	for _, v := range []reflow.Fileset{testutil.Files("a"), testutil.Files("b")} {
 		v := v
 		f := mapFunc(&flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done})
-		go e.Ok(f, v) // identity
+		go e.Ok(ctx, f, v) // identity
 	}
 
-	e.Ok(extern, reflow.Fileset{})
+	e.Ok(ctx, extern, reflow.Fileset{})
 	r = <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
@@ -452,8 +466,10 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 		reflow.AssertionKey{"c", "namespace"}, map[string]string{"tag": "v1"}))
 	testutil.WriteCacheFileset(eval, extern.Digest(), fs)
 
-	rc := testutil.EvalAsync(context.Background(), eval)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	rc := testutil.EvalAsync(ctx, eval)
 	r := <-rc
+	cancel()
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
@@ -482,16 +498,17 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 	_ = fs.AddAssertions(reflow.AssertionsFromEntry(
 		reflow.AssertionKey{"c", "namespace"}, map[string]string{"tag": "v2"}))
 	testutil.WriteCacheFileset(eval, extern.Digest(), fs)
-
-	rc = testutil.EvalAsync(context.Background(), eval)
+	ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+	rc = testutil.EvalAsync(ctx, eval)
 	for _, v := range []reflow.Fileset{testutil.Files("a"), testutil.Files("b")} {
 		v := v
 		f := mapFunc(&flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done})
-		go e.Ok(f, v) // identity
+		go e.Ok(ctx, f, v) // identity
 	}
 
-	e.Ok(extern, fs)
+	e.Ok(ctx, extern, fs)
 	r = <-rc
+	cancel()
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
@@ -521,15 +538,18 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 		reflow.AssertionKey{"c", "error"}, map[string]string{"tag": "v"}))
 	testutil.WriteCacheFileset(eval, extern.Digest(), fs)
 
-	rc = testutil.EvalAsync(context.Background(), eval)
+	ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc = testutil.EvalAsync(ctx, eval)
 	for _, v := range []reflow.Fileset{testutil.Files("a"), testutil.Files("b")} {
 		v := v
 		f := mapFunc(&flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done})
-		go e.Ok(f, v) // identity
+		go e.Ok(ctx, f, v) // identity
 	}
 
-	e.Ok(extern, fs)
+	e.Ok(ctx, extern, fs)
 	r = <-rc
+
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
@@ -577,9 +597,11 @@ func TestCacheLookupBottomup(t *testing.T) {
 	testutil.WriteCache(eval, intern.Digest(), "a", "b")
 	// "a" gets a cache hit, "b" a miss.
 	testutil.WriteCache(eval, mapFunc(flowFiles("a")).Digest(), "a")
-	rc := testutil.EvalAsync(context.Background(), eval)
-	go e.Ok(mapFunc(flowFiles("b")), testutil.Files("b"))
-	e.Ok(extern, reflow.Fileset{})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc := testutil.EvalAsync(ctx, eval)
+	go e.Ok(ctx, mapFunc(flowFiles("b")), testutil.Files("b"))
+	e.Ok(ctx, extern, reflow.Fileset{})
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
@@ -612,10 +634,12 @@ func testCacheOff(t *testing.T, bottomup bool) {
 		Trace:    logger(),
 		BottomUp: bottomup,
 	})
-	rc := testutil.EvalAsync(context.Background(), eval)
-	e.Ok(intern, testutil.Files("a/b/c", "a/b/d", "x/y/z"))
-	e.Ok(exec, testutil.Files("execout"))
-	e.Ok(extern, reflow.Fileset{})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc := testutil.EvalAsync(ctx, eval)
+	e.Ok(ctx, intern, testutil.Files("a/b/c", "a/b/d", "x/y/z"))
+	e.Ok(ctx, exec, testutil.Files("execout"))
+	e.Ok(ctx, extern, reflow.Fileset{})
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
@@ -664,11 +688,13 @@ func TestCacheLookupBottomupPhysical(t *testing.T) {
 	testutil.WriteFile(e.Repo, execFiles)
 	testutil.WriteCache(eval, extern.Digest(), "extern_result")
 
-	rc := testutil.EvalAsync(context.Background(), eval)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc := testutil.EvalAsync(ctx, eval)
 
 	// define execA's result and wait for it to finish writing to cache.
-	e.Ok(execA, testutil.Files(execFiles))
-	if err := e.Exec(execA).Wait(context.Background()); err != nil {
+	e.Ok(ctx, execA, testutil.Files(execFiles))
+	if err := e.Exec(ctx, execA).Wait(ctx); err != nil {
 		t.Fatal(err)
 	}
 	// TODO(marius/swami): allow for tighter integration or observation
@@ -677,7 +703,7 @@ func TestCacheLookupBottomupPhysical(t *testing.T) {
 	// have to wait for the flow's state mutations anyway.
 	time.Sleep(100 * time.Millisecond)
 	// Now define internB's result (same as internA)
-	e.Ok(internB, testutil.Files(internFiles))
+	e.Ok(ctx, internB, testutil.Files(internFiles))
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
@@ -747,10 +773,12 @@ func TestCacheLookupBottomupWithAssertions(t *testing.T) {
 	testutil.AssignExecId(reflow.AssertionsFromEntry(
 		reflow.AssertionKey{"a", "namespace"}, map[string]string{"tag": "v1"}), extern)
 
-	rc := testutil.EvalAsync(context.Background(), eval)
-	go e.Ok(mapFunc(flowFiles("b")), testutil.Files("b"))
-	go e.Ok(mapFunc(flowFiles("c")), testutil.Files("c"))
-	e.Ok(extern, reflow.Fileset{})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc := testutil.EvalAsync(ctx, eval)
+	go e.Ok(ctx, mapFunc(flowFiles("b")), testutil.Files("b"))
+	go e.Ok(ctx, mapFunc(flowFiles("c")), testutil.Files("c"))
+	e.Ok(ctx, extern, reflow.Fileset{})
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
@@ -822,8 +850,10 @@ func TestCacheLookupBottomupWithAssertExact(t *testing.T) {
 			{"c", "namespace"}: {"tag": "vc"},
 		}), extern)
 
-	rc := testutil.EvalAsync(context.Background(), eval)
-	e.Ok(extern, reflow.Fileset{})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc := testutil.EvalAsync(ctx, eval)
+	e.Ok(ctx, extern, reflow.Fileset{})
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
@@ -871,8 +901,10 @@ func TestCacheLookupBottomupWithAssertNever(t *testing.T) {
 		reflow.AssertionKey{"e", "namespace"}, map[string]string{"tag": "v1"}), extern)
 
 	testutil.WriteCache(eval, extern.Digest())
-	rc := testutil.EvalAsync(context.Background(), eval)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	rc := testutil.EvalAsync(ctx, eval)
 	r := <-rc
+	cancel()
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
@@ -933,7 +965,9 @@ func TestCacheLookupBottomupWithAssertNever(t *testing.T) {
 
 	// extern also has a cached result.
 	testutil.WriteCache(eval, extern.Digest())
-	rc = testutil.EvalAsync(context.Background(), eval)
+	ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc = testutil.EvalAsync(ctx, eval)
 	r = <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
@@ -970,8 +1004,10 @@ func TestCacheLookupMissing(t *testing.T) {
 	testutil.WriteCache(eval, exec.Digest(), "x", "y", "z")
 	repo.Delete(context.Background(), reflow.Digester.FromString("x"))
 
-	rc := testutil.EvalAsync(context.Background(), eval)
-	e.Ok(exec, testutil.Files("x", "y", "z"))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc := testutil.EvalAsync(ctx, eval)
+	e.Ok(ctx, exec, testutil.Files("x", "y", "z"))
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
@@ -1011,14 +1047,15 @@ func TestNoCacheExtern(t *testing.T) {
 			Trace:         logger(),
 		})
 		testutil.WriteCache(eval, intern.Digest(), "a", "b")
-		rc := testutil.EvalAsync(context.Background(), eval)
-
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		rc := testutil.EvalAsync(ctx, eval)
 		for _, v := range []reflow.Fileset{testutil.Files("a"), testutil.Files("b")} {
 			f := &flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done}
-			go e.Ok(mapFunc(f), v)
+			go e.Ok(ctx, mapFunc(f), v)
 		}
 
-		e.Ok(extern, reflow.Fileset{})
+		e.Ok(ctx, extern, reflow.Fileset{})
 		r := <-rc
 		if r.Err != nil {
 			t.Fatal(r.Err)
@@ -1054,7 +1091,9 @@ func TestGC(t *testing.T) {
 		Log:      logger(),
 		Trace:    logger(),
 	})
-	rc := testutil.EvalAsync(context.Background(), eval)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc := testutil.EvalAsync(ctx, eval)
 	files := []string{
 		"a/x:x", "a/y:y", "a/z:z", "b/1:1", "b/2:2", "c/xxx:xxx",
 		"orphan:orphan", "unrooted:unrooted"}
@@ -1065,7 +1104,7 @@ func TestGC(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	e.Ok(intern, testutil.Files(files...))
+	e.Ok(ctx, intern, testutil.Files(files...))
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
@@ -1105,7 +1144,9 @@ func TestData(t *testing.T) {
 		Log:      logger(),
 		Trace:    logger(),
 	})
-	r := <-testutil.EvalAsync(context.Background(), eval)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	r := <-testutil.EvalAsync(ctx, eval)
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
@@ -1290,10 +1331,12 @@ func TestScheduler(t *testing.T) {
 	testutil.AssignExecIdRandom(intern, exec, extern)
 
 	eval := flow.NewEval(extern, config)
-	rc := testutil.EvalAsync(context.Background(), eval)
-	e.Ok(intern, testutil.WriteFiles(e.Repo, "a/b/c", "a/b/d", "x/y/z"))
-	e.Ok(exec, testutil.WriteFiles(e.Repo, "execout"))
-	e.Ok(extern, reflow.Fileset{})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc := testutil.EvalAsync(ctx, eval)
+	e.Ok(ctx, intern, testutil.WriteFiles(e.Repo, "a/b/c", "a/b/d", "x/y/z"))
+	e.Ok(ctx, exec, testutil.WriteFiles(e.Repo, "execout"))
+	e.Ok(ctx, extern, reflow.Fileset{})
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
@@ -1330,10 +1373,12 @@ func TestSnapshotter(t *testing.T) {
 	testutil.AssignExecIdRandom(intern, exec, extern)
 
 	eval := flow.NewEval(extern, config)
-	rc := testutil.EvalAsync(context.Background(), eval)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc := testutil.EvalAsync(ctx, eval)
 	// We never see an intern op. Instead we see the resolved + loaded fileset.
 	// Make sure the config is correct.
-	cfg := e.Exec(exec).Config()
+	cfg := e.Exec(ctx, exec).Config()
 	if got, want := len(cfg.Args), 1; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -1341,8 +1386,8 @@ func TestSnapshotter(t *testing.T) {
 	if got, want := *cfg.Args[0].Fileset, resolved; !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	e.Ok(exec, testutil.WriteFiles(e.Repo, "execout"))
-	e.Ok(extern, reflow.Fileset{})
+	e.Ok(ctx, exec, testutil.WriteFiles(e.Repo, "execout"))
+	e.Ok(ctx, extern, reflow.Fileset{})
 
 	r := <-rc
 	if r.Err != nil {
@@ -1382,10 +1427,12 @@ func TestSnapshotterMustIntern(t *testing.T) {
 	testutil.AssignExecIdRandom(intern, exec, internMust, out)
 
 	eval := flow.NewEval(out, config)
-	rc := testutil.EvalFlowAsync(context.Background(), eval)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc := testutil.EvalFlowAsync(ctx, eval)
 	// We never see an intern op. Instead we see the resolved + loaded fileset.
 	// Make sure the config is correct.
-	cfg := e.Exec(exec).Config()
+	cfg := e.Exec(ctx, exec).Config()
 	if got, want := len(cfg.Args), 1; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -1393,8 +1440,8 @@ func TestSnapshotterMustIntern(t *testing.T) {
 	if got, want := *cfg.Args[0].Fileset, resolved; !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	e.Ok(internMust, testutil.WriteFiles(e.Repo, "a/b/c", "a/b/d", "x/y/z"))
-	e.Ok(exec, testutil.WriteFiles(e.Repo, "execout"))
+	e.Ok(ctx, internMust, testutil.WriteFiles(e.Repo, "a/b/c", "a/b/d", "x/y/z"))
+	e.Ok(ctx, exec, testutil.WriteFiles(e.Repo, "execout"))
 
 	r := <-rc
 	if r.Err != nil {
@@ -1417,11 +1464,13 @@ func TestResolverFail(t *testing.T) {
 	testutil.AssignExecIdRandom(intern, exec, extern)
 
 	eval := flow.NewEval(extern, config)
-	rc := testutil.EvalAsync(context.Background(), eval)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc := testutil.EvalAsync(ctx, eval)
 	// Now we do see an intern op: it was forced by the failing resolve.
-	e.Ok(intern, testutil.WriteFiles(e.Repo, "a/b/c", "a/b/d", "x/y/z"))
-	e.Ok(exec, testutil.WriteFiles(e.Repo, "execout"))
-	e.Ok(extern, reflow.Fileset{})
+	e.Ok(ctx, intern, testutil.WriteFiles(e.Repo, "a/b/c", "a/b/d", "x/y/z"))
+	e.Ok(ctx, exec, testutil.WriteFiles(e.Repo, "execout"))
+	e.Ok(ctx, extern, reflow.Fileset{})
 
 	r := <-rc
 	if r.Err != nil {
@@ -1450,7 +1499,9 @@ func TestLoadFail(t *testing.T) {
 	testutil.AssignExecIdRandom(intern, exec, extern)
 
 	eval := flow.NewEval(extern, config)
-	rc := testutil.EvalAsync(context.Background(), eval)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	rc := testutil.EvalAsync(ctx, eval)
 	// Here we see no ops at all, since the load fails the flow.
 	r := <-rc
 	if got, want := r.Err, errUnresolved; errors.Match(want, got) {
@@ -1478,10 +1529,12 @@ func TestSchedulerSubmit(t *testing.T) {
 	config.Log = logger()
 	config.Trace = logger()
 	eval := flow.NewEval(extern, config)
-	_ = testutil.EvalAsync(context.Background(), eval)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_ = testutil.EvalAsync(ctx, eval)
 
 	wa.Tick()
-	e.Ok(intern, testutil.WriteFiles(e.Repo, "a/b/c", "a/b/d", "x/y/z"))
+	e.Ok(ctx, intern, testutil.WriteFiles(e.Repo, "a/b/c", "a/b/d", "x/y/z"))
 	for i := 0; i < 4; i++ {
 		if e.Pending(exec1) || e.Pending(exec2) {
 			t.Fatal("prematurely pending exec")
@@ -1489,8 +1542,8 @@ func TestSchedulerSubmit(t *testing.T) {
 		wa.Tick()
 	}
 	// These should now both available.
-	_ = e.Exec(exec1)
-	_ = e.Exec(exec2)
+	_ = e.Exec(ctx, exec1)
+	_ = e.Exec(ctx, exec2)
 }
 
 func TestRefreshAssertionBatchCache(t *testing.T) {

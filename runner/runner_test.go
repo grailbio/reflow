@@ -104,7 +104,7 @@ func TestRunner(t *testing.T) {
 		c  = make(chan *Runner)
 		rc = make(chan bool)
 	)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	defer close(c)
 	go func() {
@@ -125,7 +125,7 @@ func TestRunner(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	c <- r
-	alloc.Ok(r.Flow, testutil.Files("ok"))
+	alloc.Ok(ctx, r.Flow, testutil.Files("ok"))
 	if <-rc {
 		t.Fatal("late termination")
 	}

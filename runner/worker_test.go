@@ -47,7 +47,8 @@ func TestWorker(t *testing.T) {
 		MaxIdleTime: idleTime,
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	rc := testutil.EvalAsync(ctx, eval)
 	var wg wg.WaitGroup
 	wg.Add(1)
@@ -56,7 +57,7 @@ func TestWorker(t *testing.T) {
 		wg.Done()
 	}()
 
-	e.Ok(intern, testutil.WriteFiles(e.Repository(), "intern"))
+	e.Ok(ctx, intern, testutil.WriteFiles(e.Repository(), "intern"))
 
 	tf.Ok(e2.Repository(), e.Repository(), testutil.File("intern"))
 	tf.Ok(e2.Repository(), e.Repository(), testutil.File("intern"))
@@ -65,16 +66,16 @@ func TestWorker(t *testing.T) {
 	// which it is. We expect the auxilliary executor to grab the
 	// remaining ones (concurrently).
 	execs := []*flow.Flow{exec1, exec2, exec3}
-	main := e.WaitAny(execs...)
+	main := e.WaitAny(ctx, execs...)
 	var maini int
 	for i, exec := range execs {
 		if exec == main {
 			maini = i
 			continue
 		}
-		e2.Ok(exec, testutil.WriteFiles(e2.Repository(), fmt.Sprint(i+1)))
+		e2.Ok(ctx, exec, testutil.WriteFiles(e2.Repository(), fmt.Sprint(i+1)))
 	}
-	e.Ok(main, testutil.WriteFiles(e.Repository(), fmt.Sprint(maini+1)))
+	e.Ok(ctx, main, testutil.WriteFiles(e.Repository(), fmt.Sprint(maini+1)))
 	for i, exec := range execs {
 		if exec == main {
 			continue
