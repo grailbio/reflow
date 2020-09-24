@@ -323,8 +323,10 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 		// file or directory typed. File and template dependencies are pushed
 		// down to the exec node directly.
 		var (
-			tvals    = make([]interface{}, len(e.Decls))
-			argIndex = make(map[int]int)
+			tvals                   = make([]interface{}, len(e.Decls))
+			argIndex                = make(map[int]int)
+			hasNonFileDirDelayedDep bool
+			hasFileDirDelayedDep    bool
 		)
 		for i, d := range e.Decls {
 			v, err := d.Expr.eval(sess, env, d.ID(ident))
@@ -353,6 +355,14 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			if err != nil {
 				return nil, err
 			}
+
+			if _, ok := v.(*flow.Flow); ok && arg.Type.Kind != types.FileKind && arg.Type.Kind != types.DirKind {
+				hasNonFileDirDelayedDep = true
+			}
+			if arg.Type.Kind == types.FileKind || arg.Type.Kind == types.DirKind {
+				hasFileDirDelayedDep = true
+			}
+
 			// We need the full argument to render.
 			v = Force(v, arg.Type)
 			tvals = append(tvals, tval{arg.Type, v})
@@ -372,7 +382,9 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			return e.exec(sess, env, ident, args, makeResources(penv))
 		}, tvals...)
 		kf := k.(*flow.Flow)
-		kf.ExecDepIncorrectCacheKeyBug = true
+
+		// if this exec has a delayed non-file/non-dir argument AND delayed file/dir argument, it could be susceptible to T41260
+		kf.ExecDepIncorrectCacheKeyBug = hasNonFileDirDelayedDep && hasFileDirDelayedDep
 		return kf, err
 	case ExprCond:
 		return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {

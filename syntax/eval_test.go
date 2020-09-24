@@ -434,6 +434,42 @@ func TestExecDelayedNonFileDirDeps(t *testing.T) {
 	}
 }
 
+func TestExecDelayedNonFileDirDepsNoFileDirDeps(t *testing.T) {
+	v1, typ1, _, err := evalDecls(`
+		f := [file("s3://tmp/foo")]
+		test := exec(image := "ubuntu", mem := 32*GiB, cpu := 32) (out file) {"
+			cat {{f}} > {{out}}
+		"}
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2, _, _, err := evalDecls(`
+		f := [file("s3://tmp/bar")]
+		test := exec(image := "ubuntu", mem := 32*GiB, cpu := 32) (out file) {"
+			cat {{f}} > {{out}}
+		"}
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := typ1, types.File; !got.Equal(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	f1 := v1.(*flow.Flow)
+	if got, want := f1.Op, flow.K; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	f2 := v2.(*flow.Flow)
+	if got, want := f2.Op, flow.K; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	t.Logf("a: %v, b: %v", f1.Digest(), f2.Digest())
+	if f1.Digest() == f2.Digest() {
+		t.Fatalf("digests of execs with different deps are not different: %v vs %v", f1.Digest(), f2.Digest())
+	}
+}
+
 func TestEvalErr(t *testing.T) {
 	sess := NewSession(nil)
 	for _, c := range []struct {
