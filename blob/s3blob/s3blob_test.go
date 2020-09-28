@@ -439,6 +439,23 @@ func TestCopy(t *testing.T) {
 	checkObject(t, bucket, "src_with_hash_to_dst2", c, d)
 }
 
+func TestCopyWithRetry(t *testing.T) {
+	fn2 := &failN{n: 2}
+	bucket := newCopyErrorBucket(t, fn2)
+	ctx := context.Background()
+	c := content("new content")
+
+	if err := bucket.Put(ctx, "src", 0, bytes.NewReader(c.Data), ""); err != nil {
+		t.Fatal(err)
+	}
+	checkObject(t, bucket, "src", c, digest.Digest{})
+
+	if err := bucket.Copy(ctx, "src", "key_awsrequesttimeout", ""); err != nil {
+		t.Fatal(err)
+	}
+	checkObject(t, bucket, "key_awsrequesttimeout", c, digest.Digest{})
+}
+
 // failN returns true n times when fail() is called and then returns false, until its reset.
 type failN struct {
 	n, i int
@@ -468,6 +485,10 @@ func newCopyErrorBucket(t *testing.T, fn *failN) *Bucket {
 				if *upc.PartNumber == int64(1) && fn.fail() {
 					return errorKeys[*upc.Key]
 				}
+			}
+		case "CopyObjectRequest":
+			if req, ok := input.(*s3.CopyObjectInput); ok && fn.fail() {
+				return errorKeys[*req.Key]
 			}
 		}
 		return nil

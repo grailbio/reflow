@@ -588,7 +588,17 @@ func (b *Bucket) copyObject(ctx context.Context, key string, src *Bucket, srcKey
 		if srcFile.ContentHash.IsZero() && contentHash != "" {
 			input.Metadata = map[string]*string{awsContentSha256Key: aws.String(contentHash)}
 		}
-		_, err = b.client.CopyObjectWithContext(ctx, input)
+		for retries := 0; ; retries++ {
+			_, err = b.client.CopyObjectWithContext(ctx, input)
+			err = ctxErr(ctx, err)
+			if err == nil || !retryable(ctx, err) {
+				break
+			}
+			log.Debugf("s3blob.copyObject: attempt (%d): %s -> %s\n%v\n", retries, srcUrl, dstUrl, err)
+			if err = retry.Wait(ctx, b.retrier, retries); err != nil {
+				break
+			}
+		}
 		return err
 	}
 	// Do a multi-part copy
