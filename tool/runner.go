@@ -265,10 +265,14 @@ func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger) (r 
 			}
 		}
 	}
-
+	var runID *taskdb.RunID
+	err = runConfig.Config.Instance(&runID)
+	if err != nil {
+		return
+	}
 	r = &Runner{
 		runConfig:   runConfig,
-		RunID:       taskdb.NewRunID(),
+		RunID:       *runID,
 		scheduler:   scheduler,
 		predictor:   pred,
 		schedCancel: schedCancel,
@@ -515,8 +519,8 @@ func (r *Runner) GetRunID() taskdb.RunID {
 
 func (r *Runner) setRunComplete(ctx context.Context, endTime time.Time) error {
 	var (
-		execLog, sysLog, dotFile digest.Digest
-		rc                       io.ReadCloser
+		execLog, sysLog, dotFile, trace digest.Digest
+		rc                              io.ReadCloser
 	)
 	runbase, err := r.Runbase()
 	if err == nil {
@@ -544,10 +548,19 @@ func (r *Runner) setRunComplete(ctx context.Context, endTime time.Time) error {
 			cancel()
 			_ = rc.Close()
 		}
+		if rc, err = os.Open(runbase + ".trace"); err == nil {
+			// this file will only exist if the localtracer is used (default)
+			pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			if trace, err = r.repo.Put(pctx, rc); err != nil {
+				r.Log.Debugf("put trace file in repo %s: %v", r.repo.URL(), err)
+			}
+			cancel()
+			_ = rc.Close()
+		}
 	} else {
 		r.Log.Debugf("unable to determine runbase: %v", err)
 	}
-	err = r.tdb.SetRunComplete(ctx, r.RunID, execLog, sysLog, dotFile, endTime)
+	err = r.tdb.SetRunComplete(ctx, r.RunID, execLog, sysLog, dotFile, trace, endTime)
 	if err == nil {
 		var ds []string
 		if !execLog.IsZero() {
@@ -558,6 +571,9 @@ func (r *Runner) setRunComplete(ctx context.Context, endTime time.Time) error {
 		}
 		if !dotFile.IsZero() {
 			ds = append(ds, fmt.Sprintf("evalGraph: %s", dotFile.Short()))
+		}
+		if !trace.IsZero() {
+			ds = append(ds, fmt.Sprintf("trace: %s", trace.Short()))
 		}
 		r.Log.Debugf("Saved all logs in task db %s", strings.Join(ds, ", "))
 	}
@@ -619,14 +635,14 @@ func (r Runner) waitForBackgroundTasks(timeout time.Duration) {
 
 // Runbase returns the base path for the run
 func (r Runner) Runbase() (string, error) {
-	rundir, err := rundir()
+	rundir, err := Rundir()
 	if err != nil {
 		return "", err
 	}
-	return runbase(rundir, r.RunID), nil
+	return Runbase(rundir, r.RunID), nil
 }
 
-func rundir() (string, error) {
+func Rundir() (string, error) {
 	var rundir string
 	if home, ok := os.LookupEnv("HOME"); ok {
 		rundir = filepath.Join(home, ".reflow", "runs")
@@ -643,7 +659,7 @@ func rundir() (string, error) {
 	return rundir, nil
 }
 
-func runbase(rundir string, runID taskdb.RunID) string {
+func Runbase(rundir string, runID taskdb.RunID) string {
 	return filepath.Join(rundir, runID.Hex())
 }
 

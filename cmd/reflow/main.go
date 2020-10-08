@@ -29,6 +29,7 @@ import (
 	"github.com/grailbio/reflow/tool"
 	"github.com/grailbio/reflow/trace"
 	_ "github.com/grailbio/reflow/trace"
+	_ "github.com/grailbio/reflow/trace/localtrace"
 	_ "github.com/grailbio/reflow/trace/xraytrace"
 )
 
@@ -97,6 +98,7 @@ func main() {
 		infra2.TaskDB:     new(taskdb.TaskDB),
 		infra2.Docker:     new(infra2.DockerConfig),
 		infra2.Predictor:  new(infra2.PredictorConfig),
+		infra2.RunID:      new(taskdb.RunID),
 	}
 	cmd.SchemaKeys = infra.Keys{
 		infra2.AWSCreds:  "awscreds",
@@ -111,8 +113,9 @@ func main() {
 		infra2.SSHKey:    "key",
 		infra2.TLS:       "tls,file=/tmp/ca.reflow",
 		infra2.Username:  "user",
-		infra2.Tracer:    "xray",
+		infra2.Tracer:    "localtracer",
 		infra2.Docker:    "docker,memlimit=soft",
+		infra2.RunID:     "runid",
 	}
 	cmd.BootstrapBinary = bootstrapimage
 	cmd.Flags().Parse(os.Args[1:])

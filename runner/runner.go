@@ -291,9 +291,9 @@ func (r *Runner) Eval(ctx context.Context) (string, error) {
 	eval := flow.NewEval(r.Flow, config)
 
 	ctx, done := trace.Start(ctx, trace.Run, r.Flow.Digest(), r.Cmdline)
-	traceid := trace.URL(ctx)
-	if traceid != "" {
-		r.Log.Printf("Trace ID: %v", traceid)
+	traceURL := trace.URL(ctx)
+	if traceURL != "" {
+		r.Log.Printf("Trace: %v", traceURL)
 	}
 
 	// Run stealers if we're running with an alloc. Otherwise,

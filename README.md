@@ -47,6 +47,18 @@ important ways:
 - it takes workflow software seriously: the Reflow DSL provides type checking, modularity, and other constructors that are commonplace in general purpose programming languages;
 - because of its high level data model and use of caching, Reflow computes [incrementally](https://en.wikipedia.org/wiki/Incremental_computing): it is always able to compute the smallest set of operations given what has been computed previously.
 
+## Table of Contents
+
+- [Quickstart - AWS](#quickstart---aws)
+- [Simple bioinformatics workflow](#simple-bioinformatics-workflow)
+- [1000align](#1000align)
+- [A note on Reflow's EC2 cluster manager](#a-note-on-reflows-ec2-cluster-manager)
+- [Documentation](#documentation)
+- [Developing and building Reflow](#developing-and-building-reflow)
+- [Debugging Reflow runs](#debugging-reflow-runs)
+- [Support and community](#support-and-community)
+
+
 ## Getting Reflow
 
 You can get binaries (macOS/amd64, Linux/amd64) for the latest
@@ -666,6 +678,29 @@ and embeds the cross-compiled binary.
 	% go install github.com/grailbio/reflow/cmd/buildreflow
 	% buildreflow
 
+## Debugging Reflow runs
+
+The `$HOME/.reflow/runs` directory contains logs, traces and other 
+information for each Reflow run. If the run you're looking for is
+no longer there, the `info` and `cat` tools can be used if you have 
+the run ID:
+
+	% reflow info 2fd5a9b6
+	runid    user       start   end    ExecLog  SysLog   EvalGraph Trace
+    2fd5a9b6 username   4:41PM  4:41PM 29a4b506 41a8594d 90f40bfc  4ec75aac
+    
+    % reflow cat 29a4b506 > /tmp/29a4b506.execlog
+
+**Tracing**
+
+The `*.trace` files in `$HOME/.reflow/runs` can be viewed using
+Google Chrome's built in trace viewer at: `chrome://tracing/`.
+Use the `Load` button to select the `*.trace` file and click on 
+traced events to see additional information.
+
+Alternatively, the trace files are just json, so they can be viewed 
+directly.
+	
 ## Support and community
 
 Please join us on on [Gitter](https://gitter.im/grailbio/reflow) or 

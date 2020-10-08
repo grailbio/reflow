@@ -26,7 +26,7 @@ const xrayHttpHeaderName = "x-aws-xray-trace"
 
 // Help implements infra.Provider
 func (Tracer) Help() string {
-	return "configure an AWS Xray tracer to write traces"
+	return "configure an AWS Xray tracer to write traces (note: you must also have the xray daemon running https://docs.aws.amazon.com/xray/latest/devguide/xray-daemon.html)"
 }
 
 // WriteHTTPContext writes the trace context to the HTTP header.

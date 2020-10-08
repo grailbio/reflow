@@ -54,6 +54,7 @@ const (
 	TaskDB     = "taskdb"
 	Docker     = "docker"
 	Predictor  = "predictor"
+	RunID      = "runid"
 )
 
 // User is the infrastructure provider for username.

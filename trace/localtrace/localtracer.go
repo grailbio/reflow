@@ -1,0 +1,173 @@
+package localtrace
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"sync"
+	"time"
+
+	"github.com/grailbio/infra"
+	"github.com/grailbio/reflow/taskdb"
+	"github.com/grailbio/reflow/tool"
+	"github.com/grailbio/reflow/trace"
+)
+
+func init() {
+	infra.Register("localtracer", new(LocalTracer))
+}
+
+type LocalTracer struct {
+	mu            sync.Mutex
+	tidMap        map[string]int
+	trace         T
+	tracefilepath string
+}
+
+// Init implements infra.Provider
+func (lt *LocalTracer) Init(runID *taskdb.RunID) error {
+	lt.tidMap = make(map[string]int)
+	dir, err := tool.Rundir()
+	if err == nil {
+		base := tool.Runbase(dir, *runID)
+		lt.tracefilepath = base + ".trace"
+	}
+	return err
+}
+
+// Help implements infra.Provider
+func (lt *LocalTracer) Help() string {
+	return "configure a local tracer to write traces to ~/.reflow/runs, viewable with chrome://tracing"
+}
+
+type key int
+
+func (k key) getEvent(ctx context.Context) (Event, error) {
+	if event, ok := ctx.Value(k).(Event); ok {
+		return event, nil
+	}
+	return Event{}, fmt.Errorf("no event found for key: %d", k)
+}
+
+const eventKey = key(0)
+
+// Emit emits a trace event and implements the trace.Tracer interface. This
+// should never be used directly, instead use trace.Start and trace.Note.
+func (lt *LocalTracer) Emit(ctx context.Context, e trace.Event) (context.Context, error) {
+	if e.Time.IsZero() {
+		e.Time = time.Now()
+	}
+	switch e.Kind {
+	case trace.StartEvent:
+		id := e.Id.Short()
+		lt.mu.Lock()
+		tid, ok := lt.tidMap[id]
+		if !ok {
+			lt.tidMap[id] = len(lt.tidMap) // increment the Tid for each unique ID we see
+			tid = lt.tidMap[id]
+		}
+		lt.mu.Unlock()
+		event := Event{
+			Pid:  0,
+			Tid:  tid,
+			Ts:   e.Time.UnixNano() / 1000, // Ts has to be in microseconds
+			Ph:   "X",                      // X indicates a "complete" event in the Chrome tracing format. "Dur" will be filled in later on EndEvent
+			Name: e.Name,
+			Cat:  e.SpanKind.String(),
+			Args: map[string]interface{}{
+				"beginTime": e.Time.Format(time.RFC850),
+			},
+		}
+		// store the StartEvent in the ctx so that we can update it on subsequent
+		// NoteEvents or complete it when the EndEvent is received
+		return context.WithValue(ctx, eventKey, event), nil
+	case trace.EndEvent:
+		if event, err := eventKey.getEvent(ctx); err == nil {
+			// convert to microseconds to ensure common units before calculating duration
+			event.Dur = (e.Time.UnixNano() / 1000) - event.Ts
+			event.Args["endTime"] = e.Time.Format(time.RFC850)
+			lt.trace.Events = append(lt.trace.Events, event)
+			lt.flush()
+		}
+		// don't return a context for EndEvent; it shouldn't be used
+		return nil, nil
+	case trace.NoteEvent:
+		if event, err := eventKey.getEvent(ctx); err == nil {
+			// storing the key/val note in the duration event's args will
+			// display them in the trace viewer
+			event.Args[e.Key] = e.Value
+		}
+		// return the same context; if it contained an event, it will have been updated
+		return ctx, nil
+	default:
+		panic("unsupported trace event kind")
+	}
+}
+
+// WriteHTTPContext is not implemented for LocalTracer, this stub implements the
+// trace.Tracer interface.
+func (lt *LocalTracer) WriteHTTPContext(ctx context.Context, header *http.Header) {
+	panic("LocalTracer.WriteHTTPContext not implemented")
+}
+
+// ReadHTTPContext is not implemented for LocalTracer, this stub implements the
+// trace.Tracer interface.
+func (lt *LocalTracer) ReadHTTPContext(ctx context.Context, header http.Header) context.Context {
+	panic("LocalTracer.ReadHTTPContext not implemented")
+}
+
+// CopyTraceContext copies the trace context from src to dst and implements the
+// trace.Tracer interface. Do not use directly, instead use trace.CopyTraceContext.
+func (lt *LocalTracer) CopyTraceContext(src context.Context, dst context.Context) context.Context {
+	event, _ := eventKey.getEvent(src)
+	// okay to ignore the error, event will be nil
+	return context.WithValue(dst, eventKey, event)
+}
+
+// URL returns the location of the output trace file and implements the
+// trace.Tracer interface. Do not use directly, instead use trace.URL.
+func (lt *LocalTracer) URL(_ context.Context) string {
+	return lt.tracefilepath
+}
+
+func (lt *LocalTracer) flush() {
+	if tracefile, err := os.Create(lt.tracefilepath); err == nil {
+		defer tracefile.Close()
+		_ = lt.trace.Encode(tracefile)
+	}
+}
+
+// Event is an event in the Chrome tracing format. The fields are mirrored
+// exactly from: https://docs.google.com/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU/preview
+// Copied from: github.com/grailbio/bigslice/internal/trace/trace.go
+type Event struct {
+	Pid  int                    `json:"pid"`
+	Tid  int                    `json:"tid"`
+	Ts   int64                  `json:"ts"`
+	Ph   string                 `json:"ph"`
+	Dur  int64                  `json:"dur,omitempty"`
+	Name string                 `json:"name"`
+	Cat  string                 `json:"cat,omitempty"`
+	Args map[string]interface{} `json:"args"`
+}
+
+// T represents the JSON object format in the Chrome tracing format. For more
+// details, see: https://docs.google.com/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU/preview
+// Copied from: github.com/grailbio/bigslice/internal/trace/trace.go
+type T struct {
+	Events []Event `json:"traceEvents"`
+}
+
+// Encode JSON encodes t into outfile.
+func (t *T) Encode(w io.Writer) error {
+	return json.NewEncoder(w).Encode(t)
+}
+
+// Decode decodes the JSON object format read from r into t. Call this with a t
+// zero value.
+func (t *T) Decode(r io.Reader) error {
+	return json.NewDecoder(r).Decode(t)
+}

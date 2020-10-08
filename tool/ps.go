@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	runHeader                   = "runid\tuser\tstart\tend\tExecLog\tSysLog\tEvalGraph"
+	runHeader                   = "runid\tuser\tstart\tend\tExecLog\tSysLog\tEvalGraph\tTrace"
 	taskHeader                  = "taskid\tident\tstart\tend\tduration\tstate\tmem\tcpu\tdisk\tprocs"
 	taskHeaderLongWithTaskDB    = "uri/resultid\tinspect"
 	taskHeaderLongWithoutTaskDB = "uri"
@@ -385,7 +385,7 @@ func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing bool) {
 		if len(run.taskInfo) == 0 {
 			continue
 		}
-		var st, et, exec, sys, graph string
+		var st, et, exec, sys, graph, trace string
 		layout := time.RFC822
 		if t := run.Run.Start; !t.IsZero() {
 			layout = format(t)
@@ -403,8 +403,11 @@ func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing bool) {
 		if d := run.Run.EvalGraph; !d.IsZero() {
 			graph = d.Short()
 		}
+		if d := run.Run.Trace; !d.IsZero() {
+			trace = d.Short()
+		}
 		fmt.Fprint(w, runHeader, "\n")
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", run.Run.ID.IDShort(), run.Run.User, st, et, exec, sys, graph)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", run.Run.ID.IDShort(), run.Run.User, st, et, exec, sys, graph, trace)
 		fmt.Fprint(w, "\t", taskHeader)
 		if longListing {
 			fmt.Fprint(w, "\t", taskHeaderLongWithTaskDB)

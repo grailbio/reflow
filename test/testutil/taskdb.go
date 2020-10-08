@@ -26,7 +26,7 @@ func (n nopTaskDB) SetRunAttrs(ctx context.Context, id taskdb.RunID, bundle dige
 }
 
 // SetRunComplete is a no op.
-func (n nopTaskDB) SetRunComplete(ctx context.Context, id taskdb.RunID, execLog, sysLog, evalGraph digest.Digest, end time.Time) error {
+func (n nopTaskDB) SetRunComplete(ctx context.Context, id taskdb.RunID, execLog, sysLog, evalGraph, trace digest.Digest, end time.Time) error {
 	return nil
 }
 

@@ -72,6 +72,7 @@ const (
 	ExecLog
 	SysLog
 	EvalGraph
+	Trace
 )
 
 func init() {
@@ -123,6 +124,7 @@ const (
 	colExecLog   = "ExecLog"
 	colSysLog    = "Syslog"
 	colEvalGraph = "EvalGraph"
+	colTrace     = "Trace"
 )
 
 var colmap = map[taskdb.Kind]string{
@@ -151,6 +153,7 @@ var colmap = map[taskdb.Kind]string{
 	ExecLog:     colExecLog,
 	SysLog:      colSysLog,
 	EvalGraph:   colEvalGraph,
+	Trace:       colTrace,
 }
 
 // Index names used in dynamodb table.
@@ -266,7 +269,7 @@ func (t *TaskDB) SetRunAttrs(ctx context.Context, id taskdb.RunID, bundle digest
 }
 
 // SetRunComplete sets the result of the run post completion.
-func (t *TaskDB) SetRunComplete(ctx context.Context, id taskdb.RunID, execLog, sysLog, evalGraph digest.Digest, end time.Time) error {
+func (t *TaskDB) SetRunComplete(ctx context.Context, id taskdb.RunID, execLog, sysLog, evalGraph, trace digest.Digest, end time.Time) error {
 	if end.IsZero() {
 		end = time.Now()
 	}
@@ -287,6 +290,10 @@ func (t *TaskDB) SetRunComplete(ctx context.Context, id taskdb.RunID, execLog, s
 	if !evalGraph.IsZero() {
 		updates = append(updates, fmt.Sprintf("%s = :evalgraph", colEvalGraph))
 		values[":evalgraph"] = &dynamodb.AttributeValue{S: aws.String(evalGraph.String())}
+	}
+	if !trace.IsZero() {
+		updates = append(updates, fmt.Sprintf("%s = :trace", colTrace))
+		values[":trace"] = &dynamodb.AttributeValue{S: aws.String(trace.String())}
 	}
 	input := &dynamodb.UpdateItemInput{
 		TableName: aws.String(t.TableName),
@@ -876,7 +883,7 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 				errs = append(errs, fmt.Errorf("parse endtime %v: %v", *it[colEndTime].S, err))
 			}
 		}
-		var execLog, sysLog, evalGraph digest.Digest
+		var execLog, sysLog, evalGraph, trace digest.Digest
 		if v, ok := it[colExecLog]; ok {
 			execLog, err = digest.Parse(*v.S)
 			if err != nil {
@@ -895,6 +902,12 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 				errs = append(errs, fmt.Errorf("parse evalGraph %v: %v", *v.S, err))
 			}
 		}
+		if v, ok := it[colTrace]; ok {
+			trace, err = digest.Parse(*v.S)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("parse trace %v: %v", *v.S, err))
+			}
+		}
 		runs = append(runs, taskdb.Run{
 			ID:        taskdb.RunID(id),
 			Labels:    l,
@@ -905,6 +918,7 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 			ExecLog:   execLog,
 			SysLog:    sysLog,
 			EvalGraph: evalGraph,
+			Trace:     trace,
 		})
 	}
 	if len(errs) == 0 {

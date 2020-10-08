@@ -142,10 +142,14 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 		Status:   c.Status,
 		RunFlags: runFlags,
 	}
+	runConfig.RunFlags.Cluster, err = clusterInstance(c.Config, c.Status)
+	c.must(err)
 
-	runID := taskdb.NewRunID()
+	r, err := NewRunner(ctx, runConfig, c.Log)
+	c.must(err)
+
 	// Set up run transcript and log files.
-	base := c.Runbase(runID)
+	base := c.Runbase(r.RunID)
 	c.must(os.MkdirAll(filepath.Dir(base), 0777))
 	var (
 		execfile, logfile, dotfile *os.File
@@ -180,7 +184,7 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 		c.Log.Outputter = saveOut
 	}()
 
-	if !runConfig.RunFlags.Local {
+	if !r.runConfig.RunFlags.Local {
 		// make sure cluster logs go to the syslog.
 		var ec *ec2cluster.Cluster
 		if err = c.Config.Instance(&ec); err == nil {
@@ -190,14 +194,6 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 				ec.Log = saveOut
 			}()
 		}
-	}
-	runConfig.RunFlags.Cluster, err = clusterInstance(c.Config, c.Status)
-	c.must(err)
-	r, err := NewRunner(ctx, runConfig, c.Log)
-	if err != nil {
-		c.Fatal(err)
-	}
-	if !r.runConfig.RunFlags.Local {
 		c.onexit(func() {
 			if err = r.clusterShutdown(); err != nil {
 				r.Log.Errorf("cluster shutdown: %v", err)
@@ -206,7 +202,6 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 	}
 	// Tee the exec logs in a separate (.execlog) file.
 	r.Log = execLogger
-	r.RunID = runID
 	if dotfile != nil {
 		r.DotWriter = dotfile
 	}
@@ -232,7 +227,7 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 
 // rundir returns the directory that stores run state, creating it if necessary.
 func (c *Cmd) rundir() string {
-	rundir, err := rundir()
+	rundir, err := Rundir()
 	if err != nil {
 		c.Fatalf("failed to create temporary directory: %v", err)
 	}
@@ -241,7 +236,7 @@ func (c *Cmd) rundir() string {
 
 // Runbase returns the base path for the run with the provided name
 func (c Cmd) Runbase(runID taskdb.RunID) string {
-	return runbase(c.rundir(), runID)
+	return Runbase(c.rundir(), runID)
 }
 
 // WaitForBackgroundTasks waits until all background tasks complete, or if the provided

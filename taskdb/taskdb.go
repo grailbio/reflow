@@ -17,12 +17,23 @@ import (
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/retry"
+	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/pool"
 )
 
 // RunID is a unique identifier for a run.
 type RunID digest.Digest
+
+func init() {
+	infra.Register("runid", new(RunID))
+}
+
+// Init implements infra.Provider
+func (r *RunID) Init() error {
+	*r = NewRunID()
+	return nil
+}
 
 // NewRunID produces a random RunID.
 func NewRunID() RunID {
@@ -134,7 +145,7 @@ type TaskDB interface {
 	// SetRunAttrs sets the reflow bundle and corresponding args for this run.
 	SetRunAttrs(ctx context.Context, id RunID, bundle digest.Digest, args []string) error
 	// SetRunComplete marsk the run as complete.
-	SetRunComplete(ctx context.Context, id RunID, execLog, sysLog, evalGraph digest.Digest, end time.Time) error
+	SetRunComplete(ctx context.Context, id RunID, execLog, sysLog, evalGraph, trace digest.Digest, end time.Time) error
 	// CreateTask creates a new task in the taskdb with the provided taskID, runID and flowID, imgCmdID, ident, and uri.
 	CreateTask(ctx context.Context, id TaskID, runID RunID, flowID digest.Digest, imgCmdID ImgCmdID, ident, uri string) error
 	// SetTaskResult sets the result of the task post completion.
@@ -178,7 +189,7 @@ type Run struct {
 	// End is the time the run ended (if it has).
 	End time.Time
 	// Various logs and other run info generated for the run.
-	ExecLog, SysLog, EvalGraph digest.Digest
+	ExecLog, SysLog, EvalGraph, Trace digest.Digest
 }
 
 func (r Run) String() string {
