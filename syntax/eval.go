@@ -327,6 +327,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			argIndex                = make(map[int]int)
 			hasNonFileDirDelayedDep bool
 			hasFileDirDelayedDep    bool
+			image                   string
 		)
 		for i, d := range e.Decls {
 			v, err := d.Expr.eval(sess, env, d.ID(ident))
@@ -334,7 +335,8 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				return nil, err
 			}
 			if d.Pat.Ident == "image" {
-				e.Image = v.(string)
+				image = v.(string)
+				e.image = v.(string)
 			}
 			if d.Pat.Ident == "nondeterministic" {
 				e.NonDeterministic = v.(bool)
@@ -379,7 +381,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			for i := len(e.Decls); i < len(vs); i++ {
 				args[argIndex[i]] = vs[i]
 			}
-			return e.exec(sess, env, ident, args, makeResources(penv))
+			return e.exec(sess, env, image, ident, args, makeResources(penv))
 		}, tvals...)
 		kf := k.(*flow.Flow)
 
@@ -709,7 +711,7 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 
 // Exec returns a Flow value for an exec expression. The resolved
 // image and resources are passed by the caller.
-func (e *Expr) exec(sess *Session, env *values.Env, ident string, args map[int]values.T, resources reflow.Resources) (values.T, error) {
+func (e *Expr) exec(sess *Session, env *values.Env, image string, ident string, args map[int]values.T, resources reflow.Resources) (values.T, error) {
 	// Execs are special. The interpolation environment also has the
 	// output ids.
 	narg := len(e.Template.Args)
@@ -818,7 +820,7 @@ func (e *Expr) exec(sess *Session, env *values.Env, ident string, args map[int]v
 		dirs[i] = typ.Kind == types.DirKind
 	}
 
-	sess.SeeImage(e.Image)
+	sess.SeeImage(image)
 
 	// The output from an exec is a fileset, so we must coerce it back into a
 	// tuple indexed by the our indexer. We must also coerce filesets into
@@ -830,7 +832,7 @@ func (e *Expr) exec(sess *Session, env *values.Env, ident string, args map[int]v
 			Op:        flow.Exec,
 			Ident:     ident,
 			Position:  e.Position.String(), // XXX TODO full path
-			Image:     e.Image,
+			Image:     image,
 			Resources: resources,
 			// TODO(marius): use a better interpolation scheme that doesn't
 			// require us to do these gymnastics wrt string interpolation.

@@ -216,7 +216,10 @@ type Expr struct {
 
 	// Image is the (evaluated) image string used in the exec.
 	// It is populated during evaluation.
-	Image string
+	// NOTE: The image field isn't a constant in an exec expression. This is solely present here to maintain
+	// backwards compatibility with existing digests (digest1). Otherwise this field should NOT be used in any other
+	// contexts as it can be set to an incorrect value.
+	image string
 
 	// NonDeterministic defines whether the exec in ExprExec is non-deterministic.
 	NonDeterministic bool

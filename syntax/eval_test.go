@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/types"
@@ -464,9 +465,59 @@ func TestExecDelayedNonFileDirDepsNoFileDirDeps(t *testing.T) {
 	if got, want := f2.Op, flow.K; got != want {
 		t.Fatalf("got %v, want %v", got, want)
 	}
-	t.Logf("a: %v, b: %v", f1.Digest(), f2.Digest())
 	if f1.Digest() == f2.Digest() {
 		t.Fatalf("digests of execs with different deps are not different: %v vs %v", f1.Digest(), f2.Digest())
+	}
+}
+
+func TestExecImages(t *testing.T) {
+	v1, typ1, _, err := evalDecls(`
+		str := delay("str")
+		func img(i string) (out file) = exec(image := i, mem := 32*GiB, cpu := 32) (out file) {"
+			echo {{str}} > {{out}}
+			"}
+		test := [img(i) | i <- ["ubuntu:18.04", "ubuntu20.04"]]
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := typ1, types.List(types.File); !got.Equal(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	list := v1.(values.List)
+	f1 := list[0].(*flow.Flow)
+	if got, want := f1.Op, flow.K; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := len(f1.Deps), 1; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	f1 = f1.K([]values.T{"str"})
+	if got, want := f1.Op, flow.Coerce; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+
+	f2 := list[1].(*flow.Flow)
+	if got, want := f2.Op, flow.K; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got, want := len(f2.Deps), 1; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	f2 = f2.K([]values.T{"str"})
+	if got, want := f2.Op, flow.Coerce; got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+
+	var f1d, f2d digest.Digest
+	if f1d, f2d = f1.Digest(), f2.Digest(); f1d == f2d {
+		t.Fatalf("digests of execs with different images should be different: %v vs %v", f1d, f2d)
+	}
+	if expectf1d := "sha256:763d67e774c9bbe58550654181c0e9611db1845c2831faef2c620a24b21412bb"; expectf1d != f1d.String() {
+		t.Fatalf("expected %v, got %v", expectf1d, f1d)
+	}
+	if expectf2d := "sha256:e3d88a2b57074a78215f5395ee3ddf9c46563228560d070147dcd80175238e2c"; expectf2d != f2d.String() {
+		t.Fatalf("expected %v, got %v", expectf2d, f2d)
 	}
 }
 
