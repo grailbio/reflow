@@ -412,20 +412,20 @@ probe:
 	i.Task = c.Status.Startf("%s", instanceType)
 	i.Go(context.Background())
 	ec2TerminateInstance(i.EC2, *i.ec2inst.InstanceId)
-	if i.Err() != nil {
+	if i.err != nil {
 		// If the error was due to Spot unavailability, try on-demand instead.
-		if err := errors.Recover(i.Err()); i.Spot && errors.Is(errors.Unavailable, err) {
+		if i.Spot && errors.Is(errors.Unavailable, i.err) {
 			i.Task.Printf("spot unavailable, trying on-demand")
 			i.Spot = false
 			i.err = nil
 			i.Task.Done()
 			goto probe
 		}
-		i.Task.Printf("%v", i.Err().Error())
+		i.Task.Printf("%v", i.err.Error())
 	}
 	i.Task.Done()
 	dur := i.Task.Value().End.Sub(i.Task.Value().Begin)
-	return dur.Round(time.Second), i.Err()
+	return dur.Round(time.Second), i.err
 }
 
 func (c *Cluster) newInstance(config instanceConfig) *instance {
@@ -475,9 +475,9 @@ func (c *Cluster) Launch(ctx context.Context, spec InstanceSpec) ManagedInstance
 	i.Go(ctx)
 	i.Task.Done()
 	switch {
-	case i.Err() == nil:
-	case errors.Is(errors.Unavailable, i.Err()):
-		c.Log.Debugf("instance type %s unavailable in region %s: %v", i.Config.Type, c.Region, i.Err())
+	case i.err == nil:
+	case errors.Is(errors.Unavailable, i.err):
+		c.Log.Debugf("instance type %s unavailable in region %s: %v", i.Config.Type, c.Region, i.err)
 		c.instanceState.Unavailable(i.Config)
 		fallthrough
 	// TODO(swami): Deal with Fatal errors appropriately by propagating them up the stack.

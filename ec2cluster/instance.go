@@ -357,11 +357,6 @@ func (i *reflowletInstance) update() {
 	}
 }
 
-// Err returns any error that occurred while launching the instance.
-func (i *instance) Err() error {
-	return i.err
-}
-
 // Instance returns the EC2 instance metadata returned by a successful launch.
 func (i *instance) Instance() *reflowletInstance {
 	return newReflowletInstance(i.ec2inst)
@@ -1121,7 +1116,10 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 		msg := ec2CleanupSpotRequest(context.Background(), i.EC2, reqid)
 		i.Log.Debugf("ec2 spot request %s failed\n%s", reqid, msg)
 		// Boot this up to the caller so they can pick a different instance types.
-		return "", errors.E(errors.Unavailable, fmt.Errorf("spot request %s cleanup:\n%s\ndue to: %v", reqid, msg, err))
+		if err != nil {
+			msg = fmt.Sprintf("%s\ndue to: %v", msg, err)
+		}
+		return "", errors.E(errors.Unavailable, fmt.Errorf("spot request %s cleanup:\n%s", reqid, msg))
 	}
 	i.print(id, fmt.Sprintf("ec2 request (spot) %s fulfilled, state: %s", reqid, state))
 	return id, nil
