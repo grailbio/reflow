@@ -622,7 +622,7 @@ func (s *Scheduler) directTransfer(ctx context.Context, task *Task) {
 	taskLogger := task.Log.Tee(nil, "direct transfer: ")
 	if s.TaskDB != nil {
 		taskdbErr := s.TaskDB.CreateTask(ctx, task.ID, task.RunID, task.FlowID, taskdb.ImgCmdID(digest.Digest{}), identifier, "local")
-		if taskdbErr == nil {
+		if taskdbErr != nil {
 			taskLogger.Errorf("taskdb createtask: %v", taskdbErr)
 		} else {
 			tctx, tcancel := context.WithCancel(ctx)
