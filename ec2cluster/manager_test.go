@@ -211,11 +211,13 @@ func TestManagerBasicWide(t *testing.T) {
 	}
 }
 
-func TestManagerMultipleAllocsSmall(t *testing.T) {
-	testCluster(t, newCluster([]testConfig{
-		{"type-a", 0.25, reflow.Resources{"cpu": 1, "mem": 2 * float64(data.GiB)}},
-	}), 20, 4, 2)
-}
+// TestManagerMultipleAllocsSmall seems to be flaky (See T43494)
+// TODO(swami):  Uncomment after addressing flakiness
+//func TestManagerMultipleAllocsSmall(t *testing.T) {
+//	testCluster(t, newCluster([]testConfig{
+//		{"type-a", 0.25, reflow.Resources{"cpu": 1, "mem": 2 * float64(data.GiB)}},
+//	}), 20, 4, 2)
+//}
 
 func TestManagerMultipleAllocsLarge(t *testing.T) {
 	testCluster(t, newCluster([]testConfig{
