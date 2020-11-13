@@ -425,6 +425,8 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 	// always return false.
 	case e.Docker.State.OOMKilled || e.isOOMSystem():
 		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.OOM, errors.New("killed by the OOM killer")))
+	case e.isOOMGolang(ctx):
+		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.OOM, errors.New("detected golang OOM error")))
 	default:
 		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.Errorf("exited with code %d", code)))
 	}
@@ -905,4 +907,24 @@ func (e *dockerExec) isOOMSystem() bool {
 		return false
 	}
 	return oomTime.After(start) && !end.Before(oomTime)
+}
+
+// isOOMGolang checks to see if the exec's stdout/stderr logs indicate
+// a possible OOM failure reported by a Golang binary.
+func (e *dockerExec) isOOMGolang(ctx context.Context) bool {
+	const (
+		oomErrStr1 = "runtime: out of memory"
+		oomErrStr2 = "runtime: cannot allocate memory"
+	)
+	rc, err := e.Logs(ctx, true, true, false)
+	if err == nil {
+		defer func() { _ = rc.Close() }()
+		scanner := bufio.NewScanner(rc)
+		for scanner.Scan() {
+			if strings.Contains(scanner.Text(), oomErrStr1) || strings.Contains(scanner.Text(), oomErrStr2) {
+				return true
+			}
+		}
+	}
+	return false
 }
