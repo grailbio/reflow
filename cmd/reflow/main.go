@@ -96,6 +96,7 @@ func main() {
 		infra2.Tracer:     new(trace.Tracer),
 		infra2.TaskDB:     new(taskdb.TaskDB),
 		infra2.Docker:     new(infra2.DockerConfig),
+		infra2.Predictor:  new(infra2.PredictorConfig),
 	}
 	cmd.SchemaKeys = infra.Keys{
 		infra2.AWSCreds:  "awscreds",
