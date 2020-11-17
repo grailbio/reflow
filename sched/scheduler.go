@@ -692,6 +692,12 @@ func requirements(tasks []*Task) reflow.Requirements {
 	return req
 }
 
+type directTransfer struct {
+	filename       string
+	file           reflow.File
+	srcUrl, dstUrl string
+}
+
 // doDirectTransfer attempts to do a direct transfer for externs.
 // Direct transfers are supported only if the scheduler's Repository
 // and the destination repository are both blob stores.
@@ -714,43 +720,55 @@ func (s *Scheduler) doDirectTransfer(ctx context.Context, task *Task) error {
 		return err
 	}
 
+	extUrl := strings.TrimSuffix(task.Config.URL, "/")
 	fs := task.Config.Args[0].Fileset.Pullup()
-	for _, f := range fs.Files() {
-		if f.IsRef() {
-			return errors.E(errors.NotSupported, errors.New("unresolved files not supported"))
+
+	var transfers []directTransfer
+	for k, v := range fs.Map {
+		filename, file := k, v
+		var srcUrl string
+		if !file.IsRef() {
+			// resolved file
+			if src, err := fileLocator.Location(ctx, file.ID); err != nil {
+				return err
+			} else {
+				srcUrl = src
+			}
+		} else {
+			// reference file
+			srcUrl = file.Source
 		}
+		dstUrl := extUrl + "/" + filename
+		if filename == "." {
+			dstUrl = extUrl
+		}
+		if ok, err := s.Mux.CanTransfer(ctx, dstUrl, srcUrl); !ok {
+			return errors.E(fmt.Sprintf("scheduler cannot direct transfer: %s -> %s", srcUrl, dstUrl), err)
+		}
+		transfers = append(transfers, directTransfer{filename, file, srcUrl, dstUrl})
 	}
+
 	task.mu.Lock()
 	task.Result.Fileset.Map = map[string]reflow.File{}
 	task.mu.Unlock()
-
-	extUrl := strings.TrimSuffix(task.Config.URL, "/")
-
 	g, ctx := errgroup.WithContext(ctx)
-	for k, v := range fs.Map {
-		filename, file := k, v
+	for _, t := range transfers {
+		t := t
 		g.Go(func() error {
-			srcUrl, err := fileLocator.Location(ctx, file.ID)
-			if err != nil {
-				return err
-			}
-			dstUrl := extUrl + "/" + filename
-			if filename == "." {
-				dstUrl = extUrl
-			}
 			start := time.Now()
-			if err = s.Mux.Transfer(ctx, dstUrl, srcUrl); err != nil {
-				return errors.E(fmt.Sprintf("scheduler direct transfer: %s -> %s", srcUrl, dstUrl), err)
+			if err := s.Mux.Transfer(ctx, t.dstUrl, t.srcUrl); err != nil {
+				return errors.E(fmt.Sprintf("scheduler direct transfer: %s -> %s", t.srcUrl, t.dstUrl), err)
 			}
 			dur := time.Since(start).Round(time.Second)
 			if dur < 1 {
 				dur += time.Second
 			}
-			taskLogger.Debugf("completed %s -> %s (%s) in %s (%s/s) ", srcUrl, dstUrl, data.Size(file.Size), dur, data.Size(file.Size/int64(dur.Seconds())))
+			sz := t.file.Size
+			taskLogger.Debugf("completed %s -> %s (%s) in %s (%s/s) ", t.srcUrl, t.dstUrl, data.Size(sz), dur, data.Size(sz/int64(dur.Seconds())))
 			task.mu.Lock()
-			task.Result.Fileset.Map[filename] = file
+			task.Result.Fileset.Map[t.filename] = t.file
 			task.mu.Unlock()
-			return err
+			return nil
 		})
 	}
 	task.Result.Err = errors.Recover(g.Wait())

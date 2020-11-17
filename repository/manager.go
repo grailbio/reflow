@@ -198,6 +198,11 @@ func (m *Manager) NeedTransfer(ctx context.Context, dst reflow.Repository, files
 	exists := make([]bool, len(files))
 	lstat := m.limiter(dst, &m.stat, m.Stat)
 	g, gctx := errgroup.WithContext(ctx)
+	for _, file := range files {
+		if file.IsRef() {
+			return nil, errors.E("needtransfer", errors.Invalid, errors.Errorf("unresolved file: %v", file))
+		}
+	}
 	for i, file := range files {
 		if err := lstat.Acquire(gctx, 1); err != nil {
 			return nil, err

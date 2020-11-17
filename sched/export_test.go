@@ -9,3 +9,7 @@ import "github.com/grailbio/reflow"
 func Requirements(tasks []*Task) reflow.Requirements {
 	return requirements(tasks)
 }
+
+func (t *Task) NonDirectTransfer() bool {
+	return t.nonDirectTransfer
+}

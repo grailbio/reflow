@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -96,6 +97,33 @@ func (m Mux) Put(ctx context.Context, url string, size int64, body io.Reader, co
 		return err
 	}
 	return bucket.Put(ctx, key, size, body, contentHash)
+}
+
+// CanTransfer returns whether contents of object in srcurl can be transferred to dsturl.
+// If not supported, then the error corresponds to the reason why.
+func (m Mux) CanTransfer(ctx context.Context, dsturl, srcurl string) (bool, error) {
+	srcB, _, err := m.Bucket(ctx, srcurl)
+	if err != nil {
+		return false, err
+	}
+	dstB, _, err := m.Bucket(ctx, dsturl)
+	if err != nil {
+		return false, err
+	}
+	var srcScheme, dstScheme string
+	if u, err := url.Parse(srcurl); err == nil {
+		srcScheme = u.Scheme
+	}
+	if u, err := url.Parse(dsturl); err == nil {
+		dstScheme = u.Scheme
+	}
+	switch {
+	case srcScheme != "" && dstScheme != "" && srcScheme != dstScheme:
+		return false, errors.E(errors.NotSupported, errors.Errorf("mux.Transfer %s -> %s", srcScheme, dstScheme))
+	case reflect.TypeOf(srcB) != reflect.TypeOf(dstB):
+		return false, errors.E(errors.NotSupported, errors.Errorf("mux.Transfer %T -> %T)", srcB, dstB))
+	}
+	return true, nil
 }
 
 // Transfer transfers the contents of object in srcurl to dsturl.

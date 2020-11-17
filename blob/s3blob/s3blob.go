@@ -763,6 +763,12 @@ func awsKind(err error) errors.Kind {
 		// So we catch all "RequestError"s here as temporary.
 		case request.ErrCodeRequestError:
 			return errors.Temporary
+		// "SerializationError"s are not considered retryable by `request.IsErrorRetryable(err)`
+		// if the underlying cause is due to a "read: connection reset".  For explanation, see:
+		// https://github.com/aws/aws-sdk-go/issues/2525#issuecomment-519263830
+		// So we catch all "SerializationError"s here as temporary.
+		case request.ErrCodeSerialization:
+			return errors.Temporary
 		}
 		if aerr.OrigErr() == nil {
 			break

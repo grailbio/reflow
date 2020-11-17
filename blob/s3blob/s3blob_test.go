@@ -360,6 +360,8 @@ func TestShouldRetryDefaultErrors(t *testing.T) {
 		{awserr.New(s3.ErrCodeNoSuchKey, "test", nil), true},
 		{awserr.New("MultipartUpload", "test", awserr.New("RequestTimeout", "test2", nil)), true},
 		{awserr.New("MultipartUpload", "test", awserr.New("SerializationError", "test2", fmt.Errorf("unexpected EOF"))), true},
+		{awserr.New(request.ErrCodeSerialization, "test",
+			awserr.New("Get https://bucket.s3.us-west-2.amazonaws.com/key: read tcp 10.6.130.2:51722->52.218.220.161:443:", "read: connection reset by peer", nil)), true},
 		{awserr.New("RequestError", "send request failed", fmt.Errorf("read: connection reset by peer")), true},
 		{awserr.New("RequestError", "send request failed", fmt.Errorf("some other type of error")), true},
 		{awserr.New("RequestError", "send request failed",

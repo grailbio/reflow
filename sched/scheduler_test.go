@@ -494,6 +494,18 @@ func TestSchedulerDirectTransfer(t *testing.T) {
 		rc, _ := repo.Get(ctx, f.ID)
 		_ = scheduler.Mux.Put(ctx, loc, f.Size, rc, "")
 	}
+	// Set one of the files to be unresolved (by setting its ID to zero)
+	// add a source instead (which points to the same object and uses the same Mux implementation)
+	var fn string
+	for k := range in.Map {
+		fn = k
+		break
+	}
+	file := in.Map[fn]
+	file.Source = fmt.Sprintf("test://bucketin/objects/%s", file.ID)
+	file.ID = digest.Digest{}
+	in.Map[fn] = file
+
 	task := newTask(1, 10<<20, 0)
 	task.Config.Args = []reflow.Arg{{Fileset: &in}}
 	task.Config.Type = "extern"
@@ -513,14 +525,48 @@ func TestSchedulerDirectTransfer(t *testing.T) {
 	}
 }
 
-func TestSchedulerDirectTransferUnsupported(t *testing.T) {
-	scheduler, cluster, repo, shutdown := newTestScheduler(t)
+func TestSchedulerDirectTransfer_noLocator(t *testing.T) {
+	scheduler, _, repo, shutdown := newTestScheduler(t)
 	defer shutdown()
-	ctx := context.Background()
 	in := randomFileset(repo)
 	expectExists(t, repo, in)
+	assertNonDirectTransfer(t, scheduler, &in)
+}
+
+func TestSchedulerDirectTransfer_unresolvedFile(t *testing.T) {
+	repo := testutil.NewInmemoryLocatorRepository()
+	scheduler, _, shutdown := newTestSchedulerWithRepo(t, repo)
+	blb1, blb2 := testblob.New("test"), testblob.New("test2")
+	scheduler.Mux = blob.Mux{"test": blb1, "test2": blb2}
+	defer shutdown()
+	in := randomFileset(repo)
+	expectExists(t, repo, in)
+	ctx := context.Background()
+	for _, f := range in.Files() {
+		loc := fmt.Sprintf("test://bucketin/objects/%s", f.ID)
+		repo.SetLocation(f.ID, loc)
+		rc, _ := repo.Get(ctx, f.ID)
+		_ = scheduler.Mux.Put(ctx, loc, f.Size, rc, "")
+	}
+	// Set one of the files to be unresolved (by setting its ID to zero)
+	// add a source instead (which points to the same object and uses the same Mux implementation)
+	var fn string
+	for k := range in.Map {
+		fn = k
+		break
+	}
+	file := in.Map[fn]
+	file.Source = "test2://unsupportedscheme"
+	file.ID = digest.Digest{}
+	in.Map[fn] = file
+	assertNonDirectTransfer(t, scheduler, &in)
+}
+
+func assertNonDirectTransfer(t *testing.T, scheduler *sched.Scheduler, in *reflow.Fileset) {
+	ctx := context.Background()
+
 	task := newTask(1, 10<<20, 0)
-	task.Config.Args = []reflow.Arg{{Fileset: &in}}
+	task.Config.Args = []reflow.Arg{{Fileset: in}}
 	task.Config.Type = "extern"
 	task.Config.URL = "test://bucketout/"
 
@@ -528,27 +574,8 @@ func TestSchedulerDirectTransferUnsupported(t *testing.T) {
 	// Scheduler's repository doesn't implement blobLocator,
 	// so the direct transfer fails with unsupported error.
 	_ = task.Wait(ctx, sched.TaskLost)
-	if !errors.Is(errors.NotSupported, task.Err) {
-		t.Fatal("task must fail with unsupported")
-	}
-
-	allocs := []*testAlloc{newTestAlloc(reflow.Resources{"cpu": 2, "mem": 10 << 30})}
-	req := <-cluster.Req()
-	req.Reply <- testClusterAllocReply{Alloc: allocs[0]}
-	for {
-		// Extern is weird in that the state machine can go from the end state to the initial state
-		// when we fail on a direct transfer and try an indirect transfer. Hence it is not sufficient if
-		// task.Wait(TaskRunning) returns successfully (which it would even after the direct
-		// transfer failed). We need to ensure that it is actually running the indirect transfer here.
-		_ = task.Wait(ctx, sched.TaskRunning)
-		if task.State() == sched.TaskRunning {
-			break
-		}
-	}
-	select {
-	case <-cluster.Req():
-		t.Errorf("Cluster should have no requests")
-	default:
+	if !task.NonDirectTransfer() {
+		t.Fatal("task must be marked as non-direct")
 	}
 }
 
