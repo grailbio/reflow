@@ -309,6 +309,10 @@ func (m *Manager) loop(pctx context.Context) {
 			launched.Add(1)
 			go launch(spec)
 		}
+		if len(todo) > 0 && m.nPool() >= m.maxInstances {
+			m.log.Debugf("cannot schedule more instances (max instances %d reached)", m.maxInstances)
+			needPoll = true
+		}
 	sleep:
 		var pollch <-chan time.Time
 		if needPoll {
