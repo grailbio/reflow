@@ -101,6 +101,8 @@ type RunFlags struct {
 	Resources reflow.Resources
 	Cache     bool
 	Pred      bool
+	// DotGraph enables computation of an evaluation graph.
+	DotGraph bool
 	// Cluster is the externally specified cluster provider. If non-nil, this cluster provider overrides the one specified in the reflow config.
 	Cluster runner.Cluster
 
@@ -119,6 +121,7 @@ func (r *RunFlags) Flags(flags *flag.FlagSet) {
 	flags.BoolVar(&r.Trace, "trace", false, "trace flow evaluation")
 	flags.StringVar(&r.resourcesFlag, "resources", "", "override offered resources in local mode (JSON formatted reflow.Resources)")
 	flags.BoolVar(&r.Pred, "pred", false, "use predictor to optimize resource usage. sched must also be true for the predictor to be used")
+	flags.BoolVar(&r.DotGraph, "dotgraph", true, "produce an evaluation graph for the run")
 }
 
 // Err checks if the flag values are consistent and valid.

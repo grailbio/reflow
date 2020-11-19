@@ -159,10 +159,12 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 	}
 	defer logfile.Close()
 
-	if dotfile, err = os.Create(base + ".gv"); err != nil {
-		c.Fatal(err)
+	if runFlags.DotGraph {
+		if dotfile, err = os.Create(base + ".gv"); err != nil {
+			c.Fatal(err)
+		}
+		defer dotfile.Close()
 	}
-	defer dotfile.Close()
 
 	// execLogger is the target for exec status; we also output
 	// this to the main logger's outputter. The file-based log always
@@ -205,7 +207,9 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 	// Tee the exec logs in a separate (.execlog) file.
 	r.Log = execLogger
 	r.RunID = runID
-	r.DotWriter = dotfile
+	if dotfile != nil {
+		r.DotWriter = dotfile
+	}
 
 	result, err = r.Go(ctx)
 	if err != nil {

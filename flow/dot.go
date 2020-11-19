@@ -79,6 +79,9 @@ func (e Edge) Attributes() []encoding.Attribute {
 
 // printDeps writes f's subgraph to the flowgraph.
 func (e *Eval) printDeps(f *Flow, dynamic bool) {
+	if e.flowgraph == nil {
+		return
+	}
 	for _, v := range f.Deps {
 		if !e.flowgraph.HasEdgeBetween(Node{Flow: f}.ID(), Node{Flow: v}.ID()) {
 			e.flowgraph.SetEdge(Edge{Edge: e.flowgraph.NewEdge(Node{f}, Node{v}), dynamic: dynamic})

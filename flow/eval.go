@@ -255,6 +255,9 @@ func (e EvalConfig) String() string {
 	fmt.Fprintf(&b, " flowconfig %s", e.Config)
 	fmt.Fprintf(&b, " cachelookuptimeout %s", e.CacheLookupTimeout)
 	fmt.Fprintf(&b, " imagemap %v", e.ImageMap)
+	if e.DotWriter != nil {
+		fmt.Fprintf(&b, " dotwriter(%T)", e.DotWriter)
+	}
 	return b.String()
 }
 
@@ -351,7 +354,6 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 		wakeupch:       make(chan bool, 1),
 		pending:        newWorkingset(),
 		marshalLimiter: limiter.New(),
-		flowgraph:      simple.NewDirectedGraph(),
 	}
 	// Limit the number of concurrent marshal/unmarshal to the number of CPUs we have.
 	e.marshalLimiter.Release(runtime.NumCPU())
@@ -372,6 +374,9 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 	e.available = e.total
 	if e.Log == nil && printAllTasks {
 		e.Log = log.Std
+	}
+	if e.DotWriter != nil {
+		e.flowgraph = simple.NewDirectedGraph()
 	}
 	return e
 }
@@ -463,7 +468,7 @@ func (e *Eval) Err() error {
 // repository (e.g., S3).
 func (e *Eval) Do(ctx context.Context) error {
 	defer func() {
-		if e.DotWriter != nil {
+		if e.DotWriter != nil && e.flowgraph != nil {
 			b, err := dot.Marshal(e.flowgraph, fmt.Sprintf("reflow flowgraph %v", e.EvalConfig.RunID.ID()), "", "")
 			if err != nil {
 				e.Log.Debugf("err dot marshal: %v", err)
