@@ -2689,11 +2689,12 @@ func printFileset(w io.Writer, prefix string, fs reflow.Fileset) {
 // repository. The digest of the contents of the marshaled content is
 // returned.
 func marshal(ctx context.Context, repo reflow.Repository, v interface{}) (digest.Digest, error) {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return digest.Digest{}, err
-	}
-	return repo.Put(ctx, bytes.NewReader(b))
+	r, w := io.Pipe()
+	e := json.NewEncoder(w)
+	go func() {
+		_ = w.CloseWithError(e.Encode(v))
+	}()
+	return repo.Put(ctx, r)
 }
 
 // Unmarshal unmarshals the value named by digest k into v.

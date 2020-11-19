@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"reflect"
 	"strings"
 	"testing"
@@ -345,11 +346,14 @@ func createAssertions(n int) *reflow.Assertions {
 }
 
 var benchCombinations = []struct{ nfiles, nass int }{
-	{1, 100000},
-	{1, 10000},
-	{1, 1000},
+	{10, 1000},
 	{10, 10000},
+	{10, 100000},
 	{100, 1000},
+	{1000, 1000},
+	{10000, 100},
+	{10000, 1000},
+	//{10000, 10000},
 }
 
 func BenchmarkFileset(b *testing.B) {
@@ -381,6 +385,7 @@ func BenchmarkFileset(b *testing.B) {
 }
 
 func BenchmarkMarshal(b *testing.B) {
+	b.ReportAllocs()
 	fuzz := testutil.NewFuzz(nil)
 	for _, nums := range benchCombinations {
 		fs := fuzz.FilesetDeep(nums.nfiles, 0, false, false)
@@ -415,6 +420,7 @@ func BenchmarkMarshal(b *testing.B) {
 }
 
 func BenchmarkUnmarshal(b *testing.B) {
+	b.ReportAllocs()
 	fuzz := testutil.NewFuzz(nil)
 	for _, nums := range benchCombinations {
 		fs := fuzz.FilesetDeep(nums.nfiles, 0, false, false)
@@ -447,6 +453,45 @@ func BenchmarkUnmarshal(b *testing.B) {
 						b.Error("mismatch")
 					}
 					r.Reset(fssb)
+				}
+			})
+		}
+	}
+}
+
+func BenchmarkMarshalToFile(b *testing.B) {
+	b.ReportAllocs()
+	fuzz := testutil.NewFuzz(nil)
+	for _, nums := range benchCombinations {
+		fs := fuzz.FilesetDeep(nums.nfiles, 0, false, false)
+		a := createAssertions(nums.nass)
+		if err := fs.AddAssertions(a); err != nil {
+			b.Fatal(err)
+		}
+		for _, s := range []struct {
+			name           string
+			marshallToFile func(w io.Writer, v interface{}) error
+		}{
+			{"json-std-lib-full", func(w io.Writer, v interface{}) error {
+				b, err := json.Marshal(v)
+				if err != nil {
+					return err
+				}
+				_, err = io.Copy(w, bytes.NewReader(b))
+				return err
+			}},
+			{"json-std-lib-stream", func(w io.Writer, v interface{}) error {
+				e := json.NewEncoder(w)
+				return e.Encode(v)
+			}},
+		} {
+			s, nums := s, nums
+			b.Run(fmt.Sprintf("%s-nfiles-%d-nass-%d", s.name, nums.nfiles, nums.nass), func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					// Note: Discard the marshalled results since we are only benchmarking here.
+					if err := s.marshallToFile(ioutil.Discard, fs); err != nil {
+						b.Fatal(err)
+					}
 				}
 			})
 		}
