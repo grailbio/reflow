@@ -1960,6 +1960,7 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 					return nil
 				}
 				fs := f.Deps[earg.Index].Value.(reflow.Fileset)
+				e.Log.Debugf("verifying integrity: %s\n", fs.Short())
 				return e.Executor.VerifyIntegrity(ctx, fs)
 			})
 		case statePromote:

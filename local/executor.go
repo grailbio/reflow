@@ -443,6 +443,10 @@ func (e *Executor) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) error
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	files := fs.Files()
+	var (
+		mu         sync.Mutex
+		mismatches []string
+	)
 	err := traverse.Limit(runtime.NumCPU()).Each(len(files), func(i int) error {
 		file := files[i]
 		if file.IsRef() {
@@ -462,14 +466,16 @@ func (e *Executor) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) error
 		}
 		d := w.Digest()
 		if file.ID != d {
-			return errors.E(fmt.Sprintf("digest %s mismatches ID %s", d.Short(), file.ID.Short()), file.ID, errors.Integrity)
+			mu.Lock()
+			mismatches = append(mismatches, fmt.Sprintf("%v (ID) != %v (digest)", file.ID, d))
+			mu.Unlock()
 		}
 		return nil
 	})
-	if err != nil {
-		return errors.E("verifyintegrity", err)
+	if len(mismatches) > 0 {
+		return errors.E("verifyintegrity", fmt.Sprintf("digest mismatches: %s", strings.Join(mismatches, ", ")))
 	}
-	return nil
+	return err
 }
 
 func (e *Executor) refCount(fs reflow.Fileset) {
