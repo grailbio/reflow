@@ -1473,9 +1473,7 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) 
 	if err := e.Transferer.Transfer(ctx, e.Repository, repo, fs.Files()...); err != nil {
 		return err
 	}
-	_ = e.marshalLimiter.Acquire(ctx, 1)
-	id, err := marshal(ctx, e.Repository, &fs)
-	e.marshalLimiter.Release(1)
+	id, err := marshal(ctx, e.marshalLimiter, e.Repository, fs)
 	if err != nil {
 		return err
 	}
@@ -1512,7 +1510,7 @@ func (e *Eval) taskdbWrite(ctx context.Context, op Op, inspect reflow.ExecInspec
 		pid            digest.Digest
 	)
 	g, ctx := errgroup.WithContext(ctx)
-	if pid, err = marshal(ctx, e.Repository, inspect); err != nil {
+	if pid, err = marshal(ctx, e.marshalLimiter, e.Repository, inspect); err != nil {
 		log.Errorf("repository put profile: %v", err)
 	}
 	if exec != nil {
@@ -1630,9 +1628,7 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 					}
 					continue
 				}
-				_ = e.marshalLimiter.Acquire(ctx, 1)
-				err = unmarshal(ctx, e.Repository, res.Digest, &fs)
-				e.marshalLimiter.Release(1)
+				err = unmarshal(ctx, e.marshalLimiter, e.Repository, res.Digest, &fs)
 				if err == nil {
 					e.Log.Debugf("cache.Lookup flow: %s (%s) result from key: %s, value: %s\n", f.Digest().Short(), f.Ident, key.Short(), res.Digest)
 					fsid = res.Digest
@@ -2689,13 +2685,17 @@ func printFileset(w io.Writer, prefix string, fs reflow.Fileset) {
 // Marshal marshals the value v and stores it in the provided
 // repository. The digest of the contents of the marshaled content is
 // returned.
-func marshal(ctx context.Context, repo reflow.Repository, v interface{}) (digest.Digest, error) {
+func marshal(ctx context.Context, l *limiter.Limiter, repo reflow.Repository, v interface{}) (digest.Digest, error) {
+	_ = l.Acquire(ctx, 1)
+	defer l.Release(1)
 	return repository.Marshal(ctx, repo, v)
 }
 
 // Unmarshal unmarshals the value named by digest k into v.
 // If the value does not exist in repository, an error is returned.
-func unmarshal(ctx context.Context, repo reflow.Repository, k digest.Digest, v interface{}) error {
+func unmarshal(ctx context.Context, l *limiter.Limiter, repo reflow.Repository, k digest.Digest, v interface{}) error {
+	_ = l.Acquire(ctx, 1)
+	defer l.Release(1)
 	return repository.Unmarshal(ctx, repo, k, v)
 }
 
