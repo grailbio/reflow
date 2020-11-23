@@ -5,7 +5,9 @@
 package reflow
 
 import (
+	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/reflow/errors"
 )
 
 // File represents a File inside of Reflow. A file is said to be
@@ -49,7 +52,10 @@ type File struct {
 	// Unlike Etag/Size etc which are properties of this File,
 	// Assertions can include properties of other subjects that
 	// contributed to producing this File.
-	Assertions *Assertions `json:",omitempty"`
+	// In order to include Assertions when converting to/from JSON,
+	// the custom Fileset.WriteJSON and Fileset.ReadJSON methods must be used.
+	// The standard JSON library (and probably most third party ones) will ignore this field.
+	Assertions *Assertions `json:"-"`
 }
 
 // Digest returns the file's digest: if the file is a reference and
@@ -263,6 +269,36 @@ func (v Fileset) Size() int64 {
 	return s
 }
 
+// Replace replaces each file in this Fileset as per function f.
+func (v *Fileset) Replace(f func(file File) File) {
+	if v.List != nil {
+		for i := range v.List {
+			v.List[i].Replace(f)
+		}
+	}
+	if v.Map != nil {
+		for path, file := range v.Map {
+			v.Map[path] = f(file)
+		}
+	}
+}
+
+// CopyAssertionsByFile copies assertions from the given set of files
+// to the corresponding the same file (based on file.Digest()), if any, in this fileset.
+func (v *Fileset) CopyAssertionsByFile(files []File) {
+	byDigest := make(map[digest.Digest]*Assertions)
+	for _, f := range files {
+		byDigest[f.Digest()] = f.Assertions
+	}
+	v.Replace(func(f File) File {
+		if a, ok := byDigest[f.Digest()]; ok {
+			// (Since assertions are mutable, assign a copy)
+			f.Assertions = CopyAssertions(a)
+		}
+		return f
+	})
+}
+
 // Subst the files in fileset using the provided mapping of File object digests to Files.
 // Subst returns whether the fileset is fully resolved after substitution.
 // That is, any unresolved file f in this fileset tree, will be substituted by sub[f.Digest()].
@@ -432,6 +468,208 @@ func (v Fileset) pullup(m map[string]File) {
 	}
 }
 
+// WriteJSON writes (marshals) this Fileset in JSON format to the given writer.
+// WriteJSON is more efficient than `json.Marshal` and more specifically it includes
+// the Assertions of every File within this Fileset.
+func (v *Fileset) WriteJSON(w io.Writer) error {
+	return v.marshal(w)
+}
+
+func (v *Fileset) marshal(w io.Writer) error {
+	var (
+		commaB       = []byte(",")
+		objOpenB     = []byte("{")
+		objCloseB    = []byte("}")
+		arrCloseB    = []byte("]")
+		listOpenB    = []byte("\"List\":[")
+		filesetOpenB = []byte("\"Fileset\":{")
+		assertionsB  = []byte(",\"Assertions\":")
+	)
+	var err error
+	if _, err = w.Write(objOpenB); err != nil {
+		return err
+	}
+	if len(v.List) > 0 {
+		if _, err = w.Write(listOpenB); err != nil {
+			return err
+		}
+		for i, fs := range v.List {
+			if i > 0 {
+				if _, err = w.Write(commaB); err != nil {
+					return err
+				}
+			}
+			if err = fs.marshal(w); err != nil {
+				return err
+			}
+		}
+		if _, err = w.Write(arrCloseB); err != nil {
+			return err
+		}
+	}
+	if len(v.Map) > 0 {
+		if len(v.List) > 0 {
+			if _, err = w.Write(commaB); err != nil {
+				return err
+			}
+		}
+		if _, err = w.Write(filesetOpenB); err != nil {
+			return err
+		}
+		fns := make([]string, 0, len(v.Map))
+		for fn := range v.Map {
+			fns = append(fns, fn)
+		}
+		sort.Strings(fns)
+		var bb bytes.Buffer
+		enc := json.NewEncoder(&bb)
+		for i, fn := range fns {
+			file := v.Map[fn]
+			if i > 0 {
+				if _, err = w.Write(commaB); err != nil {
+					return err
+				}
+			}
+			if _, err = fmt.Fprintf(w, "\"%s\":", fn); err != nil {
+				return err
+			}
+			if err = enc.Encode(file); err != nil {
+				return err
+			}
+			if file.Assertions.size() == 0 {
+				if _, err = w.Write(bytes.TrimSuffix(bb.Bytes(), []byte("\n"))); err != nil {
+					return err
+				}
+				bb.Reset()
+			} else {
+				if _, err = w.Write(bytes.TrimSuffix(bb.Bytes(), []byte("}\n"))); err != nil {
+					return err
+				}
+				bb.Reset()
+				if _, err = w.Write(assertionsB); err != nil {
+					return err
+				}
+				if err = file.Assertions.marshal(w); err != nil {
+					return err
+				}
+				if _, err = w.Write(objCloseB); err != nil {
+					return err
+				}
+			}
+		}
+		if _, err = w.Write(objCloseB); err != nil {
+			return err
+		}
+	}
+	if _, err = w.Write(objCloseB); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ReadJSON reads (unmarshals) JSON from the given Reader into this Fileset.
+// ReadJSON is a lot more efficient than `json.Unmarshal` and specifically it
+// will unmarshal Assertions (if any) for every File within this Fileset.
+func (v *Fileset) ReadJSON(r io.Reader) error {
+	return v.unmarshal(json.NewDecoder(r))
+}
+
+func (v *Fileset) unmarshal(dec *json.Decoder) error {
+	const debugMsg = "fileset.ReadJSON"
+	if err := expectDelim(dec, objOpen, debugMsg+" (top)"); err != nil {
+		return err
+	}
+	for {
+		t, err := dec.Token()
+		if err != nil {
+			return errors.E(debugMsg+" (reading top-level token)", errors.Invalid, err)
+		}
+		switch t {
+		case "List":
+			if err = expectDelim(dec, arrOpen, debugMsg+" (List start)"); err != nil {
+				return err
+			}
+			for dec.More() {
+				var fs Fileset
+				if err = fs.unmarshal(dec); err != nil {
+					return err
+				}
+				v.List = append(v.List, fs)
+			}
+			if err = expectDelim(dec, arrClose, debugMsg+" (List end)"); err != nil {
+				return err
+			}
+		case "Fileset":
+			if err = expectDelim(dec, objOpen, debugMsg+" (Fileset Map start)"); err != nil {
+				return err
+			}
+			v.Map = make(map[string]File)
+			for dec.More() {
+				var f File
+				t, err = dec.Token()
+				if err != nil {
+					return err
+				}
+				name, ok := t.(string)
+				if !ok {
+					return errors.E(debugMsg, errors.Precondition, errors.Errorf("unexpected token type: %T (want string)", t))
+				}
+				// Now we parse File
+				if err = expectDelim(dec, objOpen, debugMsg+" (File start)"); err != nil {
+					return err
+				}
+				for dec.More() {
+					t, err = dec.Token()
+					if err != nil {
+						return err
+					}
+					var v interface{}
+					s, ok := t.(string)
+					if !ok {
+						return errors.E(debugMsg+" (File attribute name)", errors.Precondition, errors.Errorf("unexpected token type: %T (want string)", t))
+					}
+					switch s {
+					case "ID":
+						v = &f.ID
+					case "Size":
+						v = &f.Size
+					case "ETag":
+						v = &f.ETag
+					case "Source":
+						v = &f.Source
+					case "LastModified":
+						v = &f.LastModified
+					case "ContentHash":
+						v = &f.ContentHash
+					case "Assertions":
+						f.Assertions = new(Assertions)
+						if err = f.Assertions.unmarshal(dec); err != nil {
+							return err
+						}
+						continue
+					default:
+						return errors.E(debugMsg, errors.Precondition, errors.Errorf("unexpected field for reflow.File: %v", t))
+					}
+					if err = dec.Decode(v); err != nil {
+						return err
+					}
+				}
+				if err = expectDelim(dec, objClose, debugMsg+" (File end)"); err != nil {
+					return err
+				}
+				v.Map[name] = f
+			}
+			if err = expectDelim(dec, objClose, debugMsg+" (Fileset Map end)"); err != nil {
+				return err
+			}
+		case objClose:
+			return nil
+		default:
+			return errors.E(debugMsg, errors.Precondition, errors.Errorf("unexpected token: %s (want 'List' or 'Fileset')", t))
+		}
+	}
+}
+
 // Diff deep-compares the values two filesets assuming they have the same structure
 // and returns a pretty-diff of the differences (if any) and a boolean if they are different.
 func (v Fileset) Diff(w Fileset) (string, bool) {
@@ -497,4 +735,22 @@ func maybeComma(b *strings.Builder) {
 	if b.Len() > 0 {
 		b.WriteString(", ")
 	}
+}
+
+var (
+	objOpen  = json.Delim('{')
+	objClose = json.Delim('}')
+	arrOpen  = json.Delim('[')
+	arrClose = json.Delim(']')
+)
+
+func expectDelim(dec *json.Decoder, d json.Delim, msg string) error {
+	t, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if delim, ok := t.(json.Delim); !ok || delim != d {
+		return errors.E(msg, errors.Precondition, errors.Errorf("unexpected token: %v (want %s)", t, d))
+	}
+	return nil
 }

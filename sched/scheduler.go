@@ -544,6 +544,12 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			task.Inspect, err = x.Inspect(ctx)
 		case stateResult:
 			task.Result, err = x.Result(ctx)
+			if err == nil && task.Config.Type == "extern" {
+				// If files are 'extern'ed without using direct transfer, the result fileset contains
+				// the same files as the input, but are missing assertions. The assertions do however
+				// exist in the original fileset (`savedArgs` and not the one modified after load)
+				task.Result.Fileset.CopyAssertionsByFile(savedArgs[0].Fileset.Files())
+			}
 		case stateTransferOut:
 			files := task.Result.Fileset.Files()
 			err = s.Transferer.Transfer(ctx, s.Repository, alloc.Repository(), files...)

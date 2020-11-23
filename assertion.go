@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/unsafe"
 )
 
 // AssertionKey represents a subject within a namespace whose properties can be asserted.
@@ -45,7 +46,14 @@ type assertion struct {
 
 // newAssertion creates an assertion for a given key and object-value mappings.
 func newAssertion(objects map[string]string) *assertion {
-	return &assertion{objects: objects, digest: digestMap(objects)}
+	a := assertion{objects: objects}
+	w := Digester.NewWriter()
+	for _, k := range sortedKeys(objects) {
+		_, _ = io.WriteString(w, k)
+		_, _ = io.WriteString(w, objects[k])
+	}
+	a.digest = w.Digest()
+	return &a
 }
 
 // equal returns whether the given assertion is equal to this one.
@@ -92,16 +100,6 @@ func (a *assertion) stringParts() []string {
 	return s
 }
 
-// digestMap computes the digest of the given map.
-func digestMap(m map[string]string) digest.Digest {
-	w := Digester.NewWriter()
-	for _, k := range sortedKeys(m) {
-		_, _ = io.WriteString(w, k)
-		_, _ = io.WriteString(w, m[k])
-	}
-	return w.Digest()
-}
-
 // sortedKeys returns a sorted slice of the keys in the given map.
 func sortedKeys(m map[string]string) []string {
 	i, keys := 0, make([]string, len(m))
@@ -144,6 +142,18 @@ func AssertionsFromMap(m map[AssertionKey]map[string]string) *Assertions {
 // It is similar to AssertionsFromMap and exists for convenience.
 func AssertionsFromEntry(k AssertionKey, v map[string]string) *Assertions {
 	return AssertionsFromMap(map[AssertionKey]map[string]string{k: v})
+}
+
+// CopyAssertions creates a copy of another Assertions object.
+func CopyAssertions(src *Assertions) *Assertions {
+	if src == nil {
+		return nil
+	}
+	a := &Assertions{m: make(map[AssertionKey]*assertion, len(src.m))}
+	for k, v := range src.m {
+		a.m[k] = &assertion{objects: v.objects, digest: v.digest}
+	}
+	return a
 }
 
 // MergeAssertions merges a list of Assertions into a single Assertions.
@@ -463,34 +473,68 @@ type jsonEntry struct {
 	Value string       `json:",omitempty"`
 }
 
-// MarshalJSON defines a custom marshal method for converting Assertions to JSON.
-func (s *Assertions) MarshalJSON() ([]byte, error) {
-	s.mu.RLock()
-	l := 0
-	for _, v := range s.m {
-		l += len(v.objects)
+// marshal defines a custom marshal for converting Assertions to JSON into the given io.Writer.
+func (s *Assertions) marshal(w io.Writer) error {
+	var (
+		commaB   = []byte(",")
+		arrOpenB = []byte("[")
+	)
+	if _, err := w.Write(arrOpenB); err != nil {
+		return err
 	}
-	entries := make([]jsonEntry, l)
-	i := 0
-	for k, v := range s.m {
-		for o, ov := range v.objects {
-			entries[i] = jsonEntry{assertionKey{k.Namespace, k.Subject, o}, ov}
-			i++
+	s.mu.Lock()
+	keys := make([]AssertionKey, 0, len(s.m))
+	for k := range s.m {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i].Less(keys[j]) })
+
+	enc := json.NewEncoder(w)
+	var okeys []string
+	for i, k := range keys {
+		if i > 0 {
+			if _, err := w.Write(commaB); err != nil {
+				return err
+			}
+		}
+		objs := s.m[k].objects
+		okeys = okeys[:0]
+		for objk := range objs {
+			okeys = append(okeys, objk)
+		}
+		sort.Strings(okeys)
+		for j, ok := range okeys {
+			if j > 0 {
+				if _, err := w.Write(commaB); err != nil {
+					return err
+				}
+			}
+			ov := objs[ok]
+			entry := jsonEntry{assertionKey{k.Namespace, k.Subject, ok}, ov}
+			if err := enc.Encode(entry); err != nil {
+				return err
+			}
 		}
 	}
-	s.mu.RUnlock()
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Key.less(entries[j].Key) })
-	return json.Marshal(entries)
+	s.mu.Unlock()
+	if _, err := w.Write(unsafe.StringToBytes("]")); err != nil {
+		return err
+	}
+	return nil
 }
 
-// UnmarshalJSON defines a custom unmarshal method for Assertions.
-func (s *Assertions) UnmarshalJSON(b []byte) error {
-	entries := make([]jsonEntry, 0)
-	if err := json.Unmarshal(b, &entries); err != nil {
+// unmarshal defines a custom unmarshal for Assertions using a json.Decoder.
+func (s *Assertions) unmarshal(dec *json.Decoder) error {
+	const debugMsg = "Assertions.unmarshal"
+	if err := expectDelim(dec, arrOpen, debugMsg); err != nil {
 		return err
 	}
 	m := make(map[AssertionKey]*assertion)
-	for _, entry := range entries {
+	for dec.More() {
+		var entry jsonEntry
+		if err := dec.Decode(&entry); err != nil {
+			return err
+		}
 		k := AssertionKey{entry.Key.Subject, entry.Key.Namespace}
 		v, ok := m[k]
 		if !ok {
@@ -506,8 +550,22 @@ func (s *Assertions) UnmarshalJSON(b []byte) error {
 			m[k] = v
 		}
 	}
+	if err := expectDelim(dec, arrClose, debugMsg); err != nil {
+		return err
+	}
+	var keys []string
 	for _, v := range m {
-		v.digest = digestMap(v.objects)
+		keys = keys[:0]
+		for k := range v.objects {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		w := Digester.NewWriter()
+		for _, k := range keys {
+			_, _ = w.Write(unsafe.StringToBytes(k))
+			_, _ = w.Write(unsafe.StringToBytes(v.objects[k]))
+		}
+		v.digest = w.Digest()
 	}
 	s.m = m
 	return nil

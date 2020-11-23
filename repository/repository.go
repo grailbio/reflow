@@ -8,17 +8,17 @@
 package repository
 
 import (
-	"bytes"
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"sync"
 	"time"
 
-	"github.com/grailbio/base/retry"
-
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/retry"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
@@ -146,11 +146,22 @@ func transferLocal(ctx context.Context, dst, src reflow.Repository, id digest.Di
 // repository. The digest of the contents of the marshaled content is
 // returned.
 func Marshal(ctx context.Context, repo reflow.Repository, v interface{}) (digest.Digest, error) {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return digest.Digest{}, err
-	}
-	return repo.Put(ctx, bytes.NewReader(b))
+	r, w := io.Pipe()
+	bw := bufio.NewWriter(w)
+	go func() {
+		var err error
+		if _, ok := v.(*reflow.Fileset); ok {
+			err = v.(*reflow.Fileset).WriteJSON(bw)
+			if err == nil {
+				err = bw.Flush()
+			}
+		} else {
+			e := json.NewEncoder(w)
+			err = e.Encode(v)
+		}
+		_ = w.CloseWithError(err)
+	}()
+	return repo.Put(ctx, r)
 }
 
 // Unmarshal unmarshals the value named by digest k into v.
@@ -160,6 +171,9 @@ func Unmarshal(ctx context.Context, repo reflow.Repository, k digest.Digest, v i
 	if err != nil {
 		return err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
+	if fs, ok := v.(*reflow.Fileset); ok {
+		return fs.ReadJSON(rc)
+	}
 	return json.NewDecoder(rc).Decode(v)
 }

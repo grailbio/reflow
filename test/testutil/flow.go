@@ -87,7 +87,7 @@ func WriteCache(e *flow.Eval, key digest.Digest, files ...string) {
 // WriteCacheFileset writes the provided fileset into the eval's repository and registers
 // a Fileset cache assoc.
 func WriteCacheFileset(e *flow.Eval, key digest.Digest, fs reflow.Fileset) {
-	fsid, err := repository.Marshal(context.Background(), e.Repository, fs)
+	fsid, err := repository.Marshal(context.Background(), e.Repository, &fs)
 	if err != nil {
 		unexpected(err)
 	}

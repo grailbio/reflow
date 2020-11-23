@@ -577,7 +577,6 @@ func fileFromRepo(ctx context.Context, repo *filerepo.Repository, f reflow.File)
 	if !f.ContentHash.IsZero() {
 		if file, err = repo.Stat(ctx, f.ContentHash); err == nil {
 			file.Source, file.ETag, file.LastModified = f.Source, f.ETag, f.LastModified
-			file.Assertions = blob.Assertions(file)
 		}
 	} else {
 		file, err = reflow.File{}, errors.New("No ContentHash")
@@ -623,7 +622,6 @@ func (d *download) Do(ctx context.Context, repo *filerepo.Repository) (reflow.Fi
 		d.Log.Errorf("install %s%s: %v", d.Bucket.Location(), d.Key, err)
 	} else {
 		file.Source, file.ETag, file.LastModified = d.File.Source, d.File.ETag, d.File.LastModified
-		file.Assertions = blob.Assertions(file)
 		dur, bps := w.Lap(d.File.Size)
 		d.Log.Printf("installed %s%s to %v in %s (%s/s)", d.Bucket.Location(), d.Key, filename, dur, data.Size(bps))
 	}

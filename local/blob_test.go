@@ -155,7 +155,6 @@ func TestS3ExecInternPrefix(t *testing.T) {
 			LastModified: fc.LastModified,
 			Size:         int64(len(file.path)),
 		}
-		rf.Assertions = blob.Assertions(rf)
 		val.Map[file.path] = rf
 	}
 	ctx := context.Background()
@@ -176,13 +175,6 @@ func TestS3ExecInternPrefix(t *testing.T) {
 		}
 		if !ok {
 			t.Errorf("executor repo is missing %v", file.ID)
-		}
-	}
-
-	// Compare assertions
-	for path := range res2.Fileset.Map {
-		if got, want := res2.Fileset.Map[path].Assertions, val.Map[path].Assertions; !got.Equal(want) {
-			t.Errorf("got %v, want %v", got, want)
 		}
 	}
 }
@@ -341,7 +333,6 @@ func TestS3ExecPath(t *testing.T) {
 		LastModified: fc.LastModified,
 		Size:         int64(len(contents)),
 	}
-	rf.Assertions = blob.Assertions(rf)
 
 	want := reflow.Result{Fileset: reflow.Fileset{
 		Map: map[string]reflow.File{".": rf},

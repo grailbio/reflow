@@ -180,31 +180,66 @@ func TestJson(t *testing.T) {
 	}
 }
 
+func TestReplace(t *testing.T) {
+	fuzz := testutil.NewFuzz(nil)
+	for i := 0; i < 100; i++ {
+		fs := fuzz.FilesetDeep(fuzz.Intn(5)+1, fuzz.Intn(2)+1, fuzz.Intn(10)%2 == 0, fuzz.Intn(10)%2 == 0)
+		fs.Replace(func(f reflow.File) reflow.File {
+			f.Source = f.Source + "_replaced"
+			return f
+		})
+		for _, file := range fs.Files() {
+			if !strings.HasSuffix(file.Source, "_replaced") {
+				t.Errorf("unreplaced file %v", file)
+			}
+		}
+	}
+}
+
+func TestCopyAssertionsByFile(t *testing.T) {
+	fuzz := testutil.NewFuzz(nil)
+	for i := 0; i < 100; i++ {
+		fs := fuzz.FilesetDeep(fuzz.Intn(5)+1, fuzz.Intn(2)+1, false, true)
+		files := fs.Files()
+		for i := range files {
+			f := files[i]
+			f.Assertions = reflow.AssertionsFromEntry(reflow.AssertionKey{f.Source + "_replaced", "blob"}, map[string]string{"etag": "replaced"})
+			files[i] = f
+		}
+		fs.CopyAssertionsByFile(files)
+		for _, f := range fs.Files() {
+			if got, want := f.Assertions, reflow.AssertionsFromEntry(reflow.AssertionKey{f.Source + "_replaced", "blob"}, map[string]string{"etag": "replaced"}); !got.Equal(want) {
+				t.Errorf("got %v, want %v", got, want)
+			}
+		}
+	}
+}
+
 func TestSubst(t *testing.T) {
 	fuzz := testutil.NewFuzz(nil)
-
-	for _, aok := range []bool{true, false} {
-		fs := fuzz.Fileset(true, aok)
-		_, ok := fs.Subst(nil)
-		if ok {
-			t.Fatal("unexpected resolved fileset")
-		}
-
-		// Create a substitution map:
-		sub := make(map[digest.Digest]reflow.File)
-		for _, file := range fs.Files() {
-			if !file.IsRef() {
-				continue
+	for i := 0; i < 100; i++ {
+		for _, aok := range []bool{true, false} {
+			fs := fuzz.FilesetDeep(fuzz.Intn(5)+1, fuzz.Intn(2)+1, true, fuzz.Intn(10)%2 == 0)
+			_, ok := fs.Subst(nil)
+			if ok {
+				t.Fatal("unexpected resolved fileset")
 			}
-			sub[file.Digest()] = fuzz.File(false, aok)
-		}
-		fs, ok = fs.Subst(sub)
-		if !ok {
-			t.Error("expected resolved fileset")
-		}
-		for _, file := range fs.Files() {
-			if file.IsRef() {
-				t.Errorf("unexpected reference file %v", file)
+			// Create a substitution map:
+			sub := make(map[digest.Digest]reflow.File)
+			for _, file := range fs.Files() {
+				if !file.IsRef() {
+					continue
+				}
+				sub[file.Digest()] = fuzz.File(false, aok)
+			}
+			fs, ok = fs.Subst(sub)
+			if !ok {
+				t.Error("expected resolved fileset")
+			}
+			for _, file := range fs.Files() {
+				if file.IsRef() {
+					t.Errorf("unexpected reference file %v", file)
+				}
 			}
 		}
 	}
@@ -269,7 +304,7 @@ func TestDiff(t *testing.T) {
 
 func TestAssertions(t *testing.T) {
 	fuzz := testutil.NewFuzz(nil)
-	fs := fuzz.Fileset(true, true)
+	fs := fuzz.FilesetDeep(fuzz.Intn(5)+1, fuzz.Intn(2)+1, fuzz.Intn(10)%2 == 0, fuzz.Intn(10)%2 == 0)
 	a := reflow.AssertionsFromMap(map[reflow.AssertionKey]map[string]string{
 		{"s1", "t"}: {"tag": "v"},
 		{"s2", "t"}: {"tag": "v"},
@@ -283,6 +318,9 @@ func TestAssertions(t *testing.T) {
 	wantAll := reflow.NewAssertions()
 	for _, f := range fs.Files() {
 		ea := existingByPath[f.Source]
+		if ea.IsEmpty() {
+			continue
+		}
 		got, want := f.Assertions, ea
 		if err := want.AddFrom(a); err != nil {
 			t.Error(err)
@@ -322,15 +360,6 @@ func TestAssertions(t *testing.T) {
 	}
 }
 
-func createFilesets(nfs, nfiles, depth int) []reflow.Fileset {
-	fuzz := testutil.NewFuzz(nil)
-	fss := make([]reflow.Fileset, nfs)
-	for i := 0; i < nfs; i++ {
-		fss[i] = fuzz.FilesetDeep(nfiles, depth, false, true)
-	}
-	return fss
-}
-
 func createAssertions(n int) *reflow.Assertions {
 	fuzz := testutil.NewFuzz(nil)
 	m := make(map[reflow.AssertionKey]map[string]string, n)
@@ -345,15 +374,127 @@ func createAssertions(n int) *reflow.Assertions {
 	return reflow.AssertionsFromMap(m)
 }
 
+// oldFile is a JSON representation of reflow.File before reflow.File.Assertions were omitted.
+// This is used to test conversion between old and new formats.
+type oldFile struct {
+	reflow.File
+	Assertions *reflow.Assertions `json:",omitempty"`
+}
+
+// oldFileset is a JSON representation of reflow.Fileset before reflow.File.Assertions were omitted.
+// This is used to test conversion between old and new formats.
+type oldFileset struct {
+	List []oldFileset       `json:",omitempty"`
+	Map  map[string]oldFile `json:"Fileset,omitempty"`
+}
+
+func oldFs(fs reflow.Fileset) (ofs oldFileset) {
+	if fs.List != nil {
+		ofs.List = make([]oldFileset, len(fs.List))
+		for i := range fs.List {
+			ofs.List[i] = oldFs(fs.List[i])
+		}
+	}
+	if fs.Map != nil {
+		ofs.Map = make(map[string]oldFile, len(fs.Map))
+		for k, v := range fs.Map {
+			ofs.Map[k] = oldFile{v, v.Assertions}
+		}
+	}
+	return
+}
+
+func newFs(ofs oldFileset) (fs reflow.Fileset) {
+	if ofs.List != nil {
+		fs.List = make([]reflow.Fileset, len(ofs.List))
+		for i := range ofs.List {
+			fs.List[i] = newFs(ofs.List[i])
+		}
+	}
+	if ofs.Map != nil {
+		fs.Map = make(map[string]reflow.File, len(ofs.Map))
+		for k, v := range ofs.Map {
+			f := v.File
+			f.Assertions = v.Assertions
+			fs.Map[k] = f
+		}
+	}
+	return
+}
+
+func TestCustomMarshal(t *testing.T) {
+	fuzz := testutil.NewFuzz(nil)
+	for i := 0; i < 100; i++ {
+		fs := fuzz.FilesetDeep(fuzz.Intn(5)+1, fuzz.Intn(2)+1, fuzz.Intn(10)%2 == 0, fuzz.Intn(10)%2 == 0)
+		ofs := oldFs(fs)
+		var b bytes.Buffer
+		if err := fs.WriteJSON(&b); err != nil {
+			t.Fatal(err)
+		}
+		want, err := json.Marshal(ofs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The custom marshaller uses json.Encoder which internally adds a newline after each Assertion.
+		// Using json.Marshal yield no difference in bytes, but the encoder is more efficient.
+		// Newlines in JSON outside of tokens are are inconsequential anyway.
+		if got := strings.ReplaceAll(b.String(), "\n", ""); got != string(want) {
+			t.Fatalf("\ngot : %s\nwant: %s\n", got, want)
+		}
+	}
+}
+
+func TestCustomUnmarshal(t *testing.T) {
+	fuzz := testutil.NewFuzz(nil)
+	for i := 0; i < 100; i++ {
+		want := fuzz.FilesetDeep(fuzz.Intn(5)+1, fuzz.Intn(2)+1, fuzz.Intn(10)%2 == 0, fuzz.Intn(10)%2 == 0)
+		// Marshal oldFileset using JSON std library and read using custom unmarshal.
+		b, err := json.Marshal(oldFs(want))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got reflow.Fileset
+		if err = got.ReadJSON(bytes.NewReader(b)); err != nil {
+			t.Fatal(err)
+		}
+		if diff, yes := want.Diff(got); yes {
+			t.Fatalf("got:\n%s\nwant:\n%s\ndiff:\n%v", got, want, diff)
+		}
+		// Custom marshal, and unmarshal to oldFileset using JSON std library.
+		var bb bytes.Buffer
+		if err = want.WriteJSON(&bb); err != nil {
+			t.Fatal(err)
+		}
+		var ofs oldFileset
+		if err = json.Unmarshal(bb.Bytes(), &ofs); err != nil {
+			t.Fatal(err)
+		}
+		got = newFs(ofs)
+		if diff, yes := want.Diff(got); yes {
+			t.Fatalf("got:\n%s\nwant:\n%s\ndiff:\n%v", got, want, diff)
+		}
+	}
+}
+
 var benchCombinations = []struct{ nfiles, nass int }{
+	// Small/medium
+	{10, 100},
 	{10, 1000},
 	{10, 10000},
-	{10, 100000},
+	{100, 10},
+	{100, 100},
 	{100, 1000},
-	{1000, 1000},
-	{10000, 100},
-	{10000, 1000},
-	//{10000, 10000},
+	{1000, 10},
+	{1000, 100},
+	// Large
+	//{10, 100000},
+	//{100, 10000},
+	//{1000, 1000},
+	//{10000, 10},
+	//{10000, 100},
+	//{10000, 1000},
+	// Enormous
+	//{10000, 10000},  // Needs lots of memory
 }
 
 func BenchmarkFileset(b *testing.B) {
@@ -393,25 +534,34 @@ func BenchmarkMarshal(b *testing.B) {
 		if err := fs.AddAssertions(a); err != nil {
 			b.Fatal(err)
 		}
-		want, err := json.Marshal(fs)
-		if err != nil {
-			b.Fatal(err)
-		}
 		for _, s := range []struct {
-			name       string
-			marshaller func(v interface{}) ([]byte, error)
+			name   string
+			encode func(io.Writer, reflow.Fileset) error
 		}{
-			{"json-std-lib", json.Marshal},
+			{"json-std-lib-full", func(w io.Writer, v reflow.Fileset) error {
+				b, err := json.Marshal(oldFs(v))
+				if err != nil {
+					return err
+				}
+				_, err = io.Copy(w, bytes.NewReader(b))
+				return err
+			}},
+			{"json-std-lib-stream", func(w io.Writer, fs reflow.Fileset) error {
+				return json.NewEncoder(w).Encode(oldFs(fs))
+			}},
+			{"json-custom-stream", func(w io.Writer, fs reflow.Fileset) error {
+				return fs.WriteJSON(w)
+			}},
 		} {
 			s, nums := s, nums
 			b.Run(fmt.Sprintf("%s-nfiles-%d-nass-%d", s.name, nums.nfiles, nums.nass), func(b *testing.B) {
 				for i := 0; i < b.N; i++ {
-					got, err := s.marshaller(fs)
-					if err != nil {
+					// Note: Discard the marshalled results since we are only benchmarking here.
+					// Otherwise, even if we were to hold the results in a buffer, the results
+					// are affected by the need to have to continuously grow the buffer as we marshal.
+					// (especially in the custom marshaling case).
+					if err := s.encode(ioutil.Discard, fs); err != nil {
 						b.Fatal(err)
-					}
-					if !bytes.Equal(got, want) {
-						b.Error("mismatch")
 					}
 				}
 			})
@@ -428,18 +578,23 @@ func BenchmarkUnmarshal(b *testing.B) {
 		if err := fs.AddAssertions(a); err != nil {
 			b.Fatal(err)
 		}
-		fssb, err := json.Marshal(fs)
+		fssb, err := json.Marshal(oldFs(fs))
 		if err != nil {
 			b.Fatal(err)
 		}
 		r := bytes.NewReader(fssb)
 		for _, s := range []struct {
-			name string
-			// unmarshaller func(data []byte, v interface{}) error
-			decode func(r io.Reader, v interface{}) error
+			name   string
+			decode func(io.Reader, *reflow.Fileset) error
 		}{
-			{"json-std-lib", func(r io.Reader, v interface{}) error {
-				return json.NewDecoder(r).Decode(v)
+			{"json-std-lib", func(r io.Reader, fs *reflow.Fileset) error {
+				var ofs oldFileset
+				err := json.NewDecoder(r).Decode(&ofs)
+				*fs = newFs(ofs)
+				return err
+			}},
+			{"json-custom", func(r io.Reader, fs *reflow.Fileset) error {
+				return fs.ReadJSON(r)
 			}},
 		} {
 			s, nums := s, nums
@@ -449,49 +604,7 @@ func BenchmarkUnmarshal(b *testing.B) {
 					if err := s.decode(r, &gotfs); err != nil && err != io.EOF {
 						b.Fatal(err)
 					}
-					if got, want := gotfs, fs; !got.Equal(want) {
-						b.Error("mismatch")
-					}
 					r.Reset(fssb)
-				}
-			})
-		}
-	}
-}
-
-func BenchmarkMarshalToFile(b *testing.B) {
-	b.ReportAllocs()
-	fuzz := testutil.NewFuzz(nil)
-	for _, nums := range benchCombinations {
-		fs := fuzz.FilesetDeep(nums.nfiles, 0, false, false)
-		a := createAssertions(nums.nass)
-		if err := fs.AddAssertions(a); err != nil {
-			b.Fatal(err)
-		}
-		for _, s := range []struct {
-			name           string
-			marshallToFile func(w io.Writer, v interface{}) error
-		}{
-			{"json-std-lib-full", func(w io.Writer, v interface{}) error {
-				b, err := json.Marshal(v)
-				if err != nil {
-					return err
-				}
-				_, err = io.Copy(w, bytes.NewReader(b))
-				return err
-			}},
-			{"json-std-lib-stream", func(w io.Writer, v interface{}) error {
-				e := json.NewEncoder(w)
-				return e.Encode(v)
-			}},
-		} {
-			s, nums := s, nums
-			b.Run(fmt.Sprintf("%s-nfiles-%d-nass-%d", s.name, nums.nfiles, nums.nass), func(b *testing.B) {
-				for i := 0; i < b.N; i++ {
-					// Note: Discard the marshalled results since we are only benchmarking here.
-					if err := s.marshallToFile(ioutil.Discard, fs); err != nil {
-						b.Fatal(err)
-					}
 				}
 			})
 		}

@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/rand"
 	"strings"
+	"time"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
@@ -22,7 +23,7 @@ type Fuzz struct{ *rand.Rand }
 // one with a fixed seed.
 func NewFuzz(r *rand.Rand) *Fuzz {
 	if r == nil {
-		r = rand.New(rand.NewSource(23))
+		r = rand.New(rand.NewSource(time.Now().UnixNano()))
 	}
 	return &Fuzz{r}
 }
@@ -61,9 +62,9 @@ func (f *Fuzz) Digest() digest.Digest {
 // File returns a random file. If refok is true, then
 // the returned file may be a reference file.  If aok
 // is true, then the returned file will contain assertions.
-func (f *Fuzz) File(refok, wantAssertions bool) reflow.File {
+func (f *Fuzz) File(refok, aok bool) reflow.File {
 	var file reflow.File
-	if refok && f.Float64() < 0.5 {
+	if refok {
 		file = reflow.File{
 			Size:   int64(f.Int63()),
 			Source: fmt.Sprintf("s3://%s/%s", f.String(""), f.String("/")),
@@ -72,8 +73,10 @@ func (f *Fuzz) File(refok, wantAssertions bool) reflow.File {
 	} else {
 		file = reflow.File{ID: f.Digest()}
 	}
-	if wantAssertions {
-		file.Source = fmt.Sprintf("s3://%s/%s", f.String(""), f.String("/"))
+	if aok {
+		if file.Source == "" {
+			file.Source = fmt.Sprintf("s3://%s/%s", f.String(""), f.String("/"))
+		}
 		file.Assertions = reflow.AssertionsFromEntry(
 			reflow.AssertionKey{file.Source, "blob"},
 			map[string]string{"etag": fmt.Sprintf("etag%d", f.Intn(10))})
@@ -85,25 +88,24 @@ func (f *Fuzz) File(refok, wantAssertions bool) reflow.File {
 // the returned fileset may contain reference files.  If aok
 // is true, then the returned fileset will contain assertions.
 func (f *Fuzz) Fileset(refok, aok bool) reflow.Fileset {
-	return f.fileset(f.Intn(10)+1, 0, refok, aok)
+	return f.fileset(f.Intn(10)+1, 0, 0, refok, aok)
 }
 
 // FilesetDeep returns a random fileset of the given depth and number of files.
-func (f *Fuzz) FilesetDeep(n, depth int, refok, aok bool) reflow.Fileset {
-	return f.fileset(n, 0, refok, aok)
+func (f *Fuzz) FilesetDeep(n, maxdepth int, refok, aok bool) reflow.Fileset {
+	return f.fileset(n, 0, maxdepth, refok, aok)
 }
 
-func (f *Fuzz) fileset(numfiles, depth int, refok, aok bool) (fs reflow.Fileset) {
-	if f.Float64() < math.Pow(0.5, float64(depth+1)) {
+func (f *Fuzz) fileset(numfiles, depth, maxdepth int, refok, aok bool) (fs reflow.Fileset) {
+	if depth < maxdepth && f.Float64() < math.Pow(0.5, float64(depth)) {
 		fs.List = make([]reflow.Fileset, f.Intn(5)+1)
 		for i := range fs.List {
-			fs.List[i] = f.fileset(numfiles, depth+1, refok, aok)
+			fs.List[i] = f.fileset(numfiles, depth+1, maxdepth, refok, aok)
 		}
-	} else {
-		fs.Map = make(map[string]reflow.File)
-		for i := 0; i < numfiles; i++ {
-			fs.Map[f.String("/")] = f.File(refok, aok)
-		}
+	}
+	fs.Map = make(map[string]reflow.File)
+	for i := 0; i < numfiles; i++ {
+		fs.Map[f.String("/")] = f.File(refok, aok)
 	}
 	return
 }

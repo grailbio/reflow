@@ -238,6 +238,7 @@ func (w *worker) do(ctx context.Context, f *flow.Flow) (err error) {
 		case stateResult:
 			r, err = x.Result(ctx)
 			if err == nil {
+				flow.ApplyAssertions(&r.Fileset, cfg)
 				w.Eval.Mutate(f, r.Fileset, flow.Incr, flow.Propagate)
 			}
 		case statePromote:

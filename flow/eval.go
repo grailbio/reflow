@@ -10,7 +10,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -36,6 +35,7 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/predictor"
+	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/trace"
@@ -1474,7 +1474,7 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) 
 		return err
 	}
 	_ = e.marshalLimiter.Acquire(ctx, 1)
-	id, err := marshal(ctx, e.Repository, fs)
+	id, err := marshal(ctx, e.Repository, &fs)
 	e.marshalLimiter.Release(1)
 	if err != nil {
 		return err
@@ -1953,6 +1953,7 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 			f.Inspect, err = x.Inspect(ctx)
 		case stateResult:
 			r, err = x.Result(ctx)
+			ApplyAssertions(&r.Fileset, cfg)
 		case stateVerify:
 			err = traverse.Each(f.NExecArg(), func(i int) error {
 				earg := f.ExecArg(i)
@@ -2689,23 +2690,13 @@ func printFileset(w io.Writer, prefix string, fs reflow.Fileset) {
 // repository. The digest of the contents of the marshaled content is
 // returned.
 func marshal(ctx context.Context, repo reflow.Repository, v interface{}) (digest.Digest, error) {
-	r, w := io.Pipe()
-	e := json.NewEncoder(w)
-	go func() {
-		_ = w.CloseWithError(e.Encode(v))
-	}()
-	return repo.Put(ctx, r)
+	return repository.Marshal(ctx, repo, v)
 }
 
 // Unmarshal unmarshals the value named by digest k into v.
 // If the value does not exist in repository, an error is returned.
 func unmarshal(ctx context.Context, repo reflow.Repository, k digest.Digest, v interface{}) error {
-	rc, err := repo.Get(ctx, k)
-	if err != nil {
-		return err
-	}
-	defer rc.Close()
-	return json.NewDecoder(rc).Decode(v)
+	return repository.Unmarshal(ctx, repo, k, v)
 }
 
 // Missing returns the files in files that are missing from

@@ -5,6 +5,7 @@
 package reflow_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math/rand"
@@ -295,15 +296,35 @@ func TestAssertionsMarshal(t *testing.T) {
 	for _, tt := range tests {
 		b, err := json.Marshal(tt.a)
 		if err != nil {
-			t.Errorf("marshal(%s) %v", a1, err)
+			t.Errorf("json.Marshal(%s) %v", a1, err)
 		}
 		if got, want := string(b), string(tt.w); got != want {
 			t.Errorf("got %v, want %v", got, want)
+		}
+		var buf bytes.Buffer
+		if err = tt.a.Marshal(&buf); err != nil {
+			t.Errorf("Marshal(%s) %v", a1, err)
+		}
+		// The custom marshaller uses json.Encoder which internally adds a newline after each Assertion.
+		// Using json.Marshal yield no difference in bytes, but the encoder is more efficient.
+		// Newlines in JSON outside of tokens are are inconsequential anyway.
+		if got, want := strings.ReplaceAll(buf.String(), "\n", ""), string(tt.w); got != want {
+			t.Errorf("\ngot : %v\nwant: %v", got, want)
 		}
 	}
 }
 
 func TestAssertionsUnmarshal(t *testing.T) {
+	jsonMarshalFunc := func(b []byte) (*reflow.Assertions, error) {
+		a := new(reflow.Assertions)
+		err := json.Unmarshal(b, &a)
+		return a, err
+	}
+	customMarshalFunc := func(b []byte) (*reflow.Assertions, error) {
+		a := new(reflow.Assertions)
+		err := a.Unmarshal(json.NewDecoder(bytes.NewReader(b)))
+		return a, err
+	}
 	tests := []struct {
 		b    []byte
 		want *reflow.Assertions
@@ -326,15 +347,17 @@ func TestAssertionsUnmarshal(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		got := new(reflow.Assertions)
-		if err := json.Unmarshal(tt.b, got); tt.we != (err != nil) {
-			t.Errorf("unmarshal got %v, want error: %v ", err, tt.we)
-		}
-		if tt.we {
-			continue
-		}
-		if !got.Equal(tt.want) {
-			t.Errorf("got %v, want %v", got, tt.want)
+		for _, fn := range []func([]byte) (*reflow.Assertions, error){jsonMarshalFunc, customMarshalFunc} {
+			got, err := fn(tt.b)
+			if tt.we != (err != nil) {
+				t.Errorf("unmarshal got %v, want error: %v ", err, tt.we)
+			}
+			if tt.we {
+				continue
+			}
+			if !got.Equal(tt.want) {
+				t.Errorf("got %v, want %v", got, tt.want)
+			}
 		}
 	}
 }
