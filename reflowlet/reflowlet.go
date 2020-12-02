@@ -246,7 +246,7 @@ func (s *Server) ListenAndServe() error {
 	}
 	if s.EC2Cluster {
 		ec2Log := log.Std.Tee(nil, fmt.Sprintf("reflowlet (%s) ", s.ec2Identity.InstanceType))
-		ec2Log.Printf("started")
+		ec2Log.Printf("started (version %s)", s.version)
 		ctx, cancel := context.WithCancel(context.Background())
 		if err := s.setupWatcher(ctx, sess, filepath.Join(s.Prefix, s.Dir), rc.VolumeWatcher); err != nil {
 			log.Fatal(err)
