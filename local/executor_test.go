@@ -153,18 +153,18 @@ func TestProfileContextTimeOut(t *testing.T) {
 	ctx := context.Background()
 	id := reflow.Digester.FromString("hello world!")
 
-	// execslow sleeps for 45 seconds, which, so ctx (with a 30-second timeout) will time out before
+	// execslow sleeps for 5 seconds, so ctx (with a 2-second timeout) will time out before
 	// execslow finishes.
 	execslow, err := x.Put(ctx, id, reflow.ExecConfig{
 		Type:  "exec",
 		Image: bashImage,
-		Cmd:   "sleep 45; echo foobar > $tmp/x; cat $tmp/x > $out",
+		Cmd:   "sleep 5; echo foobar > $tmp/x; cat $tmp/x > $out",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Give it some time to fetch the image, etc.
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	err = execslow.Wait(ctx)
 	if err != nil {
