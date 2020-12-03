@@ -33,12 +33,19 @@ The columns displayed by the instance listing are:
 	            old    when the instance is not of the current generation`
 	regionFlag := flags.String("region", "us-west-2", "region for which to show prices")
 	sortFlag := flags.String("sort", "type", "sorting field (type, cpu, mem, price)")
+	minCpuFlag := flags.Int("mincpu", 0, "mininum CPU (will filter out smaller instance types)")
+	minMemFlag := flags.Int("minmem", 0, "mininum Memory GiB (will filter out smaller instance types)")
 	c.Parse(flags, args, help, "ec2instances")
 	if flags.NArg() != 0 {
 		flags.Usage()
 	}
-	types := make([]instances.Type, len(instances.Types))
-	copy(types, instances.Types)
+	var types []instances.Type
+	for _, t := range instances.Types {
+		if int(t.VCPU) < *minCpuFlag || int(t.Memory) < *minMemFlag {
+			continue
+		}
+		types = append(types, t)
+	}
 	sort.Slice(types, func(i, j int) bool {
 		switch *sortFlag {
 		case "type":
