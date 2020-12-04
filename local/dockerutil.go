@@ -91,7 +91,7 @@ func pullImage(ctx context.Context, client docker.APIClient, authenticator ecrau
 		policy   = retry.MaxTries(retry.Backoff(time.Second, 10*time.Second, 1.5), maxTries)
 	)
 	for retries := 0; ; retries++ {
-		log.Debugf("pulling image (try %d/%d): %s", retries+1, maxTries, ref)
+		log.Printf("pulling image (try %d/%d): %s", retries+1, maxTries, ref)
 		var err error
 		resp, err = client.ImagePull(ctx, ref, options)
 		if err == nil {
@@ -106,6 +106,7 @@ func pullImage(ctx context.Context, client docker.APIClient, authenticator ecrau
 			return errors.E("pull image", ref, errors.Net, err)
 		}
 		if err := retry.Wait(ctx, policy, retries); err != nil {
+			log.Printf("pull image got error: %s, will retry", err)
 			// if we've exhausted the retry policy and the error is not one that we recognize,
 			// return an errors.Other so that the scheduler does not retry it on the same alloc
 			return errors.E("pull image", ref, err)
