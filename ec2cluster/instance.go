@@ -121,6 +121,7 @@ type instanceConfig struct {
 var (
 	instanceTypes = map[string]instanceConfig{}
 	localDigest   digest.Digest
+	localSize     int64
 	digestOnce    once.Task
 	reflowletOnce once.Task
 	reflowletFile reflow.File
@@ -665,48 +666,55 @@ func getReflowletFile(ctx context.Context, repo reflow.Repository, log *log.Logg
 		if !hasEmbedded() {
 			return execimage.ErrNoEmbeddedImage
 		}
-		localDigest, err := imageDigest()
+		d, sz, err := imageDigestAndSize()
 		if err != nil {
 			return err
 		}
-		if reflowletFile, err = repo.Stat(ctx, localDigest); err == nil {
+		reflowletFile, err = repo.Stat(ctx, d)
+		switch {
+		case err != nil:
+		case !reflowletFile.ContentHash.IsZero() && reflowletFile.ContentHash == d:
+			return nil
+		// TODO(swami/pboyapalli): The size check shouldn't be needed (since the ContentHash check is superior)
+		// but for some reason, the SHA values aren't getting set on the object, so we need to investigate why.
+		case reflowletFile.Size == sz:
 			return nil
 		}
-		// Image doesn't exist in repo, so upload it.
+		// Image doesn't exist in repo (or doesn't match the local image's digest or size), so upload it.
 		r, err := execimage.EmbeddedLinuxImage()
 		if err != nil {
 			return err
 		}
 		defer r.Close()
-		log.Debugf("uploading reflow image (%s) to repo", localDigest.Short())
+		log.Debugf("uploading reflow image (%s) to repo", d.Short())
 		repoDigest, err := repo.Put(ctx, r)
 		if err != nil {
 			return err
 		}
-		if repoDigest != localDigest {
+		if repoDigest != d {
 			return errors.New("digests mismatch")
 		}
-		reflowletFile, err = repo.Stat(ctx, localDigest)
+		reflowletFile, err = repo.Stat(ctx, d)
 		return err
 	})
 }
 
-func imageDigest() (digest.Digest, error) {
+func imageDigestAndSize() (digest.Digest, int64, error) {
 	err := digestOnce.Do(func() error {
 		var err error
 		r, err := execimage.EmbeddedLinuxImage()
 		if err != nil {
 			return err
 		}
-		localDigest, err = execimage.Digest(r)
+		localDigest, localSize, err = execimage.DigestAndSize(r)
 		defer r.Close()
 		return err
 	})
-	return localDigest, err
+	return localDigest, localSize, err
 }
 
 func hasEmbedded() bool {
-	_, err := imageDigest()
+	_, _, err := imageDigestAndSize()
 	return err == nil
 }
 

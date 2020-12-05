@@ -11,24 +11,15 @@ import (
 	"debug/macho"
 	"fmt"
 	"io"
-	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
-	"syscall"
 
 	"github.com/grailbio/base/digest"
-	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/reflow/errors"
 )
 
-var (
-	digester     = digest.Digester(crypto.SHA256)
-	binaryDigest digest.Digest
-	digestOnce   once.Task
-)
+var digester = digest.Digester(crypto.SHA256)
 
 // ExecPath returns an absolute path to the executable of the current running process.
 func ExecPath() (string, error) {
@@ -48,64 +39,14 @@ func ExecPath() (string, error) {
 	return path, nil
 }
 
-// ImageDigest returns the digest of the executable of the current running process.
-func ImageDigest() (digest.Digest, error) {
-	err := digestOnce.Do(func() error {
-		var err error
-		path, err := ExecPath()
-		if err != nil {
-			return err
-		}
-		r, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer r.Close()
-		binaryDigest, err = Digest(r)
-		return err
-	})
-	return binaryDigest, err
-}
-
-// Digest returns the digest of the given ReadCloser and closes it.
-func Digest(r io.Reader) (digest.Digest, error) {
-	var dig digest.Digest
+// DigestAndSize returns the digest and size of the given Reader.
+func DigestAndSize(r io.Reader) (digest.Digest, int64, error) {
 	dw := digester.NewWriter()
-	if _, err := io.Copy(dw, r); err != nil {
-		return dig, err
-	}
-	dig = dw.Digest()
-	return dig, nil
-}
-
-// InstallImageReflowlet reads a new image from its argument and replaces the current
-// process with it. As a consequence, all state held by the caller is lost
-// (pending requests, if any, etc) so its up to the caller to manage this interaction.
-// TODO(dnicolaou) remove InstallImageReflowlet once the old reflowlet bootstrap
-//  containing the reflow binary is replaced
-func InstallImageReflowlet(exec io.ReadCloser, prefix string) error {
-	f, err := ioutil.TempFile("", prefix)
+	size, err := io.Copy(dw, r)
 	if err != nil {
-		return err
+		return digest.Digest{}, 0, err
 	}
-	if _, err := io.Copy(f, exec); err != nil {
-		return err
-	}
-	if err := exec.Close(); err != nil {
-		return err
-	}
-	path := f.Name()
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(path, 0755); err != nil {
-		return err
-	}
-	args := append([]string{}, os.Args...)
-	args[0] = path
-	log.Printf("exec %s", strings.Join(args, " "))
-	err = syscall.Exec(path, args, os.Environ())
-	return err
+	return dw.Digest(), size, nil
 }
 
 func sectionEndAligned(s *elf.Section) uint64 {
