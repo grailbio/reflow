@@ -1473,7 +1473,7 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) 
 	if err := e.Transferer.Transfer(ctx, e.Repository, repo, fs.Files()...); err != nil {
 		return err
 	}
-	id, err := marshal(ctx, e.marshalLimiter, e.Repository, fs)
+	id, err := marshal(ctx, e.marshalLimiter, e.Repository, &fs)
 	if err != nil {
 		return err
 	}
