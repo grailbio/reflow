@@ -206,29 +206,30 @@ func TestAssertionsEqual(t *testing.T) {
 
 func TestAssertionsFilter(t *testing.T) {
 	tests := []struct {
-		s, t, w *reflow.Assertions
-		wk      []reflow.AssertionKey
+		s    *reflow.RWAssertions
+		t, w *reflow.Assertions
+		wk   []reflow.AssertionKey
 	}{
 		{
-			reflow.AssertionsFromEntry(k1, k1v1),
+			reflow.NewRWAssertions(reflow.AssertionsFromEntry(k1, k1v1)),
 			nil,
 			nil,
 			nil,
 		},
 		{
-			reflow.AssertionsFromEntry(k1, k1v1),
+			reflow.NewRWAssertions(reflow.AssertionsFromEntry(k1, k1v1)),
 			reflow.AssertionsFromEntry(k1, map[string]string{"etag": "v2"}),
 			reflow.AssertionsFromEntry(k1, k1v1),
 			nil,
 		},
 		{
-			reflow.AssertionsFromMap(map[reflow.AssertionKey]map[string]string{k1: k1v1, k2: k2v2}),
+			reflow.NewRWAssertions(reflow.AssertionsFromMap(map[reflow.AssertionKey]map[string]string{k1: k1v1, k2: k2v2})),
 			reflow.AssertionsFromMap(map[reflow.AssertionKey]map[string]string{k1: {"etag": "v"}, k2: {"version": "v"}}),
 			reflow.AssertionsFromMap(map[reflow.AssertionKey]map[string]string{k1: k1v1, k2: k2v2}),
 			nil,
 		},
 		{
-			reflow.AssertionsFromEntry(k1, k1v1),
+			reflow.NewRWAssertions(reflow.AssertionsFromEntry(k1, k1v1)),
 			reflow.AssertionsFromEntry(k2, map[string]string{"version": "v1"}),
 			new(reflow.Assertions),
 			[]reflow.AssertionKey{k2},
@@ -420,7 +421,7 @@ func TestAssertionsString(t *testing.T) {
 }
 
 // callMethods repeatedly calls various methods on the given assertions objects until the given context is cancelled.
-func callMethods(ctx context.Context, all, a *reflow.Assertions) {
+func callMethods(ctx context.Context, all *reflow.RWAssertions, a *reflow.Assertions) {
 	done := false
 	for !done {
 		a.IsEmpty()
@@ -448,7 +449,7 @@ func TestAssertionsConcurrency(t *testing.T) {
 	err := traverse.Each(1000, func(i int) error {
 		i = i % N
 		a, b, c := list[i], list[N-i-1], list[fuzz.Intn(N)]
-		all := reflow.NewAssertions()
+		all := reflow.NewRWAssertions(reflow.NewAssertions())
 		ctx, cancel := context.WithCancel(context.Background())
 		go callMethods(ctx, all, a)
 		go callMethods(ctx, all, b)

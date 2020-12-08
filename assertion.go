@@ -112,18 +112,17 @@ func sortedKeys(m map[string]string) []string {
 }
 
 // Assertions represent a collection of AssertionKeys with specific values for various properties of theirs.
-// Assertions are constructed in one of the following ways:
+// Assertions are immutable and constructed in one of the following ways:
 //  NewAssertions: creates an empty Assertions and is typically used when subsequent operations are to AddFrom.
 //  AssertionsFromEntry: creates Assertions from a single entry mapping an AssertionKey
 //  to various properties (within the key's Namespace) of the named Subject in the key.
 //  AssertionsFromMap: creates Assertions from a mapping of AssertionKey to properties.
 //  MergeAssertions: merges a list of Assertions into a single Assertions.
 type Assertions struct {
-	mu sync.RWMutex
-	m  map[AssertionKey]*assertion
+	m map[AssertionKey]*assertion
 }
 
-// NewAssertions creates a new Assertions object.
+// NewAssertions creates a new (empty) Assertions object.
 func NewAssertions() *Assertions {
 	return &Assertions{m: make(map[AssertionKey]*assertion)}
 }
@@ -144,18 +143,6 @@ func AssertionsFromEntry(k AssertionKey, v map[string]string) *Assertions {
 	return AssertionsFromMap(map[AssertionKey]map[string]string{k: v})
 }
 
-// CopyAssertions creates a copy of another Assertions object.
-func CopyAssertions(src *Assertions) *Assertions {
-	if src == nil {
-		return nil
-	}
-	a := &Assertions{m: make(map[AssertionKey]*assertion, len(src.m))}
-	for k, v := range src.m {
-		a.m[k] = &assertion{objects: v.objects, digest: v.digest}
-	}
-	return a
-}
-
 // MergeAssertions merges a list of Assertions into a single Assertions.
 // Returns an error if the same key maps to a conflicting value as a result of the merge.
 func MergeAssertions(list ...*Assertions) (*Assertions, error) {
@@ -163,7 +150,6 @@ func MergeAssertions(list ...*Assertions) (*Assertions, error) {
 	merged := &Assertions{m: make(map[AssertionKey]*assertion, l)}
 	var err error
 	for _, a := range toMerge {
-		a.mu.RLock()
 		for k, v := range a.m {
 			av, ok := merged.m[k]
 			if !ok {
@@ -175,7 +161,6 @@ func MergeAssertions(list ...*Assertions) (*Assertions, error) {
 				break
 			}
 		}
-		a.mu.RUnlock()
 		if err != nil {
 			break
 		}
@@ -221,18 +206,15 @@ func PrettyDiff(lefts, rights []*Assertions) string {
 		return strings.Join(diffs, "\n")
 	}
 	for _, r := range rights {
-		r.mu.RLock()
 		for k, rv := range r.m {
 			found := false
 			for _, l := range lefts {
-				l.mu.RLock()
 				if lv, ok := l.m[k]; ok {
 					found = true
 					if diff := lv.prettyDiff(rv); diff != "" {
 						diffs = append(diffs, fmt.Sprintf("conflict %s: %s", k, diff))
 					}
 				}
-				l.mu.RUnlock()
 				if found {
 					break
 				}
@@ -241,37 +223,9 @@ func PrettyDiff(lefts, rights []*Assertions) string {
 				diffs = append(diffs, fmt.Sprintf("extra: %s: %s", k, rv))
 			}
 		}
-		r.mu.RUnlock()
 	}
 	sort.Strings(diffs)
 	return strings.Join(diffs, "\n")
-}
-
-// AddFrom adds to this Assertions from the given list of Assertions.
-// Returns an error if the same key maps to a conflicting value as a result of the adding.
-// AddFrom panics if s is nil.
-func (s *Assertions) AddFrom(list ...*Assertions) error {
-	toAdd, _ := NonEmptyAssertions(list...)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var err error
-	for _, a := range toAdd {
-		a.mu.RLock()
-		for k, v := range a.m {
-			av, ok := s.m[k]
-			if !ok {
-				s.m[k] = v
-			} else if !av.equal(v) {
-				err = fmt.Errorf("conflict for %s: %s", k, av.prettyDiff(v))
-				break
-			}
-		}
-		a.mu.RUnlock()
-		if err != nil {
-			break
-		}
-	}
-	return err
 }
 
 // Equal returns whether the given Assertions is equal to this one.
@@ -283,10 +237,6 @@ func (s *Assertions) Equal(t *Assertions) bool {
 	if s.IsEmpty() {
 		return true
 	}
-	t.mu.RLock()
-	s.mu.RLock()
-	defer t.mu.RUnlock()
-	defer s.mu.RUnlock()
 	// Check everything in s exists in t and has the same value.
 	for k, sv := range s.m {
 		if tv, ok := t.m[k]; !ok || !tv.equal(sv) {
@@ -296,29 +246,6 @@ func (s *Assertions) Equal(t *Assertions) bool {
 	return true
 }
 
-// Filter returns new Assertions mapping keys from t with values from s (panics if s is nil)
-// and a list of AssertionKeys that exist in t but are missing in s.
-func (s *Assertions) Filter(t *Assertions) (*Assertions, []AssertionKey) {
-	if t == nil {
-		return nil, nil
-	}
-	a := &Assertions{m: make(map[AssertionKey]*assertion, t.size())}
-	var missing []AssertionKey
-	t.mu.RLock()
-	s.mu.RLock()
-	for k := range t.m {
-		if sv, ok := s.m[k]; !ok {
-			missing = append(missing, k)
-		} else {
-			a.m[k] = sv
-		}
-	}
-	t.mu.RUnlock()
-	s.mu.RUnlock()
-	sort.Slice(missing, func(i, j int) bool { return missing[i].Less(missing[j]) })
-	return a, missing
-}
-
 // IsEmpty returns whether this is empty, which it is if its a nil reference or has no entries.
 func (s *Assertions) IsEmpty() bool {
 	return s.size() == 0
@@ -326,11 +253,9 @@ func (s *Assertions) IsEmpty() bool {
 
 // size returns the size of this assertions.
 func (s *Assertions) size() int {
-	if s == nil {
+	if s == nil || s.m == nil {
 		return 0
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	return len(s.m)
 }
 
@@ -345,14 +270,10 @@ func (s *Assertions) PrettyDiff(t *Assertions) string {
 	}
 	var diffs []string
 	if s.IsEmpty() {
-		t.mu.RLock()
 		for k, tv := range t.m {
 			diffs = append(diffs, fmt.Sprintf("extra: %s: %s", k, tv))
 		}
-		t.mu.RUnlock()
 	} else {
-		s.mu.RLock()
-		t.mu.RLock()
 		for k, tv := range t.m {
 			if sv, ok := s.m[k]; !ok {
 				diffs = append(diffs, fmt.Sprintf("extra: %s: %s", k, tv))
@@ -360,8 +281,6 @@ func (s *Assertions) PrettyDiff(t *Assertions) string {
 				diffs = append(diffs, fmt.Sprintf("conflict %s: %s", k, diff))
 			}
 		}
-		s.mu.RUnlock()
-		t.mu.RUnlock()
 	}
 	sort.Strings(diffs)
 	return strings.Join(diffs, "\n")
@@ -382,12 +301,10 @@ func (s *Assertions) String() string {
 	}
 	m := make(map[AssertionKey][]string)
 	var keys []AssertionKey
-	s.mu.RLock()
 	for k, v := range s.m {
 		keys = append(keys, k)
 		m[k] = v.stringParts()
 	}
-	s.mu.RUnlock()
 	sort.Slice(keys, func(i, j int) bool { return keys[i].Less(keys[j]) })
 	var ss []string
 	for _, k := range keys {
@@ -415,7 +332,6 @@ func (s *Assertions) WriteDigest(w io.Writer) {
 	// Convert the representation into the legacy format so that digests don't change
 	var keys []assertionKey
 	m := make(map[assertionKey]string)
-	s.mu.RLock()
 	for k, v := range s.m {
 		if v == nil {
 			continue
@@ -426,7 +342,6 @@ func (s *Assertions) WriteDigest(w io.Writer) {
 			m[key] = ov
 		}
 	}
-	s.mu.RUnlock()
 	sort.Slice(keys, func(i, j int) bool { return keys[i].less(keys[j]) })
 	for _, key := range keys {
 		v := m[key]
@@ -435,6 +350,74 @@ func (s *Assertions) WriteDigest(w io.Writer) {
 		io.WriteString(w, key.Object)
 		io.WriteString(w, v)
 	}
+}
+
+// RWAssertions are a mutable representation of Assertions.
+type RWAssertions struct {
+	a  *Assertions
+	mu sync.Mutex
+}
+
+// NewRWAssertions creates a new RWAssertions with the given Assertions.
+func NewRWAssertions(a *Assertions) *RWAssertions {
+	return &RWAssertions{a: a}
+}
+
+// AddFrom adds to this RWAssertions from the given list of Assertions.
+// Returns an error if the same key maps to a conflicting value as a result of the adding.
+// AddFrom panics if s is nil.
+func (s *RWAssertions) AddFrom(list ...*Assertions) error {
+	toAdd, _ := NonEmptyAssertions(list...)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var err error
+	for _, a := range toAdd {
+		for k, v := range a.m {
+			av, ok := s.a.m[k]
+			if !ok {
+				s.a.m[k] = v
+			} else if !av.equal(v) {
+				err = fmt.Errorf("conflict for %s: %s", k, av.prettyDiff(v))
+				break
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+	return err
+}
+
+// Filter returns new Assertions mapping keys from t with values from s (panics if s is nil)
+// and a list of AssertionKeys that exist in t but are missing in s.
+func (s *RWAssertions) Filter(t *Assertions) (*Assertions, []AssertionKey) {
+	if t == nil {
+		return nil, nil
+	}
+	a := &Assertions{m: make(map[AssertionKey]*assertion, t.size())}
+	var missing []AssertionKey
+	s.mu.Lock()
+	for k := range t.m {
+		if sv, ok := s.a.m[k]; !ok {
+			missing = append(missing, k)
+		} else {
+			a.m[k] = sv
+		}
+	}
+	s.mu.Unlock()
+	sort.Slice(missing, func(i, j int) bool { return missing[i].Less(missing[j]) })
+	return a, missing
+}
+
+// dedupFrom de-duplicates the given Assertions object by returning the reference
+// to an existing copy (if any) in the given map, or to itself.
+func dedupFrom(m map[digest.Digest]*Assertions, a *Assertions) *Assertions {
+	d := a.Digest()
+	if v, ok := m[d]; ok {
+		return v
+	}
+	m[d] = a
+	return a
 }
 
 // assertionKey is the legacy representation of AssertionKey and exists for the purpose of
@@ -482,7 +465,6 @@ func (s *Assertions) marshal(w io.Writer) error {
 	if _, err := w.Write(arrOpenB); err != nil {
 		return err
 	}
-	s.mu.Lock()
 	keys := make([]AssertionKey, 0, len(s.m))
 	for k := range s.m {
 		keys = append(keys, k)
@@ -516,7 +498,6 @@ func (s *Assertions) marshal(w io.Writer) error {
 			}
 		}
 	}
-	s.mu.Unlock()
 	if _, err := w.Write(unsafe.StringToBytes("]")); err != nil {
 		return err
 	}
@@ -614,16 +595,13 @@ func AssertExact(_ context.Context, source, target []*Assertions) bool {
 	}
 	match := true
 	for _, tgt := range tgts {
-		tgt.mu.RLock()
 		for k, tv := range tgt.m {
 			found := false
 			for _, src := range srcs {
-				src.mu.RLock()
 				if sv, ok := src.m[k]; ok {
 					found = true
 					match = match && sv.equal(tv)
 				}
-				src.mu.RUnlock()
 				if found {
 					break
 				}
@@ -633,7 +611,6 @@ func AssertExact(_ context.Context, source, target []*Assertions) bool {
 				break
 			}
 		}
-		tgt.mu.RUnlock()
 		if !match {
 			break
 		}

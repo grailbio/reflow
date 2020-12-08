@@ -1161,11 +1161,11 @@ func TestPropagateAssertions(t *testing.T) {
 	internNoFs := op.Intern("url")
 	intern, iFs := op.Intern("url"), fuzz.Fileset(true, true)
 	intern.Value = iFs
-	internA, _ := reflow.MergeAssertions(iFs.Assertions()...)
+	internA := iFs.Assertions()
 
 	ec, eFs := op.Exec("image", "cmd1", reflow.Resources{"mem": 10, "cpu": 1, "disk": 110}, intern), fuzz.Fileset(true, true)
 	ec.Value = eFs
-	eA, _ := reflow.MergeAssertions(eFs.Assertions()...)
+	eA := eFs.Assertions()
 	ex, exFs := op.Extern("externurl", ec), fuzz.Fileset(true, true)
 	ex.Value = exFs
 
@@ -1194,10 +1194,7 @@ func TestPropagateAssertions(t *testing.T) {
 			continue
 		}
 
-		got, err := reflow.MergeAssertions(tt.f.Value.(reflow.Fileset).Assertions()...)
-		if err != nil {
-			t.Errorf("unexpected: %v", err)
-		}
+		got := tt.f.Value.(reflow.Fileset).Assertions()
 		if !got.Equal(tt.want) {
 			t.Errorf("got %v, want %v", got, tt.want)
 		}
@@ -1593,7 +1590,7 @@ func TestRefreshAssertionBatchCache(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-		emptyA := new(reflow.Assertions)
+		emptyA := reflow.NewRWAssertions(reflow.NewAssertions())
 		_, keys := emptyA.Filter(want[0])
 		for _, k := range keys {
 			if got, want := tt.g.countsByKey[reflow.AssertionKey{k.Subject, k.Namespace}], tt.want; got != want {

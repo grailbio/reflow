@@ -31,7 +31,7 @@ func ApplyAssertions(v *reflow.Fileset, cfg reflow.ExecConfig) {
 	case "extern":
 		// When files are 'extern'ed, the result fileset contains the same files as the input,
 		// but are missing assertions.  So we apply them each file mapped by its digest.
-		v.CopyAssertionsByFile(cfg.Args[0].Fileset.Files())
+		v.MapAssertionsByFile(cfg.Args[0].Fileset.Files())
 	case "exec":
 		// Execs are handled in flow.Eval.Mutate
 	default:

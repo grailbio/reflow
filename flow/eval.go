@@ -23,7 +23,6 @@ import (
 
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
-	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/base/traverse"
@@ -271,7 +270,7 @@ type Eval struct {
 
 	// assertions is an accumulation of assertions from computed flows (cache-hit or not)
 	// used to ensure that no two flows can be computed with conflicting assertions.
-	assertions *reflow.Assertions
+	assertions *reflow.RWAssertions
 
 	// A channel indicating how much extra resources are needed
 	// in order to avoid queueing.
@@ -323,7 +322,7 @@ type Eval struct {
 	// In case of large batch jobs, loading too many of them in parallel causes OOMs,
 	// so we limit how many we load concurrently.
 	// TODO(swami): Better solution is to use a more optimized file format (instead of JSON).
-	marshalLimiter *limiter.Limiter
+	marshalLimiter *reflow.FilesetLimiter
 
 	flowgraph *simple.DirectedGraph
 }
@@ -346,18 +345,15 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 	e := &Eval{
 		EvalConfig:     config,
 		root:           root.Canonicalize(config.Config),
-		assertions:     reflow.NewAssertions(),
+		assertions:     reflow.NewRWAssertions(reflow.NewAssertions()),
 		needch:         make(chan reflow.Requirements),
 		errors:         make(chan error),
 		returnch:       make(chan *Flow, 1024),
 		newStealer:     make(chan *Stealer),
 		wakeupch:       make(chan bool, 1),
 		pending:        newWorkingset(),
-		marshalLimiter: limiter.New(),
+		marshalLimiter: reflow.NewFilesetLimiter(runtime.NumCPU()),
 	}
-	// Limit the number of concurrent marshal/unmarshal to the number of CPUs we have.
-	e.marshalLimiter.Release(runtime.NumCPU())
-
 	if config.Executor != nil {
 		e.repo = config.Executor.Repository()
 		e.total = config.Executor.Resources()
@@ -1666,22 +1662,22 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 				return nil
 			}
 			// If the cached fileset has viable non-empty assertions, assert them.
-			if a, size := reflow.NonEmptyAssertions(fs.Assertions()...); size > 0 {
+			if a := fs.Assertions(); !a.IsEmpty() {
 				// Check if the assertions are internally consistent for the cached fileset.
-				if err = e.assertionsConsistent(f, a); err != nil {
+				if err = e.assertionsConsistent(f, []*reflow.Assertions{a}); err != nil {
 					e.Log.Debugf("assertions consistent: %v", err)
 					e.lookupFailed(f)
 					return nil
 				}
-				anew, err := e.refreshAssertions(ctx, a, bg)
+				anew, err := e.refreshAssertions(ctx, []*reflow.Assertions{a}, bg)
 				if err != nil {
 					e.Log.Debugf("refresh assertions: %v", err)
 					e.lookupFailed(f)
 					return nil
 				}
-				if !e.Assert(ctx, a, anew) {
+				if !e.Assert(ctx, []*reflow.Assertions{a}, anew) {
 					if e.Log.At(log.DebugLevel) {
-						if diff := reflow.PrettyDiff(a, anew); diff != "" {
+						if diff := reflow.PrettyDiff([]*reflow.Assertions{a}, anew); diff != "" {
 							e.Log.Debugf("flow %s assertions diff:\n%s\n", f.Digest().Short(), diff)
 						}
 					}
@@ -1875,7 +1871,11 @@ func (e *Eval) propagateAssertions(f *Flow) error {
 	if !ok {
 		return nil
 	}
-	return fs.AddAssertions(f.depAssertions()...)
+	da, err := reflow.MergeAssertions(f.depAssertions()...)
+	if err != nil {
+		return err
+	}
+	return fs.AddAssertions(da)
 }
 
 // exec performs and waits for an exec with the given config.
@@ -2127,7 +2127,7 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 	}
 	// When a flow is done (without errors), add all its assertions to the vector clock.
 	if f.Op.External() && f.State == Done && f.Err == nil {
-		err := e.assertions.AddFrom(f.Value.(reflow.Fileset).Assertions()...)
+		err := e.assertions.AddFrom(f.Value.(reflow.Fileset).Assertions())
 		if err != nil {
 			f.Err = errors.Recover(errors.E("adding assertions", f.Digest(), errors.Temporary, err))
 		}
@@ -2685,7 +2685,7 @@ func printFileset(w io.Writer, prefix string, fs reflow.Fileset) {
 // Marshal marshals the value v and stores it in the provided
 // repository. The digest of the contents of the marshaled content is
 // returned.
-func marshal(ctx context.Context, l *limiter.Limiter, repo reflow.Repository, v interface{}) (digest.Digest, error) {
+func marshal(ctx context.Context, l *reflow.FilesetLimiter, repo reflow.Repository, v interface{}) (digest.Digest, error) {
 	_ = l.Acquire(ctx, 1)
 	defer l.Release(1)
 	return repository.Marshal(ctx, repo, v)
@@ -2693,9 +2693,28 @@ func marshal(ctx context.Context, l *limiter.Limiter, repo reflow.Repository, v 
 
 // Unmarshal unmarshals the value named by digest k into v.
 // If the value does not exist in repository, an error is returned.
-func unmarshal(ctx context.Context, l *limiter.Limiter, repo reflow.Repository, k digest.Digest, v interface{}) error {
-	_ = l.Acquire(ctx, 1)
-	defer l.Release(1)
+func unmarshal(ctx context.Context, l *reflow.FilesetLimiter, repo reflow.Repository, k digest.Digest, v interface{}) error {
+	f, err := repo.Stat(ctx, k)
+	if err != nil {
+		return err
+	}
+	// sizePerToken helps determine the number of tokens to acquire from the limiter
+	// based on the size of the file to unmarshal.
+	// If the file is too big (ie, bigger than sizePerToken * numCPUs), then we simply
+	// prevent more than one file of such size to be processed concurrently.
+	const sizePerToken = 512 * 1024 * 1024 // 512MiB
+	numTokens := int(f.Size / sizePerToken)
+	if numTokens < 1 {
+		numTokens = 1
+	}
+	if numTokens > l.Limit() {
+		numTokens = l.Limit()/2 + 1
+	}
+	err = l.Acquire(ctx, numTokens)
+	if err != nil {
+		return nil
+	}
+	defer l.Release(numTokens)
 	return repository.Unmarshal(ctx, repo, k, v)
 }
 

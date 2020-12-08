@@ -196,7 +196,7 @@ func TestReplace(t *testing.T) {
 	}
 }
 
-func TestCopyAssertionsByFile(t *testing.T) {
+func TestMapAssertionsByFile(t *testing.T) {
 	fuzz := testutil.NewFuzz(nil)
 	for i := 0; i < 100; i++ {
 		fs := fuzz.FilesetDeep(fuzz.Intn(5)+1, fuzz.Intn(2)+1, false, true)
@@ -206,7 +206,7 @@ func TestCopyAssertionsByFile(t *testing.T) {
 			f.Assertions = reflow.AssertionsFromEntry(reflow.AssertionKey{f.Source + "_replaced", "blob"}, map[string]string{"etag": "replaced"})
 			files[i] = f
 		}
-		fs.CopyAssertionsByFile(files)
+		fs.MapAssertionsByFile(files)
 		for _, f := range fs.Files() {
 			if got, want := f.Assertions, reflow.AssertionsFromEntry(reflow.AssertionKey{f.Source + "_replaced", "blob"}, map[string]string{"etag": "replaced"}); !got.Equal(want) {
 				t.Errorf("got %v, want %v", got, want)
@@ -313,16 +313,18 @@ func TestAssertions(t *testing.T) {
 	for _, f := range fs.Files() {
 		existingByPath[f.Source] = f.Assertions
 	}
-	_ = fs.AddAssertions(a)
-
-	wantAll := reflow.NewAssertions()
+	if err := fs.AddAssertions(a); err != nil {
+		t.Error(err)
+	}
+	wantAll := reflow.NewRWAssertions(reflow.NewAssertions())
 	for _, f := range fs.Files() {
 		ea := existingByPath[f.Source]
 		if ea.IsEmpty() {
 			continue
 		}
-		got, want := f.Assertions, ea
-		if err := want.AddFrom(a); err != nil {
+		got := f.Assertions
+		want, err := reflow.MergeAssertions(ea, a)
+		if err != nil {
 			t.Error(err)
 		}
 		if !got.Equal(want) {
@@ -333,11 +335,7 @@ func TestAssertions(t *testing.T) {
 		}
 	}
 	_ = wantAll.AddFrom(a)
-	gotAll, err := reflow.MergeAssertions(fs.Assertions()...)
-	if err != nil {
-		t.Errorf("unexpected %v", err)
-	}
-	if got, want := gotAll, wantAll; !got.Equal(want) {
+	if got, want := fs.Assertions(), wantAll.Assertions(); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 
@@ -348,11 +346,7 @@ func TestAssertions(t *testing.T) {
 	if err := fs.AddAssertions(a); err != nil {
 		t.Errorf("unexpected %v", err)
 	}
-	fsa, err := reflow.MergeAssertions(fs.Assertions()...)
-	if err != nil {
-		t.Errorf("unexpected %v", err)
-	}
-	if got, want := fsa, a; !got.Equal(want) {
+	if got, want := fs.Assertions(), a; !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	if got, want := fs.Map[src].Assertions, a; !got.Equal(want) {
@@ -499,24 +493,35 @@ var benchCombinations = []struct{ nfiles, nass int }{
 
 func BenchmarkFileset(b *testing.B) {
 	fuzz := testutil.NewFuzz(nil)
-	for _, nums := range []struct{ nfiles, nass int }{
-		{1, 100000},
-		{1000, 10000},
-		{100000, 1000},
+	for _, tt := range []struct {
+		nfiles, nass int
+		aok          bool
+	}{
+		{1, 100000, false},
+		{1000, 10000, false},
+		{100000, 1000, false},
 	} {
-		fs := fuzz.FilesetDeep(nums.nfiles, 0, false, false)
-		a := createAssertions(nums.nass)
+		fs := fuzz.FilesetDeep(tt.nfiles, 0, false, tt.aok)
+		a := createAssertions(tt.nass)
 		for _, s := range []struct {
 			name string
 			fn   func() error
 		}{
-			{"writeassertions", func() error { _, err := reflow.MergeAssertions(fs.Assertions()...); return err }},
-			{"addassertions", func() error { return fs.AddAssertions(a) }},
+			{"writeassertions", func() error {
+				files := fs.Files()
+				fas := make([]*reflow.Assertions, len(files))
+				for i, f := range files {
+					fas[i] = f.Assertions
+				}
+				_, err := reflow.MergeAssertions(fas...)
+				return err
+			}},
+			{"fileset.addassertions", func() error { return fs.AddAssertions(a) }},
 		} {
-			s, nums := s, nums
+			ss, nums := s, tt
 			b.Run(fmt.Sprintf("%s-nfiles-%d-nass-%d", s.name, nums.nfiles, nums.nass), func(b *testing.B) {
 				for i := 0; i < b.N; i++ {
-					if err := s.fn(); err != nil {
+					if err := ss.fn(); err != nil {
 						b.Fatal(err)
 					}
 				}

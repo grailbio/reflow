@@ -41,7 +41,7 @@ type Repair struct {
 	// NumWrites is incremented for each new assoc entry written by the repair job.
 	NumWrites int64
 
-	marshalLimiter *limiter.Limiter
+	marshalLimiter *reflow.FilesetLimiter
 
 	writebacks chan writeback
 	g          *errgroup.Group
@@ -54,14 +54,12 @@ type Repair struct {
 func NewRepair(config EvalConfig) *Repair {
 	r := &Repair{
 		EvalConfig:     config,
-		marshalLimiter: limiter.New(),
+		marshalLimiter: reflow.NewFilesetLimiter(runtime.NumCPU()),
 		writebacks:     make(chan writeback, 1024),
 	}
 	if r.CacheLookupTimeout == time.Duration(0) {
 		r.CacheLookupTimeout = defaultCacheLookupTimeout
 	}
-	// Limit the number of concurrent marshal/unmarshal to the number of CPUs we have.
-	r.marshalLimiter.Release(runtime.NumCPU())
 	return r
 }
 

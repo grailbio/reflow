@@ -828,7 +828,7 @@ func (f *Flow) depAssertions() []*reflow.Assertions {
 		if f.Deps[0].Value == nil {
 			break
 		}
-		depAs = f.Deps[0].Value.(reflow.Fileset).Assertions()
+		depAs = append(depAs, f.Deps[0].Value.(reflow.Fileset).Assertions())
 	case Exec:
 		f.setArgmap()
 		for i := 0; i < f.NExecArg(); i++ {
@@ -839,7 +839,7 @@ func (f *Flow) depAssertions() []*reflow.Assertions {
 			if f.Deps[earg.Index].Value == nil {
 				continue
 			}
-			depAs = append(depAs, f.Deps[earg.Index].Value.(reflow.Fileset).Assertions()...)
+			depAs = append(depAs, f.Deps[earg.Index].Value.(reflow.Fileset).Assertions())
 		}
 	}
 	return depAs

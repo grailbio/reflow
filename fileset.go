@@ -189,32 +189,43 @@ func (v Fileset) AnyEmpty() bool {
 	return len(v.List) == 0 && len(v.Map) == 0
 }
 
-// Assertions returns a list of all Assertions across all the Files in this Fileset
-func (v Fileset) Assertions() []*Assertions {
+// Assertions returns all the assertions across all the Files in this Fileset.
+func (v Fileset) Assertions() *Assertions {
 	files := v.Files()
 	fas := make([]*Assertions, len(files))
 	for i, f := range files {
 		fas[i] = f.Assertions
 	}
-	return fas
+	a, err := MergeAssertions(fas...)
+	if err != nil {
+		// We don't expect assertions within a fileset to ever be inconsistent with each other.
+		panic(fmt.Sprintf("inconsistent assertions in fileset %s: %v", v.Short(), err))
+	}
+	return a
 }
 
 // AddAssertions adds the given assertions to all files in this Fileset.
-func (v *Fileset) AddAssertions(as ...*Assertions) error {
-	as, size := NonEmptyAssertions(as...)
-	if size == 0 {
+func (v *Fileset) AddAssertions(a *Assertions) error {
+	if a.size() == 0 {
 		return nil
 	}
 	for _, fs := range v.List {
-		return fs.AddAssertions(as...)
+		if err := fs.AddAssertions(a); err != nil {
+			return err
+		}
 	}
+	// m maps the digest of an Assertions object to itself and is used to avoid duplicate in-memory objects.
+	m := make(map[digest.Digest]*Assertions)
 	for k := range v.Map {
 		f := v.Map[k]
 		if f.Assertions == nil {
-			f.Assertions = NewAssertions()
-		}
-		if err := f.Assertions.AddFrom(as...); err != nil {
-			return err
+			f.Assertions = dedupFrom(m, a)
+		} else {
+			merged, err := MergeAssertions(f.Assertions, a)
+			if err != nil {
+				return err
+			}
+			f.Assertions = dedupFrom(m, merged)
 		}
 		v.Map[k] = f
 	}
@@ -283,17 +294,16 @@ func (v *Fileset) Replace(f func(file File) File) {
 	}
 }
 
-// CopyAssertionsByFile copies assertions from the given set of files
-// to the corresponding the same file (based on file.Digest()), if any, in this fileset.
-func (v *Fileset) CopyAssertionsByFile(files []File) {
+// MapAssertionsByFile maps the assertions from the given set of files
+// to the corresponding same file (based on file.Digest()), if any, in this fileset.
+func (v *Fileset) MapAssertionsByFile(files []File) {
 	byDigest := make(map[digest.Digest]*Assertions)
 	for _, f := range files {
 		byDigest[f.Digest()] = f.Assertions
 	}
 	v.Replace(func(f File) File {
 		if a, ok := byDigest[f.Digest()]; ok {
-			// (Since assertions are mutable, assign a copy)
-			f.Assertions = CopyAssertions(a)
+			f.Assertions = a
 		}
 		return f
 	})
@@ -575,6 +585,8 @@ func (v *Fileset) ReadJSON(r io.Reader) error {
 }
 
 func (v *Fileset) unmarshal(dec *json.Decoder) error {
+	// m maps the digest of an Assertions object to itself and is used to avoid duplicate in-memory objects.
+	m := make(map[digest.Digest]*Assertions)
 	const debugMsg = "fileset.ReadJSON"
 	if err := expectDelim(dec, objOpen, debugMsg+" (top)"); err != nil {
 		return err
@@ -642,10 +654,11 @@ func (v *Fileset) unmarshal(dec *json.Decoder) error {
 					case "ContentHash":
 						v = &f.ContentHash
 					case "Assertions":
-						f.Assertions = new(Assertions)
-						if err = f.Assertions.unmarshal(dec); err != nil {
+						a := new(Assertions)
+						if err = a.unmarshal(dec); err != nil {
 							return err
 						}
+						f.Assertions = dedupFrom(m, a)
 						continue
 					default:
 						return errors.E(debugMsg, errors.Precondition, errors.Errorf("unexpected field for reflow.File: %v", t))

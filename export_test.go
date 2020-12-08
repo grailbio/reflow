@@ -33,7 +33,6 @@ func (s *Assertions) Unmarshal(dec *json.Decoder) error {
 
 // MarshalJSON defines a custom marshal method for converting Assertions to JSON.
 func (s *Assertions) MarshalJSON() ([]byte, error) {
-	s.mu.Lock()
 	l := 0
 	for _, v := range s.m {
 		l += len(v.objects)
@@ -46,7 +45,6 @@ func (s *Assertions) MarshalJSON() ([]byte, error) {
 			i++
 		}
 	}
-	s.mu.Unlock()
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Key.less(entries[j].Key) })
 	return json.Marshal(entries)
 }
@@ -77,10 +75,33 @@ func (s *Assertions) UnmarshalJSON(b []byte) error {
 	for _, v := range m {
 		v.digest = digestMap(v.objects)
 	}
-	s.mu.Lock()
 	s.m = m
-	s.mu.Unlock()
 	return nil
+}
+
+func (s *RWAssertions) Assertions() *Assertions {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.a == nil {
+		return nil
+	}
+	a := &Assertions{m: make(map[AssertionKey]*assertion, len(s.a.m))}
+	for k, v := range s.a.m {
+		a.m[k] = &assertion{objects: v.objects, digest: v.digest}
+	}
+	return a
+}
+
+func (s *RWAssertions) PrettyDiff(t *Assertions) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.a.PrettyDiff(t)
+}
+
+func (s *RWAssertions) Equal(t *Assertions) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.a.Equal(t)
 }
 
 // digestMap computes the digest of the given map.
