@@ -315,6 +315,16 @@ func (c *Cluster) verifyAndInitialize() error {
 	return nil
 }
 
+// CanAllocate returns whether this cluster can allocate the given amount of resources.
+func (c *Cluster) CanAllocate(r reflow.Resources) (bool, error) {
+	if !c.instanceState.Available(r) {
+		max := c.instanceState.Largest()
+		return false, errors.E(errors.ResourcesExhausted,
+			errors.Errorf("requested resources %s not satisfiable even by largest available instance type %s with resources %s", r, max.Type, max.Resources))
+	}
+	return true, nil
+}
+
 // Allocate reserves an alloc with within the resource requirement
 // boundaries form this cluster. If an existing instance can serve
 // the request, it is returned immediately; otherwise new instance(s)
@@ -323,13 +333,10 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 	if err = c.VerifyAndInit(); err != nil {
 		return
 	}
-
-	c.Log.Debugf("allocate %s", req)
-	if !c.instanceState.Available(req.Min) {
-		max := c.instanceState.Largest()
-		return nil, errors.E(errors.ResourcesExhausted,
-			errors.Errorf("requested resources %s not satisfiable even by largest available instance type %s with resources %s", req, max.Type, max.Resources))
+	if ok, er := c.CanAllocate(req.Min); !ok {
+		return nil, er
 	}
+	c.Log.Debugf("allocate %s", req)
 	const allocTimeout = 30 * time.Second
 	if c.Size() > 0 {
 		c.Log.Debug("attempting to allocate from existing pool")

@@ -135,15 +135,26 @@ type testClusterAllocReq struct {
 }
 
 type testCluster struct {
+	max  reflow.Resources
 	reqs chan testClusterAllocReq
 }
 
 func newTestCluster() *testCluster {
-	return &testCluster{reqs: make(chan testClusterAllocReq)}
+	return &testCluster{
+		max:  reflow.Resources{"cpu": 64, "mem": 256 << 30},
+		reqs: make(chan testClusterAllocReq),
+	}
 }
 
 func (c *testCluster) Req() <-chan testClusterAllocReq {
 	return c.reqs
+}
+
+func (c *testCluster) CanAllocate(r reflow.Resources) (bool, error) {
+	if c.max.Available(r) {
+		return true, nil
+	}
+	return false, fmt.Errorf("resources %s too big (max: %s)", r, c.max)
 }
 
 func (c *testCluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error) {

@@ -49,6 +49,9 @@ type Cluster interface {
 	// error. The requirement's width is used as a hint to size allocs
 	// efficiently.
 	Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error)
+
+	// CanAllocate returns whether this cluster can allocate the given amount of resources.
+	CanAllocate(reflow.Resources) (bool, error)
 }
 
 // blobLocator defines an interface for locating blobs.
@@ -228,6 +231,11 @@ func (s *Scheduler) Do(ctx context.Context) error {
 					go s.directTransfer(ctx, task)
 					continue
 				}
+				if ok, err := s.Cluster.CanAllocate(task.Config.Resources); !ok {
+					task.Err = err
+					task.set(TaskDone)
+					continue
+				}
 				heap.Push(&todo, task)
 			}
 		case task := <-returnc:
@@ -347,7 +355,6 @@ func (s *Scheduler) allocate(ctx context.Context, alloc *alloc, notify, dead cha
 	var err error
 	alloc.Alloc, err = s.Cluster.Allocate(ctx, alloc.Requirements, s.Labels)
 	if err != nil {
-		// TODO: don't print errors that indicate resource exhaustion
 		s.Log.Errorf("failed to allocate %s from cluster: %v", alloc.Requirements, err)
 		notify <- alloc
 		return

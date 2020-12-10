@@ -1245,6 +1245,10 @@ func (a *testAlloc) Keepalive(ctx context.Context, interval time.Duration) (time
 	return interval, ctx.Err()
 }
 
+func (a *testAlloc) CanAllocate(r reflow.Resources) (bool, error) {
+	return true, nil
+}
+
 func (a *testAlloc) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

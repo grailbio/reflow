@@ -226,6 +226,23 @@ func TestSchedulerAlloc(t *testing.T) {
 	}
 }
 
+func TestSchedulerTaskTooBig(t *testing.T) {
+	scheduler, _, _, shutdown := newTestScheduler(t)
+	defer shutdown()
+	ctx := context.Background()
+	task := newTask(10, 512<<30, 0)
+
+	scheduler.Submit(task)
+	// By the time the task is running, it should have all of the dependent objects
+	// in its repository.
+	if err := task.Wait(ctx, sched.TaskDone); err != nil {
+		t.Fatal(err)
+	}
+	if task.Err == nil {
+		t.Error("must get error for too big task")
+	}
+}
+
 func TestTaskLost(t *testing.T) {
 	scheduler, cluster, _, shutdown := newTestScheduler(t)
 	defer shutdown()

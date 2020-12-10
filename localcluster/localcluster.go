@@ -125,10 +125,18 @@ const (
 	allocatePoolInterval = time.Minute
 )
 
+// CanAllocate returns whether this cluster can allocate the given amount of resources.
+func (c *Cluster) CanAllocate(r reflow.Resources) (bool, error) {
+	if !c.total.Available(r) {
+		return false, errors.E(errors.ResourcesExhausted, fmt.Sprintf("required resource %s greater than available %s", r, c.total))
+	}
+	return true, nil
+}
+
 // Allocate allocates an alloc on the local machine with the specified requirements.
 func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (alloc pool.Alloc, err error) {
-	if !c.total.Available(req.Min) {
-		return nil, errors.E(fmt.Sprintf("required resource %v greater than available %v", req.Min, c.total), errors.ResourcesExhausted)
+	if ok, err := c.CanAllocate(req.Min); !ok {
+		return nil, err
 	}
 	cancel := c.updateNeed(req)
 	defer cancel()

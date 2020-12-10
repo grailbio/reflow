@@ -49,6 +49,10 @@ func (t *testCluster) allocate(req reflow.Requirements) chan allocateResult {
 	return t.requests[key]
 }
 
+func (t *testCluster) CanAllocate(reflow.Resources) (bool, error) {
+	return true, nil
+}
+
 func (t *testCluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error) {
 	select {
 	case res := <-t.allocate(req):

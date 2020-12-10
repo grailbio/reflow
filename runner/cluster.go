@@ -22,6 +22,9 @@ type Cluster interface {
 	// Labels are passed down to the underlying pool.
 	Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error)
 
+	// CanAllocate returns whether this cluster can allocate the given amount of resources.
+	CanAllocate(reflow.Resources) (bool, error)
+
 	// Shutdown instructs the cluster to perform any shutting-down operations.
 	// Implementations are allowed to (but not required to) bring down all the allocs.
 	Shutdown() error

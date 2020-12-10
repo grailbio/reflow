@@ -24,6 +24,10 @@ func (c *Cluster) Init() error {
 	return nil
 }
 
+func (c *Cluster) CanAllocate(r reflow.Resources) (bool, error) {
+	return true, nil
+}
+
 // Allocate is a no op.
 func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error) {
 	return nil, nil
