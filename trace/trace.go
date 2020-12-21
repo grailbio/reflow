@@ -50,6 +50,10 @@ const (
 	Cache
 	// Transfer is the span type for transfer operations.
 	Transfer
+	// AllocReq is the span type for resource allocation requests.
+	AllocReq
+	// AllocLifespan is the span type for a single alloc's lifespan.
+	AllocLifespan
 )
 
 //go:generate stringer -type=Kind

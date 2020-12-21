@@ -38,10 +38,13 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/taskdb"
+	"github.com/grailbio/reflow/trace"
 	"golang.org/x/sync/errgroup"
 )
 
 const numExecTries = 5
+
+var allocateTraceId = reflow.Digester.FromString("allocate")
 
 // Cluster is the scheduler's cluster interface.
 type Cluster interface {
@@ -353,16 +356,30 @@ func (s *Scheduler) assign(tasks *taskq, allocs *allocq, stats *Stats) (assigned
 
 func (s *Scheduler) allocate(ctx context.Context, alloc *alloc, notify, dead chan<- *alloc) {
 	var err error
-	alloc.Alloc, err = s.Cluster.Allocate(ctx, alloc.Requirements, s.Labels)
+	allocReqCtx, endAllocReqTrace := trace.Start(ctx, trace.AllocReq, allocateTraceId, "allocating resources")
+	alloc.Alloc, err = s.Cluster.Allocate(allocReqCtx, alloc.Requirements, s.Labels)
 	if err != nil {
-		s.Log.Errorf("failed to allocate %s from cluster: %v", alloc.Requirements, err)
+		msg := fmt.Sprintf("failed to allocate %s from cluster: %v", alloc.Requirements, err)
+		s.Log.Errorf(msg)
+		if allocReqCtx.Err() != nil {
+			// to avoid polluting the trace, only emit the span if it wasn't due to context cancellation
+			trace.Note(allocReqCtx, "error", msg)
+			endAllocReqTrace()
+		}
 		notify <- alloc
 		return
 	}
+	trace.Note(allocReqCtx, "allocID", alloc.Alloc.ID())
+	endAllocReqTrace()
+
 	alloc.Context, alloc.Cancel = context.WithCancel(ctx)
+	var endAllocLifespanTrace func()
+	alloc.Context, endAllocLifespanTrace = trace.Start(alloc.Context, trace.AllocLifespan, reflow.Digester.FromString(alloc.Alloc.ID()), "alloc: "+alloc.Alloc.ID())
 	notify <- alloc
 	err = pool.Keepalive(alloc.Context, s.Log, alloc.Alloc)
 	alloc.Cancel()
+	endAllocLifespanTrace()
+
 	if err != nil && err == ctx.Err() {
 		var cancel func()
 		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
@@ -414,6 +431,19 @@ func (e execState) String() string {
 		return "unloading"
 	case stateDone:
 		return "complete"
+	}
+}
+
+func (e execState) TraceKind() trace.Kind {
+	switch e {
+	case stateLoad:
+		return trace.Transfer
+	case statePromote:
+		return trace.Transfer
+	case stateTransferOut:
+		return trace.Transfer
+	default:
+		return trace.Exec
 	}
 }
 
@@ -469,6 +499,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 	// If we get reassigned to a new alloc, that will not be true anymore, and hence we need to resolve
 	// the files all over again.
 	savedArgs := append([]reflow.Arg{}, task.Config.Args...)
+	ctx, endTrace := trace.Start(ctx, state.TraceKind(), task.FlowID, fmt.Sprintf("%s_%s %s", task.Config.Ident, task.FlowID.Short(), state.String()))
 	for n < numExecTries && state < stateDone {
 		task.Log.Debugf("%s (try %d): started", state, n)
 		switch state {
@@ -567,8 +598,11 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		task.Log.Debugf("%s (try %d): %s, next state: %s", state, n, msg, next)
 		if next == state {
 			n++
+			trace.Note(ctx, fmt.Sprintf("\"%s\" retries", state.String()), n)
 		} else {
 			n = 0
+			endTrace() // end the trace for the current state and start it for the next one
+			_, endTrace = trace.Start(ctx, next.TraceKind(), task.FlowID, fmt.Sprintf("%s_%s %s", task.Config.Ident, task.FlowID.Short(), next.String()))
 		}
 		state = next
 	}

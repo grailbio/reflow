@@ -22,6 +22,7 @@ func init() {
 
 type LocalTracer struct {
 	mu            sync.Mutex
+	prevPid       int
 	tidMap        map[string]int
 	trace         T
 	tracefilepath string
@@ -45,6 +46,11 @@ func (lt *LocalTracer) Help() string {
 
 type key int
 
+const (
+	eventKey key = iota
+	pidKey
+)
+
 func (k key) getEvent(ctx context.Context) (Event, error) {
 	if event, ok := ctx.Value(k).(Event); ok {
 		return event, nil
@@ -52,7 +58,43 @@ func (k key) getEvent(ctx context.Context) (Event, error) {
 	return Event{}, fmt.Errorf("no event found for key: %d", k)
 }
 
-const eventKey = key(0)
+// getPid encapsulates the logic which determines the "pid" for a given event.
+// This isn't a real "pid", we're just using this field in the chrome tracing
+// format to give us nested spans that work well for our use case. Specifically,
+// Run and AllocReq spans will just default to 0, so that they are displayed
+// together at the top of the visualization. For all other span kinds, we attempt
+// to retrieve the pid from the ctx or, if it's not there, increment to get a
+// unique pid. With this implementation, we can get a fresh pid for each unique
+// alloc, and as long as that alloc's ctx is used to create spans for tasks on
+// that alloc, the trace visualization will group them all together.
+func (lt *LocalTracer) getPid(ctx context.Context, e trace.Event) (context.Context, int) {
+	switch {
+	case e.SpanKind == trace.Run || e.SpanKind == trace.AllocReq:
+		return ctx, 0
+	case ctx.Value(pidKey) != nil:
+		// if this ctx already has an associated pid, return it
+		return ctx, ctx.Value(pidKey).(int)
+	default:
+		// otherwise generate a new unique pid, store it and return it along with the updated ctx
+		lt.prevPid += 1
+		pid := lt.prevPid
+		return context.WithValue(ctx, pidKey, pid), pid
+	}
+}
+
+// getTid encapsulates the logic for determining the "tid" based on a given event
+// ID. This isn't a real thread ID, we're just using this field in the chrome
+// tracing format to group together different spans that belong together. One way
+// this is used is to group together different steps of a single task (load,
+// exec, unload, etc.) into a single row in the trace visualization.
+func (lt *LocalTracer) getTid(id string) int {
+	tid, ok := lt.tidMap[id]
+	if !ok {
+		lt.tidMap[id] = len(lt.tidMap) // increment the Tid for each unique ID we see
+		tid = lt.tidMap[id]
+	}
+	return tid
+}
 
 // Emit emits a trace event and implements the trace.Tracer interface. This
 // should never be used directly, instead use trace.Start and trace.Note.
@@ -62,16 +104,13 @@ func (lt *LocalTracer) Emit(ctx context.Context, e trace.Event) (context.Context
 	}
 	switch e.Kind {
 	case trace.StartEvent:
-		id := e.Id.Short()
+		var pid int
 		lt.mu.Lock()
-		tid, ok := lt.tidMap[id]
-		if !ok {
-			lt.tidMap[id] = len(lt.tidMap) // increment the Tid for each unique ID we see
-			tid = lt.tidMap[id]
-		}
+		ctx, pid = lt.getPid(ctx, e)
+		tid := lt.getTid(e.Id.Short())
 		lt.mu.Unlock()
 		event := Event{
-			Pid:  0,
+			Pid:  pid,
 			Tid:  tid,
 			Ts:   e.Time.UnixNano() / 1000, // Ts has to be in microseconds
 			Ph:   "X",                      // X indicates a "complete" event in the Chrome tracing format. "Dur" will be filled in later on EndEvent

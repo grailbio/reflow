@@ -384,7 +384,7 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 		r.Log.Errorf("abs %s: %v", e.Program, err)
 		path = e.Program
 	}
-	cmdline := path
+	r.cmdline = path
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "evaluating program %s", path)
 	if len(e.Params) > 0 {
@@ -396,7 +396,7 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 		fmt.Fprintf(&b, "\n\tparams:")
 		for _, key := range keys {
 			fmt.Fprintf(&b, "\n\t\t%s=%s", key, e.Params[key])
-			cmdline += fmt.Sprintf(" -%s=%s", key, e.Params[key])
+			r.cmdline += fmt.Sprintf(" -%s=%s", key, e.Params[key])
 		}
 	} else {
 		fmt.Fprintf(&b, "\n\t(no params)")
@@ -405,7 +405,7 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 		fmt.Fprintf(&b, "\n\targuments:")
 		for _, arg := range e.Args {
 			fmt.Fprintf(&b, "\n\t%s", arg)
-			cmdline += fmt.Sprintf(" %s", arg)
+			r.cmdline += fmt.Sprintf(" %s", arg)
 		}
 	} else {
 		fmt.Fprintf(&b, "\n\t(no arguments)")

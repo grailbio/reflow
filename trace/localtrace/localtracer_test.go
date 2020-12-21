@@ -2,15 +2,17 @@ package localtrace
 
 import (
 	"context"
-	"crypto"
 	"fmt"
+	"math/rand"
 	"reflect"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/grailbio/base/digest"
 	"github.com/grailbio/infra"
+	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/trace"
 )
@@ -33,10 +35,10 @@ func TestLocalTracerEmit(t *testing.T) {
 	endTime := time.Now().Add(time.Minute)
 	durationMicroSeconds := endTime.Sub(startTime).Microseconds()
 	flowName := "TestFlow"
-	flowId := digest.New(crypto.SHA256, []byte(flowName))
+	flowId := reflow.Digester.FromString(flowName)
 	noteKey, noteValue := "testNoteKey", "testNoteValue"
 	wantFinalEvent := Event{
-		Pid:  0,
+		Pid:  1,
 		Tid:  0,
 		Ts:   startTime.UnixNano() / 1000,
 		Ph:   "X",
@@ -50,13 +52,10 @@ func TestLocalTracerEmit(t *testing.T) {
 		},
 	}
 
-	config, err := getTestConfig()
+	_, lt, err := getTestRunIdAndLocalTracer()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var tracer trace.Tracer
-	config.Must(&tracer)
-	lt := tracer.(*LocalTracer)
 
 	// start event
 	startCtx, err := lt.Emit(context.Background(), trace.Event{
@@ -113,16 +112,97 @@ func TestLocalTracerEmit(t *testing.T) {
 	}
 }
 
+func TestLocalTracerConcurrentEmitPids(t *testing.T) {
+	const numRoutines = 5
+	testcases := []struct {
+		name     string
+		rootCtx  context.Context
+		spanKind trace.Kind
+		wantPids [numRoutines]int // make sure these are sorted so that the comparison works
+	}{
+		{
+			name:     "exec ctx has pid",
+			rootCtx:  context.WithValue(context.Background(), pidKey, 99),
+			spanKind: trace.Exec,
+			wantPids: [numRoutines]int{99, 99, 99, 99, 99},
+		},
+		{
+			name:     "exec ctx without pid",
+			rootCtx:  context.Background(),
+			spanKind: trace.Exec,
+			wantPids: [numRoutines]int{1, 2, 3, 4, 5},
+		},
+		{
+			name:     "run ctx without pid",
+			rootCtx:  context.Background(),
+			spanKind: trace.Run,
+			wantPids: [numRoutines]int{0, 0, 0, 0, 0},
+		},
+		{
+			name:     "allocreq ctx with pid",
+			rootCtx:  context.WithValue(context.Background(), pidKey, 88),
+			spanKind: trace.AllocReq,
+			wantPids: [numRoutines]int{0, 0, 0, 0, 0},
+		},
+	}
+
+	for _, tc := range testcases {
+		tc := tc
+		_, lt, err := getTestRunIdAndLocalTracer()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Run(tc.name, func(t *testing.T) {
+			rand.Seed(time.Now().Unix())
+			var wg sync.WaitGroup
+			for i := 0; i < numRoutines; i++ {
+				i := i
+				wg.Add(1)
+				go func() {
+					name := fmt.Sprintf("goroutine%d exec", i)
+					id := reflow.Digester.FromString(name)
+					startCtx, _ := lt.Emit(tc.rootCtx, trace.Event{
+						Time:     time.Now(),
+						Kind:     trace.StartEvent,
+						Id:       id,
+						Name:     name,
+						SpanKind: tc.spanKind,
+					})
+					time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
+					_, _ = lt.Emit(startCtx, trace.Event{
+						Time:     time.Now(),
+						Kind:     trace.EndEvent,
+						Id:       id,
+						Name:     name,
+						SpanKind: tc.spanKind,
+					})
+					wg.Done()
+				}()
+			}
+			wg.Wait()
+
+			var gotPids []int
+			for _, e := range lt.trace.Events {
+				gotPids = append(gotPids, e.Pid)
+			}
+			if got, want := len(gotPids), len(tc.wantPids); got != want {
+				t.Errorf("got %d emitted events, wanted %d", got, want)
+			}
+			sort.Ints(gotPids)
+			for i, wantPid := range tc.wantPids {
+				if gotPid := gotPids[i]; gotPid != wantPid {
+					t.Errorf("got pid %d, want %d", gotPid, wantPid)
+				}
+			}
+		})
+	}
+}
+
 func TestLocalTracerCopyTraceContext(t *testing.T) {
-	config, err := getTestConfig()
+	_, lt, err := getTestRunIdAndLocalTracer()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var runid *taskdb.RunID
-	config.Must(&runid)
-	var tracer trace.Tracer
-	config.Must(&tracer)
-	lt := tracer.(*LocalTracer)
 
 	src := context.WithValue(context.Background(), eventKey, Event{})
 	dst := context.Background()
@@ -134,17 +214,12 @@ func TestLocalTracerCopyTraceContext(t *testing.T) {
 }
 
 func TestLocalTracerURL(t *testing.T) {
-	config, err := getTestConfig()
+	runId, lt, err := getTestRunIdAndLocalTracer()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var runid *taskdb.RunID
-	config.Must(&runid)
-	var tracer trace.Tracer
-	config.Must(&tracer)
-	lt := tracer.(*LocalTracer)
 
-	wantSuffix := fmt.Sprintf("%s.trace", runid.Hex())
+	wantSuffix := fmt.Sprintf("%s.trace", runId.Hex())
 	if got := lt.URL(context.Background()); !strings.HasSuffix(got, wantSuffix) {
 		t.Fatalf("\ngot:\t\t\t%s\nwant suffix:\t%s", got, wantSuffix)
 	}
@@ -160,4 +235,16 @@ func getTestConfig() (infra.Config, error) {
 		"tracer": "localtracer",
 	})
 
+}
+
+func getTestRunIdAndLocalTracer() (*taskdb.RunID, *LocalTracer, error) {
+	config, err := getTestConfig()
+	if err != nil {
+		return nil, nil, err
+	}
+	var runId *taskdb.RunID
+	config.Must(&runId)
+	var tracer trace.Tracer
+	config.Must(&tracer)
+	return runId, tracer.(*LocalTracer), nil
 }
