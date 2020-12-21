@@ -33,7 +33,7 @@ func TestLocalTracerInfra(t *testing.T) {
 func TestLocalTracerEmit(t *testing.T) {
 	startTime := time.Now()
 	endTime := time.Now().Add(time.Minute)
-	durationMicroSeconds := endTime.Sub(startTime).Microseconds()
+	durationMicroSeconds := time.Minute.Microseconds()
 	flowName := "TestFlow"
 	flowId := reflow.Digester.FromString(flowName)
 	noteKey, noteValue := "testNoteKey", "testNoteValue"
@@ -247,4 +247,49 @@ func getTestRunIdAndLocalTracer() (*taskdb.RunID, *LocalTracer, error) {
 	var tracer trace.Tracer
 	config.Must(&tracer)
 	return runId, tracer.(*LocalTracer), nil
+}
+
+func TestNew(t *testing.T) {
+	want := &LocalTracer{
+		mu:            sync.Mutex{},
+		prevPid:       0,
+		tidMap:        make(map[string]int),
+		trace:         T{},
+		tracefilepath: "",
+	}
+	tests := []struct {
+		name          string
+		tracefilepath string
+		wantErr       bool
+	}{
+		{
+			name:          "valid filepath",
+			tracefilepath: "/tmp/foo.trace",
+			wantErr:       false,
+		},
+		{
+			name:          "nonexistent dir",
+			tracefilepath: "/tmp/nonexistent-dir/foo.trace",
+			wantErr:       true,
+		},
+		{
+			name:          "path is a dir not file",
+			tracefilepath: "/tmp",
+			wantErr:       true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := New(tt.tracefilepath)
+			if tt.wantErr != (err != nil) {
+				t.Fatalf("wantErr: %v, got: %v", tt.wantErr, err)
+			}
+			if !tt.wantErr {
+				want.tracefilepath = tt.tracefilepath
+				if !reflect.DeepEqual(want, got) {
+					t.Fatalf("want: %v, got: %v", want, got)
+				}
+			}
+		})
+	}
 }

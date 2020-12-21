@@ -39,6 +39,22 @@ func (lt *LocalTracer) Init(runID *taskdb.RunID) error {
 	return err
 }
 
+// New returns a new LocalTracer instance. This function is intended for cases
+// where Reflow is used as a library and the user would like to specify the
+// path of the output trace file.
+func New(path string) (*LocalTracer, error) {
+	// Validate path by trying to create it
+	if f, err := os.Create(path); err != nil {
+		return nil, err
+	} else {
+		f.Close()
+	}
+	return &LocalTracer{
+		tidMap:        make(map[string]int),
+		tracefilepath: path,
+	}, nil
+}
+
 // Help implements infra.Provider
 func (lt *LocalTracer) Help() string {
 	return "configure a local tracer to write traces to ~/.reflow/runs, viewable with chrome://tracing"
