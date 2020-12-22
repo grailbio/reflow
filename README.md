@@ -693,10 +693,10 @@ the run ID:
 
 **Tracing**
 
-The `*.trace` files in `$HOME/.reflow/runs` can be viewed using
-Google Chrome's built in trace viewer at: `chrome://tracing/`.
-Use the `Load` button to select the `*.trace` file and click on 
-traced events to see additional information.
+The `*.trace` files in `$HOME/.reflow/runs` can be viewed using Google Chrome's
+built-in trace viewer at: `chrome://tracing/`. Use the `Load` button to select
+the `*.trace` file and click on traced events to see additional information. For
+more information on the trace visualization, see [`doc/tracing.md`](doc/tracing.md).
 
 Alternatively, the trace files are just json, so they can be viewed 
 directly.

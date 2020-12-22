@@ -23,6 +23,7 @@ and its runtime.
   * [Distribution](#distribution)
     * [Bundles](#bundles)
   * [Porting Reflow](#porting-reflow)
+  * [Tracing Reflow Runs](#tracing-reflow-runs)
 
 ## Distribution
 
@@ -122,3 +123,7 @@ For example,
 blob stores based on `s3blob.Blob` 
 are configured through the configuration provider package
 [github.com/grailbio/reflow/blob/master/config/s3config](https://github.com/grailbio/reflow/blob/master/config/s3config/s3.go).
+
+## Tracing Reflow Runs
+
+See [tracing.md](tracing.md).
