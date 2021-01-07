@@ -76,6 +76,10 @@ const (
 
 	// s3MultipartCopyConcurrencyLimit is the number of concurrent parts to do during a multi-part copy.
 	s3MultipartCopyConcurrencyLimit = 100
+
+	// s3DeleteKeyLimit is the max number of keys supported by AWS per batch delete operation.
+	// As per AWS: https://docs.aws.amazon.com/AmazonS3/latest/dev/DeletingObjects.html
+	s3DeleteKeyLimit = 1000
 )
 
 // DefaultRegion is the region used for s3 requests if a bucket's
@@ -549,16 +553,42 @@ func (b *Bucket) CopyFrom(ctx context.Context, srcBucket blob.Bucket, src, dst s
 }
 
 // Delete removes the provided keys in bulk.
-func (b *Bucket) Delete(ctx context.Context, keys ...string) error {
-	var del s3.Delete
-	for _, key := range keys {
-		del.Objects = append(del.Objects, &s3.ObjectIdentifier{Key: aws.String(key)})
+func (b *Bucket) Delete(ctx context.Context, keys ...string) (err error) {
+	var failed []string
+	numiters := len(keys) / s3DeleteKeyLimit
+	if (len(keys) % s3DeleteKeyLimit) > 0 {
+		numiters++
 	}
-	_, err := b.client.DeleteObjectsWithContext(ctx, &s3.DeleteObjectsInput{
-		Bucket: aws.String(b.bucket),
-		Delete: &del,
-	})
-	return err
+	for i := 0; i < numiters; i++ {
+		delkeys := keys[i*s3DeleteKeyLimit:]
+		if len(delkeys) > s3DeleteKeyLimit {
+			delkeys = delkeys[:s3DeleteKeyLimit]
+		}
+		var del s3.Delete
+		for _, key := range delkeys {
+			del.Objects = append(del.Objects, &s3.ObjectIdentifier{Key: aws.String(key)})
+		}
+		var out *s3.DeleteObjectsOutput
+		out, err = b.client.DeleteObjectsWithContext(ctx, &s3.DeleteObjectsInput{
+			Bucket: aws.String(b.bucket),
+			Delete: &del,
+		})
+		if err != nil {
+			break
+		}
+		for i, e := range out.Errors {
+			if e != nil {
+				failed = append(failed, delkeys[i])
+			}
+		}
+	}
+	if err != nil {
+		return err
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("failed to delete: %s", strings.Join(failed, ","))
+	}
+	return nil
 }
 
 // Location returns the s3 URL of this bucket, e.g., s3://grail-reflow/.

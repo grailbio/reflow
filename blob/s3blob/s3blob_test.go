@@ -568,6 +568,40 @@ func TestCopyMultipart(t *testing.T) {
 	}
 }
 
+func TestDelete(t *testing.T) {
+	bucket := newTestBucket(t)
+	ctx := context.Background()
+
+	c := content("new content")
+	if err := bucket.Put(ctx, "key", 0, bytes.NewReader(c.Data), ""); err != nil {
+		t.Fatal(err)
+	}
+	checkObject(t, bucket, "key", c, digest.Digest{})
+	if err := bucket.Delete(ctx, "key"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := bucket.Get(ctx, "key", ""); !errors.Is(errors.Temporary, err) {
+		t.Errorf("expected Temporary, got %v", err)
+	}
+}
+
+func TestDeleteMultiple(t *testing.T) {
+	bucket := newTestBucket(t)
+	ctx := context.Background()
+	keys := make([]string, 2021)
+	for i := 0; i < 2021; i++ {
+		keys[i] = fmt.Sprintf("key%d", i)
+		v := fmt.Sprintf("value%d", i)
+		if err := bucket.Put(ctx, keys[i], 0, strings.NewReader(v), ""); err != nil {
+			t.Fatal(err)
+		}
+		checkObject(t, bucket, keys[i], content(v), digest.Digest{})
+	}
+	if err := bucket.Delete(ctx, keys...); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestS3TransferParams(t *testing.T) {
 	for _, tc := range []struct {
 		size        int64
