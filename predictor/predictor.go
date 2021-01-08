@@ -147,7 +147,7 @@ func (p *Predictor) Predict(ctx context.Context, tasks ...*sched.Task) map[*sche
 		_ = traverse.Each(len(groups), func(i int) error {
 			profiles, err := p.getProfiles(ctx, groups[i])
 			if err != nil {
-				p.log.Debugf("getting profiles for group %s: %v", groups[i], err)
+				p.log.Debugf("getting profiles for group: %v", err)
 				return nil
 			}
 			durNanos, err := p.durationNanos(profiles)
