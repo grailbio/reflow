@@ -1442,6 +1442,9 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 // source repository. CacheWrite returns nil on success, or else the first error
 // encountered.
 func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) error {
+	var endTrace func()
+	ctx, endTrace = trace.Start(ctx, trace.Cache, f.Digest(), fmt.Sprintf("cache write %s", f.Digest().Short()))
+	defer endTrace()
 	switch f.Op {
 	case Intern, Extern, Exec:
 	default:
@@ -1610,6 +1613,10 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 	bg := e.newAssertionsBatchCache()
 	for _, f := range flows {
 		e.step(f, func(f *Flow) error {
+			var endTrace func()
+			ctx, endTrace = trace.Start(ctx, trace.Cache, f.Digest(), fmt.Sprintf("cache lookup %s", f.Digest().Short()))
+			trace.Note(ctx, "FlowID", f.Digest().Short())
+			defer endTrace()
 			var (
 				keys = f.CacheKeys()
 				fs   reflow.Fileset
