@@ -112,6 +112,7 @@ func TestLocalTracerEmit(t *testing.T) {
 	}
 }
 
+// If running with `go test`, make sure to include the `-race` flag to highlight any regressions.
 func TestLocalTracerConcurrentEmitPids(t *testing.T) {
 	const numRoutines = 5
 	testcases := []struct {

@@ -84,6 +84,8 @@ func (k key) getEvent(ctx context.Context) (Event, error) {
 // alloc, and as long as that alloc's ctx is used to create spans for tasks on
 // that alloc, the trace visualization will group them all together.
 func (lt *LocalTracer) getPid(ctx context.Context, e trace.Event) (context.Context, int) {
+	lt.mu.Lock()
+	defer lt.mu.Unlock()
 	switch {
 	case e.SpanKind == trace.Run || e.SpanKind == trace.AllocReq:
 		return ctx, 0
@@ -104,12 +106,27 @@ func (lt *LocalTracer) getPid(ctx context.Context, e trace.Event) (context.Conte
 // this is used is to group together different steps of a single task (load,
 // exec, unload, etc.) into a single row in the trace visualization.
 func (lt *LocalTracer) getTid(id string) int {
+	lt.mu.Lock()
+	defer lt.mu.Unlock()
 	tid, ok := lt.tidMap[id]
 	if !ok {
 		lt.tidMap[id] = len(lt.tidMap) // increment the Tid for each unique ID we see
 		tid = lt.tidMap[id]
 	}
 	return tid
+}
+
+// emitEvent adds a completed event to the trace and flushes the trace file to disk.
+func (lt *LocalTracer) emitEvent(event Event) {
+	lt.mu.Lock()
+	defer lt.mu.Unlock()
+	lt.trace.Events = append(lt.trace.Events, event)
+	// If the file already exists, os.Create will truncate it to zero. This is okay
+	// because lt.trace contains all previously emitted events and we rewrite them.
+	if tracefile, err := os.Create(lt.tracefilepath); err == nil {
+		defer tracefile.Close()
+		_ = lt.trace.Encode(tracefile)
+	}
 }
 
 // Emit emits a trace event and implements the trace.Tracer interface. This
@@ -121,10 +138,8 @@ func (lt *LocalTracer) Emit(ctx context.Context, e trace.Event) (context.Context
 	switch e.Kind {
 	case trace.StartEvent:
 		var pid int
-		lt.mu.Lock()
 		ctx, pid = lt.getPid(ctx, e)
 		tid := lt.getTid(e.Id.Short())
-		lt.mu.Unlock()
 		event := Event{
 			Pid:  pid,
 			Tid:  tid,
@@ -144,8 +159,7 @@ func (lt *LocalTracer) Emit(ctx context.Context, e trace.Event) (context.Context
 			// convert to microseconds to ensure common units before calculating duration
 			event.Dur = (e.Time.UnixNano() / 1000) - event.Ts
 			event.Args["endTime"] = e.Time.Format(time.RFC850)
-			lt.trace.Events = append(lt.trace.Events, event)
-			lt.flush()
+			lt.emitEvent(event)
 		}
 		// don't return a context for EndEvent; it shouldn't be used
 		return nil, nil
@@ -186,13 +200,6 @@ func (lt *LocalTracer) CopyTraceContext(src context.Context, dst context.Context
 // trace.Tracer interface. Do not use directly, instead use trace.URL.
 func (lt *LocalTracer) URL(_ context.Context) string {
 	return lt.tracefilepath
-}
-
-func (lt *LocalTracer) flush() {
-	if tracefile, err := os.Create(lt.tracefilepath); err == nil {
-		defer tracefile.Close()
-		_ = lt.trace.Encode(tracefile)
-	}
 }
 
 // Event is an event in the Chrome tracing format. The fields are mirrored
