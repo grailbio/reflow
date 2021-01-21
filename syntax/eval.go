@@ -800,14 +800,7 @@ func (e *Expr) exec(sess *Session, env *values.Env, image string, ident string, 
 					Value: coerceToFileset(e.Template.Args[i].Type, v),
 				})
 				earg = append(earg, flow.ExecArg{Index: len(deps) - 1})
-				switch ae.Kind {
-				case ExprIdent:
-					argstrs = append(argstrs, fmt.Sprintf("{{%s}}", ae.Ident))
-				case ExprDeref:
-					argstrs = append(argstrs, fmt.Sprintf("{{%s}}", ae.Abbrev()))
-				default:
-					argstrs = append(argstrs, fmt.Sprintf("{{%s}}", v))
-				}
+				argstrs = append(argstrs, fmt.Sprintf("{{%s}}", ae.Abbrev()))
 			default:
 				panic("illegal expression " + e.Template.Args[i].Type.String() + " ... " + fmt.Sprint(v))
 			}
