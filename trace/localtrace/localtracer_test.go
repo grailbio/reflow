@@ -199,6 +199,58 @@ func TestLocalTracerConcurrentEmitPids(t *testing.T) {
 	}
 }
 
+func TestLocalTracerConcurrentNoteEvents(t *testing.T) {
+	const numConcurrentNotes = 5
+	name := "concurrent note events"
+	id := reflow.Digester.FromString(name)
+
+	_, lt, err := getTestRunIdAndLocalTracer()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	startCtx, _ := lt.Emit(context.Background(), trace.Event{
+		Time:     time.Now(),
+		Kind:     trace.StartEvent,
+		Id:       id,
+		Name:     name,
+		SpanKind: trace.Exec,
+	})
+
+	var wg sync.WaitGroup
+	for i := 0; i < numConcurrentNotes; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			_, _ = lt.Emit(startCtx, trace.Event{
+				Time:  time.Now(),
+				Kind:  trace.NoteEvent,
+				Key:   fmt.Sprintf("noteEvent%d", i),
+				Value: i,
+			})
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+
+	_, _ = lt.Emit(startCtx, trace.Event{
+		Time:     time.Now(),
+		Kind:     trace.EndEvent,
+		Id:       id,
+		Name:     name,
+		SpanKind: trace.Exec,
+	})
+
+	if got, want := len(lt.trace.Events), 1; got != want {
+		t.Errorf("got %d emitted events, wanted %d", got, want)
+	}
+
+	if got, want := len(lt.trace.Events[0].Args), numConcurrentNotes+2; got != want {
+		t.Errorf("got %d attributes on the emitted event, wanted %d (start time, end time, and %d notes)", got, want, numConcurrentNotes)
+	}
+
+}
+
 func TestLocalTracerCopyTraceContext(t *testing.T) {
 	_, lt, err := getTestRunIdAndLocalTracer()
 	if err != nil {

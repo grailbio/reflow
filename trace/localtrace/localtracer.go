@@ -21,10 +21,11 @@ func init() {
 }
 
 type LocalTracer struct {
-	mu            sync.Mutex
-	prevPid       int
-	tidMap        map[string]int
-	trace         T
+	mu      sync.Mutex
+	prevPid int
+	tidMap  map[string]int
+	trace   T
+
 	tracefilepath string
 }
 
@@ -83,9 +84,8 @@ func (k key) getEvent(ctx context.Context) (Event, error) {
 // unique pid. With this implementation, we can get a fresh pid for each unique
 // alloc, and as long as that alloc's ctx is used to create spans for tasks on
 // that alloc, the trace visualization will group them all together.
+// Important: lt.mu must be held when calling this method to prevent concurrent accesses.
 func (lt *LocalTracer) getPid(ctx context.Context, e trace.Event) (context.Context, int) {
-	lt.mu.Lock()
-	defer lt.mu.Unlock()
 	switch {
 	case e.SpanKind == trace.Run || e.SpanKind == trace.AllocReq:
 		return ctx, 0
@@ -105,9 +105,8 @@ func (lt *LocalTracer) getPid(ctx context.Context, e trace.Event) (context.Conte
 // tracing format to group together different spans that belong together. One way
 // this is used is to group together different steps of a single task (load,
 // exec, unload, etc.) into a single row in the trace visualization.
+// Important: lt.mu must be held when calling this method to prevent concurrent accesses.
 func (lt *LocalTracer) getTid(id string) int {
-	lt.mu.Lock()
-	defer lt.mu.Unlock()
 	tid, ok := lt.tidMap[id]
 	if !ok {
 		lt.tidMap[id] = len(lt.tidMap) // increment the Tid for each unique ID we see
@@ -117,9 +116,8 @@ func (lt *LocalTracer) getTid(id string) int {
 }
 
 // emitEvent adds a completed event to the trace and flushes the trace file to disk.
+// Important: lt.mu must be held when calling this method to prevent concurrent accesses.
 func (lt *LocalTracer) emitEvent(event Event) {
-	lt.mu.Lock()
-	defer lt.mu.Unlock()
 	lt.trace.Events = append(lt.trace.Events, event)
 	// If the file already exists, os.Create will truncate it to zero. This is okay
 	// because lt.trace contains all previously emitted events and we rewrite them.
@@ -132,6 +130,8 @@ func (lt *LocalTracer) emitEvent(event Event) {
 // Emit emits a trace event and implements the trace.Tracer interface. This
 // should never be used directly, instead use trace.Start and trace.Note.
 func (lt *LocalTracer) Emit(ctx context.Context, e trace.Event) (context.Context, error) {
+	lt.mu.Lock()
+	defer lt.mu.Unlock()
 	if e.Time.IsZero() {
 		e.Time = time.Now()
 	}
