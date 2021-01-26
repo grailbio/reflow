@@ -236,6 +236,7 @@ func testCluster(t *testing.T, c *testManagedCluster, numAllocs, maxInstances, m
 	m := NewManager(c, maxInstances, maxPending, log.Std)
 	m.refreshInterval = 50 * time.Millisecond
 	m.launchTimeout = 500 * time.Millisecond
+	m.drainTimeout = 0 // time.Millisecond
 	m.Start()
 	defer m.Shutdown()
 

@@ -22,6 +22,9 @@ const (
 	// defaultRefreshInterval defines how often the manager performs internal refreshes.
 	defaultRefreshInterval = time.Minute
 
+	// defaultDrainTimeout defines how long to wait to drain additional resource allocation waiters.
+	defaultDrainTimeout = 50 * time.Millisecond
+
 	// instanceLaunchTimeout is the maximum duration allotted for an instance to be
 	// launched and recognized by the manager when refreshing the cluster's state.
 	instanceLaunchTimeout = 5 * time.Minute
@@ -100,7 +103,7 @@ type Manager struct {
 
 	sync chan struct{}
 
-	refreshInterval, launchTimeout time.Duration
+	refreshInterval, launchTimeout, drainTimeout time.Duration
 }
 
 // NewManager creates a manager for the given managed cluster with the specified parameters.
@@ -112,6 +115,7 @@ func NewManager(c ManagedCluster, maxInstances, maxPending int, log *log.Logger)
 		log:             log,
 		refreshInterval: defaultRefreshInterval,
 		launchTimeout:   instanceLaunchTimeout,
+		drainTimeout:    defaultDrainTimeout,
 	}
 	return m
 }
@@ -353,13 +357,27 @@ func (m *Manager) loop(pctx context.Context) {
 			m.log.Debugf("added instance %s resources%s pending%s available%s npending:%d waiters:%d notified:%d",
 				inst.Type, inst.Resources, pending, available, m.nPending(), len(waiters), nnotify)
 		case w := <-m.waitc:
+			// If there was one waiter, we'll wait upto `drainTimeout` each time we find more.
+			// After `drainTimeout` of no new waiters, we'll continue the servicing loop.
+			var drained bool
+			t := time.NewTimer(m.drainTimeout)
+			for !drained {
+				waiters = append(waiters, w)
+				t.Reset(m.drainTimeout)
+				select {
+				case w = <-m.waitc:
+				case <-t.C:
+					drained = true
+				}
+			}
 			var ws []*waiter
 			for _, w := range waiters {
 				if w.ctx.Err() == nil {
 					ws = append(ws, w)
 				}
 			}
-			waiters = append(ws, w)
+			waiters = ws
+			t.Stop()
 		}
 	}
 }
