@@ -340,7 +340,11 @@ func TestS3ExecPath(t *testing.T) {
 	if !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	ok, err := repo.Contains(want.Fileset.Map["."].ID)
+	file, err := want.Fileset.File()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, err := repo.Contains(file.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

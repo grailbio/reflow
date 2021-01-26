@@ -152,9 +152,9 @@ func Stdlib() (*types.Env, *values.Env) {
 						Op:         flow.Coerce,
 						Coerce: func(v values.T) (values.T, error) {
 							fs := v.(reflow.Fileset)
-							f, ok := fs.Map["."]
-							if !ok {
-								return nil, errors.E("file", u.String(), errors.NotExist)
+							f, err := fs.File()
+							if err != nil {
+								return nil, errors.E("file", u.String(), errors.NotExist, err)
 							}
 							return f, nil
 						},
@@ -172,9 +172,9 @@ func Stdlib() (*types.Env, *values.Env) {
 					Op:         flow.Coerce,
 					Coerce: func(v values.T) (values.T, error) {
 						fs := v.(reflow.Fileset)
-						f, ok := fs.Map["."]
-						if !ok {
-							return nil, errors.E("file", u.String(), errors.NotExist)
+						f, err := fs.File()
+						if err != nil {
+							return nil, errors.E("file", u.String(), errors.NotExist, err)
 						}
 						return f, nil
 					},
@@ -236,7 +236,11 @@ func Stdlib() (*types.Env, *values.Env) {
 						K: func(vs []values.T) *flow.Flow {
 							var dir values.Dir
 							for i := range vs {
-								dir.Set(paths[i], vs[i].(reflow.Fileset).Map["."])
+								file, err := vs[i].(reflow.Fileset).File()
+								if err != nil {
+									panic(fmt.Sprintf("%s: %v", paths[i], err))
+								}
+								dir.Set(paths[i], file)
 							}
 							return &flow.Flow{
 								Op:         flow.Val,
@@ -520,12 +524,7 @@ var dirsDecls = []*Decl{
 var coerceFilesetToFileDigest = reflow.Digester.FromString("grail.com/reflow/syntax.coerceFilesetToFile")
 
 func coerceFilesetToFile(v values.T) (values.T, error) {
-	fs := v.(reflow.Fileset)
-	f, ok := fs.Map["."]
-	if !ok {
-		return nil, errors.Errorf("files.Fileset: invalid fileset %v", fs)
-	}
-	return f, nil
+	return v.(reflow.Fileset).File()
 }
 
 var filesDecls = []*Decl{

@@ -127,7 +127,10 @@ func TestSnapshot(t *testing.T) {
 	if got, want := fs, expect; !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	expect.Map["foobar"] = expect.Map["."]
+	expect.Map["foobar"], err = expect.File()
+	if err != nil {
+		t.Fatal(err)
+	}
 	delete(expect.Map, ".")
 	fs, err = bucket.Snapshot(ctx, "test/z/")
 	if err != nil {

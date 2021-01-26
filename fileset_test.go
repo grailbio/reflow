@@ -105,6 +105,30 @@ func TestAnyEmpty(t *testing.T) {
 	}
 }
 
+func TestFile(t *testing.T) {
+	fuzz := testutil.NewFuzz(nil)
+	fsf := fuzz.File(true, true)
+	for _, tt := range []struct {
+		fs      reflow.Fileset
+		want    reflow.File
+		wantErr bool
+	}{
+		{fuzz.Fileset(true, true), reflow.File{}, true},
+		{reflow.Fileset{Map: map[string]reflow.File{".": fsf}}, fsf, false},
+	} {
+		file, err := tt.fs.File()
+		if got, want := err != nil, tt.wantErr; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		if tt.wantErr {
+			continue
+		}
+		if got, want := file, tt.want; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	}
+}
+
 func TestEqual(t *testing.T) {
 	const N = 1000
 	var last reflow.Fileset

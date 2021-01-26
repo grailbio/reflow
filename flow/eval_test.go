@@ -158,7 +158,8 @@ func assertKEval(t *testing.T, interns, execs []*flow.Flow, eOuts []reflow.Files
 	kfn := func(vs []values.T) *flow.Flow {
 		fs := reflow.Fileset{Map: map[string]reflow.File{}}
 		for i, v := range vs {
-			fs.Map[fmt.Sprintf("path_%d", i)] = v.(reflow.Fileset).Map["."]
+			file, _ := v.(reflow.Fileset).File()
+			fs.Map[fmt.Sprintf("path_%d", i)] = file
 		}
 		return &flow.Flow{Op: flow.Val, Value: fs, FlowDigest: values.Digest(fs, types.Fileset)}
 	}
@@ -166,7 +167,9 @@ func assertKEval(t *testing.T, interns, execs []*flow.Flow, eOuts []reflow.Files
 	wantFsEntries := make([]reflow.Fileset, nk)
 	for i := 0; i < nk; i++ {
 		ks[i] = op.K(fmt.Sprintf("%s_%d", t.Name(), i), kfn, execs[i*2], execs[i*2+1])
-		wantFsEntries[i] = reflow.Fileset{Map: map[string]reflow.File{"path_0": eOuts[i*2].Map["."], "path_1": eOuts[i*2+1].Map["."]}}
+		f0, _ := eOuts[i*2].File()
+		f1, _ := eOuts[i*2+1].File()
+		wantFsEntries[i] = reflow.Fileset{Map: map[string]reflow.File{"path_0": f0, "path_1": f1}}
 	}
 	finalk := op.K(t.Name(), func(vs []values.T) *flow.Flow {
 		fs := reflow.Fileset{List: make([]reflow.Fileset, len(vs))}

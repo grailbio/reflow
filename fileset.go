@@ -145,6 +145,19 @@ type Fileset struct {
 	Map  map[string]File `json:"Fileset,omitempty"`
 }
 
+// File returns the only file expected to be contained in this Fileset.
+// Returns error if the fileset does not contain only one file.
+func (v Fileset) File() (File, error) {
+	if n := v.N(); n != 1 {
+		return File{}, errors.E("Fileset.File", v.Digest(), errors.Precondition, fmt.Sprintf("contains %d files (!=1)", n))
+	}
+	file, ok := v.Map["."]
+	if !ok {
+		return File{}, errors.E("Fileset.File", v.Digest(), errors.Precondition, "missing Map[\".\"]")
+	}
+	return file, nil
+}
+
 // Equal reports whether v is equal to w.
 func (v Fileset) Equal(w Fileset) bool {
 	if len(v.List) != len(w.List) {

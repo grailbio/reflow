@@ -855,9 +855,9 @@ func (e *Expr) exec(sess *Session, env *values.Env, image string, ident string, 
 					var v values.T
 					switch outputs[f.Name].Kind {
 					case types.FileKind:
-						file, ok := fs.Map["."]
-						if !ok {
-							return nil, errors.Errorf("output file not created in %s", ident)
+						file, err := fs.File()
+						if err != nil {
+							return nil, errors.E(fmt.Sprintf("output file not created in %s", err))
 						}
 						v = file
 					case types.DirKind:

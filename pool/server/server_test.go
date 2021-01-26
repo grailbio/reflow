@@ -54,10 +54,13 @@ func (*testAlloc) Inspect(ctx context.Context) (pool.AllocInspect, error) {
 }
 
 func (t *testAlloc) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) (reflow.Fileset, error) {
-	if fs.N() != 1 || !fs.Map["."].Equal(testFile) {
-		return reflow.Fileset{}, errors.New("unexpected fileset")
+	file, err := fs.File()
+	if err != nil {
+		return reflow.Fileset{}, err
 	}
-	file := fs.Map["."]
+	if !file.Equal(testFile) {
+		return reflow.Fileset{}, errors.New(fmt.Sprintf("mismatch %s != %s", file.Digest(), testFile.Digest()))
+	}
 	file.ID = testDigest
 	fs.Map["."] = file
 	t.files[testDigest] = true
@@ -71,7 +74,7 @@ func (t *testAlloc) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) erro
 }
 
 func (t *testAlloc) Unload(ctx context.Context, fs reflow.Fileset) error {
-	file := fs.Map["."]
+	file, _ := fs.File()
 	if _, ok := t.files[file.ID]; !ok {
 		return errors.New(fmt.Sprintf("%v not loaded", file.ID))
 	}

@@ -53,7 +53,7 @@ are not also in the fileset.`
 		}
 		fs = fs.List[*index]
 	}
-	if _, ok := fs.Map["."]; ok {
+	if _, err := fs.File(); err == nil {
 		c.Fatal("fileset is singular")
 	}
 	g, ctx := errgroup.WithContext(ctx)
