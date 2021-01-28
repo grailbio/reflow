@@ -341,7 +341,16 @@ func (e *Executor) Put(ctx context.Context, id digest.Digest, cfg reflow.ExecCon
 	}
 	e.execs[id] = x
 	e.mu.Unlock()
+
+	e.Log.Printf("started exec %s using resources %s from total %s", id.Short(), cfg.Resources, e.Resources())
 	go x.Go(e.ctx)
+	go func() {
+		var errStr string
+		if err := x.Wait(ctx); err != nil {
+			errStr = fmt.Sprintf(" with error: %v", err)
+		}
+		e.Log.Printf("completed exec %s using resources %s from total %s%s", id.Short(), cfg.Resources, e.Resources(), errStr)
+	}()
 	return x, x.WaitUntil(execInit)
 }
 
