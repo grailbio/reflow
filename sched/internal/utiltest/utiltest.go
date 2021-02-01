@@ -232,7 +232,10 @@ type TestAlloc struct {
 	pool.Alloc
 	id         uint64
 	repository *testutil.InmemoryRepository
-	resources  reflow.Resources
+
+	rmu       sync.Mutex
+	resources reflow.Resources
+	reserved  reflow.Resources
 
 	mu         sync.Mutex
 	cond       *sync.Cond
@@ -260,7 +263,29 @@ func (a *TestAlloc) ID() string {
 }
 
 func (a *TestAlloc) Resources() reflow.Resources {
+	a.rmu.Lock()
+	defer a.rmu.Unlock()
 	return a.resources
+}
+
+func (a *TestAlloc) Reserve(r reflow.Resources) {
+	a.rmu.Lock()
+	defer a.rmu.Unlock()
+	res := a.avail()
+	res.Min(res, r)
+	a.reserved.Add(a.reserved, res)
+}
+
+func (a *TestAlloc) Available() reflow.Resources {
+	a.rmu.Lock()
+	defer a.rmu.Unlock()
+	return a.avail()
+}
+
+func (a *TestAlloc) avail() reflow.Resources {
+	var r reflow.Resources
+	r.Sub(a.resources, a.reserved)
+	return r
 }
 
 func (a *TestAlloc) Repository() reflow.Repository {

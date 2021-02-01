@@ -140,6 +140,13 @@ func (m *Manager) Start() {
 	go m.loop(ctx)
 }
 
+// SetTimeouts sets the various timeout durations (primarily used for integration testing).
+func (m *Manager) SetTimeouts(refreshInterval, drainTimeout, launchTimeout time.Duration) {
+	m.refreshInterval = refreshInterval
+	m.drainTimeout = drainTimeout
+	m.launchTimeout = launchTimeout
+}
+
 // Shutdown shuts down the manager and waits for all its go-routines to finish.
 func (m *Manager) Shutdown() {
 	if m.cancel == nil { // Start was never called
