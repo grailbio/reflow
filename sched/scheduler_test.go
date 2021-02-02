@@ -83,7 +83,7 @@ func TestSchedulerBasic(t *testing.T) {
 
 	scheduler.Submit(task)
 	req := <-cluster.Req()
-	if got, want := req.Requirements, utiltest.NewRequirements(10, 10<<30, 1); !got.Equal(want) {
+	if got, want := req.Requirements, utiltest.NewRequirements(10, 10<<30, 0); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	alloc := utiltest.NewTestAlloc(reflow.Resources{"cpu": 25, "mem": 20 << 30})
@@ -167,7 +167,7 @@ func TestSchedulerAlloc(t *testing.T) {
 	}
 	scheduler.Submit(tasks...)
 	req := <-cluster.Req()
-	if got, want := req.Requirements, utiltest.NewRequirements(20, 10<<30, 4); !got.Equal(want) {
+	if got, want := req.Requirements, utiltest.NewRequirements(20, 10<<30, 3); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	// There shouldn't be another one:
@@ -202,7 +202,7 @@ func TestSchedulerAlloc(t *testing.T) {
 
 	// We should see another request now for the remaining.
 	req = <-cluster.Req()
-	if got, want := req.Requirements, utiltest.NewRequirements(20, 10<<30, 2); !got.Equal(want) {
+	if got, want := req.Requirements, utiltest.NewRequirements(20, 10<<30, 1); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 
@@ -617,7 +617,7 @@ func TestSchedulerLoadUnloadExtern(t *testing.T) {
 	}
 
 	req := <-cluster.Req()
-	if got, want := req.Requirements, utiltest.NewRequirements(10, 10<<30, 1); !got.Equal(want) {
+	if got, want := req.Requirements, utiltest.NewRequirements(10, 10<<30, 0); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	// TODO(pgopal): There is no way to wait for the tasks to be added to the scheduler queue.
@@ -715,7 +715,7 @@ func TestSchedulerLoadFailRetryTask(t *testing.T) {
 
 	scheduler.Submit(task)
 	req := <-cluster.Req()
-	if got, want := req.Requirements, utiltest.NewRequirements(10, 10<<30, 1); !got.Equal(want) {
+	if got, want := req.Requirements, utiltest.NewRequirements(10, 10<<30, 0); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	// Start a task. Fail the alloc, so that the task gets assigned to a new alloc.
@@ -828,7 +828,7 @@ func TestSchedulerLoadUnloadFiles(t *testing.T) {
 
 	scheduler.Submit(task)
 	req := <-cluster.Req()
-	if got, want := req.Requirements, utiltest.NewRequirements(10, 10<<30, 1); !got.Equal(want) {
+	if got, want := req.Requirements, utiltest.NewRequirements(10, 10<<30, 0); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	alloc := utiltest.NewTestAlloc(reflow.Resources{"cpu": 25, "mem": 20 << 30})
@@ -960,7 +960,7 @@ func TestRequirements(t *testing.T) {
 				utiltest.NewTask(3, 5, 0),
 				utiltest.NewTask(5, 8, 0),
 			},
-			reflow.Requirements{Min: reflow.Resources{"cpu": 5, "mem": 8}, Width: 2},
+			reflow.Requirements{Min: reflow.Resources{"cpu": 5, "mem": 8}, Width: 1},
 		},
 		{
 			[]*sched.Task{
@@ -974,7 +974,7 @@ func TestRequirements(t *testing.T) {
 				utiltest.NewTask(1, 4, 0),
 				utiltest.NewTask(1, 4, 0),
 			},
-			reflow.Requirements{Min: reflow.Resources{"cpu": 8, "mem": 32}, Width: 2},
+			reflow.Requirements{Min: reflow.Resources{"cpu": 8, "mem": 32}, Width: 1},
 		},
 		{
 			[]*sched.Task{
@@ -988,7 +988,7 @@ func TestRequirements(t *testing.T) {
 				utiltest.NewTask(1, 5, 0),
 				utiltest.NewTask(2, 10, 0),
 			},
-			reflow.Requirements{Min: reflow.Resources{"cpu": 8, "mem": 32}, Width: 4},
+			reflow.Requirements{Min: reflow.Resources{"cpu": 8, "mem": 32}, Width: 3},
 		},
 	} {
 		if got, want := sched.Requirements(tc.tasks), tc.req; !got.Equal(want) {

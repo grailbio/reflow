@@ -67,7 +67,7 @@ func TestSchedScaleSmall(t *testing.T) {
 			},
 		},
 	}, nodes(tiny, 10, 2*completionDelay)...)
-	testSchedScale(t, tasks, 1, reflow.Resources{"cpu": 50, "mem": 200 << 30})
+	testSchedScale(t, tasks, 2, reflow.Resources{"cpu": 50, "mem": 200 << 30})
 }
 
 func TestSchedScaleMedium(t *testing.T) {
@@ -83,7 +83,7 @@ func TestSchedScaleMedium(t *testing.T) {
 		{task: sizedTask(large, 6*completionDelay), children: tasks1},
 		{task: sizedTask(medium, 2*completionDelay), children: nodes(medium, 4, 6*completionDelay)},
 	}, nodes(small, 10, 2*completionDelay)...)
-	testSchedScale(t, tasks, 3, reflow.Resources{"cpu": 200, "mem": 800 << 30})
+	testSchedScale(t, tasks, 5, reflow.Resources{"cpu": 200, "mem": 800 << 30})
 }
 
 func TestSchedScaleLarge(t *testing.T) {
