@@ -43,7 +43,10 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const numExecTries = 5
+const (
+	numExecTries        = 5
+	defaultDrainTimeout = 50 * time.Millisecond
+)
 
 var allocateTraceId = reflow.Digester.FromString("allocate")
 
@@ -89,6 +92,10 @@ type Scheduler struct {
 	// collected.
 	MaxAllocIdleTime time.Duration
 
+	// DrainTimeout is the duration to wait to see if more tasks have been submitted
+	// so that we can combine the requirements of those tasks together to make larger allocs.
+	DrainTimeout time.Duration
+
 	// MinAlloc is the smallest resource allocation that is made by
 	// the scheduler.
 	MinAlloc reflow.Resources
@@ -112,6 +119,7 @@ func New() *Scheduler {
 		submitc:          make(chan []*Task),
 		MaxPendingAllocs: 5,
 		MaxAllocIdleTime: 5 * time.Minute,
+		DrainTimeout:     defaultDrainTimeout,
 		MinAlloc:         reflow.Resources{"cpu": 1, "mem": 1 << 30, "disk": 1 << 30},
 		Stats:            newStats(),
 	}
@@ -229,6 +237,7 @@ func (s *Scheduler) Do(ctx context.Context) error {
 				}
 			}
 		case tasks := <-s.submitc:
+			tasks = append(tasks, s.drain()...)
 			s.Stats.AddTasks(tasks)
 			for _, task := range tasks {
 				if task.Config.Type == "extern" && !task.nonDirectTransfer {
@@ -325,6 +334,33 @@ func (s *Scheduler) Do(ctx context.Context) error {
 		heap.Push(&pending, alloc)
 		go s.allocate(ctx, alloc, notifyc, deadc)
 	}
+}
+
+// drain drains the task submission channel if a valid DrainTimeout is set.
+// Draining is done by waiting upto DrainTimeout (since the last set of tasks were received) for new tasks.
+func (s *Scheduler) drain() (tasks []*Task) {
+	if s.DrainTimeout == 0 {
+		return
+	}
+	var (
+		drained bool
+		t       = time.NewTimer(s.DrainTimeout)
+	)
+	for !drained {
+		select {
+		case more := <-s.submitc:
+			tasks = append(tasks, more...)
+			// Stop timer and explicitly drain if necessary
+			if !t.Stop() {
+				<-t.C
+			}
+		case <-t.C:
+			drained = true
+		}
+		t.Reset(s.DrainTimeout)
+	}
+	t.Stop()
+	return
 }
 
 func (s *Scheduler) assign(tasks *taskq, allocs *allocq, stats *Stats) (assigned []*Task) {

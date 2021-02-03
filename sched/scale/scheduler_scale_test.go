@@ -58,11 +58,11 @@ func newTestScheduler(t *testing.T) (scheduler *sched.Scheduler, cluster *alloca
 }
 
 func TestSchedScaleSimple(t *testing.T) {
-	testSchedScale(t, []*taskNode{{sizedTask(medium, completionDelay), nil}}, 1, 1, reflow.Resources{"cpu": 8, "mem": 32 << 30}, 0.0)
+	testSchedScale(t, 0, []*taskNode{{sizedTask(medium, completionDelay), nil}}, 1, 1, reflow.Resources{"cpu": 8, "mem": 32 << 30}, 0.0)
 }
 
-func TestSchedScaleSmall(t *testing.T) {
-	tasks := append([]*taskNode{
+func smallTasks() []*taskNode {
+	return append([]*taskNode{
 		{
 			sizedTask(medium, completionDelay),
 			[]*taskNode{
@@ -76,15 +76,22 @@ func TestSchedScaleSmall(t *testing.T) {
 			},
 		},
 	}, nodes(tiny, 10, 2*completionDelay)...)
-	testSchedScale(t, tasks, 2, 5, reflow.Resources{"cpu": 48, "mem": 190 << 30}, 0.1)
 }
 
-func TestSchedScaleMedium(t *testing.T) {
+func TestSchedScaleSmall(t *testing.T) {
+	testSchedScale(t, 0, smallTasks(), 2, 5, reflow.Resources{"cpu": 48, "mem": 190 << 30}, 0.1)
+}
+
+func TestSchedScaleSmallWithDrain(t *testing.T) {
+	testSchedScale(t, 50*time.Millisecond, smallTasks(), 2, 3, reflow.Resources{"cpu": 48, "mem": 190 << 30}, 0.1)
+}
+
+func mediumTasks() []*taskNode {
 	tasks1 := append([]*taskNode{
 		{sizedTask(large, 4*completionDelay), nodes(enormous, 1, 8*completionDelay)},
 		{sizedTask(small, 2*completionDelay), nodes(enormous, 1, 8*completionDelay)},
 	}, nodes(small, 16, 4*completionDelay)...)
-	tasks := append([]*taskNode{
+	return append([]*taskNode{
 		{
 			task:     sizedTask(large, 10*completionDelay),
 			children: append(nodes(small, 16, 4*completionDelay), nodes(large, 2, 2*completionDelay)...),
@@ -92,15 +99,22 @@ func TestSchedScaleMedium(t *testing.T) {
 		{task: sizedTask(large, 6*completionDelay), children: tasks1},
 		{task: sizedTask(medium, 2*completionDelay), children: nodes(medium, 4, 6*completionDelay)},
 	}, nodes(small, 10, 2*completionDelay)...)
-	testSchedScale(t, tasks, 8, 18, reflow.Resources{"cpu": 250, "mem": 1100 << 30}, 0.2)
 }
 
-func TestSchedScaleLarge(t *testing.T) {
+func TestSchedScaleMedium(t *testing.T) {
+	testSchedScale(t, 0, mediumTasks(), 8, 18, reflow.Resources{"cpu": 250, "mem": 1100 << 30}, 0.2)
+}
+
+func TestSchedScaleMediumWithDrain(t *testing.T) {
+	testSchedScale(t, 50*time.Millisecond, mediumTasks(), 8, 9, reflow.Resources{"cpu": 250, "mem": 1100 << 30}, 0.2)
+}
+
+func largeTasks() []*taskNode {
 	tasks1 := append([]*taskNode{
 		{sizedTask(enormous, 4*completionDelay), nodes(medium, 10, 2*completionDelay)},
 		{sizedTask(large, completionDelay), nodes(large, 5, 4*completionDelay)},
 	}, nodes(small, 10, 2*completionDelay)...)
-	tasks := append([]*taskNode{
+	return append([]*taskNode{
 		{
 			task:     sizedTask(tiny, 10*completionDelay),
 			children: append(nodes(small, 5, completionDelay), nodes(large, 10, 2*completionDelay)...),
@@ -112,8 +126,17 @@ func TestSchedScaleLarge(t *testing.T) {
 		{task: sizedTask(large, 6*completionDelay), children: tasks1},
 		{task: sizedTask(enormous, 2*completionDelay), children: nodes(medium, 20, 3*completionDelay)},
 	}, nodes(large, 5, 4*completionDelay)...)
+}
+
+func TestSchedScaleLarge(t *testing.T) {
 	// TODO(swami): Fix various issues causing over-allocation and wastage.
-	testSchedScale(t, tasks, 12, 25, reflow.Resources{"cpu": 1000, "mem": 10000 << 30}, 0.3)
+	testSchedScale(t, 0, largeTasks(), 12, 25, reflow.Resources{"cpu": 1000, "mem": 10000 << 30}, 0.3)
+}
+
+func TestSchedScaleLargeWithDrain(t *testing.T) {
+	// TODO(swami): Fix various issues causing over-allocation and wastage.
+	testSchedScale(t, 50*time.Millisecond, largeTasks(), 12, 13, reflow.Resources{"cpu": 1000, "mem": 10000 << 30}, 0.3)
+
 }
 
 // testSchedScale runs a scale test of the scheduler.
@@ -122,8 +145,9 @@ func TestSchedScaleLarge(t *testing.T) {
 // The submitter submits the given set of tasks and upon each of their completion, submits its children.
 // The allocator automatically satisfies the scheduler's requirement with an appropriate instance type.
 // wastageThresholdPct is the amount of resource wastage tolerated by the test assertions.
-func testSchedScale(t *testing.T, tasks []*taskNode, maxPools, maxAllocs int, maxResources reflow.Resources, wastageThresholdPct float32) {
+func testSchedScale(t *testing.T, drainTimeout time.Duration, tasks []*taskNode, maxPools, maxAllocs int, maxResources reflow.Resources, wastageThresholdPct float32) {
 	scheduler, allocator, shutdown := newTestScheduler(t)
+	scheduler.DrainTimeout = drainTimeout
 	defer shutdown()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -230,7 +254,6 @@ func sizedTask(size taskSize, dur time.Duration) *sched.Task {
 		task = utiltest.NewTask(1, 2<<30, 0)
 	}
 	task.Config.Ident = fmt.Sprintf("%s", dur)
-	utiltest.SetLogger(task)
 	return task
 }
 
