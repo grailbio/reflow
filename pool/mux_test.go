@@ -40,6 +40,21 @@ func (idAlloc) Keepalive(ctx context.Context, interval time.Duration) (time.Dura
 func (idAlloc) Inspect(ctx context.Context) (AllocInspect, error) { panic("not implemented") }
 func (idAlloc) Free(ctx context.Context) error                    { panic("not implemented") }
 
+type inspectAlloc struct {
+	idAlloc
+	inspect AllocInspect
+}
+
+func (a *inspectAlloc) Keepalive(ctx context.Context, interval time.Duration) (time.Duration, error) {
+	a.inspect.LastKeepalive = time.Now()
+	a.inspect.Expires = a.inspect.LastKeepalive.Add(interval)
+	return interval, nil
+}
+
+func (a *inspectAlloc) Inspect(ctx context.Context) (AllocInspect, error) {
+	return a.inspect, nil
+}
+
 type idOffer string
 
 func (o idOffer) ID() string                { return string(o) }

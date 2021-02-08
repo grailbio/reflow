@@ -6,7 +6,6 @@ package local
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -59,6 +58,7 @@ var (
 //		The root directory for the alloc with id. The state under
 //		this directory is managed by an executor instance.
 type Pool struct {
+	pool.ResourcePool
 	// Dir is the filesystem root of the pool. Everything under this
 	// path is assumed to be owned and managed by the pool.
 	Dir string
@@ -86,25 +86,21 @@ type Pool struct {
 
 	HardMemLimit bool
 
-	mu        sync.Mutex
-	allocs    map[string]*alloc // the set of active allocs
-	resources reflow.Resources  // the total amount of available resources
-	stopped   bool
+	mu sync.Mutex
 }
 
 // saveState saves the current state of the pool to Prefix/Dir/state.json.
-// It must be called while m.mu is locked.
-func (p *Pool) saveState() error {
+func (p *Pool) saveState(allocs []pool.Alloc) error {
 	path := filepath.Join(p.Prefix, p.Dir, statePath)
 	file, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	allocs := map[string]reflow.Resources{}
-	for id, alloc := range p.allocs {
-		allocs[id] = alloc.resources
+	allocResources := make(map[string]reflow.Resources, len(allocs))
+	for _, alloc := range allocs {
+		allocResources[alloc.ID()] = alloc.Resources()
 	}
-	if err := json.NewEncoder(file).Encode(allocs); err != nil {
+	if err := json.NewEncoder(file).Encode(allocResources); err != nil {
 		file.Close()
 		os.Remove(path)
 	}
@@ -112,18 +108,19 @@ func (p *Pool) saveState() error {
 	return nil
 }
 
-// detectDiskSize detects the disk resources available on this pool.
-func (p *Pool) detectDiskSize() {
+// updateDiskSize detects and updates the disk resources.
+// It must be called while p.mu is locked.
+func (p *Pool) updateDiskSize(r reflow.Resources) {
 	root := filepath.Join(p.Prefix, p.Dir)
 	diskSize := 2e12
-	if existing, ok := p.resources["disk"]; ok {
+	if existing, ok := r["disk"]; ok {
 		diskSize = existing
 	}
 	if usage, err := fs.Stat(root); err == nil {
-		p.resources["disk"] = float64(usage.Total)
+		r["disk"] = float64(usage.Total)
 	} else {
 		p.Log.Printf("refresh disk size (assuming %s), stat %s: %v", data.Size(diskSize), root, err)
-		p.resources["disk"] = diskSize
+		r["disk"] = diskSize
 	}
 }
 
@@ -131,13 +128,15 @@ func (p *Pool) detectDiskSize() {
 // will restore the pool's previous state. Start will also make sure
 // that all zombie allocs are collected.
 func (p *Pool) Start() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	ctx := context.Background()
-
+	p.ResourcePool = pool.NewResourcePool(p, p.Log)
 	info, err := p.Client.Info(ctx)
 	if err != nil {
 		return err
 	}
-	p.resources = reflow.Resources{
+	resources := reflow.Resources{
 		"mem": math.Floor(float64(info.MemTotal) * 0.95),
 		"cpu": float64(info.NCPU),
 	}
@@ -147,18 +146,18 @@ func (p *Pool) Start() error {
 	}
 	for _, feature := range features {
 		// Add one feature per CPU.
-		p.resources[feature] = p.resources["cpu"]
+		resources[feature] = resources["cpu"]
 	}
 	root := filepath.Join(p.Prefix, p.Dir)
 	if err := os.MkdirAll(root, 0777); err != nil {
 		log.Printf("mkdir %s: %v", root, err)
 	}
-	p.detectDiskSize()
+	p.updateDiskSize(resources)
 
 	if err := os.MkdirAll(filepath.Join(p.Prefix, p.Dir, allocsPath), 0777); err != nil {
 		return err
 	}
-	allocs := map[string]reflow.Resources{}
+	allocResources := map[string]reflow.Resources{}
 	if file, err := os.Open(filepath.Join(p.Prefix, p.Dir, statePath)); err != nil {
 		if os.IsNotExist(err) {
 			p.Log.Printf("no state on disk")
@@ -166,7 +165,7 @@ func (p *Pool) Start() error {
 			return err
 		}
 	} else {
-		if err := json.NewDecoder(file).Decode(&allocs); err != nil {
+		if err := json.NewDecoder(file).Decode(&allocResources); err != nil {
 			p.Log.Errorf("failed to recover state: %s; starting from empty", err)
 		}
 		file.Close()
@@ -180,7 +179,7 @@ func (p *Pool) Start() error {
 	if err != nil {
 		return err
 	}
-	p.allocs = map[string]*alloc{}
+	allocs := map[string]pool.Alloc{}
 	for _, info := range infos {
 		if !info.IsDir() {
 			continue
@@ -195,9 +194,9 @@ func (p *Pool) Start() error {
 		if err := alloc.Start(); err != nil {
 			return err
 		}
-		if _, ok := allocs[id]; ok {
-			delete(allocs, id)
-			p.allocs[id] = alloc
+		if _, ok := allocResources[id]; ok {
+			delete(allocResources, id)
+			allocs[id] = alloc
 		} else {
 			// TODO(marius): this may be overkill, but it will do the right thing.
 			// In the future, we may want to store whether an alloc was definitely
@@ -209,193 +208,28 @@ func (p *Pool) Start() error {
 			}()
 		}
 	}
-	for id := range allocs {
+	for id := range allocResources {
 		p.Log.Printf("orphaned alloc %s", id)
 	}
+	p.ResourcePool.Init(resources, allocs)
 	return nil
 }
 
 func (p *Pool) Resources() reflow.Resources {
-	p.detectDiskSize()
-	var r reflow.Resources
-	r.Set(p.resources)
+	r := p.ResourcePool.Resources()
+	p.updateDiskSize(r)
 	return r
-}
-
-// Available returns the amount of currently available resources:
-// The total less what is occupied by active allocs.
-func (p *Pool) Available() reflow.Resources {
-	var reserved reflow.Resources
-	for _, alloc := range p.allocs {
-		if !alloc.expired() {
-			reserved.Add(reserved, alloc.resources)
-		}
-	}
-	var avail reflow.Resources
-	avail.Sub(p.Resources(), reserved)
-	return avail
-}
-
-// new creates a new alloc with the given meta. new collects expired
-// allocs as needed to make room for the resource requirements as
-// indicated by meta.
-func (p *Pool) new(ctx context.Context, meta pool.AllocMeta) (pool.Alloc, error) {
-	p.mu.Lock()
-	if p.stopped {
-		p.mu.Unlock()
-		return nil, errors.Errorf("alloc %v: shutting down", meta)
-	}
-	var (
-		total   = p.Resources()
-		used    reflow.Resources
-		expired []*alloc
-	)
-	for _, alloc := range p.allocs {
-		used.Add(used, alloc.resources)
-		if alloc.expired() {
-			expired = append(expired, alloc)
-		}
-	}
-	// ACHTUNG N²! (But n is small.)
-	n := 0
-	collect := expired[:]
-	// TODO: preferentially prefer those allocs which will give us the
-	// resource types we need.
-	p.Log.Printf("alloc total%s used%s want%s", total, used, meta.Want)
-	var free reflow.Resources
-	for {
-		free.Sub(total, used)
-		if free.Available(meta.Want) || len(expired) == 0 {
-			break
-		}
-		max := 0
-		for i := 1; i < len(expired); i++ {
-			if expired[i].expiredBy() > expired[max].expiredBy() {
-				max = i
-			}
-		}
-		alloc := expired[max]
-		expired[0], expired[max] = expired[max], expired[0]
-		expired = expired[1:]
-		used.Sub(used, alloc.resources)
-		n++
-	}
-	collect = collect[:n]
-	if !free.Available(meta.Want) {
-		p.mu.Unlock()
-		return nil, errors.E("alloc", errors.NotExist, errOfferExpired)
-	}
-	for _, alloc := range collect {
-		delete(p.allocs, alloc.id)
-	}
-	id := newID()
-	alloc := p.newAlloc(id, keepaliveInterval)
-	var err error
-	err = alloc.configure(meta)
-	if err == nil {
-		err = alloc.Start()
-	}
-	if err != nil {
-		for _, alloc := range collect {
-			p.allocs[alloc.id] = alloc
-		}
-		p.mu.Unlock()
-		return nil, err
-	}
-	p.allocs[id] = alloc
-	if err := p.saveState(); err != nil {
-		delete(p.allocs, id)
-		for _, alloc := range collect {
-			p.allocs[alloc.id] = alloc
-		}
-		p.mu.Unlock()
-		if err := alloc.Kill(context.Background()); err != nil {
-			p.Log.Errorf("error killing alloc: %s", err)
-		}
-		return nil, err
-	}
-	p.mu.Unlock()
-	for _, alloc := range collect {
-		p.Log.Printf("alloc reclaim %s", alloc.ID())
-		if err := alloc.Kill(context.Background()); err != nil {
-			p.Log.Errorf("error killing alloc: %s", err)
-		}
-	}
-	return alloc, nil
-}
-
-// free frees alloc a from this pool. It does not collect the alloc itself.
-func (p *Pool) free(a *alloc) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.allocs[a.id] != a {
-		return nil
-	}
-	delete(p.allocs, a.id)
-	if err := p.saveState(); err != nil {
-		p.allocs[a.id] = a
-		return err
-	}
-	return nil
-}
-
-// alive tells whether an alloc's lease is current.
-func (p *Pool) alive(a *alloc) bool {
-	p.mu.Lock()
-	t := p.allocs[a.id] == a
-	p.mu.Unlock()
-	return t
-}
-
-// ID returns the ID of the pool. It is always "local".
-func (p *Pool) ID() string { return "local" }
-
-// Offer looks up the an offer by ID.
-func (p *Pool) Offer(ctx context.Context, id string) (pool.Offer, error) {
-	offers, err := p.Offers(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if len(offers) == 0 {
-		return nil, errors.E("offer", id, errors.NotExist, errOfferExpired)
-	}
-	if id != offerID {
-		return nil, errors.E("offer", id, errors.NotExist, errOfferExpired)
-	}
-	return offers[0], nil
-}
-
-// Offers enumerates all the current offers of this pool. The local
-// pool always returns either no offers, when there are no more
-// available resources, or 1 offer comprising the entirety of
-// available resources.
-func (p *Pool) Offers(ctx context.Context) ([]pool.Offer, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.stopped {
-		return nil, nil
-	}
-	var reserved reflow.Resources
-	for _, alloc := range p.allocs {
-		if !alloc.expired() {
-			reserved.Add(reserved, alloc.resources)
-		}
-	}
-	var available reflow.Resources
-	available.Sub(p.Resources(), reserved)
-	if available["mem"] == 0 || available["cpu"] == 0 || available["disk"] == 0 {
-		return nil, nil
-	}
-	return []pool.Offer{&offer{p, offerID, available}}, nil
 }
 
 // Alloc looks up an alloc by ID.
 func (p *Pool) Alloc(ctx context.Context, id string) (pool.Alloc, error) {
-	p.mu.Lock()
-	alloc := p.allocs[id]
-	p.mu.Unlock()
-	if alloc != nil {
+	alloc, err := p.ResourcePool.Alloc(ctx, id)
+	if err == nil {
 		return alloc, nil
+	}
+	// No matching live allocs, but look for dead (zombie) ones.
+	if !errors.Is(errors.NotExist, err) {
+		return nil, err
 	}
 	dir := filepath.Join(p.Prefix, p.Dir, allocsPath, id)
 	info, err := os.Stat(dir)
@@ -405,45 +239,42 @@ func (p *Pool) Alloc(ctx context.Context, id string) (pool.Alloc, error) {
 	return &zombie{manager: p, dir: dir, id: id}, nil
 }
 
-// Allocs lists all the active allocs in the pool.
-func (p *Pool) Allocs(ctx context.Context) ([]pool.Alloc, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	allocs := make([]pool.Alloc, len(p.allocs))
-	i := 0
-	for _, a := range p.allocs {
-		allocs[i] = a
-		i++
-	}
-	return allocs, nil
+// Name implements `pool.AllocManager` and always returns "local".
+func (p *Pool) Name() string {
+	return "local"
 }
 
-// StopIfIdle stops the pool if it is idle. Returns whether the pool was stopped.
-// If the pool was not stopped (ie, it was not idle), returns the current max duration
-// to expiry of all allocs in the pool.  Note that further alloc
-// keepalive calls can make the pool unstoppable after the given duration passes.
-func (p *Pool) StopIfIdleFor(d time.Duration) (bool, time.Duration) {
+// New implements `pool.AllocManager`.
+// New creates a new alloc with the given id, alloc meta and initial keepalive.
+// The list of other existing allocs are provided here to enable atomic saving
+// of the state of all allocs.
+func (p *Pool) New(ctx context.Context, id string, meta pool.AllocMeta, keepalive time.Duration, existing []pool.Alloc) (pool.Alloc, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	var (
-		idle            = true
-		maxTimeToExpiry time.Duration
-	)
-	for _, alloc := range p.allocs {
-		expiredBy := alloc.expiredBy()
-		if expiredBy < d {
-			idle = false
-		}
-		// if alloc isn't expired, expiredBy is negative.
-		if maxTimeToExpiry > expiredBy {
-			maxTimeToExpiry = expiredBy
-		}
+	alloc := p.newAlloc(id, keepaliveInterval)
+	if err := alloc.configure(meta); err != nil {
+		return nil, err
 	}
-	if idle {
-		p.stopped = true
-		return true, 0
+	if err := alloc.Start(); err != nil {
+		return nil, err
 	}
-	return false, -maxTimeToExpiry
+	if err := p.saveState(append(existing, alloc)); err != nil {
+		p.Log.Errorf("error saving state: %s", err)
+		if kerr := alloc.kill(); kerr != nil {
+			p.Log.Errorf("error killing alloc: %s", kerr)
+		}
+		return nil, err
+	}
+	return alloc, nil
+}
+
+// Kill implements `pool.AllocManager` and kills the underlying alloc.
+func (p *Pool) Kill(a pool.Alloc) error {
+	alloc, ok := a.(*alloc)
+	if !ok {
+		panic(fmt.Sprintf("unexpected alloc type %T", a))
+	}
+	return alloc.kill()
 }
 
 // Alloc implements a local alloc. It embeds a local executor which
@@ -539,22 +370,6 @@ func (a *alloc) restore() error {
 	return err
 }
 
-// expired tells whether the alloc is expired, as per the keepalive interval.
-func (a *alloc) expired() bool {
-	a.mu.Lock()
-	x := a.expires.Before(time.Now())
-	a.mu.Unlock()
-	return x
-}
-
-// expiredBy tells by how much the alloc is expired.
-func (a *alloc) expiredBy() time.Duration {
-	a.mu.Lock()
-	d := time.Now().Sub(a.expires)
-	a.mu.Unlock()
-	return d
-}
-
 // Pool returns the pool that owns this alloc.
 func (a *alloc) Pool() pool.Pool {
 	return a.p
@@ -579,7 +394,7 @@ func (a *alloc) Start() error {
 
 // Keepalive maintains the alloc's lease.
 func (a *alloc) Keepalive(ctx context.Context, next time.Duration) (time.Duration, error) {
-	if !a.p.alive(a) {
+	if !a.p.Alive(a) {
 		return time.Duration(0), errors.E("keepalive", a.id, fmt.Sprint(next), errors.NotExist, errAllocExpired)
 	}
 	a.mu.Lock()
@@ -596,6 +411,7 @@ func (a *alloc) Keepalive(ctx context.Context, next time.Duration) (time.Duratio
 // Inspect returns the alloc's status.
 func (a *alloc) Inspect(ctx context.Context) (pool.AllocInspect, error) {
 	a.mu.Lock()
+	defer a.mu.Unlock()
 	i := pool.AllocInspect{
 		ID:            a.id,
 		Resources:     a.meta.Want,
@@ -604,51 +420,27 @@ func (a *alloc) Inspect(ctx context.Context) (pool.AllocInspect, error) {
 		Expires:       a.expires,
 		LastKeepalive: a.lastKeepalive,
 	}
-	a.mu.Unlock()
 	return i, nil
 }
 
-// Free relinquishes this alloc from its pool and kills its
-// resources. The alloc's repository is removed, but its metadata and
-// logs are kept intact so that they may be examined posthumously.
+// Free relinquishes this alloc from its pool.
 func (a *alloc) Free(ctx context.Context) error {
-	if err := a.p.free(a); err != nil {
-		return err
-	}
+	return a.p.Free(a)
+}
+
+// kill kills this alloc's executor and removes its repository,
+// but its metadata and logs are kept intact so that they may be examined posthumously.
+func (a *alloc) kill() error {
 	a.mu.Lock()
 	free := !a.freed
 	a.freed = true
 	a.mu.Unlock()
 	if free {
-		a.p.Log.Printf("killing alloc %v", a)
+		a.p.Log.Printf("killing alloc %s", a.id)
 		a.Kill(context.Background())
 	}
 	if a.remoteStream != nil {
 		a.remoteStream.Close()
 	}
-
 	return nil
-}
-
-type offer struct {
-	m         *Pool
-	id        string
-	resources reflow.Resources
-}
-
-func (o *offer) ID() string                  { return o.id }
-func (o *offer) Pool() pool.Pool             { return o.m }
-func (o *offer) Available() reflow.Resources { return o.resources }
-func (o *offer) Accept(ctx context.Context, meta pool.AllocMeta) (pool.Alloc, error) {
-	return o.m.new(ctx, meta)
-}
-
-// newID generates a random hex string.
-func newID() string {
-	var b [8]byte
-	_, err := rand.Read(b[:])
-	if err != nil {
-		panic(err)
-	}
-	return fmt.Sprintf("%x", b[:])
 }

@@ -56,10 +56,14 @@ func NewTask(cpu, mem float64, priority int) *sched.Task {
 	task.ID = taskdb.NewTaskID()
 	task.FlowID = reflow.Digester.FromString("test-flow-id")
 	if *logTasks {
-		out := golog.New(os.Stderr, fmt.Sprintf("task %s (%s): ", task.ID.IDShort(), task.Config.Resources), golog.LstdFlags)
-		task.Log = log.New(out, log.DebugLevel)
+		SetLogger(task)
 	}
 	return task
+}
+
+func SetLogger(task *sched.Task) {
+	out := golog.New(os.Stderr, fmt.Sprintf("task %s (%s): ", task.ID.IDShort(), task.Config.Resources), golog.LstdFlags)
+	task.Log = log.New(out, log.DebugLevel)
 }
 
 func NewRequirements(cpu, mem float64, width int) reflow.Requirements {
@@ -228,14 +232,44 @@ func (e *testExec) Complete(res reflow.Result, err error) {
 	e.mu.Unlock()
 }
 
+type TestPool struct {
+	pool.ResourcePool
+	name string
+}
+
+func NewTestPool(name string, r reflow.Resources) *TestPool {
+	p := &TestPool{name: name}
+	p.ResourcePool = pool.NewResourcePool(p, log.Std)
+	p.Init(r, nil)
+	return p
+}
+
+func (p *TestPool) Name() string {
+	return p.name
+}
+
+func (p *TestPool) New(ctx context.Context, id string, meta pool.AllocMeta, keepalive time.Duration, existing []pool.Alloc) (pool.Alloc, error) {
+	alloc := NewTestAllocWithId(id, meta.Want)
+	if _, err := alloc.Keepalive(ctx, keepalive); err != nil {
+		return nil, err
+	}
+	return alloc, nil
+}
+
+func (p *TestPool) Kill(a pool.Alloc) error {
+	log.Printf("kill alloc %s, %s", a.ID(), a.Resources())
+	return nil
+}
+
 type TestAlloc struct {
 	pool.Alloc
-	id         uint64
+	id         string
 	repository *testutil.InmemoryRepository
+	resources  reflow.Resources
 
-	rmu       sync.Mutex
-	resources reflow.Resources
-	reserved  reflow.Resources
+	created       time.Time
+	lastkeepalive time.Time
+	expires       time.Time
 
 	mu         sync.Mutex
 	cond       *sync.Cond
@@ -247,11 +281,16 @@ type TestAlloc struct {
 }
 
 func NewTestAlloc(resources reflow.Resources) *TestAlloc {
+	return NewTestAllocWithId(fmt.Sprintf("test-%d", nalloc.Next()), resources)
+}
+
+func NewTestAllocWithId(id string, resources reflow.Resources) *TestAlloc {
 	alloc := &TestAlloc{
 		repository: testutil.NewInmemoryRepository(),
 		execs:      make(map[digest.Digest]*testExec),
 		resources:  resources,
-		id:         nalloc.Next(),
+		created:    time.Now(),
+		id:         id,
 		refCount:   make(map[digest.Digest]int64),
 	}
 	alloc.cond = sync.NewCond(&alloc.mu)
@@ -259,33 +298,11 @@ func NewTestAlloc(resources reflow.Resources) *TestAlloc {
 }
 
 func (a *TestAlloc) ID() string {
-	return fmt.Sprintf("test%d", a.id)
+	return a.id
 }
 
 func (a *TestAlloc) Resources() reflow.Resources {
-	a.rmu.Lock()
-	defer a.rmu.Unlock()
 	return a.resources
-}
-
-func (a *TestAlloc) Reserve(r reflow.Resources) {
-	a.rmu.Lock()
-	defer a.rmu.Unlock()
-	res := a.avail()
-	res.Min(res, r)
-	a.reserved.Add(a.reserved, res)
-}
-
-func (a *TestAlloc) Available() reflow.Resources {
-	a.rmu.Lock()
-	defer a.rmu.Unlock()
-	return a.avail()
-}
-
-func (a *TestAlloc) avail() reflow.Resources {
-	var r reflow.Resources
-	r.Sub(a.resources, a.reserved)
-	return r
 }
 
 func (a *TestAlloc) Repository() reflow.Repository {
@@ -409,15 +426,36 @@ func (a *TestAlloc) Put(ctx context.Context, id digest.Digest, config reflow.Exe
 func (a *TestAlloc) Keepalive(ctx context.Context, interval time.Duration) (time.Duration, error) {
 	a.mu.Lock()
 	hung, err := a.hung, a.err
-	a.mu.Unlock()
 	if hung {
+		a.mu.Unlock()
 		<-ctx.Done()
 		return 0, ctx.Err()
 	}
+	defer a.mu.Unlock()
 	if err == nil {
 		err = ctx.Err()
 	}
-	return 50 * time.Millisecond, err
+	interval = 50 * time.Millisecond
+	a.lastkeepalive = time.Now()
+	a.expires = a.lastkeepalive.Add(interval)
+	return interval, err
+}
+
+func (a *TestAlloc) Inspect(ctx context.Context) (pool.AllocInspect, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return pool.AllocInspect{
+		ID:            a.ID(),
+		Resources:     a.resources,
+		Created:       a.created,
+		LastKeepalive: a.lastkeepalive,
+		Expires:       a.expires,
+	}, nil
+}
+
+func (a *TestAlloc) Free(ctx context.Context) error {
+	_, err := a.Keepalive(ctx, 0)
+	return err
 }
 
 func (a *TestAlloc) RefCount() map[digest.Digest]int64 {

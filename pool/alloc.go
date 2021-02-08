@@ -156,3 +156,28 @@ func Keepalive(ctx context.Context, log *log.Logger, alloc Alloc) error {
 		}
 	}
 }
+
+// AllocExpired tells whether the alloc is expired.
+func AllocExpired(a Alloc) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	inspect, err := a.Inspect(ctx)
+	if err != nil {
+		// Assume not expired
+		return false
+	}
+	return inspect.Expires.Before(time.Now())
+}
+
+// AllocExpiredBy tells by how much the alloc is expired.
+// Unexpired allocs will return a negative duration.
+func AllocExpiredBy(a Alloc) time.Duration {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	inspect, err := a.Inspect(ctx)
+	if err != nil {
+		// Assume not expired
+		return -time.Minute
+	}
+	return time.Now().Sub(inspect.Expires)
+}
