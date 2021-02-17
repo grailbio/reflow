@@ -436,10 +436,10 @@ func TestTaskErrors(t *testing.T) {
 // Only some type of task errors are considered 'lost' (and retries are attempted),
 // whereas any error from alloc keepalives will result in tasks being considered as lost.
 func TestLostTasksSwitchAllocs(t *testing.T) {
-	old := pool.KeepaliveRetryWaitInterval
-	pool.KeepaliveRetryWaitInterval = 50 * time.Millisecond
+	old := pool.KeepaliveRetryInitialWaitInterval
+	pool.KeepaliveRetryInitialWaitInterval = 50 * time.Millisecond
 	defer func() {
-		pool.KeepaliveRetryWaitInterval = old
+		pool.KeepaliveRetryInitialWaitInterval = old
 	}()
 	allocFatal := errors.E("fatal alloc failure", errors.Fatal)
 	allocCancel := errors.E("alloc cancelled", errors.Canceled)

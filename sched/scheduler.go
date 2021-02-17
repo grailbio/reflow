@@ -569,8 +569,9 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 					uerr := alloc.VerifyIntegrity(gctx, fs)
 					if uerr == nil {
 						task.Log.Debugf("verified %v", fs.Short())
+					} else {
+						task.Log.Debugf("verify %v: %s", fs.Short(), uerr)
 					}
-					task.Log.Debugf("verify %v: %s", fs.Short(), uerr)
 					return uerr
 				})
 				return true

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/grailbio/base/retry"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
@@ -19,11 +20,18 @@ const (
 	keepaliveTimeout     = 10 * time.Second
 	keepaliveMaxInterval = 5 * time.Minute
 	keepaliveTries       = 5
+	ivOffset             = 30 * time.Second
 )
 
-// KeepaliveRetryWaitInterval is the duration to wait between retries
-// if a keepalive attempt fails on an alloc (with a retryable failure)
-var KeepaliveRetryWaitInterval = 2 * time.Second
+// KeepaliveRetryInitialWaitInterval is the initial duration to wait before
+// retrying if a keepalive attempt fails on an alloc (with a retryable failure)
+var KeepaliveRetryInitialWaitInterval = 2 * time.Second
+
+// Non-fatal keepalive failures will be retried using this policy. The policy is
+// configured such that the last retry will occur within the policy's max duration.
+// With a=KeepaliveRetryInitialWaitInterval, b=backoffFactor (1.5), n=keepaliveTries,
+// ivOffset should be such that: sum_{i=0 .. n-1} a*b^i < ivOffset
+var keepaliveRetryPolicy retry.Policy = retry.MaxTries(retry.Backoff(KeepaliveRetryInitialWaitInterval, ivOffset, 1.5), keepaliveTries)
 
 // Alloc represent a resource allocation attached to a single
 // executor, a reservation of resources on a single node.
@@ -104,10 +112,9 @@ func Keepalive(ctx context.Context, log *log.Logger, alloc Alloc) error {
 		var (
 			iv   time.Duration
 			err  error
-			wait = KeepaliveRetryWaitInterval
 			last time.Time
 		)
-		for i := 0; i < keepaliveTries; i++ {
+		for retries := 0; ; retries++ {
 			if !last.IsZero() && time.Since(last) > iv {
 				log.Errorf("failed to maintain keepalive within interval %s", iv)
 			}
@@ -116,19 +123,21 @@ func Keepalive(ctx context.Context, log *log.Logger, alloc Alloc) error {
 				break
 			}
 			// Context errors indicate that our caller has given up.
-			// We blindly retry other (non-Fatal) errors.
 			if cerr := ctx.Err(); cerr != nil {
 				return cerr
 			}
-			time.Sleep(wait)
-			wait *= time.Duration(2)
+			// We blindly retry other (non-Fatal) errors.
+			log.Errorf("try %d/%d failed to maintain keepalive: %s", retries, keepaliveTries, err)
+			if rerr := retry.Wait(ctx, keepaliveRetryPolicy, retries); rerr != nil {
+				return rerr
+			}
 		}
 		if err != nil {
 			return err
 		}
 		last = time.Now()
-		// Add some wiggle room.
-		iv -= 30 * time.Second
+		// Renew the keepalive a little bit before the last one expires.
+		iv -= ivOffset
 		if iv < 0*time.Second {
 			continue
 		}
