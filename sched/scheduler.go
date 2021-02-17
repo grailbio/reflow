@@ -510,7 +510,15 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			if s.TaskDB != nil && tctx == nil {
 				// disable govet check due to https://github.com/golang/go/issues/29587
 				tctx, tcancel = context.WithCancel(ctx) //nolint: govet
-				if taskdbErr := s.TaskDB.CreateTask(tctx, task.ID, task.RunID, task.FlowID, taskdb.NewImgCmdID(task.Config.Image, task.Config.Cmd), task.Config.Ident, ""); taskdbErr != nil {
+				if taskdbErr := s.TaskDB.CreateTask(tctx, taskdb.Task{
+					ID:        task.ID,
+					RunID:     task.RunID,
+					AllocID:   alloc.AllocDigest(),
+					FlowID:    task.FlowID,
+					ImgCmdID:  taskdb.NewImgCmdID(task.Config.Image, task.Config.Cmd),
+					Ident:     task.Config.Ident,
+					Resources: task.Config.Resources,
+				}); taskdbErr != nil {
 					task.Log.Errorf("taskdb createtask: %v", taskdbErr)
 				} else {
 					go func() { _ = taskdb.KeepTaskAlive(tctx, s.TaskDB, task.ID) }()
@@ -669,7 +677,14 @@ func (s *Scheduler) directTransfer(ctx context.Context, task *Task) {
 	const identifier = "scheduler.directTransfer"
 	taskLogger := task.Log.Tee(nil, "direct transfer: ")
 	if s.TaskDB != nil {
-		taskdbErr := s.TaskDB.CreateTask(ctx, task.ID, task.RunID, task.FlowID, taskdb.ImgCmdID(digest.Digest{}), identifier, "local")
+		taskdbErr := s.TaskDB.CreateTask(ctx, taskdb.Task{
+			ID:       task.ID,
+			RunID:    task.RunID,
+			FlowID:   task.FlowID,
+			ImgCmdID: taskdb.ImgCmdID(digest.Digest{}),
+			Ident:    identifier,
+			URI:      "local",
+		})
 		if taskdbErr != nil {
 			taskLogger.Errorf("taskdb createtask: %v", taskdbErr)
 		} else {

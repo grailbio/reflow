@@ -200,7 +200,14 @@ func (w *worker) do(ctx context.Context, f *flow.Flow) (err error) {
 			if w.Eval.TaskDB != nil && tctx == nil {
 				// disable govet check due to https://github.com/golang/go/issues/29587
 				tctx, tcancel = context.WithCancel(ctx) //nolint: govet
-				err = w.Eval.TaskDB.CreateTask(tctx, f.TaskID, w.Eval.RunID, f.Digest(), taskdb.NewImgCmdID(cfg.Image, cfg.Cmd), cfg.Ident, "")
+				err = w.Eval.TaskDB.CreateTask(tctx, taskdb.Task{
+					ID:        f.TaskID,
+					RunID:     w.Eval.RunID,
+					FlowID:    f.Digest(),
+					ImgCmdID:  taskdb.NewImgCmdID(cfg.Image, cfg.Cmd),
+					Ident:     cfg.Ident,
+					Resources: cfg.Resources,
+				})
 				if err != nil {
 					w.Log.Debugf("taskdb createtask: %v\n", err)
 				} else {

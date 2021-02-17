@@ -1933,7 +1933,14 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 			if e.TaskDB != nil {
 				// disable govet check due to https://github.com/golang/go/issues/29587
 				tctx, tcancel = context.WithCancel(ctx) //nolint: govet
-				err = e.TaskDB.CreateTask(tctx, f.TaskID, e.RunID, id, taskdb.NewImgCmdID(cfg.Image, cfg.Cmd), cfg.Ident, "")
+				err = e.TaskDB.CreateTask(tctx, taskdb.Task{
+					ID:        f.TaskID,
+					RunID:     e.RunID,
+					FlowID:    id,
+					ImgCmdID:  taskdb.NewImgCmdID(cfg.Image, cfg.Cmd),
+					Ident:     cfg.Ident,
+					Resources: cfg.Resources,
+				})
 				if err != nil {
 					e.Log.Debugf("taskdb createtask: %v\n", err)
 				}

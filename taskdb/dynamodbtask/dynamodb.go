@@ -12,7 +12,9 @@
 // buckets. Dynamodbtask also uses a bunch of secondary indices to help with run/task querying.
 // Schema:
 // run:  {ID, ID4, Labels, Bundle, Args, Date, Keepalive, StartTime, EndTime, Type="run", User}
-// task: {ID, ID4, Labels, Date, Keepalive, StartTime, EndTime, Type="task", FlowID, Inspect, Error, ResultID, RunID, RunID4, ImgCmdID, Ident, Stderr, Stdout, URI}
+// task: {ID, ID4, Labels, Date, Keepalive, StartTime, EndTime, Type="task", FlowID, Inspect, Error, ResultID, RunID, RunID4, AllocID, ImgCmdID, Ident, Stderr, Stdout, URI}
+// TODO(swami): Review and finalize columns for "alloc" rows.
+// alloc: {ID, ID4, Alloc, Resources, Keepalive, StartTime, EndTime, Type="alloc"}
 // Indexes:
 // 1. Date-Keepalive-index - for time-based queries.
 // 2. RunID-index - for finding all tasks that belong to a run.
@@ -22,6 +24,7 @@ package dynamodbtask
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -52,6 +55,7 @@ const (
 	RunID
 	RunID4
 	FlowID
+	AllocID
 	ResultID
 	ImgCmdID
 	Ident
@@ -73,6 +77,7 @@ const (
 	SysLog
 	EvalGraph
 	Trace
+	Resources
 )
 
 func init() {
@@ -82,8 +87,9 @@ func init() {
 type objType string
 
 const (
-	run  objType = "run"
-	task objType = "task"
+	runObj   objType = "run"
+	taskObj  objType = "task"
+	allocObj objType = "alloc"
 )
 
 const (
@@ -104,6 +110,7 @@ const (
 	colRunID     = "RunID"
 	colRunID4    = "RunID4"
 	colFlowID    = "FlowID"
+	colAllocID   = "AllocID"
 	colResultID  = "ResultID"
 	colImgCmdID  = "ImgCmdID"
 	colIdent     = "Ident"
@@ -125,6 +132,7 @@ const (
 	colSysLog    = "Syslog"
 	colEvalGraph = "EvalGraph"
 	colTrace     = "Trace"
+	colResources = "Resources"
 )
 
 var colmap = map[taskdb.Kind]string{
@@ -133,6 +141,7 @@ var colmap = map[taskdb.Kind]string{
 	RunID:       colRunID,
 	RunID4:      colRunID4,
 	FlowID:      colFlowID,
+	AllocID:     colAllocID,
 	ImgCmdID:    colImgCmdID,
 	Ident:       colIdent,
 	ResultID:    colResultID,
@@ -154,6 +163,7 @@ var colmap = map[taskdb.Kind]string{
 	SysLog:      colSysLog,
 	EvalGraph:   colEvalGraph,
 	Trace:       colTrace,
+	Resources:   colResources,
 }
 
 // Index names used in dynamodb table.
@@ -230,7 +240,7 @@ func (t *TaskDB) CreateRun(ctx context.Context, id taskdb.RunID, user string) er
 				S: aws.String(user),
 			},
 			colType: {
-				S: aws.String(string(run)),
+				S: aws.String(string(runObj)),
 			},
 			colStartTime: {
 				S: aws.String(time.Now().UTC().Format(timeLayout)),
@@ -309,41 +319,55 @@ func (t *TaskDB) SetRunComplete(ctx context.Context, id taskdb.RunID, execLog, s
 	return err
 }
 
-// CreateTask creates a new task in the taskdb with the provided taskID, runID and flowID, imgCmdID, ident, and uri.
-func (t *TaskDB) CreateTask(ctx context.Context, id taskdb.TaskID, runID taskdb.RunID, flowID digest.Digest, imgCmdID taskdb.ImgCmdID, ident, uri string) error {
-	now := time.Now().UTC()
+// CreateTask creates a new task in the taskdb with the provided task.
+func (t *TaskDB) CreateTask(ctx context.Context, task taskdb.Task) error {
+	var (
+		now = time.Now().UTC()
+		res string
+	)
+	if r := task.Resources; !r.Equal(nil) {
+		if b, err := json.Marshal(r); err == nil {
+			res = string(b)
+		}
+	}
 	input := &dynamodb.PutItemInput{
 		TableName: aws.String(t.TableName),
 		Item: map[string]*dynamodb.AttributeValue{
 			colID: {
-				S: aws.String(id.ID()),
+				S: aws.String(task.ID.ID()),
 			},
 			colID4: {
-				S: aws.String(id.IDShort()),
+				S: aws.String(task.ID.IDShort()),
 			},
 			colRunID: {
-				S: aws.String(runID.ID()),
+				S: aws.String(task.RunID.ID()),
 			},
 			colRunID4: {
-				S: aws.String(runID.IDShort()),
+				S: aws.String(task.RunID.IDShort()),
+			},
+			colAllocID: {
+				S: aws.String(task.AllocID.String()),
 			},
 			colFlowID: {
-				S: aws.String(flowID.String()),
+				S: aws.String(task.FlowID.String()),
 			},
 			colImgCmdID: {
-				S: aws.String(imgCmdID.ID()),
+				S: aws.String(task.ImgCmdID.ID()),
 			},
 			colIdent: {
-				S: aws.String(ident),
+				S: aws.String(task.Ident),
+			},
+			colResources: {
+				S: aws.String(res),
 			},
 			colType: {
-				S: aws.String(string(task)),
+				S: aws.String(string(taskObj)),
 			},
 			colStartTime: {
 				S: aws.String(time.Now().UTC().Format(timeLayout)),
 			},
 			colURI: {
-				S: aws.String(uri),
+				S: aws.String(task.URI),
 			},
 			colLabels: {
 				SS: aws.StringSlice(t.Labels),
@@ -574,7 +598,7 @@ func (t *TaskDB) buildSinceUserQueries(q query) []*dynamodb.QueryInput {
 	attributeValues[":type"] = &dynamodb.AttributeValue{S: aws.String(string(q.Typ))}
 	attributeNames["#Type"] = aws.String(colType)
 
-	if q.User != "" && q.Typ == run {
+	if q.User != "" && q.Typ == runObj {
 		filterExpression = append(filterExpression, "#User = :user")
 		attributeValues[":user"] = &dynamodb.AttributeValue{S: aws.String(q.User)}
 		attributeNames["#User"] = aws.String(colUser)
@@ -626,19 +650,19 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 	var queries []*dynamodb.QueryInput
 	switch {
 	case taskQuery.ID.IsValid() && digest.Digest(taskQuery.ID).IsAbbrev():
-		queries = t.buildIndexQuery(ID4, id4Index, taskQuery.ID.IDShort(), task)
+		queries = t.buildIndexQuery(ID4, id4Index, taskQuery.ID.IDShort(), taskObj)
 	case taskQuery.ID.IsValid():
-		queries = t.buildIndexQuery(ID, idIndex, taskQuery.ID.ID(), task)
+		queries = t.buildIndexQuery(ID, idIndex, taskQuery.ID.ID(), taskObj)
 	case taskQuery.RunID.IsValid():
-		queries = t.buildIndexQuery(RunID, runIDIndex, taskQuery.RunID.ID(), task)
+		queries = t.buildIndexQuery(RunID, runIDIndex, taskQuery.RunID.ID(), taskObj)
 	case taskQuery.ImgCmdID.IsValid():
-		queries = t.buildIndexQuery(ImgCmdID, imgCmdIDIndex, taskQuery.ImgCmdID.ID(), task)
+		queries = t.buildIndexQuery(ImgCmdID, imgCmdIDIndex, taskQuery.ImgCmdID.ID(), taskObj)
 	case taskQuery.Ident != "":
-		queries = t.buildIndexQuery(Ident, identIndex, taskQuery.Ident, task)
+		queries = t.buildIndexQuery(Ident, identIndex, taskQuery.Ident, taskObj)
 	default:
 		q := query{
 			Since: taskQuery.Since,
-			Typ:   task,
+			Typ:   taskObj,
 		}
 		queries = t.buildSinceUserQueries(q)
 	}
@@ -796,15 +820,15 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 	var queries []*dynamodb.QueryInput
 	switch {
 	case runQuery.ID.IsValid() && digest.Digest(runQuery.ID).IsAbbrev():
-		queries = t.buildIndexQuery(ID4, id4Index, runQuery.ID.IDShort(), run)
+		queries = t.buildIndexQuery(ID4, id4Index, runQuery.ID.IDShort(), runObj)
 	case runQuery.ID.IsValid():
-		queries = t.buildIndexQuery(ID, idIndex, runQuery.ID.ID(), run)
+		queries = t.buildIndexQuery(ID, idIndex, runQuery.ID.ID(), runObj)
 	default:
 		q := query{
 			ID:    digest.Digest(runQuery.ID),
 			Since: runQuery.Since,
 			User:  runQuery.User,
-			Typ:   run,
+			Typ:   runObj,
 		}
 		queries = t.buildSinceUserQueries(q)
 	}

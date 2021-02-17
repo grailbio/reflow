@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/pool"
 )
@@ -121,6 +122,10 @@ func (a *alloc) IdleFor() time.Duration {
 		return 0
 	}
 	return time.Since(a.idleTime)
+}
+
+func (a *alloc) AllocDigest() digest.Digest {
+	return reflow.Digester.FromString(a.ID())
 }
 
 func newAlloc() *alloc {

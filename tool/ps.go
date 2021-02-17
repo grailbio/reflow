@@ -335,7 +335,7 @@ func (c *Cmd) taskInfo(ctx context.Context, q taskdb.TaskQuery, liveOnly bool) (
 	err = g.Wait()
 	b := ti[:0]
 	for _, v := range ti {
-		if v.Task != (taskdb.Task{}) {
+		if v.Task.ID.IsValid() {
 			b = append(b, v)
 		}
 	}
@@ -414,7 +414,7 @@ func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing bool) {
 		}
 		fmt.Fprint(w, "\n")
 		for _, task := range run.taskInfo {
-			if task.Task == (taskdb.Task{}) {
+			if !task.Task.ID.IsValid() {
 				continue
 			}
 			c.writeTask(task, w, longListing)

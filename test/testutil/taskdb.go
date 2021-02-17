@@ -31,7 +31,7 @@ func (n nopTaskDB) SetRunComplete(ctx context.Context, id taskdb.RunID, execLog,
 }
 
 // CreateTask is a no op.
-func (n nopTaskDB) CreateTask(ctx context.Context, id taskdb.TaskID, runID taskdb.RunID, flowID digest.Digest, imgCmdID taskdb.ImgCmdID, ident, uri string) error {
+func (n nopTaskDB) CreateTask(ctx context.Context, task taskdb.Task) error {
 	return nil
 }
 

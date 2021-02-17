@@ -153,12 +153,22 @@ func TestTaskCreate(t *testing.T) {
 		taskb    = &TaskDB{DB: &mockdb, TableName: mockTableName, Labels: labels}
 		taskID   = taskdb.NewTaskID()
 		runID    = taskdb.NewRunID()
+		allocID  = reflow.Digester.Rand(nil)
 		flowID   = reflow.Digester.Rand(nil)
 		uri      = "machineUri"
 		ident    = "ident"
 		imgCmdID = taskdb.NewImgCmdID("image", "cmd")
+		res      = reflow.Resources{"cpu": 2, "mem": 4 * 1024 * 1024 * 1024}
 	)
-	err := taskb.CreateTask(context.Background(), taskID, runID, flowID, imgCmdID, ident, uri)
+	err := taskb.CreateTask(context.Background(), taskdb.Task{
+		ID:        taskID,
+		RunID:     runID,
+		AllocID:   allocID,
+		FlowID:    flowID,
+		ImgCmdID:  imgCmdID,
+		Ident:     ident,
+		Resources: res,
+		URI:       uri})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,9 +181,11 @@ func TestTaskCreate(t *testing.T) {
 		{*mockdb.pinput.Item[colID4].S, taskID.IDShort()},
 		{*mockdb.pinput.Item[colRunID].S, runID.ID()},
 		{*mockdb.pinput.Item[colRunID4].S, runID.IDShort()},
+		{*mockdb.pinput.Item[colAllocID].S, allocID.String()},
 		{*mockdb.pinput.Item[colFlowID].S, flowID.String()},
 		{*mockdb.pinput.Item[colImgCmdID].S, imgCmdID.ID()},
 		{*mockdb.pinput.Item[colIdent].S, ident},
+		{*mockdb.pinput.Item[colResources].S, "{\"cpu\":2,\"mem\":4294967296}"},
 		{*mockdb.pinput.Item[colType].S, "task"},
 		{*mockdb.pinput.Item[colURI].S, "machineUri"},
 		{*mockdb.pinput.Item[colLabels].SS[0], labels[0]},

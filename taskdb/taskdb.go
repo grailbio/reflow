@@ -18,6 +18,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/retry"
 	"github.com/grailbio/infra"
+	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/pool"
 )
@@ -146,8 +147,8 @@ type TaskDB interface {
 	SetRunAttrs(ctx context.Context, id RunID, bundle digest.Digest, args []string) error
 	// SetRunComplete marsk the run as complete.
 	SetRunComplete(ctx context.Context, id RunID, execLog, sysLog, evalGraph, trace digest.Digest, end time.Time) error
-	// CreateTask creates a new task in the taskdb with the provided taskID, runID and flowID, imgCmdID, ident, and uri.
-	CreateTask(ctx context.Context, id TaskID, runID RunID, flowID digest.Digest, imgCmdID ImgCmdID, ident, uri string) error
+	// CreateTask creates a new task in the taskdb with the provided task.
+	CreateTask(ctx context.Context, task Task) error
 	// SetTaskResult sets the result of the task post completion.
 	SetTaskResult(ctx context.Context, id TaskID, result digest.Digest) error
 	// SetTaskUri updates the task URI.
@@ -210,6 +211,9 @@ type Task struct {
 	ID TaskID
 	// RunID is the run id that created this task.
 	RunID RunID
+	// AllocID is the digest of id of the alloc where this task was attempted.
+	// ie, AllocID = reflow.Digester.FromString(Alloc.ID())
+	AllocID digest.Digest
 	// FlowID is the flow id of this task.
 	FlowID digest.Digest
 	// ResultID is the id of the result, if non zero.
@@ -220,6 +224,9 @@ type Task struct {
 	// Ident is the human-readable name of the underlying exec. Ident has a many-to-many
 	// relationship with ImgCmdID.
 	Ident string
+	// Resources is the amount of resources reserved for this task.
+	// Note that this may not represent actual utilized resources necessarily.
+	Resources reflow.Resources
 	// Keepalive is the keepalive lease on the task.
 	Keepalive time.Time
 	// Start is the time the task was started.
