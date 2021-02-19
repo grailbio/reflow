@@ -234,7 +234,9 @@ func (m *Manager) loop(pctx context.Context) {
 		launched sync.WaitGroup
 		pending  reflow.Resources
 		done     = make(chan ManagedInstance)
+		t        = time.NewTimer(time.Minute)
 	)
+	t.Stop() // stop the timer immediately, we don't need it yet.
 	defer func() {
 		// Before we exit, we cancel all launchers (make sure they are done) and notify all waiters.
 		launched.Wait()
@@ -367,12 +369,14 @@ func (m *Manager) loop(pctx context.Context) {
 			// If there was one waiter, we'll wait upto `drainTimeout` each time we find more.
 			// After `drainTimeout` of no new waiters, we'll continue the servicing loop.
 			var drained bool
-			t := time.NewTimer(m.drainTimeout)
 			for !drained {
 				waiters = append(waiters, w)
 				t.Reset(m.drainTimeout)
 				select {
 				case w = <-m.waitc:
+					if !t.Stop() {
+						<-t.C
+					}
 				case <-t.C:
 					drained = true
 				}
@@ -384,7 +388,6 @@ func (m *Manager) loop(pctx context.Context) {
 				}
 			}
 			waiters = ws
-			t.Stop()
 		}
 	}
 }

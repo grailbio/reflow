@@ -31,7 +31,7 @@ var KeepaliveRetryInitialWaitInterval = 2 * time.Second
 // configured such that the last retry will occur within the policy's max duration.
 // With a=KeepaliveRetryInitialWaitInterval, b=backoffFactor (1.5), n=keepaliveTries,
 // ivOffset should be such that: sum_{i=0 .. n-1} a*b^i < ivOffset
-var keepaliveRetryPolicy retry.Policy = retry.MaxTries(retry.Backoff(KeepaliveRetryInitialWaitInterval, ivOffset, 1.5), keepaliveTries)
+var keepaliveRetryPolicy = retry.Jitter(retry.MaxTries(retry.Backoff(KeepaliveRetryInitialWaitInterval, ivOffset, 1.5), keepaliveTries), 0.2)
 
 // Alloc represent a resource allocation attached to a single
 // executor, a reservation of resources on a single node.
@@ -108,6 +108,8 @@ func keepalive(ctx context.Context, alloc Alloc) (time.Duration, error) {
 // configuration.
 func Keepalive(ctx context.Context, log *log.Logger, alloc Alloc) error {
 	log = log.Tee(nil, fmt.Sprintf("keepalive %s: ", alloc.ID()))
+	t := time.NewTimer(keepaliveMaxInterval)
+	t.Stop() // stop the timer immediately, we don't need it yet.
 	for {
 		var (
 			iv   time.Duration
@@ -144,9 +146,12 @@ func Keepalive(ctx context.Context, log *log.Logger, alloc Alloc) error {
 		if iv > keepaliveMaxInterval {
 			iv = keepaliveMaxInterval
 		}
+		// Reset timer
+		t.Reset(iv)
 		select {
-		case <-time.After(iv):
+		case <-t.C:
 		case <-ctx.Done():
+			t.Stop()
 			return ctx.Err()
 		}
 	}

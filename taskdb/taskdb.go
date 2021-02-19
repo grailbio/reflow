@@ -282,7 +282,8 @@ var (
 	keepaliveTries    = 5
 	keepaliveInterval = 2 * time.Minute
 	wait              = 10 * time.Second
-	policy            = retry.MaxTries(retry.Backoff(wait, keepaliveInterval, 1), keepaliveTries)
+	ivOffset          = 30 * time.Second
+	policy            = retry.Jitter(retry.MaxTries(retry.Backoff(wait, keepaliveInterval, 1.2), keepaliveTries), 0.2)
 )
 
 // KeepRunAlive keeps runID alive in the task db until the provided context is canceled.
@@ -300,6 +301,8 @@ func KeepTaskAlive(ctx context.Context, taskdb TaskDB, id TaskID) error {
 }
 
 func keepAlive(ctx context.Context, keepAliveFunc func(keepalive time.Time) error) error {
+	t := time.NewTimer(time.Minute)
+	t.Stop() // stop the timer immediately, we don't need it yet.
 	for {
 		var err error
 		for retries := 0; ; retries++ {
@@ -315,9 +318,11 @@ func keepAlive(ctx context.Context, keepAliveFunc func(keepalive time.Time) erro
 		if err != nil && errors.Is(errors.Fatal, err) {
 			return err
 		}
+		t.Reset(keepaliveInterval - ivOffset)
 		select {
-		case <-time.After(keepaliveInterval - 30*time.Second):
+		case <-t.C:
 		case <-ctx.Done():
+			t.Stop()
 			return ctx.Err()
 		}
 	}
