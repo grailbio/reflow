@@ -206,6 +206,7 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 		r.DotWriter = dotfile
 	}
 
+	r.Log.Printf("reflow version: %s", c.version())
 	result, err = r.Go(ctx)
 	if err != nil {
 		c.Errorln(err)
