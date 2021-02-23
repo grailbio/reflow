@@ -1663,6 +1663,7 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 				err = errors.E(
 					errors.NotExist, "cache.Lookup",
 					errors.Errorf("missing %d files (%s)", len(missing), data.Size(total)))
+				e.Log.Error(err)
 			}
 			if err != nil {
 				e.lookupFailed(f)
