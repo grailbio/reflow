@@ -53,7 +53,7 @@ func init() {
 const (
 	// allocAttemptInterval defines how often we attempt to allocate from existing pool
 	// while waiting for an explicit allocation request to be completed.
-	allocAttemptInterval = 30 * time.Second
+	allocAttemptInterval = 5 * time.Minute
 	defaultMaxInstances  = 100
 	defaultClusterName   = "default"
 )
