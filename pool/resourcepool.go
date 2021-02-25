@@ -90,6 +90,9 @@ func (p *ResourcePool) Available() reflow.Resources {
 // allocs as needed to make room for the resource requirements as
 // indicated by meta.
 func (p *ResourcePool) New(ctx context.Context, meta AllocMeta) (Alloc, error) {
+	if meta.Want.Equal(nil) {
+		return nil, errors.E("ResourcePool.New", errors.Precondition, fmt.Errorf("illegal request for an empty resources: %s", meta.Want))
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.stopped {

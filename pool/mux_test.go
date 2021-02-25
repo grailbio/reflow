@@ -7,10 +7,13 @@ package pool
 import (
 	"context"
 	"net/url"
+	"sort"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 )
@@ -41,7 +44,7 @@ func (idAlloc) Inspect(ctx context.Context) (AllocInspect, error) { panic("not i
 func (idAlloc) Free(ctx context.Context) error                    { panic("not implemented") }
 
 type inspectAlloc struct {
-	idAlloc
+	Alloc
 	inspect AllocInspect
 }
 
@@ -53,6 +56,15 @@ func (a *inspectAlloc) Keepalive(ctx context.Context, interval time.Duration) (t
 
 func (a *inspectAlloc) Inspect(ctx context.Context) (AllocInspect, error) {
 	return a.inspect, nil
+}
+
+type resourceAlloc struct {
+	Alloc
+	r reflow.Resources
+}
+
+func (a resourceAlloc) Resources() reflow.Resources {
+	return a.r
 }
 
 type idOffer string
@@ -119,5 +131,82 @@ func TestMux(t *testing.T) {
 			t.Errorf("got %v, want %v", errors.Recover(err).Kind, c.kind)
 			t.Errorf("%v", errors.Recover(err).Kind == c.kind)
 		}
+	}
+}
+
+func createPools(n int, r reflow.Resources, name string) (pools []Pool) {
+	for i := 0; i < n; i++ {
+		p := NewNamedTestPool(name, r)
+		pools = append(pools, p)
+	}
+	return
+}
+
+func TestMuxScaleWithCaching(t *testing.T) {
+	nSmall, nMedium, nLarge := 20, 20, 20
+	ctx := context.Background()
+	var pools []Pool
+	pools = append(pools, createPools(nSmall, small, "small")...)
+	pools = append(pools, createPools(nMedium, medium, "medium")...)
+	pools = append(pools, createPools(nLarge, large, "large")...)
+	var mux Mux
+	mux.SetCaching(true)
+	mux.SetPools(pools)
+
+	nAllocs := nSmall + 2*nMedium + 4*nLarge
+	var nFails int32
+	err := traverse.Each(nAllocs, func(i int) error {
+		a, err := Allocate(ctx, &mux, reflow.Requirements{Min: small}, nil)
+		if err != nil {
+			atomic.AddInt32(&nFails, 1)
+			return nil
+		}
+		if got, want := a.Resources(), small; !got.Equal(want) {
+			atomic.AddInt32(&nFails, 1)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := int(atomic.LoadInt32(&nFails)), 0; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	mOffers, mAccepts := make(map[int32]int), make(map[int32]int)
+	for _, p := range pools {
+		tp := p.(*TestPool)
+		n := atomic.LoadInt32(&tp.nOffersCalls)
+		if got, want := int(n), 1; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		mOffers[n] = mOffers[n] + 1
+		var wantAccepts int
+		switch tp.Name() {
+		case "small":
+			wantAccepts = 1
+		case "medium":
+			wantAccepts = 2
+		case "large":
+			wantAccepts = 4
+		}
+		n = atomic.LoadInt32(&tp.nAcceptCalls)
+		if got, want := int(n), wantAccepts; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+		mAccepts[n] = mAccepts[n] + 1
+	}
+	print(t, "mOffers", mOffers)
+	print(t, "mAccepts", mAccepts)
+}
+
+func print(t *testing.T, pref string, m map[int32]int) {
+	keys, i := make([]int, len(m)), 0
+	for k := range m {
+		keys[i] = int(k)
+		i++
+	}
+	sort.Ints(keys)
+	for _, k := range keys {
+		t.Logf("%s[%d]: %d", pref, k, m[int32(k)])
 	}
 }

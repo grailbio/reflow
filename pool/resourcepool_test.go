@@ -10,7 +10,7 @@ import (
 
 func newInspectAlloc(p *ResourcePool, id string, ka time.Duration) *inspectAlloc {
 	a := &inspectAlloc{
-		idAlloc: idAlloc(id),
+		Alloc: idAlloc(id),
 		inspect: AllocInspect{
 			Created: time.Now(),
 			Expires: time.Now().Add(ka),

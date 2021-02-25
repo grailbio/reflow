@@ -27,12 +27,26 @@ const offersTimeout = 10 * time.Second
 // Names the alloc with ID "4640204a5fd6ce42" of the pool named
 // 1.worker.us-west-2a.reflowy.eng.aws.grail.com:9000.
 type Mux struct {
-	pools atomic.Value
+	pools  atomic.Value
+	cached bool
+}
+
+// SetCaching sets the caching behavior (true turns caching on).
+func (m *Mux) SetCaching(b bool) {
+	m.cached = b
 }
 
 // SetPools sets the Mux's underlying pools.
 func (m *Mux) SetPools(pools []Pool) {
-	m.pools.Store(pools)
+	if !m.cached {
+		m.pools.Store(pools)
+		return
+	}
+	cPools := make([]Pool, len(pools))
+	for i, p := range pools {
+		cPools[i] = CachingPool(p)
+	}
+	m.pools.Store(cPools)
 }
 
 // Pools retrieves the Mux's underlying pools.

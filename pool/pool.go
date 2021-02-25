@@ -114,6 +114,10 @@ func allocate(ctx context.Context, pool Pool, req reflow.Requirements, labels La
 		if tmp["cpu"] <= 0 || tmp["mem"] <= 0 || tmp["disk"] <= 0 {
 			want.Set(avail)
 		}
+		// Let's not ask for nothing
+		if want.Equal(nil) {
+			continue
+		}
 		meta := AllocMeta{Want: want, Labels: labels}
 
 		// TODO(marius): include more flow metadata here.

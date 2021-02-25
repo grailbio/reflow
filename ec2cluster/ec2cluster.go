@@ -311,6 +311,7 @@ func (c *Cluster) verifyAndInitialize() error {
 		}
 	}
 	c.EC2 = ec2.New(c.Session, &aws.Config{MaxRetries: aws.Int(13)})
+	c.SetCaching(true)
 	c.manager.Start()
 	return nil
 }
