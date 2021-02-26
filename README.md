@@ -240,7 +240,7 @@ inline for clarity.
 	// runtime by a path on disk with a file with the contents of the
 	// file g1kv37 (i.e.,
 	// s3://1000genomes/technical/reference/human_g1k_v37.fasta.gz)
-	val reference = exec(image := "biocontainers/bwa:v0.7.15_cv3", mem := GiB, cpu := 1) (out dir) {"
+	val reference = exec(image := "biocontainers/bwa:v0.7.15_cv3", mem := 6*GiB, cpu := 1) (out dir) {"
 		# Ignore failures here. The file from 1000genomes has a trailer
 		# that isn't recognized by gunzip. (This is not recommended practice!)
 		gunzip -c {{g1kv37}} > {{out}}/g1k_v37.fa || true
