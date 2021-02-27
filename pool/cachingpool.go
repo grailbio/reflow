@@ -103,6 +103,12 @@ func (o *trackedOffer) Available() reflow.Resources {
 	return o.available
 }
 
+func (o *trackedOffer) restore(r reflow.Resources) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.available.Add(o.available, r)
+}
+
 // Accept accepts this Offer with the given Alloc metadata.
 func (o *trackedOffer) Accept(ctx context.Context, meta AllocMeta) (a Alloc, err error) {
 	o.mu.RLock()
@@ -121,6 +127,7 @@ func (o *trackedOffer) Accept(ctx context.Context, meta AllocMeta) (a Alloc, err
 	}
 	a, err = o.Offer.Accept(ctx, meta)
 	if err == nil {
+		a = &freeTrackingAlloc{a, o}
 		o.available.Sub(o.available, a.Resources())
 	} else {
 		// Other than transient errors, this indicates that the offer has drifted and hence outdated.
@@ -133,4 +140,18 @@ func (o *trackedOffer) Accept(ctx context.Context, meta AllocMeta) (a Alloc, err
 // viable assumes that this offer's mutex is locked.
 func (o *trackedOffer) viable(r reflow.Resources) bool {
 	return o.available.Available(r) && !o.outdated
+}
+
+// freeTrackingAlloc tracks Free calls and updates the given trackedOffer's resources appropriately.
+type freeTrackingAlloc struct {
+	Alloc
+	o *trackedOffer
+}
+
+func (a *freeTrackingAlloc) Free(ctx context.Context) error {
+	err := a.Alloc.Free(ctx)
+	if err == nil {
+		a.o.restore(a.Alloc.Resources())
+	}
+	return err
 }

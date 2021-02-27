@@ -33,6 +33,9 @@ type Mux struct {
 
 // SetCaching sets the caching behavior (true turns caching on).
 func (m *Mux) SetCaching(b bool) {
+	if len(m.Pools()) > 0 {
+		panic("cannot turn on caching on non-empty pool")
+	}
 	m.cached = b
 }
 
@@ -44,7 +47,11 @@ func (m *Mux) SetPools(pools []Pool) {
 	}
 	cPools := make([]Pool, len(pools))
 	for i, p := range pools {
-		cPools[i] = CachingPool(p)
+		if cp, ok := p.(*cachingPool); ok {
+			cPools[i] = cp
+		} else {
+			cPools[i] = CachingPool(p)
+		}
 	}
 	m.pools.Store(cPools)
 }

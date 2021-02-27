@@ -58,6 +58,10 @@ func (a *inspectAlloc) Inspect(ctx context.Context) (AllocInspect, error) {
 	return a.inspect, nil
 }
 
+func (a *inspectAlloc) Free(ctx context.Context) error {
+	return nil
+}
+
 type resourceAlloc struct {
 	Alloc
 	r reflow.Resources
@@ -144,7 +148,6 @@ func createPools(n int, r reflow.Resources, name string) (pools []Pool) {
 
 func TestMuxScaleWithCaching(t *testing.T) {
 	nSmall, nMedium, nLarge := 20, 20, 20
-	ctx := context.Background()
 	var pools []Pool
 	pools = append(pools, createPools(nSmall, small, "small")...)
 	pools = append(pools, createPools(nMedium, medium, "medium")...)
@@ -153,9 +156,23 @@ func TestMuxScaleWithCaching(t *testing.T) {
 	mux.SetCaching(true)
 	mux.SetPools(pools)
 
+	allocLifetime := time.Second
 	nAllocs := nSmall + 2*nMedium + 4*nLarge
+	if got, want := allocateMux(t, mux, nAllocs, allocLifetime), 0; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	verifyCallCounts(t, pools, 1, 1)
+	time.Sleep(allocLifetime + 100*time.Millisecond)
+	if got, want := allocateMux(t, mux, nAllocs, allocLifetime), 0; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	verifyCallCounts(t, pools, 1, 2)
+}
+
+func allocateMux(t *testing.T, mux Mux, n int, allocLifetime time.Duration) int {
 	var nFails int32
-	err := traverse.Each(nAllocs, func(i int) error {
+	ctx := context.Background()
+	err := traverse.Each(n, func(i int) error {
 		a, err := Allocate(ctx, &mux, reflow.Requirements{Min: small}, nil)
 		if err != nil {
 			atomic.AddInt32(&nFails, 1)
@@ -164,19 +181,27 @@ func TestMuxScaleWithCaching(t *testing.T) {
 		if got, want := a.Resources(), small; !got.Equal(want) {
 			atomic.AddInt32(&nFails, 1)
 		}
+		// Free the alloc later
+		time.AfterFunc(allocLifetime, func() {
+			if err := a.Free(ctx); err != nil {
+				t.Fatal(err)
+			}
+		})
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := int(atomic.LoadInt32(&nFails)), 0; got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
+	return int(atomic.LoadInt32(&nFails))
+}
+
+func verifyCallCounts(t *testing.T, pools []Pool, wantNOffers int32, nAcceptsFactor int) {
+	t.Helper()
 	mOffers, mAccepts := make(map[int32]int), make(map[int32]int)
 	for _, p := range pools {
 		tp := p.(*TestPool)
 		n := atomic.LoadInt32(&tp.nOffersCalls)
-		if got, want := int(n), 1; got != want {
+		if got, want := n, wantNOffers; got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
 		mOffers[n] = mOffers[n] + 1
@@ -190,7 +215,7 @@ func TestMuxScaleWithCaching(t *testing.T) {
 			wantAccepts = 4
 		}
 		n = atomic.LoadInt32(&tp.nAcceptCalls)
-		if got, want := int(n), wantAccepts; got != want {
+		if got, want := int(n), wantAccepts*nAcceptsFactor; got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
 		mAccepts[n] = mAccepts[n] + 1

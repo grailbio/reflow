@@ -25,6 +25,15 @@ type TestPool struct {
 	name         string
 }
 
+type poolFreeingAlloc struct {
+	Alloc
+	p *TestPool
+}
+
+func (a *poolFreeingAlloc) Free(ctx context.Context) error {
+	return a.p.ResourcePool.Free(a)
+}
+
 func NewTestPool(r reflow.Resources) *TestPool {
 	return NewNamedTestPool("testpool", r)
 }
@@ -41,13 +50,13 @@ func (p *TestPool) Name() string {
 }
 
 func (p *TestPool) New(ctx context.Context, id string, meta AllocMeta, ka time.Duration, existing []Alloc) (Alloc, error) {
-	a := &inspectAlloc{
+	a := &poolFreeingAlloc{&inspectAlloc{
 		Alloc: resourceAlloc{idAlloc(id), meta.Want},
 		inspect: AllocInspect{
 			Created: time.Now(),
 			Expires: time.Now().Add(ka),
 		},
-	}
+	}, p}
 	return a, nil
 }
 
@@ -230,7 +239,7 @@ func (o *acceptOffer) Accept(ctx context.Context, meta AllocMeta) (Alloc, error)
 		return nil, errors.E(errors.NotExist)
 	}
 	o.r.Sub(o.r, meta.Want)
-	return resourceAlloc{idAlloc(newID()), meta.Want}, nil
+	return &inspectAlloc{Alloc: resourceAlloc{idAlloc(newID()), meta.Want}, inspect: AllocInspect{Created: time.Now()}}, nil
 }
 
 func TestTrackedOffer(t *testing.T) {
@@ -244,9 +253,27 @@ func TestTrackedOffer(t *testing.T) {
 	if o.Outdated() {
 		t.Errorf("must not be outdated")
 	}
-	allocs := make([]Alloc, 10)
-	err := traverse.Each(10, func(i int) (err error) {
-		allocs[i], err = o.Accept(ctx, AllocMeta{Want: small})
+	allocs := verifyAllocations(t, o, 10, small, 2, nil)
+	if got, want := len(allocs), 2; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	_ = allocs[0].Free(ctx)
+	if got, want := o.Available(), small; !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	_ = allocs[1].Free(ctx)
+	if got, want := o.Available(), medium; !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func verifyAllocations(t *testing.T, o *trackedOffer, nAllocs int, r reflow.Resources, wantAccepts int, wantR reflow.Resources) (allocs []Alloc) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	allocs = make([]Alloc, nAllocs)
+	err := traverse.Each(nAllocs, func(i int) (err error) {
+		allocs[i], err = o.Accept(ctx, AllocMeta{Want: r})
 		if errors.Is(errors.NotExist, err) {
 			err = nil
 		}
@@ -258,26 +285,20 @@ func TestTrackedOffer(t *testing.T) {
 	if o.Outdated() {
 		t.Errorf("must not be outdated")
 	}
-	if got, want := atomic.LoadInt32(&ao.nAcceptCalls), int32(2); got != want {
+	ao := o.Offer.(*acceptOffer)
+	if got, want := int(atomic.LoadInt32(&ao.nAcceptCalls)), wantAccepts; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	n := 0
+	allocs = nonNil(allocs)
 	for _, a := range allocs {
-		if a == nil {
-			continue
-		}
-		n++
-		if got, want := a.Resources(), small; !got.Equal(want) {
+		if got, want := a.Resources(), r; !got.Equal(want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
 	}
-	if got, want := n, 2; got != want {
+	if got, want := o.Available(), wantR; !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	var r reflow.Resources
-	if got, want := o.Available(), r; !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
+	return
 }
 
 func TestTrackedOfferOutdated(t *testing.T) {
@@ -332,4 +353,15 @@ func TestTrackedOfferOutdated(t *testing.T) {
 	if got, want := n, 0; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
+}
+
+func nonNil(allocs []Alloc) []Alloc {
+	var nonNil []Alloc
+	for _, a := range allocs {
+		if a == nil {
+			continue
+		}
+		nonNil = append(nonNil, a)
+	}
+	return nonNil
 }
