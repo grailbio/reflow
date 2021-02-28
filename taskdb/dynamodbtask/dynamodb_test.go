@@ -340,14 +340,80 @@ func TestSetTaskComplete(t *testing.T) {
 	}
 }
 
-func TestKeepalive(t *testing.T) {
+func TestStartAlloc(t *testing.T) {
 	var (
-		mockdb    = mockDynamoDBUpdate{}
-		taskb     = &TaskDB{DB: &mockdb, TableName: mockTableName}
-		runID     = taskdb.NewRunID()
-		keepalive = time.Now().UTC()
+		mockdb  = mockDynamodbPut{}
+		taskb   = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		allocID = reflow.NewStringDigest("allocid")
+		poolID  = reflow.Digester.Rand(nil)
+		res     = reflow.Resources{"cpu": 2, "mem": 4 * 1024 * 1024 * 1024}
+		start   = time.Now().Add(-time.Hour)
 	)
-	err := taskb.keepalive(context.Background(), digest.Digest(runID), keepalive)
+	err := taskb.StartAlloc(context.Background(), allocID, poolID, res, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		actual   string
+		expected string
+	}{
+		{*mockdb.pinput.TableName, "mockdynamodb"},
+		{*mockdb.pinput.Item[colID].S, allocID.Digest().String()},
+		{*mockdb.pinput.Item[colID4].S, allocID.Digest().Short()},
+		{*mockdb.pinput.Item[colPoolID].S, poolID.String()},
+		{*mockdb.pinput.Item[colAllocID].S, allocID.String()},
+		{*mockdb.pinput.Item[colResources].S, "{\"cpu\":2,\"mem\":4294967296}"},
+		{*mockdb.pinput.Item[colType].S, "alloc"},
+		{*mockdb.pinput.Item[colStartTime].S, start.UTC().Format(timeLayout)},
+	} {
+		if test.expected != test.actual {
+			t.Errorf("expected %s, got %v", test.expected, test.actual)
+		}
+	}
+}
+
+func TestStartPool(t *testing.T) {
+	var (
+		mockdb   = mockDynamodbPut{}
+		taskb    = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		poolID   = reflow.NewStringDigest("poolid")
+		url      = "http://some_url"
+		poolType = "pool_type"
+		res      = reflow.Resources{"cpu": 2, "mem": 4 * 1024 * 1024 * 1024}
+		start    = time.Now().Add(-time.Hour)
+	)
+	err := taskb.StartPool(context.Background(), poolID, url, poolType, res, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		actual   string
+		expected string
+	}{
+		{*mockdb.pinput.TableName, "mockdynamodb"},
+		{*mockdb.pinput.Item[colID].S, poolID.Digest().String()},
+		{*mockdb.pinput.Item[colID4].S, poolID.Digest().Short()},
+		{*mockdb.pinput.Item[colPoolID].S, poolID.String()},
+		{*mockdb.pinput.Item[colURI].S, url},
+		{*mockdb.pinput.Item[colPoolType].S, poolType},
+		{*mockdb.pinput.Item[colResources].S, "{\"cpu\":2,\"mem\":4294967296}"},
+		{*mockdb.pinput.Item[colType].S, "pool"},
+		{*mockdb.pinput.Item[colStartTime].S, start.UTC().Format(timeLayout)},
+	} {
+		if test.expected != test.actual {
+			t.Errorf("expected %s, got %v", test.expected, test.actual)
+		}
+	}
+}
+
+func TestSetResources(t *testing.T) {
+	var (
+		mockdb = mockDynamoDBUpdate{}
+		taskb  = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		id     = reflow.Digester.Rand(nil)
+		res    = reflow.Resources{"cpu": 2, "mem": 4 * 1024 * 1024 * 1024}
+	)
+	err := taskb.SetResources(context.Background(), id, res)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,10 +422,63 @@ func TestKeepalive(t *testing.T) {
 		expected string
 	}{
 		{*mockdb.uInput.TableName, "mockdynamodb"},
+		{*mockdb.uInput.Key[colID].S, id.String()},
+		{*mockdb.uInput.ExpressionAttributeValues[":resources"].S, "{\"cpu\":2,\"mem\":4294967296}"},
+		{*mockdb.uInput.UpdateExpression, "SET Resources = :resources"},
+	} {
+		if test.expected != test.actual {
+			t.Errorf("expected %s, got %v", test.expected, test.actual)
+		}
+	}
+}
+
+func TestKeepIDAlive(t *testing.T) {
+	var (
+		mockdb    = mockDynamoDBUpdate{}
+		taskb     = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		runID     = taskdb.NewRunID()
+		keepalive = time.Now().UTC()
+	)
+	err := taskb.KeepIDAlive(context.Background(), digest.Digest(runID), keepalive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		actual   string
+		expected string
+	}{
+		{*mockdb.uInput.TableName, "mockdynamodb"},
+		{*mockdb.uInput.Key[colID].S, runID.ID()},
 		{*mockdb.uInput.ExpressionAttributeValues[":ka"].S, keepalive.Format(timeLayout)},
 		{*mockdb.uInput.ExpressionAttributeValues[":date"].S, date(keepalive).Format(dateLayout)},
 		{*mockdb.uInput.UpdateExpression, "SET Keepalive = :ka, #Date = :date"},
 		{*mockdb.uInput.ExpressionAttributeNames["#Date"], colDate},
+	} {
+		if test.expected != test.actual {
+			t.Errorf("expected %s, got %v", test.expected, test.actual)
+		}
+	}
+}
+
+func TestSetEndTime(t *testing.T) {
+	var (
+		mockdb  = mockDynamoDBUpdate{}
+		taskb   = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		id      = reflow.Digester.Rand(nil)
+		endtime = time.Now().UTC()
+	)
+	err := taskb.SetEndTime(context.Background(), id, endtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		actual   string
+		expected string
+	}{
+		{*mockdb.uInput.TableName, "mockdynamodb"},
+		{*mockdb.uInput.Key[colID].S, id.String()},
+		{*mockdb.uInput.ExpressionAttributeValues[":endtime"].S, endtime.Format(timeLayout)},
+		{*mockdb.uInput.UpdateExpression, "SET EndTime = :endtime"},
 	} {
 		if test.expected != test.actual {
 			t.Errorf("expected %s, got %v", test.expected, test.actual)

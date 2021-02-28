@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/taskdb"
 )
 
@@ -62,6 +63,31 @@ func (n nopTaskDB) KeepRunAlive(ctx context.Context, id taskdb.RunID, keepalive 
 
 // KeepTaskAlive does nothing.
 func (n nopTaskDB) KeepTaskAlive(ctx context.Context, id taskdb.TaskID, keepalive time.Time) error {
+	return nil
+}
+
+// StartAlloc does nothing.
+func (n nopTaskDB) StartAlloc(ctx context.Context, allocID reflow.StringDigest, poolID digest.Digest, resources reflow.Resources, start time.Time) error {
+	return nil
+}
+
+// StartPool does nothing.
+func (n nopTaskDB) StartPool(ctx context.Context, poolID reflow.StringDigest, url, poolType string, resources reflow.Resources, start time.Time) error {
+	return nil
+}
+
+// SetResources does nothing.
+func (n nopTaskDB) SetResources(ctx context.Context, id digest.Digest, resources reflow.Resources) error {
+	return nil
+}
+
+// KeepIDAlive does nothing.
+func (n nopTaskDB) KeepIDAlive(ctx context.Context, id digest.Digest, keepalive time.Time) error {
+	return nil
+}
+
+// SetEndTime does nothing.
+func (n nopTaskDB) SetEndTime(ctx context.Context, id digest.Digest, end time.Time) error {
 	return nil
 }
 

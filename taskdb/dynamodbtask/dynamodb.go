@@ -12,9 +12,14 @@
 // buckets. Dynamodbtask also uses a bunch of secondary indices to help with run/task querying.
 // Schema:
 // run:  {ID, ID4, Labels, Bundle, Args, Date, Keepalive, StartTime, EndTime, Type="run", User}
-// task: {ID, ID4, Labels, Date, Keepalive, StartTime, EndTime, Type="task", FlowID, Inspect, Error, ResultID, RunID, RunID4, AllocID, ImgCmdID, Ident, Stderr, Stdout, URI}
-// TODO(swami): Review and finalize columns for "alloc" rows.
-// alloc: {ID, ID4, Alloc, Resources, Keepalive, StartTime, EndTime, Type="alloc"}
+// task: {ID, ID4, Labels, Date, Attempt, Keepalive, StartTime, EndTime, Type="task", FlowID, Inspect, Error, ResultID, RunID, RunID4, AllocID, ImgCmdID, Ident, Stderr, Stdout, URI}
+// alloc: {ID, ID4, PoolID, AllocID, Resources, Keepalive, StartTime, EndTime, Type="alloc"}
+// pool: {ID, ID4, PoolID, Type, Resources, Keepalive, StartTime, EndTime, Type="pool"}
+// Note:
+// PoolID: While rows of type "pool" are expected to store the implementation-specific identifier of a pool,
+// rows of type "alloc" will contain the digest of PoolID in this field (of the pool they belong to).
+// AllocID: Similarly, While rows of type "alloc" are expected to store the value Alloc.ID(),
+// rows of type "task" will contain the digest of Alloc.ID() (of the alloc where they are attempted).
 // Indexes:
 // 1. Date-Keepalive-index - for time-based queries.
 // 2. RunID-index - for finding all tasks that belong to a run.
@@ -57,6 +62,7 @@ const (
 	RunID4
 	FlowID
 	AllocID
+	PoolID
 	ResultID
 	ImgCmdID
 	Ident
@@ -80,6 +86,7 @@ const (
 	EvalGraph
 	Trace
 	Resources
+	PoolType
 )
 
 func init() {
@@ -92,6 +99,7 @@ const (
 	runObj   objType = "run"
 	taskObj  objType = "task"
 	allocObj objType = "alloc"
+	poolObj  objType = "pool"
 )
 
 const (
@@ -113,6 +121,8 @@ const (
 	colRunID4    = "RunID4"
 	colFlowID    = "FlowID"
 	colAllocID   = "AllocID"
+	colPoolID    = "PoolID"
+	colPoolType  = "PoolType"
 	colResultID  = "ResultID"
 	colImgCmdID  = "ImgCmdID"
 	colIdent     = "Ident"
@@ -145,6 +155,8 @@ var colmap = map[taskdb.Kind]string{
 	RunID4:      colRunID4,
 	FlowID:      colFlowID,
 	AllocID:     colAllocID,
+	PoolID:      colPoolID,
+	PoolType:    colPoolType,
 	ImgCmdID:    colImgCmdID,
 	Ident:       colIdent,
 	Attempt:     colAttempt,
@@ -495,16 +507,167 @@ func dates(beg, end time.Time) (dates []time.Time) {
 
 // KeepRunAlive sets the keepalive for run id to keepalive.
 func (t *TaskDB) KeepRunAlive(ctx context.Context, id taskdb.RunID, keepalive time.Time) error {
-	return t.keepalive(ctx, digest.Digest(id), keepalive)
+	return t.KeepIDAlive(ctx, digest.Digest(id), keepalive)
 }
 
 // KeepTaskAlive sets the keepalive for task id to keepalive.
 func (t *TaskDB) KeepTaskAlive(ctx context.Context, id taskdb.TaskID, keepalive time.Time) error {
-	return t.keepalive(ctx, digest.Digest(id), keepalive)
+	return t.KeepIDAlive(ctx, digest.Digest(id), keepalive)
+}
+
+// StartAlloc creates a new alloc in the taskdb with the provided parameters.
+func (t *TaskDB) StartAlloc(ctx context.Context, allocID reflow.StringDigest, poolID digest.Digest, resources reflow.Resources, start time.Time) error {
+	var (
+		now = time.Now().UTC()
+		res string
+		id  = allocID.Digest()
+	)
+	if start.IsZero() {
+		start = now
+	}
+	if r := resources; !r.Equal(nil) {
+		if b, err := json.Marshal(r); err == nil {
+			res = string(b)
+		}
+	}
+	input := &dynamodb.PutItemInput{
+		TableName: aws.String(t.TableName),
+		Item: map[string]*dynamodb.AttributeValue{
+			colID: {
+				S: aws.String(id.String()),
+			},
+			colID4: {
+				S: aws.String(id.Short()),
+			},
+			colPoolID: {
+				S: aws.String(poolID.String()),
+			},
+			colAllocID: {
+				S: aws.String(allocID.String()),
+			},
+			colResources: {
+				S: aws.String(res),
+			},
+			colType: {
+				S: aws.String(string(allocObj)),
+			},
+			colStartTime: {
+				S: aws.String(start.UTC().Format(timeLayout)),
+			},
+			colDate: {
+				S: aws.String(now.Format(dateLayout)),
+			},
+			colKeepalive: {
+				S: aws.String(now.Format(timeLayout)),
+			},
+		},
+	}
+	_, err := t.DB.PutItemWithContext(ctx, input)
+	return err
+}
+
+// StartPool creates a new pool in the taskdb with the provided parameters.
+func (t *TaskDB) StartPool(ctx context.Context, poolID reflow.StringDigest, url, poolType string, resources reflow.Resources, start time.Time) error {
+	var (
+		now = time.Now().UTC()
+		id  = poolID.Digest()
+		res string
+	)
+	if start.IsZero() {
+		start = now
+	}
+	if r := resources; !r.Equal(nil) {
+		if b, err := json.Marshal(r); err == nil {
+			res = string(b)
+		}
+	}
+	input := &dynamodb.PutItemInput{
+		TableName: aws.String(t.TableName),
+		Item: map[string]*dynamodb.AttributeValue{
+			colID: {
+				S: aws.String(id.String()),
+			},
+			colID4: {
+				S: aws.String(id.Short()),
+			},
+			colPoolID: {
+				S: aws.String(poolID.String()),
+			},
+			colURI: {
+				S: aws.String(url),
+			},
+			colPoolType: {
+				S: aws.String(poolType),
+			},
+			colResources: {
+				S: aws.String(res),
+			},
+			colType: {
+				S: aws.String(string(poolObj)),
+			},
+			colStartTime: {
+				S: aws.String(start.UTC().Format(timeLayout)),
+			},
+			colDate: {
+				S: aws.String(now.Format(dateLayout)),
+			},
+			colKeepalive: {
+				S: aws.String(now.Format(timeLayout)),
+			},
+		},
+	}
+	_, err := t.DB.PutItemWithContext(ctx, input)
+	return err
+}
+
+// SetResources sets the resources field in the taskdb for the row with the given id.
+func (t *TaskDB) SetResources(ctx context.Context, id digest.Digest, resources reflow.Resources) error {
+	var res string
+	if r := resources; !r.Equal(nil) {
+		if b, err := json.Marshal(r); err == nil {
+			res = string(b)
+		}
+	}
+	input := &dynamodb.UpdateItemInput{
+		TableName: aws.String(t.TableName),
+		Key: map[string]*dynamodb.AttributeValue{
+			colID: {
+				S: aws.String(id.String()),
+			},
+		},
+		UpdateExpression: aws.String(fmt.Sprintf("SET %s = :resources", colResources)),
+		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+			":resources": {S: aws.String(res)},
+		},
+	}
+	_, err := t.DB.UpdateItemWithContext(ctx, input)
+	return err
+
+}
+
+// SetEndTime sets the end time for the given id.
+func (t *TaskDB) SetEndTime(ctx context.Context, id digest.Digest, end time.Time) error {
+	if end.IsZero() {
+		end = time.Now()
+	}
+	input := &dynamodb.UpdateItemInput{
+		TableName: aws.String(t.TableName),
+		Key: map[string]*dynamodb.AttributeValue{
+			colID: {
+				S: aws.String(id.String()),
+			},
+		},
+		UpdateExpression: aws.String(fmt.Sprintf("SET %s = :endtime", colEndTime)),
+		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+			":endtime": {S: aws.String(end.UTC().Format(timeLayout))},
+		},
+	}
+	_, err := t.DB.UpdateItemWithContext(ctx, input)
+	return err
 }
 
 // keepalive sets the keepalive for the specified id to keepalive.
-func (t *TaskDB) keepalive(ctx context.Context, id digest.Digest, keepalive time.Time) error {
+func (t *TaskDB) KeepIDAlive(ctx context.Context, id digest.Digest, keepalive time.Time) error {
 	keepalive = keepalive.UTC()
 	input := &dynamodb.UpdateItemInput{
 		TableName: aws.String(t.TableName),
@@ -719,9 +882,10 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 	tasks := make([]taskdb.Task, 0, len(items))
 	for _, it := range items {
 		var (
-			id, fid, runid, result, stderr, stdout, inspect, imgCmdID digest.Digest
-			keepalive, et                                             time.Time
-			ident, uri                                                string
+			id, fid, runid, allocID, imgCmdID digest.Digest
+			result, stderr, stdout, inspect   digest.Digest
+			keepalive, et                     time.Time
+			ident, uri                        string
 		)
 
 		id, err = digest.Parse(*it[colID].S)
@@ -740,6 +904,12 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 		runid, err = digest.Parse(*it[colRunID].S)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("parse runid %v: %v", *it[colRunID].S, err))
+		}
+		if allocIDValue, ok := it[colAllocID]; ok {
+			allocID, err = digest.Parse(*allocIDValue.S)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("parse allocID %v: %v", *allocIDValue.S, err))
+			}
 		}
 		if resultID, ok := it[colResultID]; ok {
 			result, err = digest.Parse(*resultID.S)
@@ -797,6 +967,7 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 			ID:        taskdb.TaskID(id),
 			RunID:     taskdb.RunID(runid),
 			FlowID:    fid,
+			AllocID:   allocID,
 			ResultID:  result,
 			ImgCmdID:  taskdb.ImgCmdID(imgCmdID),
 			Ident:     ident,

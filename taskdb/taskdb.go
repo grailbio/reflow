@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 // Package taskdb defines interfaces and data types for storing and querying reflow
-// runs and tasks. It also provides a function to keep a lease on a run/task.
+// runs, tasks, pools and allocs. It also provides a function to keep a lease on a run/task/pool/alloc.
 package taskdb
 
 import (
@@ -147,6 +147,10 @@ type TaskDB interface {
 	SetRunAttrs(ctx context.Context, id RunID, bundle digest.Digest, args []string) error
 	// SetRunComplete marsk the run as complete.
 	SetRunComplete(ctx context.Context, id RunID, execLog, sysLog, evalGraph, trace digest.Digest, end time.Time) error
+	// KeepRunAlive updates the keepalive timer for the specified run id. Updating the keepalive timer
+	// allows the querying methods (Runs, Tasks) to see which runs/tasks are active and which are dead/complete.
+	KeepRunAlive(ctx context.Context, id RunID, keepalive time.Time) error
+
 	// CreateTask creates a new task in the taskdb with the provided task.
 	CreateTask(ctx context.Context, task Task) error
 	// SetTaskResult sets the result of the task post completion.
@@ -157,12 +161,22 @@ type TaskDB interface {
 	SetTaskAttrs(ctx context.Context, id TaskID, stdout, stderr, inspect digest.Digest) error
 	// SetTaskComplete mark the task as completed as of the given end time with the error (if any)
 	SetTaskComplete(ctx context.Context, id TaskID, err error, end time.Time) error
-	// KeepRunAlive updates the keepalive timer for the specified run id. Updating the keepalive timer
-	// allows the querying methods (Runs, Tasks) to see which runs/tasks are active and which are dead/complete.
-	KeepRunAlive(ctx context.Context, id RunID, keepalive time.Time) error
+
 	// KeepTaskAlive updates the keepalive timer for the specified task id. Updating the keepalive timer
 	// allows the querying methods (Runs, Tasks) to see which runs/tasks are active and which are dead/complete.
 	KeepTaskAlive(ctx context.Context, id TaskID, keepalive time.Time) error
+
+	// StartAlloc creates a new alloc in the taskdb with the provided parameters.
+	StartAlloc(ctx context.Context, allocID reflow.StringDigest, poolID digest.Digest, resources reflow.Resources, start time.Time) error
+	// StartPool creates a new pool in the taskdb with the provided parameters.
+	StartPool(ctx context.Context, poolID reflow.StringDigest, url, poolType string, resources reflow.Resources, start time.Time) error
+	// SetResources sets the resources field in the taskdb for the row with the given id.
+	SetResources(ctx context.Context, id digest.Digest, resources reflow.Resources) error
+	// KeepIDAlive updates the keepalive timer for the specified id.
+	KeepIDAlive(ctx context.Context, id digest.Digest, keepalive time.Time) error
+	// SetEndTime sets the end time for the given id.
+	SetEndTime(ctx context.Context, id digest.Digest, end time.Time) error
+
 	// Runs looks up a runs which matches query. If error is not nil, then some error (retrieval, parse) could have
 	// occurred. The returned slice will still contain information about the runs that did not cause an error.
 	Runs(ctx context.Context, runQuery RunQuery) ([]Run, error)
