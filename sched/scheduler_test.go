@@ -306,6 +306,16 @@ func TestTaskLost(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 
+	for _, task := range tasks {
+		want := 0
+		if task.ID == singleTask.ID {
+			want = 1
+		}
+		if got := task.Attempt(); got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	}
+
 	// When we recover, the task is reassigned.
 	req.Reply <- utiltest.TestClusterAllocReply{Alloc: utiltest.NewTestAlloc(reflow.Resources{"cpu": 1, "mem": 1})}
 	if err := singleTask.Wait(ctx, sched.TaskRunning); err != nil {

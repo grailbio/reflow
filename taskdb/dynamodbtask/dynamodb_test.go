@@ -157,6 +157,7 @@ func TestTaskCreate(t *testing.T) {
 		flowID   = reflow.Digester.Rand(nil)
 		uri      = "machineUri"
 		ident    = "ident"
+		attempt  = 2
 		imgCmdID = taskdb.NewImgCmdID("image", "cmd")
 		res      = reflow.Resources{"cpu": 2, "mem": 4 * 1024 * 1024 * 1024}
 	)
@@ -167,10 +168,14 @@ func TestTaskCreate(t *testing.T) {
 		FlowID:    flowID,
 		ImgCmdID:  imgCmdID,
 		Ident:     ident,
+		Attempt:   attempt,
 		Resources: res,
 		URI:       uri})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if got, want := *mockdb.pinput.Item[colAttempt].N, fmt.Sprintf("%d", attempt); got != want {
+		t.Errorf("got %v, want %v", got, want)
 	}
 	for _, test := range []struct {
 		actual   string

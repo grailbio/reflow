@@ -99,6 +99,9 @@ type Task struct {
 	index int
 	stats *TaskStats
 
+	// attempt stores the (zero-based) current attempt number for this task.
+	attempt int
+
 	// nonDirectTransfer represents a task which cannot be executed as a direct transfer.
 	nonDirectTransfer bool
 }
@@ -118,6 +121,13 @@ func (t *Task) State() TaskState {
 	return t.state
 }
 
+// Attempt returns the task's current attempt index (zero-based).
+func (t *Task) Attempt() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.attempt
+}
+
 // Wait returns after the task's state is at least the provided state. Wait
 // returns an error if the context was canceled while waiting.
 func (t *Task) Wait(ctx context.Context, state TaskState) error {
@@ -130,12 +140,29 @@ func (t *Task) Wait(ctx context.Context, state TaskState) error {
 	return err
 }
 
-func (t *Task) set(state TaskState) {
-	t.mu.Lock()
-	t.state = state
-	t.stats.Update(t)
-	t.cond.Broadcast()
-	t.mu.Unlock()
+// Reset resets the task's state to `TaskInit` and increases its attempt count.
+func (t *Task) Reset() {
+	mutate(t, func(target *Task) {
+		target.state = TaskInit
+		target.attempt++
+	})
+}
+
+// Set sets the task's state to the given state.
+func (t *Task) Set(state TaskState) {
+	if state == TaskInit {
+		panic("task state change to TaskInit must be done using Reset()")
+	}
+	mutate(t, func(target *Task) { target.state = state })
+}
+
+// mutate mutates the given task using the given mutator function.
+func mutate(target *Task, mutator func(t *Task)) {
+	target.mu.Lock()
+	mutator(target)
+	target.stats.Update(target)
+	target.cond.Broadcast()
+	target.mu.Unlock()
 }
 
 // TaskSet is a set of tasks.

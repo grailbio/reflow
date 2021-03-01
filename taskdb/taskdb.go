@@ -224,6 +224,8 @@ type Task struct {
 	// Ident is the human-readable name of the underlying exec. Ident has a many-to-many
 	// relationship with ImgCmdID.
 	Ident string
+	// Attempt stores the (zero-based) current attempt number for this task.
+	Attempt int
 	// Resources is the amount of resources reserved for this task.
 	// Note that this may not represent actual utilized resources necessarily.
 	Resources reflow.Resources

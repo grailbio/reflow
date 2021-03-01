@@ -26,6 +26,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -59,6 +60,7 @@ const (
 	ResultID
 	ImgCmdID
 	Ident
+	Attempt
 	KeepAlive
 	StartTime
 	Stdout
@@ -114,6 +116,7 @@ const (
 	colResultID  = "ResultID"
 	colImgCmdID  = "ImgCmdID"
 	colIdent     = "Ident"
+	colAttempt   = "Attempt"
 	colKeepalive = "Keepalive"
 	colStartTime = "StartTime"
 	colEndTime   = "EndTime"
@@ -144,6 +147,7 @@ var colmap = map[taskdb.Kind]string{
 	AllocID:     colAllocID,
 	ImgCmdID:    colImgCmdID,
 	Ident:       colIdent,
+	Attempt:     colAttempt,
 	ResultID:    colResultID,
 	KeepAlive:   colKeepalive,
 	StartTime:   colStartTime,
@@ -356,6 +360,9 @@ func (t *TaskDB) CreateTask(ctx context.Context, task taskdb.Task) error {
 			},
 			colIdent: {
 				S: aws.String(task.Ident),
+			},
+			colAttempt: {
+				N: aws.String(strconv.Itoa(task.Attempt)),
 			},
 			colResources: {
 				S: aws.String(res),

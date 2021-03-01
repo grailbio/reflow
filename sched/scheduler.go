@@ -201,7 +201,7 @@ func (s *Scheduler) Do(ctx context.Context) error {
 			// We also cancel keepalives
 			for _, task := range todo {
 				task.Err = ctx.Err()
-				task.set(TaskDone)
+				task.Set(TaskDone)
 			}
 			for ; nrunning > 0; nrunning-- {
 				task := <-returnc
@@ -210,7 +210,7 @@ func (s *Scheduler) Do(ctx context.Context) error {
 					panic("illegal task state")
 				case TaskLost:
 					task.Err = ctx.Err()
-					task.set(TaskDone)
+					task.Set(TaskDone)
 				case TaskDone:
 				}
 			}
@@ -236,7 +236,7 @@ func (s *Scheduler) Do(ctx context.Context) error {
 				}
 				if ok, err := s.Cluster.CanAllocate(task.Config.Resources); !ok {
 					task.Err = err
-					task.set(TaskDone)
+					task.Set(TaskDone)
 					continue
 				}
 				heap.Push(&todo, task)
@@ -252,7 +252,7 @@ func (s *Scheduler) Do(ctx context.Context) error {
 			default:
 				panic("illegal task state")
 			case TaskLost:
-				task.set(TaskInit)
+				task.Reset()
 				heap.Push(&todo, task)
 			case TaskDone:
 				// In this case we're done, and we can forget about the task.
@@ -506,7 +506,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		default:
 			panic("bad state")
 		case stateLoad:
-			task.set(TaskStaging)
+			task.Set(TaskStaging)
 			if s.TaskDB != nil && tctx == nil {
 				// disable govet check due to https://github.com/golang/go/issues/29587
 				tctx, tcancel = context.WithCancel(ctx) //nolint: govet
@@ -517,6 +517,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 					FlowID:    task.FlowID,
 					ImgCmdID:  taskdb.NewImgCmdID(task.Config.Image, task.Config.Cmd),
 					Ident:     task.Config.Ident,
+					Attempt:   task.Attempt(),
 					Resources: task.Config.Resources,
 				}); taskdbErr != nil {
 					task.Log.Errorf("taskdb createtask: %v", taskdbErr)
@@ -560,7 +561,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 				}
 			}
 			task.Exec = x
-			task.set(TaskRunning)
+			task.Set(TaskRunning)
 			err = x.Wait(ctx)
 			if s.TaskDB != nil {
 				if taskdbErr := s.TaskDB.SetTaskResult(tctx, task.ID, x.ID()); taskdbErr != nil {
@@ -624,15 +625,15 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 	task.Err = err
 	switch {
 	case err == nil:
-		task.set(TaskDone)
+		task.Set(TaskDone)
 	case errors.Is(errors.Canceled, err):
 		task.Config.Args = savedArgs
-		task.set(TaskLost)
+		task.Set(TaskLost)
 	case errors.Restartable(err):
 		task.Config.Args = savedArgs
-		task.set(TaskLost)
+		task.Set(TaskLost)
 	default:
-		task.set(TaskDone)
+		task.Set(TaskDone)
 	}
 	returnc <- task
 }
@@ -698,12 +699,12 @@ func (s *Scheduler) directTransfer(ctx context.Context, task *Task) {
 			go func() { _ = taskdb.KeepTaskAlive(tctx, s.TaskDB, task.ID) }()
 		}
 	}
-	task.set(TaskRunning)
+	task.Set(TaskRunning)
 	task.Err = s.doDirectTransfer(ctx, task)
 	if task.Err != nil && errors.Is(errors.NotSupported, task.Err) {
 		taskLogger.Debugf("switching to non-direct %v", task.Err)
 		task.nonDirectTransfer = true
-		task.set(TaskLost)
+		task.Set(TaskLost)
 		s.submitc <- []*Task{task}
 		return
 	}
@@ -715,7 +716,7 @@ func (s *Scheduler) directTransfer(ctx context.Context, task *Task) {
 			taskLogger.Errorf("taskdb settaskresult: %v", err)
 		}
 	}
-	task.set(TaskDone)
+	task.Set(TaskDone)
 }
 
 func requirements(tasks []*Task) reflow.Requirements {
