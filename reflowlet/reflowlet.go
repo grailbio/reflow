@@ -21,6 +21,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/grailbio/reflow/taskdb"
+
 	"docker.io/go-docker"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -225,8 +227,20 @@ func (s *Server) ListenAndServe() error {
 	} else if dockerconfig.Value() == "hard" {
 		hardMemLimit = true
 	}
+
 	if err := s.setTags(sess); err != nil {
 		return fmt.Errorf("set tags: %v", err)
+	}
+
+	var (
+		tdb    taskdb.TaskDB
+		poolId reflow.StringDigest
+	)
+	if s.EC2Cluster {
+		if err = s.Config.Instance(&tdb); err != nil {
+			log.Debugf("taskdb: %v", err)
+		}
+		poolId = reflow.NewStringDigest(s.ec2Identity.InstanceID)
 	}
 
 	// Default HTTPS and s3 clients for repository dialers.
@@ -244,11 +258,11 @@ func (s *Server) ListenAndServe() error {
 		Authenticator: ec2authenticator.New(sess),
 		AWSCreds:      creds,
 		Session:       sess,
-		Blob: blob.Mux{
-			"s3": s3blob.New(sess),
-		},
-		Log:          log.Std.Tee(nil, "executor: "),
-		HardMemLimit: hardMemLimit,
+		Blob:          blob.Mux{"s3": s3blob.New(sess)},
+		TaskDBPoolId:  poolId,
+		TaskDB:        tdb,
+		Log:           log.Std.Tee(nil, "executor: "),
+		HardMemLimit:  hardMemLimit,
 	}
 	if err := p.Start(); err != nil {
 		return err
@@ -284,6 +298,13 @@ func (s *Server) ListenAndServe() error {
 		go func() {
 			defer wg.Done()
 			s.spotNoticeWatcher(ctx)
+		}()
+
+		// Maintain the pool's TaskDB row.
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p.MaintainTaskDBRow(ctx)
 		}()
 	}
 

@@ -42,6 +42,7 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	poolc "github.com/grailbio/reflow/pool/client"
+	"github.com/grailbio/reflow/taskdb"
 	"gopkg.in/yaml.v2"
 )
 
@@ -133,6 +134,7 @@ type instance struct {
 	Log             *log.Logger
 	Authenticator   ecrauth.Interface
 	EC2             ec2iface.EC2API
+	TaskDB          taskdb.TaskDB
 	InstanceTags    map[string]string
 	Labels          pool.Labels
 	Spot            bool
@@ -262,15 +264,25 @@ func (i *instance) Go(ctx context.Context) {
 	var (
 		state       stateT
 		id          string
+		poolId      reflow.StringDigest
 		dns         string
 		n           int
 		retryPolicy = retry.MaxRetries(retry.Backoff(5*time.Second, 30*time.Second, 1.75), maxTries)
 	)
 	defer func() {
-		// At exit, we terminate a successfully provisioned but un-viable instance.
-		if id != "" && state > stateLaunch && state < stateWaitReflowlet {
-			i.Log.Debugf("terminating non-reflowlet EC2 instance: %s (state: %s)", id, state)
-			ec2TerminateInstance(i.EC2, id)
+		if id == "" || state <= stateLaunch || state >= stateWaitReflowlet {
+			return
+		}
+		// Perform cleanup tasks
+		i.Log.Debugf("cleaning up non-reflowlet EC2 instance: %s (state: %s)", id, state)
+		// Terminate a successfully provisioned but un-viable instance.
+		ec2TerminateInstance(i.EC2, id)
+		if i.TaskDB == nil || !poolId.IsValid() || state <= stateDescribeDns || state >= stateWaitReflowlet {
+			return
+		}
+		// Set end time of the taskDB row corresponding to this un-viable pool.
+		if err := i.TaskDB.SetEndTime(context.Background(), poolId.Digest(), time.Now()); err != nil {
+			i.Log.Debugf("taskdb pool %s SetEndTime: %v", poolId, err)
 		}
 	}()
 	for state < stateDone && ctx.Err() == nil {
@@ -315,6 +327,17 @@ func (i *instance) Go(ctx context.Context) {
 					i.err = errors.Errorf("ec2.describeinstances %v: no public DNS name", id)
 				} else {
 					dns = *i.ec2inst.PublicDnsName
+					if i.TaskDB != nil {
+						// TaskDB row id for the pool is based on the EC2 instance ID.
+						poolId = reflow.NewStringDigest(id)
+						// Record the start of the new pool in TaskDB and set an initial KeepAlive until
+						// the pool (ie, reflowlet) has the chance to come up and takeover maintaining the row.
+						if err := i.TaskDB.StartPool(ctx, poolId, dns, *i.ec2inst.InstanceType, nil, *i.ec2inst.LaunchTime); err != nil {
+							i.Log.Debugf("taskdb pool %s StartPool: %v", poolId, err)
+						} else if err = i.TaskDB.KeepIDAlive(ctx, poolId.Digest(), time.Now().Add(1*time.Minute)); err != nil {
+							i.Log.Debugf("taskdb pool %s KeepIDAlive: %v", poolId, err)
+						}
+					}
 				}
 			}
 			spot := ""

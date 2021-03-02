@@ -43,6 +43,7 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/pool/client"
+	"github.com/grailbio/reflow/taskdb"
 	"golang.org/x/net/http2"
 )
 
@@ -131,6 +132,8 @@ type Cluster struct {
 	Configuration infra.Config `yaml:"-"`
 	// AWS session
 	Session *session.Session `yaml:"-"`
+	// TaskDB implementation (if any) where rows are updated for newly created pools.
+	TaskDB taskdb.TaskDB `yaml:"-"`
 
 	// Public SSH keys.
 	SshKeys []string `yaml:"sshkeys"`
@@ -322,6 +325,9 @@ func (c *Cluster) verifyAndInitialize() error {
 			c.BootstrapExpiry = rc.MaxIdleDuration
 		}
 	}
+	if err := c.Configuration.Instance(&c.TaskDB); err != nil {
+		c.Log.Debugf("cluster taskdb: %v", err)
+	}
 	c.EC2 = ec2.New(c.Session, &aws.Config{MaxRetries: aws.Int(13)})
 	c.SetCaching(true)
 	c.manager.Start()
@@ -456,6 +462,7 @@ func (c *Cluster) newInstance(config instanceConfig) *instance {
 		Log:             c.Log,
 		Authenticator:   c.Authenticator,
 		EC2:             c.EC2,
+		TaskDB:          c.TaskDB,
 		InstanceTags:    c.InstanceTags,
 		Labels:          c.Labels,
 		Spot:            c.Spot,

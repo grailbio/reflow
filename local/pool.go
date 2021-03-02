@@ -26,6 +26,7 @@ import (
 	"github.com/grailbio/reflow/internal/fs"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
+	"github.com/grailbio/reflow/taskdb"
 )
 
 const (
@@ -73,6 +74,11 @@ type Pool struct {
 	Session *session.Session
 	// Blob is the blob store implementation used to fetch data from interns.
 	Blob blob.Mux
+
+	// TaskDBPoolId is the identifier of this Pool in TaskDB
+	TaskDBPoolId reflow.StringDigest
+	TaskDB       taskdb.TaskDB
+
 	// Log
 	Log *log.Logger
 
@@ -267,6 +273,27 @@ func (p *Pool) Kill(a pool.Alloc) error {
 		panic(fmt.Sprintf("unexpected alloc type %T", a))
 	}
 	return alloc.kill()
+}
+
+// MaintainTaskDBRow maintains the taskdb row corresponding to this pool (if applicable).
+// MaintainTaskDBRow blocks until the given context is done, if this pool has a taskdb
+// implementation and a PoolID set,  Otherwise it'll return immediately.
+// The taskdb row is expected to already exist, and this will simply update the Resources
+// and maintains keepalive until ctx cancellation; and then it updates the End time of the row.
+// MaintainTaskDBRow will panic if called on a Pool with no resources (ie, the pool must've been started)
+func (p *Pool) MaintainTaskDBRow(ctx context.Context) {
+	if p.TaskDB == nil || !p.TaskDBPoolId.IsValid() {
+		return
+	}
+	if p.Resources().Equal(nil) {
+		panic(fmt.Sprintf("MaintainTaskDBRow called on pool %v with no resources", p.TaskDBPoolId))
+	}
+	if err := p.TaskDB.SetResources(ctx, p.TaskDBPoolId.Digest(), p.Resources()); err != nil {
+		p.Log.Debugf("taskdb pool %s SetResources: %v", p.TaskDBPoolId, err)
+	}
+	if err := taskdb.KeepAliveAndEnd(ctx, p.TaskDB, p.TaskDBPoolId.Digest(), 10*time.Second); err != nil {
+		p.Log.Debugf("taskdb pool %s KeepAliveAndEnd: %v", p.TaskDBPoolId, err)
+	}
 }
 
 // Alloc implements a local alloc. It embeds a local executor which
