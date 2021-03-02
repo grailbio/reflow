@@ -16,9 +16,9 @@ import (
 )
 
 const (
+	MaxKeepaliveInterval = 5 * time.Minute
 	keepaliveInterval    = 2 * time.Minute
 	keepaliveTimeout     = 10 * time.Second
-	keepaliveMaxInterval = 5 * time.Minute
 	keepaliveTries       = 5
 	ivOffset             = 30 * time.Second
 )
@@ -48,6 +48,8 @@ type Alloc interface {
 	// before the expiration of the returned duration. The user may also
 	// request a maintenance interval. This is just a hint and may not be
 	// respected by the Alloc.
+	// Clients should preferably use `pool.Keepalive` (in a goroutine) instead
+	// of calling this directly.
 	Keepalive(ctx context.Context, interval time.Duration) (time.Duration, error)
 
 	// Inspect returns Alloc metadata.
@@ -108,7 +110,7 @@ func keepalive(ctx context.Context, alloc Alloc) (time.Duration, error) {
 // configuration.
 func Keepalive(ctx context.Context, log *log.Logger, alloc Alloc) error {
 	log = log.Tee(nil, fmt.Sprintf("keepalive %s: ", alloc.ID()))
-	t := time.NewTimer(keepaliveMaxInterval)
+	t := time.NewTimer(MaxKeepaliveInterval)
 	t.Stop() // stop the timer immediately, we don't need it yet.
 	for {
 		var (
@@ -143,8 +145,8 @@ func Keepalive(ctx context.Context, log *log.Logger, alloc Alloc) error {
 		if iv < 0*time.Second {
 			continue
 		}
-		if iv > keepaliveMaxInterval {
-			iv = keepaliveMaxInterval
+		if iv > MaxKeepaliveInterval {
+			iv = MaxKeepaliveInterval
 		}
 		// Reset timer
 		t.Reset(iv)

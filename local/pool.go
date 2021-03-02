@@ -30,18 +30,12 @@ import (
 )
 
 const (
-	statePath            = "state.json"
-	metaPath             = "meta.json"
-	allocsPath           = "allocs"
-	keepaliveInterval    = 1 * time.Minute
-	maxKeepaliveInterval = 2 * time.Hour
-	offerID              = "1"
+	statePath  = "state.json"
+	metaPath   = "meta.json"
+	allocsPath = "allocs"
 )
 
-var (
-	errOfferExpired = errors.New("offer expired")
-	errAllocExpired = errors.New("alloc expired")
-)
+var errAllocExpired = errors.New("alloc expired")
 
 // Pool implements a resource pool on top of a Docker client.
 // The pool itself must run on the same machine as the Docker
@@ -251,7 +245,7 @@ func (p *Pool) Name() string {
 func (p *Pool) New(ctx context.Context, id string, meta pool.AllocMeta, keepalive time.Duration, existing []pool.Alloc) (pool.Alloc, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	alloc := p.newAlloc(id, keepaliveInterval)
+	alloc := p.newAlloc(id, keepalive)
 	if err := alloc.configure(meta); err != nil {
 		return nil, err
 	}
@@ -398,8 +392,8 @@ func (a *alloc) Keepalive(ctx context.Context, next time.Duration) (time.Duratio
 		return time.Duration(0), errors.E("keepalive", a.id, fmt.Sprint(next), errors.NotExist, errAllocExpired)
 	}
 	a.mu.Lock()
-	if next > maxKeepaliveInterval {
-		next = maxKeepaliveInterval
+	if next > pool.MaxKeepaliveInterval {
+		next = pool.MaxKeepaliveInterval
 	}
 	a.lastKeepalive = time.Now()
 	a.expires = a.lastKeepalive.Add(next)
