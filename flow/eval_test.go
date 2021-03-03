@@ -1604,50 +1604,28 @@ func TestRefreshAssertionBatchCache(t *testing.T) {
 }
 
 func TestOomAdjust(t *testing.T) {
-	// Specified mem > used mem.
-	specified := reflow.Resources{
-		"cpu":  5,
-		"mem":  10,
-		"disk": 7,
-	}
-	used := reflow.Resources{
-		"cpu":  4,
-		"mem":  9,
-		"disk": 6,
-	}
-	adjusted := flow.OomAdjust(specified, used)
-	if got, want := adjusted["cpu"], used["cpu"]; got != want {
-		t.Errorf("cpu got %v, want %v", got, want)
-	}
-	if got, want := adjusted["mem"], specified["mem"]; got != want {
-		t.Errorf("mem got %v, want %v", got, want)
-	}
-	if got, want := adjusted["disk"], used["disk"]; got != want {
-		t.Errorf("disk got %v, want %v", got, want)
-	}
-	// Specified = used mem.
-	used["mem"] = specified["mem"]
-	adjusted = flow.OomAdjust(specified, used)
-	if got, want := adjusted["cpu"], used["cpu"]; got != want {
-		t.Errorf("cpu got %v, want %v", got, want)
-	}
-	if got, want := adjusted["mem"], used["mem"]*flow.MemMultiplier; got != want {
-		t.Errorf("mem got %v, want %v", got, want)
-	}
-	if got, want := adjusted["disk"], used["disk"]; got != want {
-		t.Errorf("disk got %v, want %v", got, want)
-	}
-	// Specified < used mem.
-	used["mem"] = specified["mem"] + 1
-	adjusted = flow.OomAdjust(specified, used)
-	if got, want := adjusted["cpu"], used["cpu"]; got != want {
-		t.Errorf("cpu got %v, want %v", got, want)
-	}
-	if got, want := adjusted["mem"], used["mem"]*flow.MemMultiplier; got != want {
-		t.Errorf("mem got %v, want %v", got, want)
-	}
-	if got, want := adjusted["disk"], used["disk"]; got != want {
-		t.Errorf("disk got %v, want %v", got, want)
+	for _, tt := range []struct {
+		specified, used, want reflow.Resources
+	}{
+		// Specified mem > used mem.
+		{reflow.Resources{"cpu": 5, "mem": 10, "disk": 7}, reflow.Resources{"cpu": 4, "mem": 9, "disk": 6}, reflow.Resources{"cpu": 4, "mem": 10, "disk": 6}},
+		// Specified = used mem.
+		{reflow.Resources{"cpu": 5, "mem": 10, "disk": 7}, reflow.Resources{"cpu": 4, "mem": 10, "disk": 6}, reflow.Resources{"cpu": 4, "mem": 15, "disk": 6}},
+		// Specified < used mem.
+		{reflow.Resources{"cpu": 5, "mem": 10, "disk": 7}, reflow.Resources{"cpu": 4, "mem": 11, "disk": 6}, reflow.Resources{"cpu": 4, "mem": 11 * flow.MemMultiplier, "disk": 6}},
+		{reflow.Resources{"mem": 4 << 30}, reflow.Resources{"mem": 2 << 30}, reflow.Resources{"mem": 4 << 30}},
+		{reflow.Resources{"mem": 4 << 30}, reflow.Resources{"mem": 4 << 30}, reflow.Resources{"mem": 4 << 30 * flow.MemMultiplier}},
+		{reflow.Resources{"mem": 4 << 30}, reflow.Resources{"mem": 7 << 30}, reflow.Resources{"mem": 7 << 30 * flow.MemMultiplier}},
+		{reflow.Resources{"mem": 700 << 30}, reflow.Resources{"mem": 600 << 30}, reflow.Resources{"mem": 700 << 30}},
+		{reflow.Resources{"mem": 500 << 30}, reflow.Resources{"mem": 600 << 30}, reflow.Resources{"mem": float64(flow.OomRetryMaxExecMemory)}},
+		{reflow.Resources{"mem": 900 << 30}, reflow.Resources{"mem": 600 << 30}, reflow.Resources{"mem": 900 << 30}},
+		{reflow.Resources{"mem": 900 << 30}, reflow.Resources{"mem": 800 << 30}, reflow.Resources{"mem": 900 << 30}},
+		{reflow.Resources{"mem": 900 << 30}, reflow.Resources{"mem": 1200 << 30}, reflow.Resources{"mem": 900 << 30}},
+		{reflow.Resources{"mem": float64(flow.OomRetryMaxExecMemory - 10<<30)}, reflow.Resources{"mem": float64(flow.OomRetryMaxExecMemory - 10<<30)}, reflow.Resources{"mem": float64(flow.OomRetryMaxExecMemory)}},
+	} {
+		if got, want := flow.OomAdjust(tt.specified, tt.used), tt.want; !got.Equal(want) {
+			t.Errorf("cpu got %v, want %v", got, want)
+		}
 	}
 }
 

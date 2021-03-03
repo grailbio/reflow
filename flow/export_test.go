@@ -11,7 +11,10 @@ import (
 	"github.com/grailbio/reflow"
 )
 
-var MemMultiplier = memMultiplier
+var (
+	MemMultiplier         = memMultiplier
+	OomRetryMaxExecMemory = oomRetryMaxExecMemory
+)
 
 func PhysicalDigests(f *Flow) []digest.Digest {
 	return f.physicalDigests()

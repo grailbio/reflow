@@ -62,6 +62,9 @@ const (
 	// memMultiplier is the increase in memory that will be allocated to a task which OOMs.
 	memMultiplier = 1.5
 
+	// oomRetryMaxExecMemory is max memory allowed for execs being retried due to OOM.
+	oomRetryMaxExecMemory = 800 << 30
+
 	// memSuggestThreshold is the minimum fraction of allocated memory an exec can use before a suggestion is
 	// displayed to use less memory.
 	memSuggestThreshold = 0.6
@@ -2540,11 +2543,23 @@ func (e *Eval) retryTask(ctx context.Context, f *Flow, resources reflow.Resource
 func oomAdjust(specified, used reflow.Resources) reflow.Resources {
 	newResources := make(reflow.Resources)
 	newResources.Set(used)
-	if specified["mem"] > used["mem"] {
-		newResources["mem"] = specified["mem"]
-	} else {
-		newResources["mem"] *= memMultiplier
+	mem := used["mem"]
+	if mem > oomRetryMaxExecMemory {
+		mem = oomRetryMaxExecMemory
 	}
+	if mem < specified["mem"] {
+		// If we used lesser than what was specified (eg: predicted usage was lower)
+		// then we try with what was specified.
+		mem = specified["mem"]
+	} else {
+		// Increase memory
+		mem *= memMultiplier
+		// But cap it to oomRetryMaxExecMemory
+		if mem > oomRetryMaxExecMemory {
+			mem = oomRetryMaxExecMemory
+		}
+	}
+	newResources["mem"] = mem
 	return newResources
 }
 
