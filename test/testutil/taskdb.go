@@ -67,7 +67,7 @@ func (n nopTaskDB) KeepTaskAlive(ctx context.Context, id taskdb.TaskID, keepaliv
 }
 
 // StartAlloc does nothing.
-func (n nopTaskDB) StartAlloc(ctx context.Context, allocID reflow.StringDigest, poolID digest.Digest, resources reflow.Resources, start time.Time) error {
+func (n nopTaskDB) StartAlloc(ctx context.Context, allocID, poolID reflow.StringDigest, resources reflow.Resources, start time.Time) error {
 	return nil
 }
 

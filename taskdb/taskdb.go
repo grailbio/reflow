@@ -167,7 +167,7 @@ type TaskDB interface {
 	KeepTaskAlive(ctx context.Context, id TaskID, keepalive time.Time) error
 
 	// StartAlloc creates a new alloc in the taskdb with the provided parameters.
-	StartAlloc(ctx context.Context, allocID reflow.StringDigest, poolID digest.Digest, resources reflow.Resources, start time.Time) error
+	StartAlloc(ctx context.Context, allocID, poolID reflow.StringDigest, resources reflow.Resources, start time.Time) error
 	// StartPool creates a new pool in the taskdb with the provided parameters.
 	StartPool(ctx context.Context, poolID reflow.StringDigest, url, poolType string, resources reflow.Resources, start time.Time) error
 	// SetResources sets the resources field in the taskdb for the row with the given id.

@@ -516,7 +516,7 @@ func (t *TaskDB) KeepTaskAlive(ctx context.Context, id taskdb.TaskID, keepalive 
 }
 
 // StartAlloc creates a new alloc in the taskdb with the provided parameters.
-func (t *TaskDB) StartAlloc(ctx context.Context, allocID reflow.StringDigest, poolID digest.Digest, resources reflow.Resources, start time.Time) error {
+func (t *TaskDB) StartAlloc(ctx context.Context, allocID, poolID reflow.StringDigest, resources reflow.Resources, start time.Time) error {
 	var (
 		now = time.Now().UTC()
 		res string
@@ -540,7 +540,7 @@ func (t *TaskDB) StartAlloc(ctx context.Context, allocID reflow.StringDigest, po
 				S: aws.String(id.Short()),
 			},
 			colPoolID: {
-				S: aws.String(poolID.String()),
+				S: aws.String(poolID.Digest().String()),
 			},
 			colAllocID: {
 				S: aws.String(allocID.String()),
