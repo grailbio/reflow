@@ -47,6 +47,20 @@ func init() {
 			instanceTypes[typ.Name].Resources[key] = float64(typ.VCPU)
 		}
 	}
+
+	if err := initOnce.Do(func() error {
+		var configs []instanceConfig
+		for _, config := range instanceTypes {
+			configs = append(configs, config)
+		}
+		if len(configs) == 0 {
+			return fmt.Errorf("no configured instance types")
+		}
+		allInstancesState = newInstanceState(configs, time.Millisecond, "us-west-2")
+		return nil
+	}); err != nil {
+		panic(err)
+	}
 }
 
 // instanceState stores everything we know about EC2 instances,
@@ -211,21 +225,12 @@ func (s *instanceState) Type(typ string) (instanceConfig, bool) {
 // `spot` determines whether we should consider instance types that are available
 // as spot instances or not.
 func InstanceType(need reflow.Resources, spot bool, maxPrice float64) (string, reflow.Resources) {
-	err := initOnce.Do(func() error {
-		var configs []instanceConfig
-		for _, config := range instanceTypes {
-			configs = append(configs, config)
-		}
-		if len(configs) == 0 {
-			return fmt.Errorf("no configured instance types")
-		}
-		allInstancesState = newInstanceState(configs, time.Millisecond, "us-west-2")
-		return nil
-	})
-	if err != nil {
-		panic(err)
-	}
-
 	config, _ := allInstancesState.MinAvailable(need, spot, maxPrice)
 	return config.Type, config.Resources
+}
+
+// OnDemandPrice returns the on-demand hourly price of the given instance type in the given region.
+func OnDemandPrice(typ, region string) (hourlyPriceUsd float64) {
+	config, _ := allInstancesState.Type(typ)
+	return config.Price[region]
 }

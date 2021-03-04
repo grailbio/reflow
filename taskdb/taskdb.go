@@ -185,6 +185,12 @@ type TaskDB interface {
 	// could have occurred. The returned slice will still contain information about the runs that did not cause an
 	// error.
 	Tasks(ctx context.Context, taskQuery TaskQuery) ([]Task, error)
+
+	// Pools returns all the pools matching the given pool query.
+	// If error is not nil, then some error (retrieval, parse) could have occurred.
+	// The returned slice will still contain information about the pools that did not cause an error.
+	Pools(ctx context.Context, poolQuery PoolQuery) ([]PoolRow, error)
+
 	// Scan calls the handler function for every association in the mapping.
 	// Note that the handler function may be called asynchronously from multiple threads.
 	Scan(ctx context.Context, kind Kind, handler MappingHandler) error
@@ -264,18 +270,37 @@ func (t Task) String() string {
 	return fmt.Sprintf("task %s %s %s %s %s", t.ID.IDShort(), t.RunID.IDShort(), t.FlowID.Short(), t.Start.String(), et.String())
 }
 
-// Pool is the pool info stored in the taskdb.
+// ClusterID is the identifier of a cluster.
+type ClusterID struct {
+	// ClusterName is the name of the cluster.
+	ClusterName string
+	// User is the user of the cluster.
+	User string
+	// ReflowVersion is the version of reflow which started the cluster.
+	ReflowVersion string
+}
+
+// Pool is the initial pool info with which a pool is started in taskdb.
 type Pool struct {
 	CommonFields
-	PoolID    reflow.StringDigest
-	PoolType  string
-	Resources reflow.Resources
-	URI       string
+	ClusterID
 
-	// Cluster identifiers
-	ClusterName   string
-	User          string
-	ReflowVersion string
+	// PoolID is the Pool identifier.
+	PoolID reflow.StringDigest
+	// PoolType is the value of PoolType for the Pool
+	PoolType string
+	// Resources is the amount of resources in this Pool.
+	Resources reflow.Resources
+	// URI is the value of URI for the Pool.
+	URI string
+}
+
+// PoolRow is the pool row retrieved from taskdb.
+type PoolRow struct {
+	Pool
+	// ID is the id of the Pool.
+	// This should be the value of Pool.PoolID.Digest().
+	ID digest.Digest
 }
 
 // TaskQuery is the task-querying struct for TaskDB.Tasks. There are two ways to query tasks:
@@ -314,6 +339,20 @@ type RunQuery struct {
 	Since time.Time
 	// User looks up the runs that are created by the user. If empty, the user filter is dropped.
 	User string
+}
+
+// PoolQuery is the querying struct for TaskDB Pools. There are two ways to query:
+//
+// 1. Only IDs specified: Query Pools with the corresponding IDs.
+//
+// 2. Since + Cluster specified: Query pools matching the cluster description whose keepalive is within that time frame.
+type PoolQuery struct {
+	// IDs are the list of Alloc ids being queried.
+	IDs []digest.Digest
+	// Since queries for pools that were active past this time.
+	Since time.Time
+	// Cluster looks up the pools that match the given cluster description.
+	Cluster ClusterID
 }
 
 var (

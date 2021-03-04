@@ -102,6 +102,10 @@ func (n nopTaskDB) Tasks(ctx context.Context, query taskdb.TaskQuery) ([]taskdb.
 	return []taskdb.Task{}, nil
 }
 
+func (n nopTaskDB) Pools(ctx context.Context, poolQuery taskdb.PoolQuery) ([]taskdb.PoolRow, error) {
+	return []taskdb.PoolRow{}, nil
+}
+
 // Scan does nothing.
 func (n nopTaskDB) Scan(ctx context.Context, kind taskdb.Kind, handler taskdb.MappingHandler) error {
 	return nil

@@ -413,16 +413,16 @@ func TestStartPool(t *testing.T) {
 		mockdb = mockDynamodbPut{}
 		taskb  = &TaskDB{DB: &mockdb, TableName: mockTableName}
 		p      = taskdb.Pool{
-			PoolID:        reflow.NewStringDigest("poolid"),
-			PoolType:      "pool_type",
-			Resources:     reflow.Resources{"cpu": 2, "mem": 4 * 1024 * 1024 * 1024},
-			URI:           "http://some_url",
-			ClusterName:   "cluster_name",
-			User:          "user@grailbio.com",
-			ReflowVersion: "version_x",
+			PoolID:    reflow.NewStringDigest("poolid"),
+			PoolType:  "pool_type",
+			Resources: reflow.Resources{"cpu": 2, "mem": 4 * 1024 * 1024 * 1024},
+			URI:       "http://some_url",
 		}
 	)
 	p.Start = time.Now().Add(-time.Hour)
+	p.ClusterName = "cluster_name"
+	p.User = "user@grailbio.com"
+	p.ReflowVersion = "version_x"
 	err := taskb.StartPool(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)

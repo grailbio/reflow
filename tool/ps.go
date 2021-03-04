@@ -18,12 +18,15 @@ import (
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/taskdb"
 	"golang.org/x/sync/errgroup"
 )
+
+const allFlagValue = "_all_"
 
 type headerDesc struct {
 	name, description string
@@ -56,6 +59,19 @@ var (
 	}
 	taskColsUri     = headerDesc{"uri/resultid", "(long listing only) URI of a running task or (if taskdb exists) ID of the result of a completed task"}
 	taskColsInspect = headerDesc{"inspect", "(long listing and if taskdb exists) ID of the inspect of a completed task"}
+
+	poolCols = []headerDesc{
+		{"poolid", "ID of the pool"},
+		{"instanceid", "ID of the pool's underlying EC2 instance"},
+		{"type", "type of the EC2 instance"},
+		{"cost (USD)", "(upper bound) cost of the EC2 instance based on the duration of use"},
+		{"start", "start time of the pool"},
+		{"end", "if ended, end time of the pool, or the last keepalive"},
+	}
+	poolColsLong = []headerDesc{
+		{"resources", "(long listing only) the pool's resources"},
+		{"dns", "(long listing only) the pool's EC2 instance's public DNS"},
+	}
 )
 
 func header(hd []headerDesc) string {
@@ -96,11 +112,13 @@ func (c *Cmd) ps(ctx context.Context, args ...string) {
 	allFlag := flags.Bool("i", false, "list inactive/dead execs")
 	longFlag := flags.Bool("l", false, "show long listing")
 	userFlag := flags.String("u", "", "user (full username, eg: <username>@grailbio.com)")
-	sinceFlag := flags.String("since", "", "runs that were active since")
-	allUsersFlag := flags.Bool("a", false, "show runs of all users")
-	help := `Ps lists runs and tasks.
+	sinceFlag := flags.String("since", "", "runs (or pools) that were active since")
+	allUsersFlag := flags.Bool("a", false, "show runs (or pools) of all users")
+	poolsFlag := flags.Bool("p", false, "show pools instead of runs and tasks")
+	verFlag := flags.String("p_version", "", "show pools with this reflow version instead")
+	clustNameFlag := flags.String("p_name", "", "show pools with this cluster name instead")
+	help := `--- ps lists runs and tasks
 
-The rows displayed by ps are runs and tasks.
 Tasks associated with a run are listed below the run.
 
 The columns associated with a run are as follows:
@@ -116,7 +134,7 @@ It supports the following filters:
     - Since: run that was active since some duration before now (-since <duration>). Since uses Go's
 duration format. Valid time units are "h", "m", "s". e.g: "24h"
 
-Global flags that work in both query modes:
+Global flags that work in all both query modes:
 Flag -i lists all known execs in any state. Completed execs display profile
 information for memory, cpu, and disk utilization in place of live utilization.
 Flag -l shows the long listing; the live exec URI for a running task and the result id
@@ -124,9 +142,42 @@ and inspect for a completed task.
 
 Ps must contact each node in the cluster to gather exec data. If a node 
 does not respond within a predefined timeout, it is skipped, and an error is
-printed on the console.`
-	c.Parse(flags, args, help, "ps [-i] [-l] [-a | -u <user>] [-since <time>]")
+printed on the console.
+
+--- "ps -p" lists pools
+
+The columns associated with a pool are as follows:
+` + description(append(poolCols, poolColsLong...)) + `
+
+Cost: The cost displayed is based on the on-demand price of the relevant instance type,
+which is the maximum bid reflow uses in the spot market.  So it works primarily as an
+*upper bound* and the actual cost incurred can be (much) smaller.
+
+"ps -p" only lists pools that are currently active and match the "current" cluster identifier.
+A cluster identifier is a combination of <user, cluster name, reflow version>.
+By default, the cluster identifier is based on:
+- the current user
+- the cluster name set in the current reflow config.
+- the reflow version that is the same as the current binary.
+
+Pools are listed grouped by each cluster identifier
+
+Flag -l shows the long listing
+It supports the same filters as mentioned above (ie, User and Since).
+In addition, pools for a different reflow version and/or cluster name can be retrieved
+using the flags -p_version and -p_name, respectively.
+In order to match all available reflow versions and/or cluster names, these flags can
+be set to the special value "` + allFlagValue + `".
+
+For example, the following query will return all pools that were active in the last 12 hours:
+	> reflow ps -p -since 12h -p_version ` + allFlagValue + ` -p_name ` + allFlagValue + `
+`
+	c.Parse(flags, args, help, "ps [-i] [-l] [-a | -u <user>] [-since <time>] [-p] [-p_version <reflow_version>] [-p_name <cluster_name>]")
 	if flags.NArg() != 0 {
+		flags.Usage()
+	}
+
+	if *userFlag != "" && *allUsersFlag {
 		flags.Usage()
 	}
 
@@ -256,31 +307,63 @@ printed on the console.`
 		return
 	}
 
-	var q taskdb.RunQuery
-	var user *infra.User
-	err = c.Config.Instance(&user)
-	if err != nil {
+	var (
+		infrauser *infra.User
+		user      string
+		since     time.Time
+	)
+	if err = c.Config.Instance(&infrauser); err != nil {
 		c.Log.Debug(err)
 	}
-	if *userFlag != "" && *allUsersFlag {
-		flags.Usage()
-	}
-	q.User = string(*user)
 	switch {
 	case *userFlag != "":
-		q.User = *userFlag
+		user = *userFlag
 	case *allUsersFlag:
-		q.User = ""
+		user = ""
+	default:
+		user = infrauser.User()
 	}
-	q.Since = time.Now().Add(-time.Minute * 10)
+	since = time.Now().Add(-time.Minute * 10)
 	if *sinceFlag != "" {
 		dur, err := time.ParseDuration(*sinceFlag)
 		if err != nil {
-			log.Fatalf("invalid duration %s: %s", *sinceFlag, err)
+			c.Fatalf("invalid duration %s: %s", *sinceFlag, err)
 		}
-		q.Since = time.Now().Add(-dur)
+		since = time.Now().Add(-dur)
 	}
-	ri, err := c.runInfo(ctx, q, !*allFlag)
+	if *poolsFlag {
+		cluster := c.Cluster(nil)
+		ec2c, ok := cluster.(*ec2cluster.Cluster)
+		if !ok {
+			c.Fatalf("poolInfo: not applicable for non-ec2 cluster %T", cluster)
+		}
+		q := taskdb.PoolQuery{Since: since, Cluster: taskdb.ClusterID{User: user}}
+		switch *verFlag {
+		case "":
+			q.Cluster.ReflowVersion = ec2c.ReflowVersion
+		case allFlagValue:
+		default:
+			q.Cluster.ReflowVersion = *verFlag
+		}
+		switch *clustNameFlag {
+		case "":
+			q.Cluster.ClusterName = ec2c.Name
+		case allFlagValue:
+		default:
+			q.Cluster.ClusterName = *clustNameFlag
+		}
+		prs, err := c.poolInfo(ctx, q)
+		if err != nil {
+			c.Fatalf("poolInfo: %v", err)
+		}
+		var tw tabwriter.Writer
+		tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
+		defer tw.Flush()
+		c.writePools(prs, &tw, *longFlag)
+		return
+	}
+
+	ri, err := c.runInfo(ctx, taskdb.RunQuery{User: user, Since: since}, !*allFlag)
 	if err != nil {
 		c.Log.Debug(err)
 	}
@@ -412,6 +495,17 @@ func (c *Cmd) runInfo(ctx context.Context, q taskdb.RunQuery, liveOnly bool) ([]
 	}
 	err = g.Wait()
 	return ri, err
+}
+
+func (c *Cmd) poolInfo(ctx context.Context, q taskdb.PoolQuery) ([]taskdb.PoolRow, error) {
+	var tdb taskdb.TaskDB
+	if err := c.Config.Instance(&tdb); err != nil {
+		c.Fatalf("taskdb: %v", err)
+	}
+	if tdb == nil {
+		return nil, fmt.Errorf("poolInfo: no taskdb")
+	}
+	return tdb.Pools(ctx, q)
 }
 
 func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing bool) {
@@ -551,4 +645,78 @@ func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
 		fmt.Fprintf(w, "\t%s\t%s", result, inspect)
 	}
 	fmt.Fprint(w, "\n")
+}
+
+func poolCost(pr taskdb.PoolRow) (cost float64, start, end time.Time) {
+	if t := pr.Start; !t.IsZero() {
+		start = t
+	}
+	if t := pr.Keepalive; !t.IsZero() {
+		end = t
+	}
+	if t := pr.End; !t.IsZero() {
+		end = t
+	}
+
+	if typ := pr.PoolType; typ != "" {
+		// TODO(swami): Fix this by storing the region of the pool as well in taskdb.
+		if hourlyPriceUsd := ec2cluster.OnDemandPrice(typ, "us-west-2"); hourlyPriceUsd > 0 {
+			cost = hourlyPriceUsd * end.Sub(start).Hours()
+		}
+	}
+	return
+}
+
+func (c *Cmd) writePools(prs []taskdb.PoolRow, w io.Writer, longListing bool) {
+	byCluster := make(map[taskdb.ClusterID][]taskdb.PoolRow)
+	clusterCost := make(map[taskdb.ClusterID]float64)
+	for _, pr := range prs {
+		cost, _, _ := poolCost(pr)
+		byCluster[pr.ClusterID] = append(byCluster[pr.ClusterID], pr)
+		clusterCost[pr.ClusterID] = clusterCost[pr.ClusterID] + cost
+	}
+	cols := poolCols
+	if longListing {
+		cols = append(cols, poolColsLong...)
+	}
+
+	for c, prs := range byCluster {
+		fmt.Fprintf(w, "Cluster id: %s (user), %s (name), %s (reflowversion)\n", c.User, c.ClusterName, c.ReflowVersion)
+		fmt.Fprintf(w, "Cost (upper bound): %5.4f (see 'ps -help' for details)\n", clusterCost[c])
+		fmt.Fprint(w, "\t", header(cols), "\n")
+		for _, pr := range prs {
+			var (
+				start, end      time.Time
+				st, et, id, iid string
+				hourlyPriceUsd  float64
+			)
+			if t := pr.Start; !t.IsZero() {
+				start, st = t, t.Local().Format(format(t))
+			}
+			if t := pr.Keepalive; !t.IsZero() {
+				end, et = t, t.Local().Format(format(t))
+			}
+			if t := pr.End; !t.IsZero() {
+				end, et = t, t.Local().Format(format(t))
+			}
+			if pid := pr.PoolID; pid.IsValid() {
+				id = pid.Digest().Short()
+				iid = pid.String()
+			}
+			var cost float64
+			if typ := pr.PoolType; typ != "" {
+				// TODO(swami): Fix this by storing the region of the pool as well in taskdb.
+				hourlyPriceUsd = ec2cluster.OnDemandPrice(typ, "us-west-2")
+				if hourlyPriceUsd > 0 {
+					cost = hourlyPriceUsd * end.Sub(start).Hours()
+				}
+			}
+			fmt.Fprintf(w, "\t%s\t%s\t%s\t%5.4f\t%s\t%s", id, iid, pr.PoolType, cost, st, et)
+			if longListing {
+				fmt.Fprintf(w, "\t%s\t%s", pr.Resources, pr.URI)
+			}
+			fmt.Fprintln(w, "")
+		}
+		fmt.Fprintln(w, "")
+	}
 }

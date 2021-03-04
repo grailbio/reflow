@@ -340,14 +340,14 @@ func (i *instance) Go(ctx context.Context) {
 				// the pool (ie, reflowlet) has the chance to come up and takeover maintaining the row.
 				p := taskdb.Pool{
 					// TaskDB row id for the pool is based on the EC2 instance ID.
-					PoolID:        reflow.NewStringDigest(id),
-					PoolType:      aws.StringValue(i.ec2inst.InstanceType),
-					URI:           dns,
-					ClusterName:   i.InstanceTags[clusterNameKey],
-					User:          i.InstanceTags[userKey],
-					ReflowVersion: i.ReflowVersion,
+					PoolID:   reflow.NewStringDigest(id),
+					PoolType: aws.StringValue(i.ec2inst.InstanceType),
+					URI:      dns,
 				}
 				p.Start = aws.TimeValue(i.ec2inst.LaunchTime)
+				p.ClusterName = i.InstanceTags[clusterNameKey]
+				p.User = i.InstanceTags[userKey]
+				p.ReflowVersion = i.ReflowVersion
 				if err := i.TaskDB.StartPool(ctx, p); err != nil {
 					i.Log.Debugf("taskdb pool %s StartPool: %v", poolId, err)
 				} else if err = i.TaskDB.KeepIDAlive(ctx, poolId.Digest(), time.Now().Add(1*time.Minute)); err != nil {

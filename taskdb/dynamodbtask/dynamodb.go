@@ -14,7 +14,7 @@
 // run:  {ID, ID4, Labels, Bundle, Args, Date, Keepalive, StartTime, EndTime, Type="run", User}
 // task: {ID, ID4, Labels, Date, Attempt, Keepalive, StartTime, EndTime, Type="task", FlowID, Inspect, Error, ResultID, RunID, RunID4, AllocID, ImgCmdID, Ident, Stderr, Stdout, URI}
 // alloc: {ID, ID4, PoolID, AllocID, Resources, Keepalive, StartTime, EndTime, Type="alloc"}
-// pool: {ID, ID4, PoolID, Type, Resources, Keepalive, StartTime, EndTime, Type="pool"}
+// pool: {ID, ID4, PoolID, URI, PoolType, Resources, Keepalive, StartTime, EndTime, Type="pool"}
 // Note:
 // PoolID: While rows of type "pool" are expected to store the implementation-specific identifier of a pool,
 // rows of type "alloc" will contain the digest of PoolID in this field (of the pool they belong to).
@@ -959,6 +959,66 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 	return runs, getError(errs)
 }
 
+func (t *TaskDB) Pools(ctx context.Context, poolQuery taskdb.PoolQuery) ([]taskdb.PoolRow, error) {
+	var queries []*dynamodb.QueryInput
+	switch {
+	case len(poolQuery.IDs) > 0:
+		for _, id := range poolQuery.IDs {
+			switch {
+			case id.IsZero(): // Skip
+			case id.IsAbbrev():
+				queries = append(queries, t.buildIndexQuery(ID4, id4Index, id.Short(), poolObj)...)
+			default:
+				queries = append(queries, t.buildIndexQuery(ID, idIndex, id.String(), poolObj)...)
+			}
+		}
+	case poolQuery.Since.IsZero():
+		return nil, fmt.Errorf("invalid PoolQuery (missing either IDs OR Since): %v", poolQuery)
+	default:
+		filters := make(map[taskdb.Kind]string)
+		if v := poolQuery.Cluster.ClusterName; v != "" {
+			filters[ClusterName] = v
+		}
+		if v := poolQuery.Cluster.User; v != "" {
+			filters[User] = v
+		}
+		if v := poolQuery.Cluster.ReflowVersion; v != "" {
+			filters[ReflowVersion] = v
+		}
+		queries = t.buildSinceQueries(poolObj, poolQuery.Since, filters)
+	}
+	items, err := t.getItems(ctx, queries, 0)
+	if err != nil {
+		return nil, err
+	}
+	var (
+		pools = make([]taskdb.PoolRow, 0, len(items))
+		errs  []error
+	)
+	for _, it := range items {
+		var pr taskdb.PoolRow
+		if v := parseAttr(it, ID, parseDigestFunc, &errs); v != nil {
+			pr.ID = v.(digest.Digest)
+		}
+		errs = append(errs, setCommonFields(it, &pr.CommonFields)...)
+		pr.ClusterName = parseAttr(it, ClusterName, nil, &errs).(string)
+		pr.User = parseAttr(it, User, nil, &errs).(string)
+		pr.ReflowVersion = parseAttr(it, ReflowVersion, nil, &errs).(string)
+		if pid := parseAttr(it, PoolID, nil, &errs).(string); pid != "" {
+			pr.PoolID = reflow.NewStringDigest(pid)
+		}
+		pr.PoolType = parseAttr(it, PoolType, nil, &errs).(string)
+		pr.Resources = parseAttr(it, Resources, parseResourcesFunc, &errs).(reflow.Resources)
+		pr.URI = parseAttr(it, URI, nil, &errs).(string)
+		pools = append(pools, pr)
+	}
+	if err = getError(errs); err != nil && len(pools) > 0 {
+		log.Errorf("taskdb.Pools: %v", err)
+		err = nil
+	}
+	return pools, err
+}
+
 // Scan calls the handler function for every association in the mapping.
 // Note that the handler function may be called asynchronously from multiple threads.
 func (t *TaskDB) Scan(ctx context.Context, kind taskdb.Kind, mappingHandler taskdb.MappingHandler) error {
@@ -1068,8 +1128,13 @@ func parseAttr(it map[string]*dynamodb.AttributeValue, k taskdb.Kind, f func(s s
 }
 
 var (
-	parseTimeFunc   = func(s string) (interface{}, error) { return time.Parse(timeLayout, s) }
-	parseDigestFunc = func(s string) (interface{}, error) { return digest.Parse(s) }
+	parseTimeFunc      = func(s string) (interface{}, error) { return time.Parse(timeLayout, s) }
+	parseDigestFunc    = func(s string) (interface{}, error) { return digest.Parse(s) }
+	parseResourcesFunc = func(s string) (interface{}, error) {
+		var r reflow.Resources
+		err := json.Unmarshal([]byte(s), &r)
+		return r, err
+	}
 )
 
 func setCommonFields(it map[string]*dynamodb.AttributeValue, dst *taskdb.CommonFields) (errs []error) {
