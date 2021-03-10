@@ -37,6 +37,7 @@ import (
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
+	"github.com/grailbio/reflow/sched/internal"
 	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/trace"
 	"golang.org/x/sync/errgroup"
@@ -392,93 +393,14 @@ func (s *Scheduler) allocate(ctx context.Context, alloc *alloc, notify, dead cha
 	dead <- alloc
 }
 
-type execState int
-
-const (
-	stateLoad execState = iota
-	statePut
-	stateWait
-	stateVerify
-	statePromote
-	stateInspect
-	stateResult
-	stateTransferOut
-	stateUnload
-	stateDone
-)
-
-func (e execState) String() string {
-	switch e {
-	default:
-		panic("bad state")
-	case stateLoad:
-		return "loading"
-	case statePut:
-		return "submitting"
-	case stateWait:
-		return "waiting for completion"
-	case stateVerify:
-		return "verifying integrity"
-	case statePromote:
-		return "promoting objects"
-	case stateInspect:
-		return "retrieving diagnostic output"
-	case stateResult:
-		return "retrieving result"
-	case stateTransferOut:
-		return "transferring output"
-	case stateUnload:
-		return "unloading"
-	case stateDone:
-		return "complete"
-	}
-}
-
-func (e execState) TraceKind() trace.Kind {
-	switch e {
-	case stateLoad:
-		return trace.Transfer
-	case statePromote:
-		return trace.Transfer
-	case stateTransferOut:
-		return trace.Transfer
-	default:
-		return trace.Exec
-	}
-}
-
-// next returns the next state considering the `err` encountered after completing this state.
-// It also returns a message (suitable for logging) explaining why the next state was chosen.
-func (e execState) next(ctx context.Context, err error, postUseChecksum bool) (next execState, msg string) {
-	switch {
-	case ctx.Err() != nil:
-		msg = fmt.Sprintf("ctx.Err(): %v", ctx.Err())
-		next = stateDone
-	case err == nil:
-		msg = "successful"
-		next = e + 1
-	case errors.NonRetryable(err):
-		msg = fmt.Sprintf("non-retryable error: %v", err)
-		next = stateDone
-	default:
-		msg = fmt.Sprintf("retryable error: %v", err)
-		next = e
-	}
-	// Skip stateVerify unless post-use checksumming is enabled
-	if next == stateVerify && !postUseChecksum {
-		next++
-	}
-	return
-}
-
 func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 	var (
 		err            error
 		alloc          = task.alloc
 		ctx            = alloc.Context
 		x              reflow.Exec
-		n              = 0
-		state          execState
+		attempt        = 0
+		state          internal.ExecState
 		tcancel        context.CancelFunc
 		tctx           context.Context
 		loadedData     sync.Map
@@ -500,12 +422,12 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 	// the files all over again.
 	savedArgs := append([]reflow.Arg{}, task.Config.Args...)
 	ctx, endTrace := trace.Start(ctx, state.TraceKind(), task.FlowID, fmt.Sprintf("%s_%s %s", task.Config.Ident, task.FlowID.Short(), state.String()))
-	for n < numExecTries && state < stateDone {
-		task.Log.Debugf("%s (try %d): started", state, n)
+	for attempt < numExecTries && state < internal.StateDone {
+		task.Log.Debugf("%s (try %d): started", state, attempt)
 		switch state {
 		default:
 			panic("bad state")
-		case stateLoad:
+		case internal.StateLoad:
 			task.Set(TaskStaging)
 			if s.TaskDB != nil && tctx == nil {
 				// disable govet check due to https://github.com/golang/go/issues/29587
@@ -552,9 +474,9 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 				return true
 			})
 			err = g.Wait()
-		case statePut:
+		case internal.StatePut:
 			x, err = alloc.Put(ctx, digest.Digest(task.ID), task.Config)
-		case stateWait:
+		case internal.StateWait:
 			if s.TaskDB != nil {
 				if taskdbErr := s.TaskDB.SetTaskUri(tctx, task.ID, x.URI()); taskdbErr != nil {
 					task.Log.Errorf("taskdb settaskuri: %v", taskdbErr)
@@ -568,7 +490,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 					task.Log.Errorf("taskdb settaskresult: %v", taskdbErr)
 				}
 			}
-		case stateVerify:
+		case internal.StateVerify:
 			g, gctx := errgroup.WithContext(ctx)
 			loadedData.Range(func(key, value interface{}) bool {
 				i := key.(int)
@@ -586,11 +508,11 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 				return true
 			})
 			err = g.Wait()
-		case statePromote:
+		case internal.StatePromote:
 			err = x.Promote(ctx)
-		case stateInspect:
+		case internal.StateInspect:
 			task.Inspect, err = x.Inspect(ctx)
-		case stateResult:
+		case internal.StateResult:
 			task.Result, err = x.Result(ctx)
 			if err == nil && task.Config.Type == "extern" {
 				// If files are 'extern'ed without using direct transfer, the result fileset contains
@@ -598,19 +520,18 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 				// exist in the original fileset (`savedArgs` and not the one modified after load)
 				task.Result.Fileset.MapAssertionsByFile(savedArgs[0].Fileset.Files())
 			}
-		case stateTransferOut:
+		case internal.StateTransferOut:
 			files := task.Result.Fileset.Files()
 			err = s.Transferer.Transfer(ctx, s.Repository, alloc.Repository(), files...)
-		case stateUnload:
+		case internal.StateUnload:
 			err = unload(ctx, task, &loadedData, alloc, &resultUnloaded)
 		}
-		next, msg := state.next(ctx, err, s.PostUseChecksum)
-		task.Log.Debugf("%s (try %d): %s, next state: %s", state, n, msg, next)
-		if next == state {
-			n++
-			trace.Note(ctx, fmt.Sprintf("\"%s\" retries", state.String()), n)
+		next, nextIsRetry, msg := state.Next(ctx, err, s.PostUseChecksum)
+		task.Log.Debugf("%s (try %d): %s, next state: %s", state, attempt, msg, next)
+		if nextIsRetry {
+			attempt++
+			trace.Note(ctx, fmt.Sprintf("\"%s\" retries", state.String()), attempt)
 		} else {
-			n = 0
 			endTrace() // end the trace for the current state and start it for the next one
 			_, endTrace = trace.Start(ctx, next.TraceKind(), task.FlowID, fmt.Sprintf("%s_%s %s", task.Config.Ident, task.FlowID.Short(), next.String()))
 		}

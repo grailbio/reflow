@@ -420,12 +420,13 @@ func TestTaskErrors(t *testing.T) {
 			exec := alloc.Exec(digest.Digest(task.ID))
 			exec.Complete(reflow.Result{}, tt.err)
 
-			if e := task.Wait(ctx, tt.wantTaskState); e != nil {
-				t.Fatal(e)
+			// wait up to a second to reach the wantTaskState; having a timeout avoids
+			// holding up the unit tests forever if there is a problem
+			waitCtx, waitCancel := context.WithTimeout(ctx, 1*time.Second)
+			if e := task.Wait(waitCtx, tt.wantTaskState); e != nil {
+				t.Fatalf("did not reach desired state: %v, instead task state is: %v; error: %v", tt.wantTaskState, task.State(), e)
 			}
-			if got, want := task.State(), tt.wantTaskState; got != want {
-				t.Errorf("got state: %v, want: %v", got, want)
-			}
+			waitCancel()
 			if got, want := errors.Recover(task.Err).Kind, tt.wantTaskError; got != want {
 				t.Errorf("got error: %v, want: %v", got, want)
 			}
