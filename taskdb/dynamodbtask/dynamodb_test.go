@@ -294,6 +294,42 @@ func TestSetTaskAttrs(t *testing.T) {
 	}
 }
 
+func TestSetRunComplete(t *testing.T) {
+	var (
+		mockdb    = mockDynamoDBUpdate{}
+		taskb     = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		runID     = taskdb.NewRunID()
+		execLog   = reflow.Digester.Rand(nil)
+		sysLog    = reflow.Digester.Rand(nil)
+		evalGraph = reflow.Digester.Rand(nil)
+		trace     = reflow.Digester.Rand(nil)
+		end       = time.Now()
+	)
+	err := taskb.SetRunComplete(context.Background(), runID, execLog, sysLog, evalGraph, trace, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		got, want string
+	}{
+		{*mockdb.uInput.TableName, "mockdynamodb"},
+		{*mockdb.uInput.Key[colID].S, runID.ID()},
+		{*mockdb.uInput.ExpressionAttributeValues[":endtime"].S, end.UTC().Format(timeLayout)},
+		{*mockdb.uInput.ExpressionAttributeValues[":execlog"].S, execLog.String()},
+		{*mockdb.uInput.ExpressionAttributeValues[":syslog"].S, sysLog.String()},
+		{*mockdb.uInput.ExpressionAttributeValues[":evalgraph"].S, evalGraph.String()},
+		{*mockdb.uInput.ExpressionAttributeValues[":trace"].S, trace.String()},
+		{
+			*mockdb.uInput.UpdateExpression,
+			"SET EndTime = :endtime, ExecLog = :execlog, Syslog = :syslog, EvalGraph = :evalgraph, Trace = :trace",
+		},
+	} {
+		if test.want != test.got {
+			t.Errorf("got %v, want %v", test.got, test.want)
+		}
+	}
+}
+
 func TestSetTaskComplete(t *testing.T) {
 	var (
 		mockdb = mockDynamoDBUpdate{}
