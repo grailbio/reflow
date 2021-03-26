@@ -125,3 +125,12 @@ func URL(ctx context.Context) string {
 	t := tracer(ctx)
 	return t.URL(ctx)
 }
+
+// Flush should be called at least once, when no more events
+// will be emitted, to guarantee that traces are persisted.
+func Flush(ctx context.Context) {
+	if On(ctx) {
+		t := tracer(ctx)
+		t.Flush()
+	}
+}

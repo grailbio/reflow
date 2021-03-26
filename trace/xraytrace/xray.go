@@ -112,3 +112,6 @@ func (Tracer) URL(ctx context.Context) string {
 	}
 	return url
 }
+
+// Flush is a no-op for the xray tracer implementation.
+func (Tracer) Flush() {}

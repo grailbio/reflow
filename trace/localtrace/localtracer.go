@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/grailbio/infra"
@@ -21,17 +23,17 @@ func init() {
 }
 
 type LocalTracer struct {
-	mu      sync.Mutex
-	prevPid int
-	tidMap  map[string]int
-	trace   T
+	rwmu       sync.RWMutex
+	pidCounter int32
+	tidMap     sync.Map
+	trace      T
 
 	tracefilepath string
 }
 
-// Init implements infra.Provider
+// Init implements infra.Provider and gets called when an instance of LocalTracer
+// is created with infra.Config.Instance(...)
 func (lt *LocalTracer) Init(runID *taskdb.RunID) error {
-	lt.tidMap = make(map[string]int)
 	dir, err := tool.Rundir()
 	if err == nil {
 		base := tool.Runbase(dir, *runID)
@@ -51,7 +53,6 @@ func New(path string) (*LocalTracer, error) {
 		f.Close()
 	}
 	return &LocalTracer{
-		tidMap:        make(map[string]int),
 		tracefilepath: path,
 	}, nil
 }
@@ -84,7 +85,7 @@ func (k key) getEvent(ctx context.Context) (Event, error) {
 // unique pid. With this implementation, we can get a fresh pid for each unique
 // alloc, and as long as that alloc's ctx is used to create spans for tasks on
 // that alloc, the trace visualization will group them all together.
-// Important: lt.mu must be held when calling this method to prevent concurrent accesses.
+// Important: getPid is safe for concurrent use.
 func (lt *LocalTracer) getPid(ctx context.Context, e trace.Event) (context.Context, int) {
 	switch {
 	case e.SpanKind == trace.Run || e.SpanKind == trace.AllocReq:
@@ -94,8 +95,7 @@ func (lt *LocalTracer) getPid(ctx context.Context, e trace.Event) (context.Conte
 		return ctx, ctx.Value(pidKey).(int)
 	default:
 		// otherwise generate a new unique pid, store it and return it along with the updated ctx
-		lt.prevPid += 1
-		pid := lt.prevPid
+		pid := int(atomic.AddInt32(&lt.pidCounter, 1))
 		return context.WithValue(ctx, pidKey, pid), pid
 	}
 }
@@ -105,20 +105,21 @@ func (lt *LocalTracer) getPid(ctx context.Context, e trace.Event) (context.Conte
 // tracing format to group together different spans that belong together. One way
 // this is used is to group together different steps of a single task (load,
 // exec, unload, etc.) into a single row in the trace visualization.
-// Important: lt.mu must be held when calling this method to prevent concurrent accesses.
+// Important: getTid is safe for concurrent use.
 func (lt *LocalTracer) getTid(id string) int {
-	tid, ok := lt.tidMap[id]
+	tid, ok := lt.tidMap.Load(id)
 	if !ok {
-		lt.tidMap[id] = len(lt.tidMap) // increment the Tid for each unique ID we see
-		tid = lt.tidMap[id]
+		tid = rand.Int()
+		lt.tidMap.Store(id, tid)
 	}
-	return tid
+	return tid.(int)
 }
 
-// emitEvent adds a completed event to the trace and flushes the trace file to disk.
-// Important: lt.mu must be held when calling this method to prevent concurrent accesses.
-func (lt *LocalTracer) emitEvent(event Event) {
-	lt.trace.Events = append(lt.trace.Events, event)
+// Flush writes the completed trace events to a file at lt.tracefilepath
+// and can be called concurrently.
+func (lt *LocalTracer) Flush() {
+	lt.rwmu.RLock()
+	defer lt.rwmu.RUnlock()
 	// If the file already exists, os.Create will truncate it to zero. This is okay
 	// because lt.trace contains all previously emitted events and we rewrite them.
 	if tracefile, err := os.Create(lt.tracefilepath); err == nil {
@@ -130,8 +131,6 @@ func (lt *LocalTracer) emitEvent(event Event) {
 // Emit emits a trace event and implements the trace.Tracer interface. This
 // should never be used directly, instead use trace.Start and trace.Note.
 func (lt *LocalTracer) Emit(ctx context.Context, e trace.Event) (context.Context, error) {
-	lt.mu.Lock()
-	defer lt.mu.Unlock()
 	if e.Time.IsZero() {
 		e.Time = time.Now()
 	}
@@ -159,7 +158,9 @@ func (lt *LocalTracer) Emit(ctx context.Context, e trace.Event) (context.Context
 			// convert to microseconds to ensure common units before calculating duration
 			event.Dur = (e.Time.UnixNano() / 1000) - event.Ts
 			event.Args["endTime"] = e.Time.Format(time.RFC850)
-			lt.emitEvent(event)
+			lt.rwmu.Lock()
+			lt.trace.Events = append(lt.trace.Events, event)
+			lt.rwmu.Unlock()
 		}
 		// don't return a context for EndEvent; it shouldn't be used
 		return nil, nil
@@ -167,7 +168,9 @@ func (lt *LocalTracer) Emit(ctx context.Context, e trace.Event) (context.Context
 		if event, err := eventKey.getEvent(ctx); err == nil {
 			// storing the key/val note in the duration event's args will
 			// display them in the trace viewer
+			lt.rwmu.Lock()
 			event.Args[e.Key] = e.Value
+			lt.rwmu.Unlock()
 		}
 		// return the same context; if it contained an event, it will have been updated
 		return ctx, nil

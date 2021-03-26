@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/taskdb"
@@ -32,12 +34,12 @@ func TestLocalTracerInfra(t *testing.T) {
 
 func TestLocalTracerEmit(t *testing.T) {
 	startTime := time.Now()
-	endTime := time.Now().Add(time.Minute)
+	endTime := startTime.Add(time.Minute)
 	durationMicroSeconds := time.Minute.Microseconds()
 	flowName := "TestFlow"
 	flowId := reflow.Digester.FromString(flowName)
 	noteKey, noteValue := "testNoteKey", "testNoteValue"
-	wantFinalEvent := Event{
+	want := Event{
 		Pid:  1,
 		Tid:  0,
 		Ts:   startTime.UnixNano() / 1000,
@@ -107,8 +109,11 @@ func TestLocalTracerEmit(t *testing.T) {
 	if got, want := len(lt.trace.Events), 1; got != want {
 		t.Fatalf("wanted %d trace event(s), got %d", want, got)
 	}
-	if got := lt.trace.Events[0]; !reflect.DeepEqual(got, wantFinalEvent) {
-		t.Fatalf("\nwant %v\ngot  %v", wantFinalEvent, got)
+
+	got := lt.trace.Events[0]
+	got.Tid = 0 // tid will be random so reset it before comparing with what we want
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("\nwant %v\ngot %v", want, got)
 	}
 }
 
@@ -248,7 +253,137 @@ func TestLocalTracerConcurrentNoteEvents(t *testing.T) {
 	if got, want := len(lt.trace.Events[0].Args), numConcurrentNotes+2; got != want {
 		t.Errorf("got %d attributes on the emitted event, wanted %d (start time, end time, and %d notes)", got, want, numConcurrentNotes)
 	}
+}
 
+// TestLocalTracerContention stress tests concurrent uses of the localtracer to
+// highlight regressions in mutex contention.
+func TestLocalTracerContention(t *testing.T) {
+	_, lt, err := getTestRunIdAndLocalTracer()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// each invocation of traceFunc will emit a complete trace: a start event, up to
+	// 5 note events, and an end event.
+	traceFunc := func() {
+		name := fmt.Sprintf("name%d", rand.Int())
+		id := reflow.Digester.FromString(name)
+
+		startCtx, _ := lt.Emit(context.Background(), trace.Event{
+			Time:     time.Now(),
+			Kind:     trace.StartEvent,
+			Id:       id,
+			Name:     name,
+			SpanKind: trace.Exec,
+		})
+
+		// emit up to 5 note events
+		_ = traverse.Each(rand.Intn(5), func(i int) error {
+			_, _ = lt.Emit(startCtx, trace.Event{
+				Time:  time.Now(),
+				Kind:  trace.NoteEvent,
+				Key:   fmt.Sprintf("noteEvent%d", i),
+				Value: i,
+			})
+			return nil
+		})
+
+		_, _ = lt.Emit(startCtx, trace.Event{
+			Time:     time.Now(),
+			Kind:     trace.EndEvent,
+			Id:       id,
+			Name:     name,
+			SpanKind: trace.Exec,
+		})
+	}
+
+	// The testcases progressively increase the concurrency and check for the
+	// elapsed time. We want to ensure that the increase in time is at most linear.
+	testcases := []struct {
+		name         string
+		concurrency  int
+		wantDuration time.Duration // note: if test is run with go's race detector, it will take longer
+	}{
+		{
+			"1,000 concurrent traces",
+			1000,
+			20 * time.Millisecond,
+		},
+		{
+			"10,000 concurrent traces",
+			10000,
+			200 * time.Millisecond,
+		},
+		{
+			"100,000 concurrent traces",
+			100000,
+			2000 * time.Millisecond,
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			startTime := time.Now()
+			err = traverse.Each(tc.concurrency, func(_ int) error {
+				traceFunc()
+				return nil
+			})
+			if err != nil {
+				t.Errorf("error emitting concurrent traces: %s", err)
+			}
+			elapsedTime := time.Now().Sub(startTime)
+			if elapsedTime > tc.wantDuration {
+				t.Errorf("took %v, expected less than %v", elapsedTime, tc.wantDuration)
+			}
+		})
+	}
+}
+
+func TestLocalTracerFlushEncodeDecode(t *testing.T) {
+	testTraceFilepath := "/tmp/TestLocalTracerFlushEncodeDecode.trace"
+	lt, err := New(testTraceFilepath)
+	if err != nil {
+		t.Error(err)
+	}
+
+	name := "TestEvent"
+	id := reflow.Digester.FromString(name)
+	startCtx, _ := lt.Emit(context.Background(), trace.Event{
+		Time:     time.Now(),
+		Kind:     trace.StartEvent,
+		Id:       id,
+		Name:     name,
+		SpanKind: trace.Exec,
+	})
+	_, _ = lt.Emit(startCtx, trace.Event{
+		Time:     time.Now(),
+		Kind:     trace.EndEvent,
+		Id:       id,
+		Name:     name,
+		SpanKind: trace.Exec,
+	})
+
+	lt.Flush()
+
+	f, err := os.Open(testTraceFilepath)
+	defer func() {
+		f.Close()
+		os.Remove(f.Name())
+	}()
+	if err != nil {
+		t.Error(err)
+	}
+
+	gotLt := LocalTracer{}
+	if err = gotLt.trace.Decode(f); err != nil {
+		t.Error(err)
+	}
+	if len(gotLt.trace.Events) != 1 {
+		t.Fatalf("expected 1 event from trace file, but got: %d", len(gotLt.trace.Events))
+	}
+	if got := gotLt.trace.Events[0].Name; got != name {
+		t.Errorf("got: %s, want: %s", got, name)
+	}
 }
 
 func TestLocalTracerCopyTraceContext(t *testing.T) {
@@ -304,9 +439,8 @@ func getTestRunIdAndLocalTracer() (*taskdb.RunID, *LocalTracer, error) {
 
 func TestNew(t *testing.T) {
 	want := &LocalTracer{
-		mu:            sync.Mutex{},
-		prevPid:       0,
-		tidMap:        make(map[string]int),
+		rwmu:          sync.RWMutex{},
+		tidMap:        sync.Map{},
 		trace:         T{},
 		tracefilepath: "",
 	}

@@ -22,6 +22,8 @@ var digester = digest.Digester(crypto.SHA256)
 
 type chanTracer chan trace.Event
 
+func (c chanTracer) Flush() {}
+
 func (c chanTracer) Emit(ctx context.Context, e trace.Event) (context.Context, error) {
 	c <- e
 	return ctx, nil

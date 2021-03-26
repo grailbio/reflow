@@ -59,12 +59,19 @@ type Tracer interface {
 	CopyTraceContext(src context.Context, dst context.Context) context.Context
 	// URL returns the trace URL for the trace associated with ctx.
 	URL(context.Context) string
+	// Flush should be called at least once, when no more events
+	// will be emitted, to guarantee traces that are persisted.
+	Flush()
 }
 
 // NopTracer is default tracer that does nothing.
 var NopTracer Tracer = nopTracer{}
 
 type nopTracer struct{}
+
+func (nopTracer) Flush() {
+	return
+}
 
 func (nopTracer) Emit(ctx context.Context, e Event) (context.Context, error) {
 	return ctx, nil

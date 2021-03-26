@@ -295,6 +295,7 @@ func (r *Runner) Eval(ctx context.Context) (string, error) {
 	if traceURL != "" {
 		r.Log.Printf("Trace: %v", traceURL)
 	}
+	defer trace.Flush(ctx) // flush the trace after eval completes
 
 	// Run stealers if we're running with an alloc. Otherwise,
 	// tasks are submitted directly to the scheduler.
