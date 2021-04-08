@@ -97,7 +97,7 @@ func imageDigestReference(ctx context.Context, image string, auth authn.Authenti
 	}
 
 	var img v1.Image
-	retryPolicy := retry.MaxTries(retry.Backoff(time.Second, 10*time.Second, 1.5), 5)
+	retryPolicy := retry.MaxRetries(retry.Backoff(time.Second, 10*time.Second, 1.5), 5)
 	for retries := 0; ; retries++ {
 		img, err = remote.Image(ref, remote.WithAuth(auth))
 		if err == nil {

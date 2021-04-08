@@ -306,7 +306,7 @@ var (
 	keepaliveInterval = 2 * time.Minute
 	wait              = 10 * time.Second
 	ivOffset          = 30 * time.Second
-	policy            = retry.Jitter(retry.MaxTries(retry.Backoff(wait, keepaliveInterval, 1.2), keepaliveTries), 0.2)
+	policy            = retry.Jitter(retry.MaxRetries(retry.Backoff(wait, keepaliveInterval, 1.2), keepaliveTries), 0.2)
 )
 
 // KeepRunAlive keeps runID alive in the task db until the provided context is canceled.

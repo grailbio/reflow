@@ -31,7 +31,7 @@ var KeepaliveRetryInitialWaitInterval = 2 * time.Second
 // configured such that the last retry will occur within the policy's max duration.
 // With a=KeepaliveRetryInitialWaitInterval, b=backoffFactor (1.5), n=keepaliveTries,
 // ivOffset should be such that: sum_{i=0 .. n-1} a*b^i < ivOffset
-var keepaliveRetryPolicy = retry.Jitter(retry.MaxTries(retry.Backoff(KeepaliveRetryInitialWaitInterval, ivOffset, 1.5), keepaliveTries), 0.2)
+var keepaliveRetryPolicy = retry.Jitter(retry.MaxRetries(retry.Backoff(KeepaliveRetryInitialWaitInterval, ivOffset, 1.5), keepaliveTries), 0.2)
 
 // Alloc represent a resource allocation attached to a single
 // executor, a reservation of resources on a single node.

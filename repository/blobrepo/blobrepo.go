@@ -172,7 +172,7 @@ const (
 	deleteMaxObjects = 1000
 )
 
-var deletePolicy = retry.MaxTries(retry.Backoff(2*time.Second, 30*time.Second, 2), deleteMaxTries)
+var deletePolicy = retry.MaxRetries(retry.Backoff(2*time.Second, 30*time.Second, 2), deleteMaxTries)
 
 // delete deletes objects from the repository's bucket, with exponential backoff.
 func (r *Repository) delete(ctx context.Context, keys []string) error {

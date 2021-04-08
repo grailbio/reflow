@@ -309,7 +309,7 @@ func TestTimeoutPolicy(t *testing.T) {
 }
 
 func TestFileErrors(t *testing.T) {
-	retrier := retry.MaxTries(retry.Jitter(retry.Backoff(20*time.Millisecond, 100*time.Millisecond, 1.5), 0.25), defaultMaxRetries)
+	retrier := retry.MaxRetries(retry.Jitter(retry.Backoff(20*time.Millisecond, 100*time.Millisecond, 1.5), 0.25), defaultMaxRetries)
 	fastbucket := newErrorBucket(t, 10*time.Millisecond)
 	fastbucket.retrier = retrier
 	slowbucket := newErrorBucket(t, defaultS3HeadLatencyLimit+20*time.Millisecond)
@@ -499,7 +499,7 @@ func newCopyErrorBucket(t *testing.T, fn *failN) *Bucket {
 		return nil
 	}
 	bucket := NewBucket(errorbucket, client)
-	bucket.retrier = retry.MaxTries(retry.Jitter(retry.Backoff(20*time.Millisecond, 100*time.Millisecond, 1.5), 0.25), defaultMaxRetries)
+	bucket.retrier = retry.MaxRetries(retry.Jitter(retry.Backoff(20*time.Millisecond, 100*time.Millisecond, 1.5), 0.25), defaultMaxRetries)
 	return bucket
 }
 

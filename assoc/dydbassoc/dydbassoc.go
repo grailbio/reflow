@@ -58,7 +58,7 @@ var (
 		assoc.Bundle:      "Bundle",
 		assoc.ExecInspect: "ExecInspect",
 	}
-	backOffPolicy = retry.MaxTries(retry.Backoff(2*time.Millisecond, time.Minute, 1), 10)
+	backOffPolicy = retry.MaxRetries(retry.Backoff(2*time.Millisecond, time.Minute, 1), 10)
 )
 
 // Assoc implements a DynamoDB-backed Assoc for use in caches.

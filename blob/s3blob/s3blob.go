@@ -168,12 +168,12 @@ func (s *Store) newBucket(ctx context.Context, bucket string) (*Bucket, error) {
 
 // NewS3RetryPolicy returns a default retry.Policy useful for S3 operations.
 func newS3RetryPolicy() retry.Policy {
-	return retry.MaxTries(retry.Jitter(retry.Backoff(1*time.Second, time.Minute, 2), 0.25), defaultMaxRetries)
+	return retry.MaxRetries(retry.Jitter(retry.Backoff(1*time.Second, time.Minute, 2), 0.25), defaultMaxRetries)
 }
 
 // NewS3AimdPolicy returns a default admit.RetryPolicy backed by an AIMD admission controller.
 func newS3AimdPolicy(varname string) admit.RetryPolicy {
-	rp := retry.MaxTries(retry.Jitter(retry.Backoff(500*time.Millisecond, time.Minute, 1.5), 0.5), defaultMaxRetries)
+	rp := retry.MaxRetries(retry.Jitter(retry.Backoff(500*time.Millisecond, time.Minute, 1.5), 0.5), defaultMaxRetries)
 	c := admit.AIMDWithRetry(defaultS3MinLimit, defaultS3AIMDDecFactor, rp)
 	admit.EnableVarExport(c, varname)
 	return c

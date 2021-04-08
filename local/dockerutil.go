@@ -88,7 +88,7 @@ func pullImage(ctx context.Context, client docker.APIClient, authenticator ecrau
 	var (
 		resp     io.ReadCloser
 		maxTries = 5
-		policy   = retry.MaxTries(retry.Backoff(time.Second, 10*time.Second, 1.5), maxTries)
+		policy   = retry.MaxRetries(retry.Backoff(time.Second, 10*time.Second, 1.5), maxTries)
 	)
 	for retries := 0; ; retries++ {
 		log.Printf("pulling image (try %d/%d): %s", retries+1, maxTries, ref)

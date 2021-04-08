@@ -65,7 +65,7 @@ func TestS3Walker(t *testing.T) {
 }
 
 func TestS3WalkerRetries(t *testing.T) {
-	rp := retry.MaxTries(retry.Backoff(100*time.Millisecond, time.Minute, 1.5), 1)
+	rp := retry.MaxRetries(retry.Backoff(100*time.Millisecond, time.Minute, 1.5), 1)
 	client, want := setup(t)
 	client.Err = func(api string, input interface{}) error {
 		if api != "ListObjectsV2Request" {
@@ -92,7 +92,7 @@ func TestS3WalkerRetries(t *testing.T) {
 }
 
 func TestS3WalkerWithPolicy(t *testing.T) {
-	rp := retry.MaxTries(retry.Backoff(100*time.Millisecond, time.Minute, 1.5), 1)
+	rp := retry.MaxRetries(retry.Backoff(100*time.Millisecond, time.Minute, 1.5), 1)
 	policy := admit.ControllerWithRetry(10, 10, rp)
 	client, want := setup(t)
 	w := &S3Walker{S3: client, Bucket: bucket, Prefix: "test/", Policy: policy, Retrier: rp}

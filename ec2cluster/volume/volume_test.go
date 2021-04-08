@@ -204,7 +204,7 @@ func TestSetSize(t *testing.T) {
 	} {
 		v := &ebsLvmVolume{ebsVolIds: tt.vols, log: log.Std,
 			ec2:     &mockEC2Client{descVolsModsFn: tt.dvmfn, modVolsFn: tt.mvfn, descVolsFn: tt.dvfn},
-			retrier: retry.MaxTries(retry.Backoff(10*time.Millisecond, 20*time.Millisecond, 1.5), 5),
+			retrier: retry.MaxRetries(retry.Backoff(10*time.Millisecond, 20*time.Millisecond, 1.5), 5),
 		}
 		err := v.SetSize(context.Background(), tt.newSz)
 		if gotE := err != nil; gotE != tt.werr {

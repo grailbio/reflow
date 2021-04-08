@@ -262,7 +262,7 @@ func (i *instance) Go(ctx context.Context) {
 		id          string
 		dns         string
 		n           int
-		retryPolicy = retry.MaxTries(retry.Backoff(5*time.Second, 30*time.Second, 1.75), maxTries)
+		retryPolicy = retry.MaxRetries(retry.Backoff(5*time.Second, 30*time.Second, 1.75), maxTries)
 	)
 	spotProbeDepth := i.SpotProbeDepth
 

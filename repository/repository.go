@@ -27,7 +27,7 @@ import (
 var (
 	mu       sync.Mutex
 	diallers = map[string]func(*url.URL) (reflow.Repository, error){}
-	retrier  = retry.MaxTries(retry.Backoff(20*time.Millisecond, 100*time.Millisecond, 1.5), 3)
+	retrier  = retry.MaxRetries(retry.Backoff(20*time.Millisecond, 100*time.Millisecond, 1.5), 3)
 )
 
 // RegisterScheme associates a dialler with a URL scheme.

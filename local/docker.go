@@ -78,7 +78,7 @@ type dockerExec struct {
 	promoteOnce once.Task
 }
 
-var retryPolicy = retry.MaxTries(retry.Backoff(time.Second, 10*time.Second, 1.5), 5)
+var retryPolicy = retry.MaxRetries(retry.Backoff(time.Second, 10*time.Second, 1.5), 5)
 
 // newExec creates a new exec with parent executor x.
 func newDockerExec(id digest.Digest, x *Executor, cfg reflow.ExecConfig, stdout, stderr *log.Logger) *dockerExec {
