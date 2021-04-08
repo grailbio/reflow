@@ -73,11 +73,6 @@ func (w *Watcher) Watch(ctx context.Context) {
 
 		switch state {
 		case stateWatch:
-			sz, err = w.v.GetSize(ctx)
-			if err != nil {
-				w.log.Error(err)
-				break
-			}
 			pct, err = w.v.Usage()
 			if err != nil {
 				w.log.Error(err)
@@ -135,7 +130,12 @@ func (w *Watcher) Watch(ctx context.Context) {
 				state = stateWatch
 				break
 			}
-			w.log.Printf("changed volume size %s -> %s", currSize, newSize)
+			sz, err = w.v.GetSize(ctx)
+			if err != nil {
+				w.log.Errorf("failed to get volume size after resizing, will continue to resize FS: %v", err)
+			} else {
+				w.log.Printf("changed volume size %s -> %s", currSize, sz)
+			}
 			state = stateResizeFS
 		case stateResizeFS:
 			w.log.Printf("resizing filesystem")
