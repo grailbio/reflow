@@ -157,6 +157,8 @@ type Cluster struct {
 
 	// manager manages the cluster
 	manager *Manager
+	// spotProber probes for spot instance availability.
+	spotProber *spotProber
 
 	initOnce once.Task
 	stats    *statsImpl
@@ -288,6 +290,11 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	}
 	c.instanceState = newInstanceState(configs, 5*time.Minute, c.Region)
 	c.manager = NewManager(c, c.MaxInstances, c.MaxPendingInstances, c.Log)
+	c.spotProber = NewSpotProber(
+		func(ctx context.Context, instanceType string, depth int) (bool, error) {
+			return ec2HasCapacity(ctx, c.EC2, c.AMI, instanceType, depth, c.Log)
+		},
+		c.SpotProbeDepth, 1*time.Minute)
 	c.pools = make(map[string]reflowletPool)
 	c.stats = newStats()
 	return nil
@@ -459,7 +466,7 @@ func (c *Cluster) newInstance(config instanceConfig) *instance {
 		AMI:             c.AMI,
 		SshKey:          c.SshKey,
 		KeyName:         c.KeyName,
-		SpotProbeDepth:  c.SpotProbeDepth,
+		SpotProber:      c.spotProber,
 		Immortal:        c.Immortal,
 		CloudConfig:     c.CloudConfig,
 	}

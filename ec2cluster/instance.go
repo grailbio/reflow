@@ -146,11 +146,11 @@ type instance struct {
 	NEBS            int
 	AMI             string
 	KeyName         string
-	SpotProbeDepth  int
 	SshKey          string
 	Immortal        bool
 	CloudConfig     cloudConfig
 	Task            *status.Task
+	SpotProber      *spotProber
 
 	userData string
 	err      error
@@ -264,8 +264,6 @@ func (i *instance) Go(ctx context.Context) {
 		n           int
 		retryPolicy = retry.MaxRetries(retry.Backoff(5*time.Second, 30*time.Second, 1.75), maxTries)
 	)
-	spotProbeDepth := i.SpotProbeDepth
-
 	defer func() {
 		// At exit, we terminate a successfully provisioned but un-viable instance.
 		if id != "" && state > stateLaunch && state < stateWaitReflowlet {
@@ -276,20 +274,13 @@ func (i *instance) Go(ctx context.Context) {
 	for state < stateDone && ctx.Err() == nil {
 		switch state {
 		case stateCapacity:
-			if !i.Spot || spotProbeDepth == 0 {
+			if !i.Spot {
 				break
 			}
-			i.Task.Printf("%s (depth=%d)", state, spotProbeDepth)
 			var ok bool
-			ok, i.err = i.ec2HasCapacity(ctx, spotProbeDepth)
+			ok, i.err = i.SpotProber.HasCapacity(ctx, i.Config.Type)
 			if i.err == nil && !ok {
 				i.err = errors.E(errors.Unavailable, errors.New("ec2 capacity is likely exhausted"))
-			}
-			// If we are hitting instance limits, try smaller depth immediately.
-			if i.err == errInstanceLimitExceeded && spotProbeDepth > 1 {
-				spotProbeDepth /= 2
-				i.err = nil
-				continue
 			}
 		case stateLaunch:
 			i.Task.Print(state.String())
@@ -1084,42 +1075,60 @@ func (i *instance) ec2WaitForSpotFulfillment(ctx context.Context, spotID string)
 	return w.WaitWithContext(ctx)
 }
 
-var errInstanceLimitExceeded = errors.New("InstanceLimitExceeded")
+var (
+	errInstanceLimitExceeded = errors.New("InstanceLimitExceeded")
+	maxProbingRetries        = 5
+	ec2ProbingRetryPolicy    = retry.MaxRetries(retry.Jitter(retry.Backoff(5*time.Second, 1*time.Minute, 1.5), 0.25), maxProbingRetries)
+)
 
-func (i *instance) ec2HasCapacity(ctx context.Context, n int) (bool, error) {
+func ec2HasCapacity(ctx context.Context, api ec2iface.EC2API, imageId, instanceType string, n int, log *log.Logger) (bool, error) {
 	params := &ec2.RunInstancesInput{
 		DryRun:       aws.Bool(true),
 		MinCount:     aws.Int64(int64(n)),
 		MaxCount:     aws.Int64(int64(n)),
-		ImageId:      aws.String(i.AMI),
-		InstanceType: aws.String(i.Config.Type),
+		ImageId:      aws.String(imageId),
+		InstanceType: aws.String(instanceType),
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
-	defer cancel()
-	_, err := i.EC2.RunInstancesWithContext(ctx, params)
-	if err == nil {
-		return false, errors.New("did not expect successful response")
-	} else if awserr, ok := err.(awserr.Error); ok {
-		switch awserr.Code() {
-		case "DryRunOperation":
-			return true, nil
-		case "RequestCanceled":
-			// Apparently AWS's Go SDK will return an AWS error even for
-			// context errors. In this case, we treat a timeout as a negative
-			// answer.
+	var err error
+	for retries := 0; ; retries++ {
+		msgPrefix := fmt.Sprintf("spot probing %s (depth=%d) (attempt %d/%d)", instanceType, n, retries, maxProbingRetries)
+		rctx, cancel := context.WithTimeout(ctx, time.Minute)
+		log.Debug(msgPrefix)
+		_, err = api.RunInstancesWithContext(rctx, params)
+		cancel()
+		switch {
+		case err == nil:
+			return false, errors.New(msgPrefix + ": did not expect successful response")
+		case request.IsErrorThrottle(err):
+			// Retry throttling errors.
+		case err == context.DeadlineExceeded:
+			// We'll take an API timeout as a negative answer: this seems to
+			// the case empirically.
 			return false, nil
-		case "InstanceLimitExceeded":
-			return false, errInstanceLimitExceeded
+		case ctx.Err() != nil:
+			return false, errors.E(msgPrefix, ctx.Err())
+		default:
+			if awsErr, ok := err.(awserr.Error); ok {
+				switch awsErr.Code() {
+				case "DryRunOperation":
+					return true, nil
+				case "RequestCanceled":
+					// Apparently AWS's Go SDK will return an AWS error even for
+					// context errors. In this case, we treat a timeout as a negative
+					// answer.
+					return false, nil
+				case "InstanceLimitExceeded":
+					return false, errInstanceLimitExceeded
+				}
+				return false, awsErr
+			}
+			return false, errors.E(fmt.Sprintf("%s: unhandled error (type: %T)", msgPrefix, err), err)
 		}
-		return false, awserr
-	} else if err == context.DeadlineExceeded {
-		// We'll take an API timeout as a negative answer: this seems to
-		// the case empirically.
-		return false, nil
-	} else if err := ctx.Err(); err != nil {
-		return false, err
+		if rerr := retry.Wait(ctx, ec2ProbingRetryPolicy, retries); rerr != nil {
+			break
+		}
 	}
-	return false, fmt.Errorf("expected awserr.Error or context error, got %T", err)
+	return false, fmt.Errorf("spot probing %s (depth=%d) exhausted retries", instanceType, n)
 }
 
 func ec2TerminateInstance(api ec2iface.EC2API, id string) {
