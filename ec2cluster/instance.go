@@ -330,11 +330,13 @@ func (i *instance) Go(ctx context.Context) {
 			}
 			i.Log.Debugf("launched %sinstance %v (%s): %s%s", spot, id, dns, i.Config.Type, i.Config.Resources)
 		case stateWaitBootstrap:
-			i.print(id, "confirming instance still running")
-			if err := ec2StillRunning(ctx, i.EC2, id); err != nil {
-				// Instance not running anymore
-				i.err = errors.E("wait bootstrap instance running", errors.Fatal, err)
-				break
+			if n > maxTries/2 {
+				i.print(id, fmt.Sprintf("confirming instance still running (%d/%d)", n, maxTries))
+				if err := ec2StillRunning(ctx, i.EC2, id); err != nil {
+					// Instance not running anymore
+					i.err = errors.E("wait bootstrap instance running", errors.Fatal, err)
+					break
+				}
 			}
 			i.print(id, state.String())
 			var c *bootc.Client
@@ -385,11 +387,13 @@ func (i *instance) Go(ctx context.Context) {
 				break
 			}
 		case stateWaitReflowlet:
-			i.print(id, "confirming instance still running")
-			if err := ec2StillRunning(ctx, i.EC2, id); err != nil {
-				// Instance not running anymore
-				i.err = errors.E("wait bootstrap instance running", errors.Fatal, err)
-				break
+			if n > maxTries/2 {
+				i.print(id, fmt.Sprintf("confirming instance still running (%d/%d)", n, maxTries))
+				if err := ec2StillRunning(ctx, i.EC2, id); err != nil {
+					// Instance not running anymore
+					i.err = errors.E("wait bootstrap instance running", errors.Fatal, err)
+					break
+				}
 			}
 			i.print(id, state.String())
 			var c *poolc.Client
