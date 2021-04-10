@@ -3,10 +3,10 @@ jobs:
   include:
     - os: linux
       dist: trusty
-      go: 1.13.x
+      go: 1.16.x
     - os: osx
       osx_image: xcode11.2
-      go: 1.13.x
+      go: 1.16.x
 # TODO(prasadgopal): running of master is broken as of 12/17/2019.
 # Re evaluate if we should even test of golang master.
 #    - os: linux
