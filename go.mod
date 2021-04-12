@@ -4,7 +4,6 @@ go 1.16
 
 require (
 	docker.io/go-docker v1.0.0
-	github.com/Azure/go-ansiterm v0.0.0-20170929234023-d6e3b3328b78 // indirect
 	github.com/Microsoft/go-winio v0.4.5 // indirect
 	github.com/aws/aws-sdk-go v1.34.31
 	github.com/aws/aws-xray-sdk-go v1.0.0-rc.2
@@ -19,7 +18,7 @@ require (
 	github.com/gorilla/mux v1.6.2 // indirect
 	github.com/grailbio/base v0.0.10
 	github.com/grailbio/infra v0.0.2-0.20201105215413-8610bbcf04f2
-	github.com/grailbio/testutil v0.0.3
+	github.com/grailbio/testutil v0.0.4-0.20210412203346-39b3ca80f18a
 	github.com/moby/term v0.0.0-20201216013528-df9cb8a40635 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect

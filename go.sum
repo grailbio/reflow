@@ -185,6 +185,8 @@ github.com/grailbio/testutil v0.0.0-20190703174854-d9797572c8d2/go.mod h1:i+zjOb
 github.com/grailbio/testutil v0.0.1/go.mod h1:j7teGaXqRY1n6m7oM8oy954lxL37Myt7nEJZlif3nMA=
 github.com/grailbio/testutil v0.0.3 h1:Um0OOTtYVvyxwQbO48K3t6lNmLPY4sL3Vn6Sw0srNy8=
 github.com/grailbio/testutil v0.0.3/go.mod h1:f9+y7xMXeXwyNcdV5cmo6GzRiitSOubMmqcqEON7NQQ=
+github.com/grailbio/testutil v0.0.4-0.20210412203346-39b3ca80f18a h1:s2RAhu/YLOkTY8gzklcNGX7WsyuTgBWYUR5MJvueYx8=
+github.com/grailbio/testutil v0.0.4-0.20210412203346-39b3ca80f18a/go.mod h1:f9+y7xMXeXwyNcdV5cmo6GzRiitSOubMmqcqEON7NQQ=
 github.com/grailbio/v23/factories/grail v0.0.0-20190119012339-40e7f427c0fd/go.mod h1:9cQ/mFcQkU4yvvfM7Zmzy/cGu7gINSfbF8I3dNKOPS4=
 github.com/grailbio/v23/factories/grail v0.0.0-20190703174257-dea14edab192 h1:v3zUcbIPR2708WoEmcQoKpbERp5qkpqOXyG42A+X598=
 github.com/grailbio/v23/factories/grail v0.0.0-20190703174257-dea14edab192/go.mod h1:M4kMYbDAQCWDJUaLiDUO44JShT4Efc4Tngwm/tCzqjU=
