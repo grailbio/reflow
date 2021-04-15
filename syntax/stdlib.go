@@ -738,6 +738,20 @@ var stringsDecls = []*Decl{
 			return stringVal, nil
 		},
 	}.Decl(),
+	SystemFunc{
+		Id:     "ToFloat",
+		Module: "strings",
+		Mode:   ModeForced,
+		Doc:    "ToFloat parses a string into a float while maintaining precision.",
+		Type: types.Func(types.Float,
+			&types.Field{Name: "strVal", T: types.String}),
+		Do: func(loc values.Location, args []values.T) (values.T, error) {
+			strVal := args[0].(string)
+			floatVal := new(big.Float)
+			_, _, err := floatVal.Parse(strVal, 10)
+			return floatVal, err
+		},
+	}.Decl(),
 }
 
 var pathDecls = []*Decl{

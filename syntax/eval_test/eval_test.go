@@ -7,6 +7,7 @@ package eval_test
 import (
 	"testing"
 
+	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/test/testutil"
 )
 
@@ -34,4 +35,30 @@ func TestEval(t *testing.T) {
 		"testdata/test_flag_dependence.rf",
 	}
 	testutil.RunReflowTests(t, tests)
+}
+
+func TestEvalErr(t *testing.T) {
+	sess := syntax.NewSession(nil)
+	for _, c := range []struct {
+		file string
+		err  string
+	}{
+		{"testdata/strings_err1.rf", "number has no digits"},
+		{"testdata/strings_err2.rf", "number has no digits"},
+		{"testdata/strings_err3.rf", "expected end of string, found '-'"},
+	} {
+		m, err := sess.Open(c.file)
+		if err != nil {
+			t.Errorf("%s: %v", c.file, err)
+			continue
+		}
+		_, err = m.Make(sess, sess.Values)
+		if err == nil {
+			t.Errorf("%s: expected error", c.file)
+			continue
+		}
+		if got, want := err.Error(), c.err; got != want {
+			t.Errorf("%s: got '%v', want '%v'", c.file, got, want)
+		}
+	}
 }

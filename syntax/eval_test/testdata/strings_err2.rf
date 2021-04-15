@@ -1,0 +1,3 @@
+val strings = make("$/strings")
+
+val TestToFloatErr = strings.ToFloat("1.0e")

@@ -12,9 +12,24 @@ val TestSort2 = {
 }
 
 val TestFromInt = strings.FromInt(1234567890) == "1234567890"
+
 val TestFromFloatZero = strings.FromFloat(0.0, 1) == "0"
 val TestFromFloat = strings.FromFloat(1.12121212, 2) == "1.1"
 val TestFromFloat1 = strings.FromFloat(1.23456789012345678, 20) == "1.23456789012345678"
+
+func floatEq(x, y, epsilon float) bool = if y > x { y - x < epsilon } else { x - y < epsilon }
+val TestToFloatZero = strings.ToFloat("0") == 0.0
+val TestToFloatZeroDecimal = strings.ToFloat("0.0") == 0.0
+val TestToFloat1 = floatEq(strings.ToFloat("1.23"), 1.23, 0.01)
+val TestToFloat2 = floatEq(strings.ToFloat("3.14"), 3.14, 0.01)
+val TestToFloat3 = floatEq(strings.ToFloat("1.12121212"), 1.12, 0.01)
+val TestToFloat4 = floatEq(strings.ToFloat("1.23456789012345678"), 1.23456789012345678, 0.00000000000000001)
+val TestToFloat5 = floatEq(strings.ToFloat(".2"), 0.2, 0.1)
+val TestToFloat6 = floatEq(strings.ToFloat("3e10"), 3e10, 0.00000000001)
+val TestToFloat7 = floatEq(strings.ToFloat("0.5e-8"), 0.5e-8, 0.00000001)
+val TestToFloat8 = floatEq(strings.ToFloat("3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679"), 3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679, 0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001)
+val TestToFloat9 = floatEq(strings.ToFloat("-12.2"), -12.2, 0.1)
+val TestStringFloatString = strings.FromFloat(strings.ToFloat(strings.FromFloat(1.23456789012345678, 20)), 20) == "1.23456789012345678"
 
 val TestHasSuffix = strings.HasSuffix("hello world", "orld")
 val TestHasPrefix = strings.HasPrefix("hello world", "hell")

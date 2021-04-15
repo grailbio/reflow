@@ -1,0 +1,3 @@
+val strings = make("$/strings")
+
+val TestToFloatErr = strings.ToFloat("not a valid float")
