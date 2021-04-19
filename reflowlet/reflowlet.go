@@ -24,6 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/grailbio/base/cloud/ec2util"
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/infra"
 	infratls "github.com/grailbio/infra/tls"
@@ -131,8 +132,7 @@ func (s *Server) setTags(sess *session.Session) error {
 		return nil
 	}
 	var err error
-	msvc := ec2metadata.New(sess)
-	s.ec2Identity, err = msvc.GetInstanceIdentityDocument()
+	s.ec2Identity, err = ec2util.GetInstanceIdentityDocument(sess)
 	if err != nil {
 		return err
 	}

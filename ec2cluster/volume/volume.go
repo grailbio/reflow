@@ -19,10 +19,10 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
+	"github.com/grailbio/base/cloud/ec2util"
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/retry"
 	"github.com/grailbio/base/traverse"
@@ -89,8 +89,7 @@ func NewEbsLvmVolume(sess *session.Session, log *log.Logger, path string) (Volum
 	}
 	log.Printf("physical devices for device (%s): %s", device, strings.Join(physDevices, ", "))
 
-	ec2mSvc := ec2metadata.New(sess)
-	iid, err := ec2mSvc.GetInstanceIdentityDocument()
+	iid, err := ec2util.GetInstanceIdentityDocument(sess)
 	if err != nil {
 		return nil, err
 	}
