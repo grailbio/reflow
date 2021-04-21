@@ -235,6 +235,7 @@ func (s *Server) ListenAndServe() error {
 		Authenticator: ec2authenticator.New(sess),
 		AWSImage:      string(*tool),
 		AWSCreds:      creds,
+		Session:       sess,
 		Blob: blob.Mux{
 			"s3": s3blob.New(sess),
 		},

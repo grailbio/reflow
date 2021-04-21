@@ -16,7 +16,6 @@ import (
 
 	"docker.io/go-docker"
 	"docker.io/go-docker/api/types"
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
@@ -73,6 +72,8 @@ type Pool struct {
 	// AWSCreds is a credentials provider used to mint AWS credentials.
 	// They are used to access AWS services.
 	AWSCreds *credentials.Credentials
+	// Session is the AWS session to use for AWS API calls.
+	Session *session.Session
 	// Blob is the blob store implementation used to fetch data from interns.
 	Blob blob.Mux
 	// Log
@@ -304,18 +305,14 @@ func (p *Pool) newAlloc(id string, keepalive time.Duration) *alloc {
 		HardMemLimit:  p.HardMemLimit,
 	}
 
-	// TODO(pgopal) - Get this info from Config.
-	cwlclient := cloudwatchlogs.New(
-		session.New(
-			&aws.Config{
-				Credentials: e.AWSCreds,
-				Region:      aws.String(defaultRegion),
-			}))
-	remoteStream, err := newCloudWatchLogs(cwlclient, "reflow")
-	if err != nil {
-		log.Errorf("create remote logger: %v", err)
+	if p.Session != nil {
+		cwlclient := cloudwatchlogs.New(p.Session)
+		remoteStream, err := newCloudWatchLogs(cwlclient, "reflow")
+		if err != nil {
+			log.Errorf("create remote logger: %v", err)
+		}
+		e.remoteStream = remoteStream
 	}
-	e.remoteStream = remoteStream
 
 	// Note that we refresh the keepalive time on exec restore. This is
 	// probably a useful safeguard, but could be annoying when keepalive
@@ -331,7 +328,7 @@ func (p *Pool) newAlloc(id string, keepalive time.Duration) *alloc {
 		p:            p,
 		created:      time.Now(),
 		expires:      time.Now().Add(keepalive),
-		remoteStream: remoteStream,
+		remoteStream: e.remoteStream,
 	}
 }
 
