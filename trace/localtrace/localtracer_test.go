@@ -307,17 +307,17 @@ func TestLocalTracerContention(t *testing.T) {
 		{
 			"1,000 concurrent traces",
 			1000,
-			20 * time.Millisecond,
+			30 * time.Millisecond,
 		},
 		{
 			"10,000 concurrent traces",
 			10000,
-			200 * time.Millisecond,
+			300 * time.Millisecond,
 		},
 		{
 			"100,000 concurrent traces",
 			100000,
-			2000 * time.Millisecond,
+			3000 * time.Millisecond,
 		},
 	}
 
