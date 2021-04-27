@@ -971,7 +971,7 @@ func ec2SpotRequestStatus(ctx context.Context, api ec2iface.EC2API, spotID strin
 	id = aws.StringValue(out.SpotInstanceRequests[0].InstanceId)
 	state = aws.StringValue(out.SpotInstanceRequests[0].State)
 	if id == "" {
-		err = errors.Errorf("ec2.describespotinstancerequests: missing instance ID")
+		err = errors.Errorf("ec2.describespotinstancerequests: missing instance ID (state: %s)", state)
 		return
 	}
 	return
