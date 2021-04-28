@@ -18,16 +18,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/grailbio/base/data"
-
 	"docker.io/go-docker"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/grailbio/base/data"
 	"github.com/grailbio/infra"
-	infraaws "github.com/grailbio/infra/aws"
 	infratls "github.com/grailbio/infra/tls"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
@@ -201,11 +199,6 @@ func (s *Server) ListenAndServe() error {
 	if err != nil {
 		return err
 	}
-	var tool *infraaws.AWSTool
-	err = s.Config.Instance(&tool)
-	if err != nil {
-		return err
-	}
 	var (
 		dockerconfig *infra2.DockerConfig
 		hardMemLimit bool
@@ -233,7 +226,6 @@ func (s *Server) ListenAndServe() error {
 		Dir:           s.Dir,
 		Prefix:        s.Prefix,
 		Authenticator: ec2authenticator.New(sess),
-		AWSImage:      string(*tool),
 		AWSCreds:      creds,
 		Session:       sess,
 		Blob: blob.Mux{

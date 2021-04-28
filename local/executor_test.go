@@ -44,7 +44,6 @@ func newTestExecutorOrSkip(t *testing.T, creds *credentials.Credentials) (*Execu
 	x := &Executor{
 		Client:   newDockerClientOrSkip(t),
 		Dir:      dir,
-		AWSImage: "619867110810.dkr.ecr.us-west-2.amazonaws.com/awstool",
 		AWSCreds: creds,
 	}
 	x.SetResources(reflow.Resources{

@@ -66,9 +66,6 @@ type Pool struct {
 		Authenticates(ctx context.Context, image string) (bool, error)
 		Authenticate(ctx context.Context, cfg *types.AuthConfig) error
 	}
-	// AWSImage is the name of the image that contains the 'aws' tool.
-	// This is used to implement directory syncing via s3.
-	AWSImage string
 	// AWSCreds is a credentials provider used to mint AWS credentials.
 	// They are used to access AWS services.
 	AWSCreds *credentials.Credentials
@@ -298,7 +295,6 @@ func (p *Pool) newAlloc(id string, keepalive time.Duration) *alloc {
 		Dir:           filepath.Join(p.Dir, allocsPath, id),
 		Prefix:        p.Prefix,
 		Authenticator: p.Authenticator,
-		AWSImage:      p.AWSImage,
 		AWSCreds:      p.AWSCreds,
 		Blob:          p.Blob,
 		Log:           p.Log.Tee(nil, id+": "),

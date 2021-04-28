@@ -77,19 +77,10 @@ type Executor struct {
 	// Authenticator is used to pull images that are stored on Amazon's ECR
 	// service.
 	Authenticator ecrauth.Interface
-	// AWSImage is a Docker image that contains the 'aws' tool.
-	// This is used to implement S3 interns and externs.
-	AWSImage string
-	// AWSCreds is an AWS credentials provider, used for S3 operations
-	// and "$aws" passthroughs.
+	// AWSCreds is an AWS credentials provider, used for "$aws" passthroughs.
 	AWSCreds *credentials.Credentials
 	// Log is this executor's logger where operational status is printed.
 	Log *log.Logger
-
-	// ExternalS3 defines whether to use external processes (AWS CLI tool
-	// running in docker) for S3 operations. At the moment, this flag only
-	// works for interns.
-	ExternalS3 bool
 
 	// FileRepository is the (file-based) object repository used by this
 	// Executor. It may be provided by the user, or else it is set to a
@@ -281,9 +272,6 @@ func (e *Executor) getRemoteStreams(id digest.Digest, wantStdout, wantStderr boo
 // Put idempotently defines a new exec with a given ID and config.
 // The exec may be (deterministically) rewritten.
 func (e *Executor) Put(ctx context.Context, id digest.Digest, cfg reflow.ExecConfig) (reflow.Exec, error) {
-	if err := e.rewriteConfig(&cfg); err != nil {
-		return nil, errors.E("put", id, fmt.Sprint(cfg), err)
-	}
 	e.mu.Lock()
 	if e.dead {
 		e.mu.Unlock()
@@ -650,106 +638,6 @@ func (e *Executor) Kill(ctx context.Context) error {
 	// TODO: this could instead be handed off to a repository in the pool
 	// which can be collected separately.
 	return e.FileRepository.Collect(ctx, nil)
-}
-
-// rewriteConfig possibly rewrites the exec config cfg. In
-// particular, it rewrites interns and externs (which are not
-// intrinsic) to execs implementing those operations.
-func (e *Executor) rewriteConfig(cfg *reflow.ExecConfig) error {
-	if cfg.Type != intern && cfg.Type != extern {
-		return nil
-	}
-	u, err := url.Parse(cfg.URL)
-	if err != nil {
-		return err
-	}
-	switch u.Scheme {
-	case "localfile":
-		return nil
-	case "s3", "s3f":
-		if !e.ExternalS3 {
-			return nil
-		}
-	default:
-		return errors.E(errors.NotSupported, errors.Errorf("unsupported scheme %q", u.Scheme))
-	}
-	creds, err := e.AWSCreds.Get()
-	if err != nil {
-		return err
-	}
-	cfg.Image = e.AWSImage
-	// This is reported to aid in the "MaxRetries" errors [1]. We introduce this
-	// here as a temporary measure to improve S3 reliability until we introduce
-	// intrinsic S3 support.
-	//
-	// [1] e.g., see https://github.com/aws/aws-cli/issues/2401
-	const awsCLIFlags = `--cli-read-timeout 1200 --cli-connect-timeout 1200`
-	switch cfg.Type {
-	case intern:
-		switch u.Scheme {
-		case "s3":
-			cfg.Cmd = fmt.Sprintf(`
-			aws configure set default.s3.max_concurrent_requests 20
-			aws configure set default.s3.max_queue_size 1000
-			aws configure set default.s3.multipart_threshold 100MB
-			aws configure set default.s3.multipart_chunksize 100MB
-			aws configure set default.region us-west-2
-			n=0
-			until [ $n -ge 5 ]
-			do
-				env AWS_ACCESS_KEY_ID=%q AWS_SECRET_ACCESS_KEY=%q AWS_SESSION_TOKEN=%q \
-					aws %s s3 sync %s $out --exclude '*.jpg' --exclude '*.jpg.zprof' && exit 0
-				n=$[$n+1]
-				sleep 10
-			done
-			exit 1`, creds.AccessKeyID, creds.SecretAccessKey, creds.SessionToken, awsCLIFlags, u.String())
-		case "s3f":
-			uu, err := url.Parse(u.String())
-			if err != nil {
-				return err
-			}
-			uu.Scheme = "s3"
-			cfg.Cmd = fmt.Sprintf(`
-			export AWS_ACCESS_KEY_ID=%q
-			export AWS_SECRET_ACCESS_KEY=%q
-			export AWS_SESSION_TOKEN=%q 
-			aws configure set default.s3.max_concurrent_requests 20
-			aws configure set default.s3.max_queue_size 1000
-			aws configure set default.s3.multipart_threshold 100MB
-			aws configure set default.s3.multipart_chunksize 100MB
-			aws configure set default.region us-west-2
-			n=0
-			until [ $n -ge 5 ]
-			do
-				aws %s s3 cp %s $out && exit 0
-				n=$[$n+1]
-				sleep 10
-			done
-			exit 1`, creds.AccessKeyID, creds.SecretAccessKey, creds.SessionToken, awsCLIFlags, uu.String())
-		}
-	case extern:
-		cfg.Cmd = fmt.Sprintf(`
-			aws configure set default.region us-west-2
-			export AWS_ACCESS_KEY_ID=%q
-			export AWS_SECRET_ACCESS_KEY=%q
-			export AWS_SESSION_TOKEN=%q
-			d=%%s
-			n=0
-			until [ $n -ge 5 ]
-			do
-				if test -d $d
-				then
-					aws %s s3 sync $d %s && exit 0
-				else
-					aws %s s3 cp $d %s && exit 0
-				fi
-				n=$[$n+1]
-				sleep 10
-			done
-			exit 1`, creds.AccessKeyID, creds.SecretAccessKey, creds.SessionToken, awsCLIFlags, u.String(), awsCLIFlags, u.String())
-	}
-	cfg.Type = "exec"
-	return nil
 }
 
 // install installs a directory tree into a repository and

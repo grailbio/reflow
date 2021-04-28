@@ -96,7 +96,6 @@ func (c *Cluster) Init(tls tls.Certs, session *session.Session, logger *log.Logg
 		Dir:           c.dir,
 		Client:        c.Client,
 		Authenticator: ec2authenticator.New(session),
-		AWSImage:      string(*tool),
 		AWSCreds:      creds,
 		Session:       session,
 		Blob: blob.Mux{
