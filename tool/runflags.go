@@ -93,8 +93,6 @@ type RunFlags struct {
 	Dir string
 	// Local enables execution using the local docker instance.
 	Local bool
-	// Alloc specifies the preallocated alloc to use to execute the program.
-	Alloc string
 	// Trace when set enable tracing flow evaluation.
 	Trace bool
 	// Resources overrides the resources reflow is permitted to use in local mode (instead of using up the entire machine).
@@ -117,7 +115,6 @@ func (r *RunFlags) Flags(flags *flag.FlagSet) {
 	flags.BoolVar(&r.Local, "local", false, "execute flow on the Local Docker instance")
 	flags.StringVar(&r.LocalDir, "localdir", defaultFlowDir, "directory where execution state is stored in Local mode")
 	flags.StringVar(&r.Dir, "dir", "", "directory where execution state is stored in Local mode (alias for Local Dir for backwards compatibility)")
-	flags.StringVar(&r.Alloc, "alloc", "", "use this alloc to execute program (don't allocate a fresh one)")
 	flags.BoolVar(&r.Trace, "trace", false, "trace flow evaluation")
 	flags.StringVar(&r.resourcesFlag, "resources", "", "override offered resources in local mode (JSON formatted reflow.Resources)")
 	flags.BoolVar(&r.Pred, "pred", false, "use predictor to optimize resource usage. sched must also be true for the predictor to be used")
@@ -127,9 +124,6 @@ func (r *RunFlags) Flags(flags *flag.FlagSet) {
 // Err checks if the flag values are consistent and valid.
 func (r *RunFlags) Err() error {
 	if r.Local {
-		if r.Alloc != "" {
-			return errors.New("-alloc cannot be used in local mode")
-		}
 		if r.resourcesFlag != "" {
 			if err := json.Unmarshal([]byte(r.resourcesFlag), &r.Resources); err != nil {
 				return fmt.Errorf("-resources: %s", err)
@@ -145,9 +139,6 @@ func (r *RunFlags) Err() error {
 		}
 		r.needAss = true
 		r.needRepo = true
-	}
-	if r.Sched && r.Alloc != "" {
-		return errors.New("-alloc cannot be used with -sched")
 	}
 	if !r.Sched && r.Pred {
 		return errors.New("-pred cannot be used without -sched")

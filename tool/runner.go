@@ -462,10 +462,6 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 	if r.runConfig.RunFlags.Trace {
 		run.Trace = r.Log
 	}
-	if r.runConfig.RunFlags.Alloc != "" {
-		run.AllocID = r.runConfig.RunFlags.Alloc
-		run.Phase = runner.Eval
-	}
 	var base string
 	if base, err = r.Runbase(); err != nil {
 		return runner.State{}, err
