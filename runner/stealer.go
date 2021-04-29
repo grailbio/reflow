@@ -15,9 +15,12 @@ import (
 	"github.com/grailbio/reflow/wg"
 )
 
-// Give a generous cache write timeout to workers,
-// since these are asynchronous.
-const cacheWriteTimeout = time.Hour
+const (
+	// Give a generous cache write timeout to workers,
+	// since these are asynchronous.
+	cacheWriteTimeout = time.Hour
+	pollInterval      = 10 * time.Second
+)
 
 // Stealer is a work-stealer. It periodically queries additional
 // resource requirements from an Eval, attempts to allocate

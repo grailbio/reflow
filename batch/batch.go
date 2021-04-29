@@ -20,7 +20,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
@@ -152,7 +151,6 @@ func (r *Run) Go(ctx context.Context, initWG *sync.WaitGroup) error {
 	run := &runner.Runner{
 		State:      r.State,
 		Cluster:    r.batch.Cluster,
-		ClusterAux: r.batch.ClusterAux,
 		Flow:       flow,
 		EvalConfig: evalConfig,
 		Type:       typ,
@@ -170,16 +168,6 @@ func (r *Run) Go(ctx context.Context, initWG *sync.WaitGroup) error {
 			}
 		}
 	case runner.Eval:
-		// We manually restore the runner's alloc here so
-		// that we can properly coordinate between batch runs
-		// that have allocs vs. those that don't.
-		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		alloc, err := run.Cluster.Alloc(ctx, run.AllocID)
-		if err == nil {
-			run.Alloc = alloc
-			run.Alloc.Keepalive(ctx, time.Minute) // best-effort
-		}
-		cancel()
 		initWG.Done()
 	}
 	for ok := true; ok; {
@@ -261,9 +249,6 @@ func (r *Run) flow() (*flow.Flow, *types.T, error) {
 		v = syntax.Force(v, maintyp)
 		switch v := v.(type) {
 		case *flow.Flow:
-			if v.Requirements().Equal(reflow.Requirements{}) {
-				return nil, nil, fmt.Errorf("flow does not have resource requirements; add a @requires annotation to val Main")
-			}
 			return v, maintyp, nil
 		default:
 			return &flow.Flow{Op: flow.Val, Value: v}, maintyp, nil
@@ -296,10 +281,6 @@ type Batch struct {
 	User string
 	// Cluster is the cluster from which allocs are reserved.
 	Cluster runner.Cluster
-	// ClusterAux is an optional auxilliary cluster. If it is defined,
-	// work-stealing works are allocated from this cluster, while
-	// primary workers are allocated from Cluster.
-	ClusterAux runner.Cluster
 	// Args are additional command line arguments (parsed as flags).
 	// They override any supplied in the batch configuration.
 	Args []string

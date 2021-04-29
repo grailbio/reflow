@@ -22,14 +22,7 @@ import (
 
 //go:generate stringer -type=Phase
 
-const (
-	pollInterval     = 10 * time.Second
-	keepaliveTimeout = 10 * time.Second
-	maxTries         = 10
-)
-
-var minResources = reflow.Resources{"cpu": 1, "mem": 500 << 20, "disk": 1 << 30}
-var minRequirements = reflow.Requirements{Min: minResources}
+const maxTries = 10
 
 // Phase enumerates the possible phases of a run.
 type Phase int
@@ -61,10 +54,6 @@ type State struct {
 	Args []string
 	// Phase holds the current phase of the run.
 	Phase Phase
-	// AllocID is the full URI for the run's alloc.
-	AllocID string
-	// AllocInspect is the alloc's inspect output.
-	AllocInspect pool.AllocInspect
 	// Value contains the result of the evaluation,
 	// rendered as a string.
 	// TODO(marius): serialize the value into JSON.
@@ -90,8 +79,6 @@ type State struct {
 // Run metadata (including its name) are preserved.
 func (s *State) Reset() {
 	s.Phase = Init
-	s.AllocID = ""
-	s.AllocInspect = pool.AllocInspect{}
 	s.Result = ""
 	s.Err = nil
 	s.NumTries = 0
@@ -106,9 +93,6 @@ func (s State) String() string {
 	case Init:
 		return "init"
 	case Eval:
-		if s.AllocID != "" {
-			return fmt.Sprintf("eval alloc %v", s.AllocID)
-		}
 		return fmt.Sprintf("eval")
 	case Retry:
 		return fmt.Sprintf("retry error %v try %d/%d last %v", s.Err, s.NumTries+1, maxTries, s.LastTry)
@@ -122,13 +106,6 @@ func (s State) String() string {
 }
 
 // A Runner is responsible for evaluating a flow.Flow on a cluster.
-// Runners also launch and maintain auxilliary work-stealing allocs,
-// and manages data transfer and failure handling between the primary
-// evaluation alloc and the auxilliary workers.
-//
-// TODO(marius): introduce a "stealer-only" mode where there is no
-// primary alloc, but with a shared repository (e.g., S3) attached to
-// the Eval.
 type Runner struct {
 	// State contains the state of the run. The user can serialize
 	// this in order to resume runs.
@@ -159,9 +136,6 @@ type Runner struct {
 	// after failure.
 	Retain time.Duration
 
-	// Alloc is the primary alloc in which the flow is evaluated.
-	Alloc pool.Alloc
-
 	// Labels are the set of labels affiliated with this run.
 	Labels pool.Labels
 
@@ -179,39 +153,16 @@ func (r *Runner) Do(ctx context.Context) bool {
 	if r.Created.IsZero() {
 		r.Created = time.Now()
 	}
-	if r.Scheduler != nil && r.Phase == Init {
-		r.Phase = Eval
-		return true
+	if r.Scheduler == nil {
+		r.Log.Errorf("scheduler not set for run: %s", r.RunID.ID())
+		return false
 	}
 	switch r.Phase {
 	case Init:
-		if err := r.Allocate(ctx); err != nil {
-			r.Err = errors.Recover(err)
-			r.Phase = Done
-			break
-		}
-		r.AllocID = r.Alloc.ID()
-		var err error
-		r.AllocInspect, err = r.Alloc.Inspect(ctx)
-		if err != nil {
-			r.Err = errors.Recover(err)
-			r.Phase = Done
-			break
-		}
 		r.Phase = Eval
+		return true
 	case Eval:
 		r.LastTry = time.Now()
-		if r.Scheduler == nil && r.Alloc == nil {
-			var err error
-			r.Alloc, err = r.Cluster.Alloc(ctx, r.AllocID)
-			if err != nil {
-				// TODO(marius): perhaps single out NotExist errors here
-				// in an attempt to reuse allocs where we can.
-				r.Err = errors.Recover(err)
-				r.Phase = Retry
-				break
-			}
-		}
 		var err error
 		r.Result, err = r.Eval(ctx)
 		if err == nil {
@@ -254,40 +205,13 @@ func (r *Runner) Do(ctx context.Context) bool {
 	return r.Phase != Done
 }
 
-// Allocate reserves a new alloc from r.Cluster when r.Alloc is nil.
-func (r *Runner) Allocate(ctx context.Context) error {
-	req := r.Flow.Requirements()
-	req.Add(minRequirements)
-	var err error
-	r.Alloc, err = r.Cluster.Allocate(ctx, req, r.labels())
-	if err != nil {
-		return err
-	}
-	r.Log.Debugf("accepted alloc %v", r.Alloc.ID())
-	return nil
-}
-
 // Eval evaluates the flow, returning the resulting Value. In the
 // case of failure, r.Alloc is kept-alive for an additional r.Retain
 // duration.
 func (r *Runner) Eval(ctx context.Context) (string, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
-	if r.Alloc != nil {
-		wg.Add(1)
-		go func() {
-			err := pool.Keepalive(ctx, r.Log, r.Alloc)
-			if err != ctx.Err() {
-				r.Log.Errorf("keepalive: %v", err)
-				r.Alloc = nil
-			}
-			cancel()
-			wg.Done()
-		}()
-	}
-
 	config := r.EvalConfig
-	config.Executor = r.Alloc
 	eval := flow.NewEval(r.Flow, config)
 
 	ctx, done := trace.Start(ctx, trace.Run, r.Flow.Digest(), r.Cmdline)
@@ -297,20 +221,6 @@ func (r *Runner) Eval(ctx context.Context) (string, error) {
 	}
 	defer trace.Flush(ctx) // flush the trace after eval completes
 
-	// Run stealers if we're running with an alloc. Otherwise,
-	// tasks are submitted directly to the scheduler.
-	if r.Alloc != nil {
-		stealer := &Stealer{
-			Cluster: r.ClusterAux,
-			Log:     r.Log,
-			Labels:  r.labels().Add("type", "aux"),
-		}
-		if stealer.Cluster == nil {
-			stealer.Cluster = r.Cluster
-		}
-		go stealer.Go(ctx, eval)
-	}
-
 	err := eval.Do(ctx)
 	done()
 	if err == nil {
@@ -318,19 +228,8 @@ func (r *Runner) Eval(ctx context.Context) (string, error) {
 		eval.LogSummary(r.Log)
 	}
 	cancel()
-	wg.Wait() // TODO(marius): wait for stealers too?
+	wg.Wait()
 
-	var retain time.Duration
-	if err != nil || eval.Err() != nil {
-		retain = r.Retain
-	}
-	if alloc := r.Alloc; alloc != nil {
-		ctx, cancel = context.WithTimeout(context.Background(), keepaliveTimeout)
-		if _, err := alloc.Keepalive(ctx, retain); err != nil {
-			r.Log.Errorf("retain %v: %v", r.Retain, err)
-		}
-		cancel()
-	}
 	if err != nil {
 		return "", err
 	}

@@ -48,6 +48,9 @@ func (r *CommonRunFlags) Flags(flags *flag.FlagSet) {
 
 // Err checks if the flag values are consistent and valid.
 func (r *CommonRunFlags) Err() error {
+	if !r.Sched {
+		return fmt.Errorf("non-scheduler mode is not supported (must have -sched)")
+	}
 	switch r.EvalStrategy {
 	case "topdown", "bottomup":
 	default:

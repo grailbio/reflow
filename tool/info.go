@@ -199,12 +199,6 @@ func (c *Cmd) printRunInfo(ctx context.Context, w io.Writer, id digest.Digest) b
 		}
 	}
 	fmt.Fprintf(w, "\tphase:\t%s\n", state.Phase)
-	if state.AllocID != "" {
-		fmt.Fprintf(w, "\talloc:\t%s\n", state.AllocID)
-	}
-	if !state.AllocInspect.Resources.Equal(nil) {
-		fmt.Fprintf(w, "\tresources:\t%s\n", state.AllocInspect.Resources)
-	}
 	if state.Err != nil {
 		fmt.Fprintf(w, "\terror:\t%s\n", state.Err)
 	}
