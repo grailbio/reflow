@@ -171,7 +171,7 @@ func TestClusterInfra(t *testing.T) {
         reflow: reflowversion,version=abcdef
         cluster: ec2cluster
         ec2cluster:
-            maxinstances: 1
+            maxhourlycostusd: 10.0
             disktype: dt
             diskspace: 10
             ami: foo
@@ -266,7 +266,7 @@ func getEC2ClusterWithRestrictedInstanceTypes() (*Cluster, error) {
         reflow: reflowversion,version=abcdef
         cluster: ec2cluster
         ec2cluster:
-            maxinstances: 1
+            maxhourlycostusd: 10.0
             disktype: dt
             diskspace: 10
             ami: foo

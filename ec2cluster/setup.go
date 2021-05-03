@@ -22,11 +22,11 @@ func (c *Cluster) Setup(sess *session.Session) error {
 	if c.AMI == "" {
 		c.AMI = "ami-0bb54692374ac10a7"
 	}
-	if c.MaxInstances == 0 {
-		c.MaxInstances = 10
+	if c.MaxHourlyCostUSD == 0 {
+		c.MaxHourlyCostUSD = defaultMaxHourlyCostUSD
 	}
 	if c.MaxPendingInstances == 0 {
-		c.MaxPendingInstances = 5
+		c.MaxPendingInstances = defaultMaxPendingInstances
 	}
 	if len(c.InstanceTypes) == 0 {
 		for _, instance := range instances.Types {

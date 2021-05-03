@@ -28,7 +28,8 @@ func TestInstanceState(t *testing.T) {
 		{reflow.Resources{"mem": 120 << 30, "cpu": 32, "disk": 2000 << 30}, "r5a.8xlarge", "x1e.32xlarge"},
 	} {
 		for _, spot := range []bool{true, false} {
-			if got, _ := is.MinAvailable(tc.r, spot); got.Type != tc.wantMin {
+			// use a max price larger than the most expensive instance type
+			if got, _ := is.MinAvailable(tc.r, spot, 100); got.Type != tc.wantMin {
 				t.Errorf("got %v, want %v for spot %v, resources %v", got.Type, tc.wantMin, spot, tc.r)
 			}
 			if got, _ := is.MaxAvailable(tc.r, spot); got.Type != tc.wantMax {

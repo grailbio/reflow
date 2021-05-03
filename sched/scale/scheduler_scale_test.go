@@ -316,7 +316,7 @@ func (a *allocator) inspect() []poolDetails {
 
 func (a *allocator) start(ctx context.Context) {
 	a.started = time.Now()
-	a.m = ec2cluster.NewManager(a, 20, 5, a.logger.Tee(nil, "manager: "))
+	a.m = ec2cluster.NewManager(a, 50, 5, a.logger.Tee(nil, "manager: "))
 	a.m.SetTimeouts(10*time.Millisecond, 10*time.Millisecond, 5*time.Second)
 	a.m.Start()
 	<-ctx.Done()
@@ -393,20 +393,20 @@ func (a *allocator) Launch(ctx context.Context, spec ec2cluster.InstanceSpec) ec
 }
 
 // Refresh refreshes the managed cluster.
-func (a *allocator) Refresh(ctx context.Context) (map[string]bool, error) {
+func (a *allocator) Refresh(ctx context.Context) (map[string]string, error) {
 	pools := a.Pools()
-	m := make(map[string]bool, len(pools))
+	m := make(map[string]string, len(pools))
 	for _, p := range pools {
-		m[p.(*utiltest.TestPool).Name()] = true
+		m[p.(*utiltest.TestPool).Name()] = "type-unknown"
 	}
 	return m, nil
 }
 
 // Available returns any available instance specification that can satisfy the need.
 // The returned InstanceSpec should be subsequently be 'Launch'able.
-func (a *allocator) Available(need reflow.Resources) (ec2cluster.InstanceSpec, bool) {
-	typ, r := ec2cluster.InstanceType(need, true)
-	if typ == "" || r.Equal(nil) {
+func (a *allocator) Available(need reflow.Resources, maxPrice float64) (ec2cluster.InstanceSpec, bool) {
+	typ, r := ec2cluster.InstanceType(need, true, maxPrice)
+	if typ == "" || r.Equal(nil) || maxPrice < testInstancePrice {
 		return ec2cluster.InstanceSpec{}, false
 	}
 	return ec2cluster.InstanceSpec{typ, r}, true
@@ -414,6 +414,19 @@ func (a *allocator) Available(need reflow.Resources) (ec2cluster.InstanceSpec, b
 
 func (a *allocator) Notify(waiting, pending reflow.Resources) {
 	// do nothing
+}
+
+const (
+	testInstancePrice = 1.0
+)
+
+// for the purpose of the scale test, all instances cost $1 and the max hourly cost is $200.
+func (a *allocator) InstancePriceUSD(typ string) float64 {
+	return testInstancePrice
+}
+
+func (a *allocator) CheapestInstancePriceUSD() float64 {
+	return testInstancePrice
 }
 
 type allocDetails struct {

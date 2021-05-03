@@ -53,9 +53,10 @@ func init() {
 const (
 	// allocAttemptInterval defines how often we attempt to allocate from existing pool
 	// while waiting for an explicit allocation request to be completed.
-	allocAttemptInterval = 5 * time.Minute
-	defaultMaxInstances  = 100
-	defaultClusterName   = "default"
+	allocAttemptInterval       = 5 * time.Minute
+	defaultClusterName         = "default"
+	defaultMaxHourlyCostUSD    = 10.0
+	defaultMaxPendingInstances = 5
 )
 
 // validateBootstrap is func for validating the bootstrap image
@@ -109,10 +110,13 @@ type Cluster struct {
 	BootstrapExpiry time.Duration `yaml:"-"`
 	// ReflowVersion is the version of reflow binary compatible with this cluster.
 	ReflowVersion string `yaml:"-"`
-	// MaxInstances is the maximum number of concurrent instances permitted.
-	MaxInstances int `yaml:"maxinstances"`
 	// MaxPendingInstances is the maximum number of pending instances permitted.
 	MaxPendingInstances int `yaml:"maxpendinginstances"`
+	// MaxHourlyCostUSD is the maximum hourly cost of concurrent instances permitted (in USD).
+	// A best effort is made to not go above this but races induced by multiple managers can increase the size
+	// of the cluster beyond this limit. The limit is applied on maximum bid price and hence is an upper bound
+	// on the actual incurred cost (which in practice would be much less).
+	MaxHourlyCostUSD float64 `yaml:"maxhourlycostusd"`
 	// DiskType is the EBS disk type to use.
 	DiskType string `yaml:"disktype"`
 	// DiskSpace is the number of GiB of disk space to allocate for each node.
@@ -151,6 +155,9 @@ type Cluster struct {
 
 	instanceState   *instanceState
 	instanceConfigs map[string]instanceConfig
+	// cheapestInstancePrice is the price of the cheapest instance by maximum bid known to ec2cluster.
+	// It is constant and does not reflect changes in availability or spot market price.
+	cheapestInstancePrice float64
 
 	mu    sync.Mutex
 	pools map[string]reflowletPool
@@ -236,9 +243,13 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	c.SshKey = sshKey.Value()
 	c.Session = sess
 
-	if c.MaxInstances == 0 {
-		c.MaxInstances = defaultMaxInstances
+	if c.MaxPendingInstances == 0 {
+		c.MaxPendingInstances = defaultMaxPendingInstances
 	}
+	if c.MaxHourlyCostUSD == 0 {
+		c.MaxHourlyCostUSD = defaultMaxHourlyCostUSD
+	}
+
 	if len(c.InstanceTypes) > 0 {
 		c.InstanceTypesMap = make(map[string]bool)
 		for _, typ := range c.InstanceTypes {
@@ -250,9 +261,6 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	qtags["cluster"] = c.Name
 	c.InstanceTags = qtags
 
-	if c.MaxInstances == 0 {
-		return errors.New("missing max instances parameter")
-	}
 	if c.DiskType == "" {
 		return errors.New("missing disk type parameter")
 	}
@@ -273,12 +281,16 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	// Construct the set of legal instances and set available disk space.
 	var configs []instanceConfig
 	c.instanceConfigs = make(map[string]instanceConfig)
+	c.cheapestInstancePrice = 1000.0
 	for _, config := range instanceTypes {
 		config.Resources["disk"] = float64(c.DiskSpace << 30)
 		if c.InstanceTypesMap == nil || c.InstanceTypesMap[config.Type] {
 			configs = append(configs, config)
 		}
 		c.instanceConfigs[config.Type] = config
+		if price := config.Price[c.Region]; price < c.cheapestInstancePrice {
+			c.cheapestInstancePrice = price
+		}
 	}
 	for inst := range c.InstanceTypesMap {
 		if _, ok := instanceTypes[inst]; !ok {
@@ -289,7 +301,7 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 		return errors.New("no configured instance types")
 	}
 	c.instanceState = newInstanceState(configs, 5*time.Minute, c.Region)
-	c.manager = NewManager(c, c.MaxInstances, c.MaxPendingInstances, c.Log)
+	c.manager = NewManager(c, c.MaxHourlyCostUSD, c.MaxPendingInstances, c.Log)
 	c.spotProber = NewSpotProber(
 		func(ctx context.Context, instanceType string, depth int) (bool, error) {
 			return ec2HasCapacity(ctx, c.EC2, c.AMI, instanceType, depth, c.Log)
@@ -474,8 +486,8 @@ func (c *Cluster) newInstance(config instanceConfig) *instance {
 
 // Available returns the cheapest available instance specification that
 // has at least the required resources.
-func (c *Cluster) Available(need reflow.Resources) (InstanceSpec, bool) {
-	config, ok := c.instanceState.MinAvailable(need, c.Spot)
+func (c *Cluster) Available(need reflow.Resources, maxPrice float64) (InstanceSpec, bool) {
+	config, ok := c.instanceState.MinAvailable(need, c.Spot, maxPrice)
 	return InstanceSpec{config.Type, config.Resources}, ok
 }
 
@@ -508,7 +520,7 @@ func (c *Cluster) Notify(waiting, pending reflow.Resources) {
 	c.printState(fmt.Sprintf("waiting%s, pending%s", waiting, pending))
 }
 
-func (c *Cluster) Refresh(ctx context.Context) (map[string]bool, error) {
+func (c *Cluster) Refresh(ctx context.Context) (map[string]string, error) {
 	state, err := c.getEC2State(ctx)
 	if err != nil {
 		return nil, err
@@ -539,9 +551,9 @@ func (c *Cluster) Refresh(ctx context.Context) (map[string]bool, error) {
 	}
 	c.stats.setInstancesStats(state)
 	c.SetPools(vals(c.pools))
-	m := make(map[string]bool, len(c.pools))
-	for iid := range c.pools {
-		m[iid] = true
+	m := make(map[string]string, len(c.pools))
+	for iid, reflowlet := range c.pools {
+		m[iid] = aws.StringValue(reflowlet.inst.InstanceType)
 	}
 	return m, err
 }
@@ -585,6 +597,15 @@ func (c *Cluster) getEC2State(ctx context.Context) (map[string]*reflowletInstanc
 	return state, nil
 }
 
+func (c *Cluster) InstancePriceUSD(typ string) float64 {
+	config := c.instanceConfigs[typ]
+	return config.Price[c.Region]
+}
+
+func (c *Cluster) CheapestInstancePriceUSD() float64 {
+	return c.cheapestInstancePrice
+}
+
 func (c *Cluster) printState(suffix string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -594,10 +615,7 @@ func (c *Cluster) printState(suffix string) {
 		total      reflow.Resources
 	)
 	n := 0
-	instanceTypeCounts := make(map[string]int)
-	for _, instance := range c.pools {
-		instanceTypeCounts[*instance.inst.InstanceType]++
-	}
+	instanceTypeCounts := instTypes(c.pools)
 	for typ, ntyp := range instanceTypeCounts {
 		counts = append(counts, fmt.Sprintf("%s:%d", typ, ntyp))
 		config := c.instanceConfigs[typ]
@@ -629,4 +647,12 @@ func vals(m map[string]reflowletPool) []pool.Pool {
 		i++
 	}
 	return pools
+}
+
+func instTypes(pools map[string]reflowletPool) map[string]int {
+	instanceTypeCounts := make(map[string]int)
+	for _, instance := range pools {
+		instanceTypeCounts[*instance.inst.InstanceType]++
+	}
+	return instanceTypeCounts
 }

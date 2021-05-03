@@ -29,27 +29,45 @@ type testConfig struct {
 
 // testManagedCluster implements ManagedCluster for testing purposes.
 type testManagedCluster struct {
-	mu      sync.Mutex
-	nextId  int
-	configs map[string]testConfig
-	live    map[string]ManagedInstance
+	cheapestInstancePriceUSD float64
+
+	mu            sync.Mutex
+	nextId        int
+	activeConfigs map[string]testConfig
+	allConfigs    map[string]testConfig
+	live          map[string]ManagedInstance
 }
 
-// newCluster creates a new
+// newCluster creates a new testManagedCluster
 func newCluster(configs []testConfig) *testManagedCluster {
 	rand.Seed(time.Now().Unix())
-	m := make(map[string]testConfig, len(configs))
+	mActive, mAll := make(map[string]testConfig, len(configs)), make(map[string]testConfig, len(configs))
+
+	cheapestInstancePriceUSD := 1000.0
 	for _, c := range configs {
-		m[c.typ] = c
+		mActive[c.typ] = c
+		mAll[c.typ] = c
+
+		if c.price < cheapestInstancePriceUSD {
+			cheapestInstancePriceUSD = c.price
+		}
 	}
-	return &testManagedCluster{configs: m, live: make(map[string]ManagedInstance)}
+	cluster := &testManagedCluster{cheapestInstancePriceUSD: cheapestInstancePriceUSD, activeConfigs: mActive, allConfigs: mAll, live: make(map[string]ManagedInstance)}
+	return cluster
 }
 
 // addConfig adds another config which can be used for launching instances.
 func (c *testManagedCluster) addConfig(tc testConfig) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.configs[tc.typ] = tc
+	c.activeConfigs[tc.typ] = tc
+	c.allConfigs[tc.typ] = tc
+}
+
+// deleteConfig marks the given testConfig as inactive. It will no longer be used to launch instances
+// but is retained for cost accounting.
+func (c *testManagedCluster) deleteConfig(typ string) {
+	delete(c.activeConfigs, typ)
 }
 
 // clearLive clears all live instances from the cluster
@@ -61,13 +79,13 @@ func (c *testManagedCluster) clearLive() {
 	}
 }
 
-func (c *testManagedCluster) Available(need reflow.Resources) (InstanceSpec, bool) {
+func (c *testManagedCluster) Available(need reflow.Resources, maxPrice float64) (InstanceSpec, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var min testConfig
-	for _, config := range c.configs {
+	for _, config := range c.activeConfigs {
 		if config.r.Available(need) {
-			if min.typ == "" || min.price > config.price {
+			if (min.typ == "" || min.price > config.price) && config.price <= maxPrice {
 				min = config
 			}
 		}
@@ -85,7 +103,7 @@ func (c *testManagedCluster) Launch(ctx context.Context, spec InstanceSpec) Mana
 	if rand.Intn(100) < 5 {
 		return spec.Instance("")
 	}
-	config := c.configs[spec.Type]
+	config := c.activeConfigs[spec.Type]
 	iid := fmt.Sprintf("instance-%s-%d", config.typ, c.nextId)
 	c.nextId++
 	i := spec.Instance(iid)
@@ -100,19 +118,27 @@ func (c *testManagedCluster) Launch(ctx context.Context, spec InstanceSpec) Mana
 	return i
 }
 
-func (c *testManagedCluster) Refresh(ctx context.Context) (map[string]bool, error) {
+func (c *testManagedCluster) Refresh(ctx context.Context) (map[string]string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// Simulate a delay in time taken to refresh
 	time.Sleep(10 * time.Millisecond)
-	m := make(map[string]bool, len(c.live))
-	for id := range c.live {
-		m[id] = true
+	m := make(map[string]string, len(c.live))
+	for id, inst := range c.live {
+		m[id] = inst.Type
 	}
 	return m, nil
 }
 
 func (c *testManagedCluster) Notify(waiting, pending reflow.Resources) { /* do nothing */ }
+
+func (c *testManagedCluster) InstancePriceUSD(typ string) float64 {
+	return c.allConfigs[typ].price
+}
+
+func (c *testManagedCluster) CheapestInstancePriceUSD() float64 {
+	return c.cheapestInstancePriceUSD
+}
 
 func TestManagerStart(t *testing.T) {
 	var ec2Is []*ec2.Instance
@@ -134,7 +160,7 @@ func TestManagerBasic(t *testing.T) {
 	c := newCluster([]testConfig{
 		{"type-a", 0.25, reflow.Resources{"cpu": 2, "mem": 3 * float64(data.GiB)}},
 	})
-	m := NewManager(c, 2, 2, log.Std)
+	m := NewManager(c, 250, 5, log.Std)
 	m.refreshInterval = 50 * time.Millisecond
 	m.Start()
 	defer m.Shutdown()
@@ -144,18 +170,18 @@ func TestManagerBasic(t *testing.T) {
 
 	// req won't be met
 	second := m.Allocate(ctx, reflow.Requirements{Min: reflow.Resources{"cpu": 2, "mem": 4 * float64(data.GiB)}})
-	assertManager(t, m, 1, 0)
+	assertManager(t, m, 0.25, 0)
 	// add an config which'll satisfy the new requirement
 	c.addConfig(testConfig{"type-b", 0.5, reflow.Resources{"cpu": 2, "mem": 6 * float64(data.GiB)}})
 
 	// req should be met
 	<-second
-	assertManager(t, m, 2, 0)
+	assertManager(t, m, 0.75, 0)
 }
 
-func assertManager(t *testing.T, m *Manager, nPool, nPending int) {
+func assertManager(t *testing.T, m *Manager, hCost float64, nPending int) {
 	t.Helper()
-	if got, want := m.nPool(), nPool; got != want {
+	if got, want := m.hourlyCostUSD(), hCost; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	if got, want := m.nPending(), nPending; got != want {
@@ -169,7 +195,7 @@ func TestManagerBasicWide(t *testing.T) {
 	c := newCluster([]testConfig{
 		{"type-a", 0.25, reflow.Resources{"cpu": 2, "mem": 4 * float64(data.GiB)}},
 	})
-	m := NewManager(c, 5, 5, log.Std)
+	m := NewManager(c, 250, 5, log.Std)
 	m.refreshInterval = 50 * time.Millisecond
 	m.launchTimeout = 500 * time.Millisecond
 	m.Start()
@@ -180,7 +206,7 @@ func TestManagerBasicWide(t *testing.T) {
 	req.AddParallel(reflow.Resources{"cpu": 1, "mem": 2 * float64(data.GiB)})
 	req.AddParallel(reflow.Resources{"cpu": 1, "mem": 2 * float64(data.GiB)})
 	<-m.Allocate(ctx, req)
-	assertManager(t, m, 1, 0)
+	assertManager(t, m, 0.25, 0)
 
 	req = reflow.Requirements{}
 	req.AddParallel(reflow.Resources{"cpu": 1, "mem": 4 * float64(data.GiB)})
@@ -189,15 +215,15 @@ func TestManagerBasicWide(t *testing.T) {
 
 	// req won't be met
 	second := m.Allocate(ctx, req)
-	assertManager(t, m, 1, 0)
+	assertManager(t, m, 0.25, 0)
 	// add an config which'll satisfy the new requirement
 	c.addConfig(testConfig{"type-b", 0.5, reflow.Resources{"cpu": 18, "mem": 60 * float64(data.GiB)}})
 	c.mu.Lock()
-	delete(c.configs, "type-a")
+	c.deleteConfig("type-a")
 	c.mu.Unlock()
 
 	<-second
-	assertManager(t, m, 2, 0)
+	assertManager(t, m, 0.75, 0)
 
 	counts := make(map[string]int)
 	for _, inst := range c.live {
@@ -214,45 +240,62 @@ func TestManagerBasicWide(t *testing.T) {
 func TestManagerMultipleAllocsSmall(t *testing.T) {
 	testCluster(t, newCluster([]testConfig{
 		{"type-a", 0.25, reflow.Resources{"cpu": 1, "mem": 2 * float64(data.GiB)}},
-	}), 20, 4, 2)
+	}), 100, 2, 20)
 }
 
 func TestManagerMultipleAllocsLarge(t *testing.T) {
 	testCluster(t, newCluster([]testConfig{
 		{"type-b", 0.5, reflow.Resources{"cpu": 3, "mem": 6 * float64(data.GiB)}},
-	}), 300, 20, 5)
+	}), 500, 2, 300)
+}
+
+func TestManagerMultipleAllocsExpensive(t *testing.T) {
+	testCluster(t, newCluster([]testConfig{
+		{"type-a", 0.25, reflow.Resources{"cpu": 1, "mem": 2 * float64(data.GiB)}},
+	}), 2, 5, 10)
 }
 
 func TestManagerMultipleAllocsEnormous(t *testing.T) {
 	testCluster(t, newCluster([]testConfig{
 		{"type-b", 0.5, reflow.Resources{"cpu": 3, "mem": 6 * float64(data.GiB)}},
 		{"type-c", 2.5, reflow.Resources{"cpu": 20, "mem": 100 * float64(data.GiB)}},
-	}), 2000, 100, 20)
+	}), 200, 20, 2000)
 }
 
-func testCluster(t *testing.T, c *testManagedCluster, numAllocs, maxInstances, maxPending int) {
+func testCluster(t *testing.T, c *testManagedCluster, maxHourlyCostUSD float64, maxPendingInstances int, numAllocs int) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	m := NewManager(c, maxInstances, maxPending, log.Std)
+	m := NewManager(c, maxHourlyCostUSD, maxPendingInstances, log.Std)
 	m.refreshInterval = 50 * time.Millisecond
 	m.launchTimeout = 500 * time.Millisecond
 	m.drainTimeout = 0 // time.Millisecond
 	m.Start()
 	defer m.Shutdown()
 
+	maxInstanceCost := -1.0
+	for _, config := range c.activeConfigs {
+		if config.price > maxInstanceCost {
+			maxInstanceCost = config.price
+		}
+	}
+	if maxInstanceCost == -1.0 {
+		t.Fatal("failed to update maxInstanceCost")
+	}
+
 	// Goroutine to keep checking if max pending and max live are within limits
-	// Also if the manager hits maxInstances, clear the pool to allow for
+	// Also if the manager hits maxHourlyCost, clear the pool to allow for
 	// further allocation and clearing through all the requirements.
 	go func() {
 		tick := time.NewTicker(50 * time.Millisecond)
 		defer tick.Stop()
+
 		for {
-			if np := m.nPending(); np > maxPending {
-				t.Errorf("max pending size %d > max %d", np, maxPending)
+			if np := m.nPending(); np > maxPendingInstances {
+				t.Errorf("max pending size %d > max %d", np, maxPendingInstances)
 			}
-			if n := m.nPool(); n >= maxInstances {
-				if n > maxInstances {
-					t.Errorf("pool size %d > max %d", n, maxInstances)
+			if hCost := m.hourlyCostUSD(); hCost+maxInstanceCost >= maxHourlyCostUSD {
+				if hCost > maxHourlyCostUSD {
+					t.Errorf("pool cost %0.2f > max %0.2f", hCost, maxHourlyCostUSD)
 				}
 				if m.nPending() == 0 {
 					// Clear the pool to make further progress
@@ -282,8 +325,8 @@ func testCluster(t *testing.T, c *testManagedCluster, numAllocs, maxInstances, m
 			start := time.Now()
 			select {
 			case <-ctx.Done():
-				n, np := m.nPool(), m.nPending()
-				t.Errorf("not allocated after %dms (npool %d, npending %d)", time.Since(start).Milliseconds(), n, np)
+				n, np, hCost := m.nPool(), m.nPending(), m.hourlyCostUSD()
+				t.Errorf("not allocated after %dms (npool %d, npending %d, hourlycost %0.2f)", time.Since(start).Milliseconds(), n, np, hCost)
 			case <-w:
 				atomic.AddInt32(&numDone, 1)
 			}

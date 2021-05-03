@@ -126,10 +126,10 @@ func (s *instanceState) MaxAvailable(need reflow.Resources, spot bool) (instance
 }
 
 // MinAvailable returns the cheapest instance type that has at least
-// the required resources and is also believed to be currently
-// available. Spot restricts instances to those that may be launched
-// via EC2 spot market.
-func (s *instanceState) MinAvailable(need reflow.Resources, spot bool) (instanceConfig, bool) {
+// the required resources, is believed to be currently available and
+// is less expensive than maxPrice. Spot restricts instances to those
+// that may be launched via EC2 spot market.
+func (s *instanceState) MinAvailable(need reflow.Resources, spot bool, maxPrice float64) (instanceConfig, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var (
@@ -147,6 +147,9 @@ func (s *instanceState) MinAvailable(need reflow.Resources, spot bool) (instance
 			continue
 		}
 		if price, ok = config.Price[s.region]; !ok {
+			continue
+		}
+		if price > maxPrice {
 			continue
 		}
 		viable = append(viable, config)
@@ -194,7 +197,7 @@ func (s *instanceState) Type(typ string) (instanceConfig, bool) {
 // which is most appropriate for the needed resources.
 // `spot` determines whether we should consider instance types that are available
 // as spot instances or not.
-func InstanceType(need reflow.Resources, spot bool) (string, reflow.Resources) {
+func InstanceType(need reflow.Resources, spot bool, maxPrice float64) (string, reflow.Resources) {
 	err := initOnce.Do(func() error {
 		var configs []instanceConfig
 		for _, config := range instanceTypes {
@@ -210,6 +213,6 @@ func InstanceType(need reflow.Resources, spot bool) (string, reflow.Resources) {
 		panic(err)
 	}
 
-	config, _ := allInstancesState.MinAvailable(need, spot)
+	config, _ := allInstancesState.MinAvailable(need, spot, maxPrice)
 	return config.Type, config.Resources
 }

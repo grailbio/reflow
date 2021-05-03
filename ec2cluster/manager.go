@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/grailbio/base/sync/ctxsync"
@@ -50,20 +49,25 @@ func (m ManagedInstance) Valid() bool { return m.ID != "" }
 
 // ManagedCluster is a cluster which can be managed.
 type ManagedCluster interface {
-
 	// Launch launches an instance with the given specification.
 	Launch(ctx context.Context, spec InstanceSpec) ManagedInstance
 
-	// Refresh refreshes the managed cluster.
-	Refresh(ctx context.Context) (map[string]bool, error)
+	// Refresh refreshes the managed cluster and returns a mapping of instance ID to instance type.
+	Refresh(ctx context.Context) (map[string]string, error)
 
 	// Available returns any available instance specification that can satisfy the need.
 	// The returned InstanceSpec should be subsequently be 'Launch'able.
-	Available(need reflow.Resources) (InstanceSpec, bool)
+	Available(need reflow.Resources, maxPrice float64) (InstanceSpec, bool)
 
 	// Notify notifies the managed cluster of the currently waiting and pending
 	// amount of resources.
 	Notify(waiting, pending reflow.Resources)
+
+	// InstancePriceUSD returns the maximum hourly price bid in USD for the given instance type.
+	InstancePriceUSD(typ string) float64
+
+	// CheapestInstancePriceUSD returns the minimum hourly price bid in USD for all known instance types.
+	CheapestInstancePriceUSD() float64
 }
 
 type waiter struct {
@@ -82,13 +86,10 @@ func (w *waiter) notify() {
 type Manager struct {
 	cluster ManagedCluster
 
-	// maxInstances is the maximum number of concurrent instances permitted.
-	maxInstances int
+	// maxHourlyCostUSD is the maximum hourly cost of the pool that is permitted (in USD).
+	maxHourlyCostUSD float64
 	// maxPending is the maximum number of pending instances permitted.
 	maxPending int
-
-	// npending is the current number of pending instances.
-	npending int32
 
 	// Logger for manager events.
 	log *log.Logger
@@ -99,7 +100,12 @@ type Manager struct {
 
 	mu   sync.Mutex
 	cond *ctxsync.Cond
-	pool map[string]bool
+	// pool maps the instanceIds of running instances to their types.
+	pool map[string]string
+	// npending is the current number of pending instances.
+	npending int32
+	// pendinghourlycostusd is the hourly cost of pending instances permitted (in USD).
+	pendinghourlycostusd float64
 
 	sync chan struct{}
 
@@ -107,15 +113,15 @@ type Manager struct {
 }
 
 // NewManager creates a manager for the given managed cluster with the specified parameters.
-func NewManager(c ManagedCluster, maxInstances, maxPending int, log *log.Logger) *Manager {
+func NewManager(c ManagedCluster, maxHourlyCostUSD float64, maxPendingInstances int, log *log.Logger) *Manager {
 	m := &Manager{
-		cluster:         c,
-		maxInstances:    maxInstances,
-		maxPending:      maxPending,
-		log:             log,
-		refreshInterval: defaultRefreshInterval,
-		launchTimeout:   instanceLaunchTimeout,
-		drainTimeout:    defaultDrainTimeout,
+		cluster:          c,
+		log:              log,
+		maxHourlyCostUSD: maxHourlyCostUSD,
+		maxPending:       maxPendingInstances,
+		refreshInterval:  defaultRefreshInterval,
+		launchTimeout:    instanceLaunchTimeout,
+		drainTimeout:     defaultDrainTimeout,
 	}
 	return m
 }
@@ -127,7 +133,7 @@ func (m *Manager) Start() {
 	m.waitc = make(chan *waiter)
 	m.sync = make(chan struct{})
 	m.cond = ctxsync.NewCond(&m.mu)
-	m.pool = make(map[string]bool)
+	m.pool = make(map[string]string)
 
 	// This go-routine maintains the state of the cluster by periodically `Refresh`ing it.
 	// Refreshing the cluster (periodic/forced-immediate) is achieved by communicating with this go-routine.
@@ -168,18 +174,61 @@ func (m *Manager) Allocate(ctx context.Context, req reflow.Requirements) <-chan 
 	return w.c
 }
 
-func (m *Manager) nPendingAdd(delta int) {
-	atomic.AddInt32(&m.npending, int32(delta))
-}
-
-func (m *Manager) nPending() int {
-	return int(atomic.LoadInt32(&m.npending))
-}
-
+// nPool returns the count of instances in the pool.
 func (m *Manager) nPool() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.pool)
+}
+
+// nPending returns the count of pending instances.
+func (m *Manager) nPending() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return int(m.npending)
+}
+
+// pendingHourlyCostUSD returns the hourly cost of pending instances.
+func (m *Manager) pendingHourlyCostUSD() float64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.pendinghourlycostusd
+}
+
+// markPending adds the given instance type to the pending tallies on the manager.
+func (m *Manager) markPending(spec InstanceSpec) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pendinghourlycostusd += m.cluster.InstancePriceUSD(spec.Type)
+	m.npending += 1
+}
+
+// markDonePending subtracts the given instance type from the pending tallies on the manager.
+func (m *Manager) markDonePending(spec InstanceSpec) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pendinghourlycostusd -= m.cluster.InstancePriceUSD(spec.Type)
+	m.npending -= 1
+}
+
+// hourlyCostUSD returns the hourly cost in USD of the pool.
+func (m *Manager) hourlyCostUSD() float64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	total := 0.0
+	for _, typ := range m.pool {
+		total += m.cluster.InstancePriceUSD(typ)
+	}
+	return total
+}
+
+// remainingBudgetUSD returns the remaining budget in USD for launching new instances.
+func (m *Manager) remainingBudgetUSD(includePending bool) float64 {
+	c := m.hourlyCostUSD()
+	if includePending {
+		c += m.pendingHourlyCostUSD()
+	}
+	return m.maxHourlyCostUSD - c
 }
 
 // getInstanceAllocations returns the instances needed to satisfy the waiters.
@@ -202,10 +251,12 @@ func (m *Manager) getInstanceAllocations(waiters []*waiter) (todo []InstanceSpec
 		ok          bool
 		i           int
 	)
+	// Return available instances within the remaining budget. The total price of all InstanceSpecs appended to todo
+	// can exceed the remaining budget; it is up to the caller to ensure that only affordable InstanceSpecs are launched.
 	for i < len(resources) {
 		res := resources[i]
 		need.Add(need, res)
-		min, ok = m.cluster.Available(need)
+		min, ok = m.cluster.Available(need, m.remainingBudgetUSD(false))
 		switch {
 		case group == 0 && !ok:
 			i++
@@ -254,11 +305,14 @@ func (m *Manager) loop(pctx context.Context) {
 				i = spec.Instance("")
 			}
 		}
-		// If pctx is done, then there's nobody listening on `done` channel
-		if pctx.Err() != nil {
+		// Attempt to signal on the `done` channel. If pctx is done, then there's nobody listening
+		// on `done` channel and we should return early.
+		select {
+		case <-pctx.Done():
+			return
+		case done <- i:
 			return
 		}
-		done <- i
 	}
 
 	for {
@@ -313,17 +367,16 @@ func (m *Manager) loop(pctx context.Context) {
 			needPoll = true
 			goto sleep
 		}
-		for len(todo) > 0 && m.nPending() < m.maxPending && m.nPool()+m.nPending() < m.maxInstances {
+		for len(todo) > 0 && m.nPending() < m.maxPending && m.cluster.InstancePriceUSD(todo[0].Type) <= m.remainingBudgetUSD(true) {
 			var spec InstanceSpec
 			spec, todo = todo[0], todo[1:]
-			pending.Add(pending, spec.Resources)
-			m.nPendingAdd(1)
+			m.markPending(spec)
 			m.log.Debugf("launch %v%v pending%v", spec.Type, spec.Resources, pending)
 			launched.Add(1)
 			go launch(spec)
 		}
-		if len(todo) > 0 && m.nPool() >= m.maxInstances {
-			m.log.Debugf("cannot schedule more instances (max instances %d reached)", m.maxInstances)
+		if budget, cheapest := m.remainingBudgetUSD(false), m.cluster.CheapestInstancePriceUSD(); len(todo) > 0 && budget-cheapest < 0 {
+			m.log.Printf("cannot schedule more instances: remaining budget $%.2f (cheapest instance price $%.2f)", budget, cheapest)
 			needPoll = true
 		}
 	sleep:
@@ -338,7 +391,7 @@ func (m *Manager) loop(pctx context.Context) {
 		case <-pollch:
 		case inst := <-done:
 			pending.Sub(pending, inst.Resources)
-			m.nPendingAdd(-1)
+			m.markDonePending(inst.InstanceSpec)
 			// If we didn't actually get an instance, can't notify any waiters.
 			if !inst.Valid() {
 				continue
@@ -363,8 +416,8 @@ func (m *Manager) loop(pctx context.Context) {
 				}
 			}
 			waiters = ws
-			m.log.Debugf("added instance %s resources%s pending%s available%s npending:%d waiters:%d notified:%d",
-				inst.Type, inst.Resources, pending, available, m.nPending(), len(waiters), nnotify)
+			m.log.Debugf("added instance %s resources%s pending%s available%s waiters:%d notified:%d",
+				inst.Type, inst.Resources, pending, available, len(waiters), nnotify)
 		case w := <-m.waitc:
 			// If there was one waiter, we'll wait upto `drainTimeout` each time we find more.
 			// After `drainTimeout` of no new waiters, we'll continue the servicing loop.
@@ -434,13 +487,13 @@ func (m *Manager) maintain(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		}
-		idSet, err := m.cluster.Refresh(ctx)
+		typesByID, err := m.cluster.Refresh(ctx)
 		if err != nil {
 			m.log.Errorf("maintain: %v", err)
 			continue
 		}
 		m.mu.Lock()
-		m.pool = idSet
+		m.pool = typesByID
 		m.cond.Broadcast()
 		m.mu.Unlock()
 	}
