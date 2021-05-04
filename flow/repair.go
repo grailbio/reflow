@@ -7,7 +7,6 @@ package flow
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -41,8 +40,6 @@ type Repair struct {
 	// NumWrites is incremented for each new assoc entry written by the repair job.
 	NumWrites int64
 
-	marshalLimiter *reflow.FilesetLimiter
-
 	writebacks chan writeback
 	g          *errgroup.Group
 }
@@ -53,9 +50,8 @@ type Repair struct {
 // (*Repair.Do).
 func NewRepair(config EvalConfig) *Repair {
 	r := &Repair{
-		EvalConfig:     config,
-		marshalLimiter: reflow.NewFilesetLimiter(runtime.NumCPU()),
-		writebacks:     make(chan writeback, 1024),
+		EvalConfig: config,
+		writebacks: make(chan writeback, 1024),
 	}
 	if r.CacheLookupTimeout == time.Duration(0) {
 		r.CacheLookupTimeout = defaultCacheLookupTimeout
@@ -102,7 +98,7 @@ func (r *Repair) Do(ctx context.Context, f *Flow) {
 			}
 			continue
 		}
-		err = unmarshal(ctx, r.marshalLimiter, r.Repository, fsid, &fs)
+		err = unmarshal(ctx, r.Repository, fsid, &fs)
 		if err == nil {
 			hit = true
 			break

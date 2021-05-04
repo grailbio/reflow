@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -321,12 +320,6 @@ type Eval struct {
 	writers                 *writer
 	writersMu               sync.Mutex
 
-	// marshalLimiter is the number concurrent of marshal/unmarshaling of cached filesets to do.
-	// In case of large batch jobs, loading too many of them in parallel causes OOMs,
-	// so we limit how many we load concurrently.
-	// TODO(swami): Better solution is to use a more optimized file format (instead of JSON).
-	marshalLimiter *reflow.FilesetLimiter
-
 	flowgraph *simple.DirectedGraph
 }
 
@@ -346,16 +339,15 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 	}
 
 	e := &Eval{
-		EvalConfig:     config,
-		root:           root.Canonicalize(config.Config),
-		assertions:     reflow.NewRWAssertions(reflow.NewAssertions()),
-		needch:         make(chan reflow.Requirements),
-		errors:         make(chan error),
-		returnch:       make(chan *Flow, 1024),
-		newStealer:     make(chan *Stealer),
-		wakeupch:       make(chan bool, 1),
-		pending:        newWorkingset(),
-		marshalLimiter: reflow.NewFilesetLimiter(runtime.NumCPU()),
+		EvalConfig: config,
+		root:       root.Canonicalize(config.Config),
+		assertions: reflow.NewRWAssertions(reflow.NewAssertions()),
+		needch:     make(chan reflow.Requirements),
+		errors:     make(chan error),
+		returnch:   make(chan *Flow, 1024),
+		newStealer: make(chan *Stealer),
+		wakeupch:   make(chan bool, 1),
+		pending:    newWorkingset(),
 	}
 	if config.Executor != nil {
 		e.repo = config.Executor.Repository()
@@ -1475,7 +1467,7 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) 
 	if err := e.Transferer.Transfer(ctx, e.Repository, repo, fs.Files()...); err != nil {
 		return err
 	}
-	id, err := marshal(ctx, e.marshalLimiter, e.Repository, &fs)
+	id, err := marshal(ctx, e.Repository, &fs)
 	if err != nil {
 		return err
 	}
@@ -1512,7 +1504,7 @@ func (e *Eval) taskdbWrite(ctx context.Context, op Op, inspect reflow.ExecInspec
 		pid            digest.Digest
 	)
 	g, ctx := errgroup.WithContext(ctx)
-	if pid, err = marshal(ctx, e.marshalLimiter, e.Repository, inspect); err != nil {
+	if pid, err = marshal(ctx, e.Repository, inspect); err != nil {
 		log.Errorf("repository put profile: %v", err)
 	}
 	if exec != nil {
@@ -1634,7 +1626,7 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 					}
 					continue
 				}
-				err = unmarshal(ctx, e.marshalLimiter, e.Repository, res.Digest, &fs)
+				err = unmarshal(ctx, e.Repository, res.Digest, &fs)
 				if err == nil {
 					e.Log.Debugf("cache.Lookup flow: %s (%s) result from key: %s, value: %s\n", f.Digest().Short(), f.Ident, key.Short(), res.Digest)
 					fsid = res.Digest
@@ -2715,7 +2707,8 @@ func printFileset(w io.Writer, prefix string, fs reflow.Fileset) {
 // Marshal marshals the value v and stores it in the provided
 // repository. The digest of the contents of the marshaled content is
 // returned.
-func marshal(ctx context.Context, l *reflow.FilesetLimiter, repo reflow.Repository, v interface{}) (digest.Digest, error) {
+func marshal(ctx context.Context, repo reflow.Repository, v interface{}) (digest.Digest, error) {
+	l := reflow.GetFilesetOpLimiter()
 	_ = l.Acquire(ctx, 1)
 	defer l.Release(1)
 	return repository.Marshal(ctx, repo, v)
@@ -2723,7 +2716,8 @@ func marshal(ctx context.Context, l *reflow.FilesetLimiter, repo reflow.Reposito
 
 // Unmarshal unmarshals the value named by digest k into v.
 // If the value does not exist in repository, an error is returned.
-func unmarshal(ctx context.Context, l *reflow.FilesetLimiter, repo reflow.Repository, k digest.Digest, v interface{}) error {
+func unmarshal(ctx context.Context, repo reflow.Repository, k digest.Digest, v interface{}) error {
+	l := reflow.GetFilesetOpLimiter()
 	f, err := repo.Stat(ctx, k)
 	if err != nil {
 		return err

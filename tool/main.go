@@ -21,6 +21,8 @@ import (
 	"sort"
 	"syscall"
 
+	"github.com/grailbio/reflow"
+
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow/flow"
@@ -72,6 +74,7 @@ type Cmd struct {
 	cpuProfileFlag string
 	memProfileFlag string
 	logFlag        string
+	filesetOpLim   int
 
 	onexits []func()
 
@@ -244,6 +247,8 @@ func (c *Cmd) Main() {
 	log.Std = log.New(golog.New(c.Stderr, logprefix, logflags), level)
 	c.Log = log.Std
 
+	reflow.SetFilesetOpConcurrencyLimit(c.filesetOpLim)
+
 	// Define logs as configured by flags.
 	if c.ConfigFile != "" {
 		b, err := ioutil.ReadFile(c.ConfigFile)
@@ -415,6 +420,8 @@ func (c *Cmd) Flags() *flag.FlagSet {
 		c.flags.StringVar(&c.cpuProfileFlag, "cpuprofile", "", "capture a CPU profile and deposit it to the provided path")
 		c.flags.StringVar(&c.memProfileFlag, "memprofile", "", "capture a Memory profile and deposit it to the provided path")
 		c.flags.StringVar(&c.logFlag, "log", "info", "set the log level: off, error, info, debug")
+		c.flags.IntVar(&c.filesetOpLim, "fileset_op_limit", -1, "set the number of concurrent reflow fileset operations allowed (if unset or non-positive, uses default which is number of CPUs)")
+
 		// Add flags to override configuration.
 		c.configFlags = make(map[string]*string)
 		for key := range c.SchemaKeys {
