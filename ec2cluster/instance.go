@@ -934,17 +934,17 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 	var id, state string
 	switch {
 	case waitErr == nil:
-		id, state, err = ec2SpotRequestStatus(ctx, i.EC2, reqid)
+		id, state, err = ec2SpotRequestStatus(ctx, i.EC2, reqid, i.Log)
 		if err == nil {
 			break
 		}
-		// Here, we were supposedly able to fulfil the request, but were unable to read the spot request status
+		// Here, we were supposedly able to fulfill the request, but were unable to read the spot request status
 		// which means we don't have a usable spot instance ID.
 		fallthrough
 	default:
 		// We were unable to fulfill by our deadline, or we were unable to get the instance ID after (supposed) fulfillment.
 		// Since we consider the spot instance unavailable, cleanup the request.
-		msg := ec2CleanupSpotRequest(context.Background(), i.EC2, reqid)
+		msg := ec2CleanupSpotRequest(context.Background(), i.EC2, reqid, i.Log)
 		i.Log.Debugf("ec2 spot request %s failed\n%s", reqid, msg)
 		// Boot this up to the caller so they can pick a different instance types.
 		if err != nil {
@@ -956,33 +956,40 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 	return id, nil
 }
 
-func ec2SpotRequestStatus(ctx context.Context, api ec2iface.EC2API, spotID string) (id, state string, err error) {
-	var out *ec2.DescribeSpotInstanceRequestsOutput
-	out, err = api.DescribeSpotInstanceRequestsWithContext(ctx, &ec2.DescribeSpotInstanceRequestsInput{
-		SpotInstanceRequestIds: []*string{aws.String(spotID)},
-	})
-	if err != nil {
-		return
+var spotRequestStatusRetryPolicy = retry.MaxRetries(retry.Backoff(2*time.Second, 5*time.Second, 1.5), 5)
+
+func ec2SpotRequestStatus(ctx context.Context, api ec2iface.EC2API, spotID string, log *log.Logger) (id, state string, err error) {
+	for retries := 0; ; retries++ {
+		var out *ec2.DescribeSpotInstanceRequestsOutput
+		out, err = api.DescribeSpotInstanceRequestsWithContext(ctx, &ec2.DescribeSpotInstanceRequestsInput{
+			SpotInstanceRequestIds: []*string{aws.String(spotID)},
+		})
+		if err != nil {
+			return
+		}
+		if n := len(out.SpotInstanceRequests); n != 1 {
+			err = errors.Errorf("ec2.describespotinstancerequests: got %v entries, want 1", n)
+			return
+		}
+		id = aws.StringValue(out.SpotInstanceRequests[0].InstanceId)
+		state = aws.StringValue(out.SpotInstanceRequests[0].State)
+		if id != "" {
+			return
+		}
+		if rerr := retry.Wait(ctx, spotRequestStatusRetryPolicy, retries); rerr != nil {
+			err = errors.Errorf("ec2.describespotinstancerequests: missing instance ID in response (after %d retries): %s", retries, out.GoString())
+			return
+		}
+		log.Debugf("ec2.describespotinstancerequests: spot request fulfilled but missing instance ID (attempt %d): %s", retries, out.GoString())
 	}
-	if n := len(out.SpotInstanceRequests); n != 1 {
-		err = errors.Errorf("ec2.describespotinstancerequests: got %v entries, want 1", n)
-		return
-	}
-	id = aws.StringValue(out.SpotInstanceRequests[0].InstanceId)
-	state = aws.StringValue(out.SpotInstanceRequests[0].State)
-	if id == "" {
-		err = errors.Errorf("ec2.describespotinstancerequests: missing instance ID (state: %s)", state)
-		return
-	}
-	return
 }
 
 // ec2CleanupSpotRequest attempts to clean up a spot request by cancelling it
 // and terminating associated EC2 instance (if any).
 // Returns a text summary of what happened appropriate for logging.
-func ec2CleanupSpotRequest(ctx context.Context, api ec2iface.EC2API, spotID string) string {
+func ec2CleanupSpotRequest(ctx context.Context, api ec2iface.EC2API, spotID string, log *log.Logger) string {
 	var b strings.Builder
-	iid, state, rerr := ec2SpotRequestStatus(ctx, api, spotID)
+	iid, state, rerr := ec2SpotRequestStatus(ctx, api, spotID, log)
 	b.WriteString(fmt.Sprintf("spot request %s status: ", spotID))
 	if rerr != nil {
 		b.WriteString(fmt.Sprintf("%v", rerr))
@@ -996,7 +1003,9 @@ func ec2CleanupSpotRequest(ctx context.Context, api ec2iface.EC2API, spotID stri
 			b.WriteString(fmt.Sprintf("%s\n", state))
 		}
 	}
-	if iid != "" {
+	if iid == "" {
+		b.WriteString("spot request did not have instance ID")
+	} else {
 		req := &ec2.TerminateInstancesInput{InstanceIds: aws.StringSlice([]string{iid})}
 		if resp, terr := api.TerminateInstancesWithContext(ctx, req); terr != nil {
 			b.WriteString(fmt.Sprintf("terminate instance %s: %v\n", iid, terr))

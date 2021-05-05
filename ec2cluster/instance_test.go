@@ -3,9 +3,12 @@ package ec2cluster
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/service/ec2"
+	rlog "github.com/grailbio/reflow/log"
 )
 
 func TestConfigureEBS(t *testing.T) {
@@ -57,7 +60,7 @@ func TestCancelSpot(t *testing.T) {
 	} {
 		// Add spot instance request with every possible instance state
 		for _, instState := range []string{
-			"",
+			"", // this case will take a long time to run due to retries in ec2SpotRequestStatus
 			ec2.InstanceStateNamePending,
 			ec2.InstanceStateNameRunning,
 			ec2.InstanceStateNameShuttingDown,
@@ -65,22 +68,28 @@ func TestCancelSpot(t *testing.T) {
 			ec2.InstanceStateNameStopping,
 			ec2.InstanceStateNameTerminated,
 		} {
-			tcMsg := fmt.Sprintf("sir state: %s, instanceState: %s", state, instState)
-			sirId := c.next("sir")
-			client := &mockSirClient{sirId: sirId, state: state}
-			if instState != "" {
-				client.instanceId = c.next("instance")
-				client.instState = instState
-			}
-			result := ec2CleanupSpotRequest(context.Background(), client, sirId)
-			if got, want := client.state, ec2.SpotInstanceStateCancelled; got != want {
-				t.Errorf("got %v, want %v for %s\n%s", got, want, tcMsg, result)
-			}
-			if instState != "" {
-				if got, want := client.instState, ec2.InstanceStateNameTerminated; got != want {
+			state := state
+			instState := instState
+			t.Run("spot:\""+state+"\",instance:\""+instState+"\"", func(t *testing.T) {
+				t.Parallel()
+				tcMsg := fmt.Sprintf("sir state: %s, instanceState: %s", state, instState)
+				sirId := c.next("sir")
+				client := &mockSirClient{sirId: sirId, state: state}
+				if instState != "" {
+					client.instanceId = c.next("instance")
+					client.instState = instState
+				}
+				testLogger := rlog.New(log.New(os.Stderr, "", log.LstdFlags), rlog.DebugLevel)
+				result := ec2CleanupSpotRequest(context.Background(), client, sirId, testLogger)
+				if got, want := client.state, ec2.SpotInstanceStateCancelled; got != want {
 					t.Errorf("got %v, want %v for %s\n%s", got, want, tcMsg, result)
 				}
-			}
+				if instState != "" {
+					if got, want := client.instState, ec2.InstanceStateNameTerminated; got != want {
+						t.Errorf("got %v, want %v for %s\n%s", got, want, tcMsg, result)
+					}
+				}
+			})
 		}
 	}
 }
