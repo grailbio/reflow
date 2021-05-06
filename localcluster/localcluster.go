@@ -19,7 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/infra"
-	infraaws "github.com/grailbio/infra/aws"
 	"github.com/grailbio/infra/tls"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
@@ -76,7 +75,7 @@ func (c *Cluster) updateNeed(req reflow.Requirements) (cancel func()) {
 }
 
 // Init implements infra.Provider
-func (c *Cluster) Init(tls tls.Certs, session *session.Session, logger *log.Logger, tool *infraaws.AWSTool, creds *credentials.Credentials) error {
+func (c *Cluster) Init(tls tls.Certs, session *session.Session, logger *log.Logger, creds *credentials.Credentials) error {
 	var err error
 	if c.Client, c.total, err = dockerClient(); err != nil {
 		return err

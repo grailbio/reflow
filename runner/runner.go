@@ -113,14 +113,6 @@ type Runner struct {
 
 	flow.EvalConfig
 
-	// Cluster is the main cluster from which Allocs are allocated.
-	Cluster Cluster
-
-	// ClusterAux defines the cluster from which capacity
-	// for auxilliary workers is allocated. If nil, Cluster is used
-	// instead.
-	ClusterAux Cluster
-
 	// Flow is the flow to be evaluated.
 	Flow *flow.Flow
 

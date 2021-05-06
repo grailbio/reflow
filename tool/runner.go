@@ -197,7 +197,6 @@ func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger) (r 
 	var (
 		mux         blob.Mux
 		repo        reflow.Repository
-		cluster     runner.Cluster
 		schedCancel context.CancelFunc
 		wg          wg.WaitGroup
 		limit       int
@@ -208,12 +207,6 @@ func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger) (r 
 			schedCancel()
 		}
 	}()
-	cluster = runConfig.RunFlags.Cluster
-	if cluster == nil {
-		if cluster, err = clusterInstance(runConfig.Config, runConfig.Status); err != nil {
-			return nil, err
-		}
-	}
 
 	if err = runConfig.Config.Instance(&repo); err != nil {
 		return
@@ -243,7 +236,7 @@ func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger) (r 
 		// disable govet check due to https://github.com/golang/go/issues/29587
 		// schedCancel is called, if appropriate, in a defer above.
 		schedCtx, schedCancel = context.WithCancel(ctx) //nolint: govet
-		scheduler, err = NewScheduler(schedCtx, runConfig.Config, &wg, cluster, logger, runConfig.Status)
+		scheduler, err = NewScheduler(schedCtx, runConfig.Config, &wg, runConfig.RunFlags.Cluster, logger, runConfig.Status)
 		if err != nil {
 			return //nolint: govet
 		}
@@ -281,7 +274,6 @@ func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger) (r 
 		repo:        repo,
 		mux:         mux,
 		transferer:  transferer,
-		cluster:     cluster,
 	}
 	if err = r.initInfra(); err != nil {
 		return
@@ -321,11 +313,10 @@ type Runner struct {
 	wg          *wg.WaitGroup
 
 	// infra
-	repo    reflow.Repository
-	assoc   assoc.Assoc
-	cache   *infra2.CacheProvider
-	tdb     taskdb.TaskDB
-	cluster runner.Cluster
+	repo  reflow.Repository
+	assoc assoc.Assoc
+	cache *infra2.CacheProvider
+	tdb   taskdb.TaskDB
 
 	mux                blob.Mux
 	transferer         reflow.Transferer
@@ -448,7 +439,6 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 		},
 		Type:    e.MainType(),
 		Labels:  labels,
-		Cluster: r.cluster,
 		Cmdline: r.cmdline,
 	}
 
@@ -657,10 +647,6 @@ func Rundir() (string, error) {
 
 func Runbase(rundir string, runID taskdb.RunID) string {
 	return filepath.Join(rundir, runID.Hex())
-}
-
-func (r *Runner) clusterShutdown() error {
-	return r.cluster.Shutdown()
 }
 
 // getPredictorConfig returns a PredictorConfig if the Predictor can be used by reflow. The Predictor can only

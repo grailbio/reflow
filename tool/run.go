@@ -195,7 +195,7 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 			}()
 		}
 		c.onexit(func() {
-			if err = r.clusterShutdown(); err != nil {
+			if err = runConfig.RunFlags.Cluster.Shutdown(); err != nil {
 				r.Log.Errorf("cluster shutdown: %v", err)
 			}
 		})

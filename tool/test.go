@@ -7,17 +7,17 @@ package tool
 import (
 	"context"
 	"flag"
+	"fmt"
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/infra"
-	"github.com/grailbio/reflow/local"
+	"github.com/grailbio/reflow/runner"
+	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
+	"github.com/grailbio/reflow/wg"
 )
 
 func (c *Cmd) test(ctx context.Context, args ...string) {
@@ -57,9 +57,10 @@ and the program exits with a non-zero status if any tests fail.`
 		c.Fatal("module contains no tests")
 	}
 	var (
-		executor *local.Executor
-		start    = time.Now()
-		nfail    int
+		schedCancel context.CancelFunc
+		wg          wg.WaitGroup
+		start       = time.Now()
+		nfail       int
 	)
 testloop:
 	for _, test := range tests {
@@ -70,9 +71,10 @@ testloop:
 		var ok bool
 		switch val := test.Val.(type) {
 		case *flow.Flow:
-			c.makeTestExecutor(&executor)
+			var schedCtx context.Context
+			schedCtx, schedCancel = context.WithCancel(ctx)
 			evalConfig := flow.EvalConfig{
-				Executor:  executor,
+				Scheduler: c.makeTestScheduler(schedCtx, &wg),
 				Log:       c.Log.Tee(nil, test.Name+": "),
 				CacheMode: infra.CacheOff,
 				ImageMap:  e.ImageMap,
@@ -100,6 +102,9 @@ testloop:
 			c.Printf("PASS %s (%s)\n", test.Name, time.Since(testStart))
 		}
 	}
+	if schedCancel != nil {
+		schedCancel()
+	}
 	if nfail == 0 {
 		c.Printf("PASS (%s)\n", time.Since(start))
 		c.Exit(1)
@@ -108,23 +113,20 @@ testloop:
 	}
 }
 
-func (c *Cmd) makeTestExecutor(executor **local.Executor) {
-	if *executor != nil {
-		return
-	}
-	client, resources, err := dockerClient()
+// makeTestScheduler makes a scheduler useful for the "test" tool.
+// TODO(swami): Fix parameters used by this scheduler or consider removing this tool ?
+// This scheduler still uses a shared (s3) repository which is probably not desirable
+// for the use-cases of this tool.  Perhaps a file-based local repository would work better.
+
+func (c *Cmd) makeTestScheduler(ctx context.Context, w *wg.WaitGroup) *sched.Scheduler {
+	c.SchemaKeys[infra.Cluster] = fmt.Sprintf("localcluster,dir=%v", defaultFlowDir)
+	c.SchemaKeys[infra.TaskDB] = ""
+	cfg, err := c.Schema.Make(c.SchemaKeys)
 	c.must(err)
-	var sess *session.Session
-	c.must(c.Config.Instance(&sess))
-	var creds *credentials.Credentials
-	c.must(c.Config.Instance(&creds))
-	*executor = &local.Executor{
-		Client:        client,
-		Dir:           defaultFlowDir,
-		Authenticator: ec2authenticator.New(sess),
-		AWSCreds:      creds,
-		Log:           c.Log.Tee(nil, "executor: "),
-	}
-	(*executor).SetResources(resources)
-	c.must((*executor).Start())
+	var cluster runner.Cluster
+	c.must(cfg.Instance(&cluster))
+	s, err := NewScheduler(ctx, cfg, w, cluster, c.Log, c.Status)
+	c.must(err)
+	s.MaxAllocIdleTime = 30 * time.Second
+	return s
 }

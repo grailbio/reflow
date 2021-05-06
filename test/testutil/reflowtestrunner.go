@@ -2,14 +2,9 @@ package testutil
 
 import (
 	"context"
-	"errors"
-	"math"
-	"net/url"
 	"strings"
 	"testing"
 
-	"github.com/grailbio/base/digest"
-	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/types"
@@ -52,11 +47,10 @@ Prog:
 		for _, test := range tests {
 			switch v := v.(values.Module)[test].(type) {
 			case *flow.Flow:
-				// We have to evaluate the flow. We do so through a no-op executor.
+				// We have to evaluate the flow (isn't expected to contain external flow nodes,
+				// so we don't need an executor or scheduler).
 				// We do provide an in-memory repository so that local interns work.
-				eval := flow.NewEval(v, flow.EvalConfig{
-					Executor: nopexecutor{repo: NewInmemoryRepository()},
-				})
+				eval := flow.NewEval(v, flow.EvalConfig{Repository: NewInmemoryRepository()})
 				if err := eval.Do(context.Background()); err != nil {
 					t.Errorf("%s.%s: %v", prog, test, err)
 					continue tests
@@ -76,48 +70,4 @@ Prog:
 
 		}
 	}
-}
-
-type nopexecutor struct {
-	repo reflow.Repository
-}
-
-func (nopexecutor) Put(ctx context.Context, id digest.Digest, exec reflow.ExecConfig) (reflow.Exec, error) {
-	return nil, errors.New("put not implemented")
-}
-
-func (nopexecutor) Get(ctx context.Context, id digest.Digest) (reflow.Exec, error) {
-	return nil, errors.New("get not implemented")
-}
-
-func (nopexecutor) Remove(ctx context.Context, id digest.Digest) error {
-	return errors.New("remove not implemented")
-}
-
-func (nopexecutor) Execs(ctx context.Context) ([]reflow.Exec, error) {
-	return nil, errors.New("execs not implemented")
-}
-
-func (nopexecutor) Resources() reflow.Resources {
-	return reflow.Resources{
-		"mem":  math.MaxFloat64,
-		"cpu":  math.MaxFloat64,
-		"disk": math.MaxFloat64,
-	}
-}
-
-func (e nopexecutor) Repository() reflow.Repository {
-	return e.repo
-}
-
-func (nopexecutor) Load(context.Context, *url.URL, reflow.Fileset) (reflow.Fileset, error) {
-	panic("not implemented")
-}
-
-func (nopexecutor) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) error {
-	panic("not implemented")
-}
-
-func (nopexecutor) Unload(context.Context, reflow.Fileset) error {
-	panic("not implemented")
 }
