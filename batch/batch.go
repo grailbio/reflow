@@ -150,7 +150,6 @@ func (r *Run) Go(ctx context.Context, initWG *sync.WaitGroup) error {
 	evalConfig.RunID = r.RunID
 	run := &runner.Runner{
 		State:      r.State,
-		Cluster:    r.batch.Cluster,
 		Flow:       flow,
 		EvalConfig: evalConfig,
 		Type:       typ,
@@ -279,8 +278,6 @@ type Batch struct {
 	// User is the user running the batch; batch runs are named using
 	// this value.
 	User string
-	// Cluster is the cluster from which allocs are reserved.
-	Cluster runner.Cluster
 	// Args are additional command line arguments (parsed as flags).
 	// They override any supplied in the batch configuration.
 	Args []string

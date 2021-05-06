@@ -30,21 +30,6 @@ type Cluster interface {
 	Shutdown() error
 }
 
-// A StaticCluster implements a pass-through Cluster on top of a pool.Pool.
-type StaticCluster struct {
-	pool.Pool
-}
-
-// Allocate reserves an alloc from the underlying static pool.
-func (s *StaticCluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (pool.Alloc, error) {
-	return pool.Allocate(ctx, s, req, labels)
-}
-
-// Shutdown does not impact the underlying static pool.
-func (s *StaticCluster) Shutdown() error {
-	return nil
-}
-
 // TracingCluster is a cluster that traces the actions of an underlying
 // cluster manager.
 type TracingCluster struct {
