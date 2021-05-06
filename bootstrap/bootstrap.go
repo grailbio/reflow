@@ -7,9 +7,11 @@ package bootstrap
 import (
 	"context"
 	"crypto/tls"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -28,6 +30,14 @@ import (
 )
 
 var (
+	configFile string
+	addr       string
+	insecure   bool
+	expiry     time.Duration
+
+	flags    *flag.FlagSet
+	cfgFlags map[string]*string
+
 	// DefaultSchema defines the default schema for the Bootstrap server.
 	DefaultSchema = infra.Schema{
 		infra2.AWSCreds: new(credentials.Credentials),
@@ -46,8 +56,24 @@ var (
 	}
 )
 
+func Flags(schemaKeys infra.Keys) *flag.FlagSet {
+	if flags == nil {
+		flags = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+		flags.StringVar(&configFile, "config", os.ExpandEnv("$HOME/.reflow/config.yaml"), "the Reflow configuration file")
+		flags.StringVar(&addr, "addr", ":9000", "HTTPS server address")
+		flags.BoolVar(&insecure, "insecure", false, "listen on HTTP, not HTTPS")
+		flags.DurationVar(&expiry, "expiry", 10*time.Minute, "Time to expiry (if no image is installed)")
+		// Add flags to override configuration.
+		cfgFlags = make(map[string]*string)
+		for key := range schemaKeys {
+			cfgFlags[key] = flags.String(key, "", fmt.Sprintf("override %s from config", key))
+		}
+	}
+	return flags
+}
+
 // RunServer runs the bootstrap server.
-func RunServer(schema infra.Schema, schemaKeys infra.Keys, configFile, addr string, insecure bool, expiry time.Duration) {
+func RunServer(schema infra.Schema, schemaKeys infra.Keys) {
 	if configFile != "" {
 		b, err := ioutil.ReadFile(configFile)
 		if err != nil {
@@ -60,6 +86,12 @@ func RunServer(schema infra.Schema, schemaKeys infra.Keys, configFile, addr stri
 		for k, v := range keys {
 			schemaKeys[k] = v
 		}
+	}
+	for k, v := range cfgFlags {
+		if *v == "" {
+			continue
+		}
+		schemaKeys[k] = *v
 	}
 	var err error
 	config, err := schema.Make(schemaKeys)

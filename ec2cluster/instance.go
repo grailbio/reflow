@@ -56,10 +56,12 @@ import (
 const memoryDiscount = 0.05 + 0.02
 
 var (
-	// bootstrapArgs is the arguments passed to the bootstrap image
-	bootstrapArgs = []string{"-config", "/etc/reflowconfig"}
-	// reflowletArgs is the arguments passed to the reflow binary to run a reflowlet
-	reflowletArgs = append(bootstrapArgs, "serve", "-ec2cluster")
+	// commonArgs are the arguments passed to both the bootstrap and reflow binary.
+	commonArgs = []string{"-config", "/etc/reflowconfig"}
+	// bootstrapArgs are the arguments passed to the bootstrap image
+	bootstrapArgs = append(commonArgs, "-session", "ec2metadata")
+	// reflowletArgs are the arguments passed to the reflow binary to run a reflowlet
+	reflowletArgs = append(commonArgs, "serve", "-ec2cluster")
 )
 
 const (
