@@ -9,29 +9,29 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3iface"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/grailbio/base/admit"
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
+	baseerrors "github.com/grailbio/base/errors"
 	"github.com/grailbio/base/retry"
+	"github.com/grailbio/base/s3util"
 	"github.com/grailbio/base/sync/ctxsync"
-	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/s3walker"
 	"github.com/grailbio/reflow/log"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3iface"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
 const (
@@ -220,7 +220,7 @@ func (b *Bucket) File(ctx context.Context, key string) (reflow.File, error) {
 				Key:    aws.String(key),
 			})
 			dur := time.Since(start)
-			err = ctxErr(ctx, err)
+			err = s3util.CtxErr(ctx, err)
 			if kind(err) == errors.ResourcesExhausted {
 				log.Printf("s3blob.File: %s/%s: %v (over capacity)\n", b.bucket, key, err)
 				return admit.OverNeedRetry, err
@@ -322,16 +322,6 @@ func s3TransferParams(size int64) (int64, int) {
 	return partSize, int(c)
 }
 
-// ctxErr will return the context's error (if any) or other.
-// Since AWS wraps context errors, we override any other errors with that
-// to easily determine if the error was ours (ie context canceled or timed out)
-func ctxErr(ctx context.Context, other error) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	return other
-}
-
 // transferDuration estimates the time duration it would take to transfer
 // data of the given size at the given rate.
 func transferDuration(size int64, rate int) time.Duration {
@@ -402,7 +392,7 @@ func (b *Bucket) Download(ctx context.Context, key, etag string, size int64, w i
 			start := time.Now()
 			n, err = d.DownloadWithContext(ctx, w, b.getObjectInput(key, etag))
 			dur := time.Since(start)
-			err = ctxErr(ctx, err)
+			err = s3util.CtxErr(ctx, err)
 			if kind(err) == errors.ResourcesExhausted {
 				log.Printf("s3blob.Download: %s/%s: %v (over capacity)\n", b.bucket, key, err)
 				return admit.OverNeedRetry, err
@@ -469,7 +459,7 @@ func (b *Bucket) Put(ctx context.Context, key string, size int64, body io.Reader
 			start := time.Now()
 			_, err = up.UploadWithContext(ctx, input)
 			dur := time.Since(start)
-			err = ctxErr(ctx, err)
+			err = s3util.CtxErr(ctx, err)
 			if kind(err) == errors.ResourcesExhausted {
 				log.Printf("s3blob.Put: %s/%s: %v (over capacity)\n", b.bucket, key, err)
 				return admit.OverNeedRetry, err
@@ -602,119 +592,27 @@ func (b *Bucket) Location() string {
 // A non-empty contentHash will be added to destination object's metadata but
 // only if not set in src's metadata (ie, src's contentHash if present takes precedence)
 func (b *Bucket) copyObject(ctx context.Context, key string, src *Bucket, srcKey string, contentHash string) error {
-	srcUrl, dstUrl := path.Join(src.bucket, srcKey), path.Join(b.bucket, key)
+	srcUrl, dstUrl := src.Location()+srcKey, b.Location()+key
 	srcFile, err := src.File(ctx, srcKey)
 	if err != nil {
 		return err
 	}
-	if srcFile.Size <= b.s3ObjectCopySizeLimit {
-		// Do single copy
-		input := &s3.CopyObjectInput{
-			Bucket:     aws.String(b.bucket),
-			Key:        aws.String(key),
-			CopySource: aws.String(srcUrl),
-		}
-		// We set metadata only if the src file doesn't already have it and we are provided one.
-		if srcFile.ContentHash.IsZero() && contentHash != "" {
-			input.Metadata = map[string]*string{awsContentSha256Key: aws.String(contentHash)}
-		}
-		for retries := 0; ; retries++ {
-			_, err = b.client.CopyObjectWithContext(ctx, input)
-			err = ctxErr(ctx, err)
-			if err == nil || !retryable(ctx, err) {
-				break
-			}
-			log.Debugf("s3blob.copyObject: attempt (%d): %s -> %s\n%v\n", retries, srcUrl, dstUrl, err)
-			if err = retry.Wait(ctx, b.retrier, retries); err != nil {
-				break
-			}
-		}
-		return err
-	}
-	// Do a multi-part copy
-	numParts := (srcFile.Size + b.s3MultipartCopyPartSize - 1) / b.s3MultipartCopyPartSize
-	input := &s3.CreateMultipartUploadInput{
-		Bucket: aws.String(b.bucket),
-		Key:    aws.String(key),
-	}
-	// For a multi-part copy, metadata isn't transferred from src because technically we are creating a new object,
-	// and then merely telling S3 to fill its parts by copying from another existing object.
-	// This means, we must always set Metadata in the request.
-	// TODO(swami): Copy all of src's metadata, not just the hash.
-	if !srcFile.ContentHash.IsZero() {
-		input.Metadata = map[string]*string{awsContentSha256Key: aws.String(srcFile.ContentHash.Hex())}
+	metadata := make(map[string]*string)
+
+	// We set metadata if the src file already has it.
+	// If not, then we set it only if we are provided one.
+	if srcContentHash := srcFile.ContentHash; !srcContentHash.IsZero() {
+		metadata[awsContentSha256Key] = aws.String(srcContentHash.Hex())
 	} else if contentHash != "" {
-		input.Metadata = map[string]*string{awsContentSha256Key: aws.String(contentHash)}
+		metadata[awsContentSha256Key] = aws.String(contentHash)
 	}
-	createOut, err := b.client.CreateMultipartUploadWithContext(ctx, input)
+
+	copier := s3util.NewCopierWithParams(b.client, b.retrier, b.s3ObjectCopySizeLimit, b.s3MultipartCopyPartSize, log.Std)
+	err = copier.Copy(ctx, srcUrl, dstUrl, srcFile.Size, metadata)
 	if err != nil {
-		return errors.E(fmt.Sprintf("CreateMultipartUpload: %s -> %s", srcUrl, dstUrl), err)
-	}
-	completedParts := make([]*s3.CompletedPart, numParts)
-	err = traverse.Limit(s3MultipartCopyConcurrencyLimit).Each(int(numParts), func(ti int) error {
-		i := int64(ti)
-		firstByte := i * b.s3MultipartCopyPartSize
-		lastByte := firstByte + b.s3MultipartCopyPartSize - 1
-		if lastByte >= srcFile.Size {
-			lastByte = srcFile.Size - 1
-		}
-		var err error
-		var uploadOut *s3.UploadPartCopyOutput
-		for retries := 0; ; retries++ {
-			uploadOut, err = b.client.UploadPartCopyWithContext(ctx, &s3.UploadPartCopyInput{
-				Bucket:          aws.String(b.bucket),
-				Key:             aws.String(key),
-				CopySource:      aws.String(srcUrl),
-				UploadId:        createOut.UploadId,
-				PartNumber:      aws.Int64(i + 1),
-				CopySourceRange: aws.String(fmt.Sprintf("bytes=%d-%d", firstByte, lastByte)),
-			})
-			err = ctxErr(ctx, err)
-			if err == nil || !retryable(ctx, err) {
-				break
-			}
-			log.Debugf("s3blob.copyObject: attempt (%d) (part %d/%d): %s -> %s\n%v\n", retries, i, numParts, srcUrl, dstUrl, err)
-			if err = retry.Wait(ctx, b.retrier, retries); err != nil {
-				break
-			}
-		}
-		if err == nil {
-			completedParts[i] = &s3.CompletedPart{ETag: uploadOut.CopyPartResult.ETag, PartNumber: aws.Int64(i + 1)}
-			log.Debugf("s3blob.copyObject: done (part %d/%d): %s -> %s", i, numParts, srcUrl, dstUrl)
-			return nil
-		}
-		return errors.E(fmt.Sprintf("upload part copy (part %d/%d) %s -> %s", i, numParts, srcUrl, dstUrl), kind(err), err)
-	})
-	if err == nil {
-		// Complete the multi-part copy
-		for retries := 0; ; retries++ {
-			_, err = b.client.CompleteMultipartUploadWithContext(ctx, &s3.CompleteMultipartUploadInput{
-				Bucket:          aws.String(b.bucket),
-				Key:             aws.String(key),
-				UploadId:        createOut.UploadId,
-				MultipartUpload: &s3.CompletedMultipartUpload{Parts: completedParts},
-			})
-			if err == nil || kind(err) != errors.Temporary {
-				break
-			}
-			log.Debugf("s3blob.copyObject complete upload: attempt (%d): %s -> %s\n%v\n", retries, srcUrl, dstUrl, err)
-			if err = retry.Wait(ctx, b.retrier, retries); err != nil {
-				break
-			}
-		}
-		if err == nil {
-			log.Debugf("s3blob.copyObject: done (all %d parts): %s -> %s", numParts, srcUrl, dstUrl)
-			return nil
-		}
-		err = errors.E(fmt.Sprintf("complete multipart upload %s -> %s", srcUrl, dstUrl), kind(err), err)
-	}
-	// Abort the multi-part copy
-	if _, er := b.client.AbortMultipartUploadWithContext(ctx, &s3.AbortMultipartUploadInput{
-		Bucket:   aws.String(b.bucket),
-		Key:      aws.String(key),
-		UploadId: createOut.UploadId,
-	}); er != nil {
-		err = errors.E(fmt.Sprintf("abort multipart copy %v", er), err)
+		// convert from base to reflow error.
+		baseErr := baseerrors.Recover(err)
+		err = errors.E(baseErr.Message, baseToReflow(baseErr.Kind, baseErr.Severity), baseErr.Err)
 	}
 	return err
 }
@@ -733,7 +631,8 @@ func (b *Bucket) getObjectInput(key, etag string) *s3.GetObjectInput {
 // kind interprets any error into a Reflow error kind.
 func kind(err error) errors.Kind {
 	if aerr, ok := err.(awserr.Error); ok {
-		return awsKind(aerr)
+		k, s := s3util.KindAndSeverity(aerr)
+		return baseToReflow(k, s)
 	}
 	if re := errors.Recover(err); re != nil {
 		return re.Kind
@@ -741,69 +640,52 @@ func kind(err error) errors.Kind {
 	return errors.Other
 }
 
-// awsKind interprets an AWS error into a Reflow error kind.
-func awsKind(err error) errors.Kind {
-	for {
-		if request.IsErrorThrottle(err) {
-			return errors.ResourcesExhausted
-		}
-		if request.IsErrorRetryable(err) {
+// baseToReflow interprets base error Kind and Severity to reflow error Kind.
+func baseToReflow(baseKind baseerrors.Kind, baseSeverity baseerrors.Severity) errors.Kind {
+	switch baseKind {
+	case baseerrors.Canceled:
+		return errors.Canceled
+	case baseerrors.Integrity:
+		return errors.Integrity
+	case baseerrors.Invalid:
+		return errors.Invalid
+	case baseerrors.Net:
+		return errors.Net
+	case baseerrors.NotAllowed, baseerrors.Exists:
+		return errors.NotAllowed
+	case baseerrors.NotSupported:
+		return errors.NotSupported
+	case baseerrors.Precondition:
+		return errors.Precondition
+	case baseerrors.Timeout:
+		return errors.Timeout
+	case baseerrors.TooManyTries:
+		return errors.TooManyTries
+	case baseerrors.Unavailable:
+		return errors.Unavailable
+	case baseerrors.ResourcesExhausted:
+		return errors.ResourcesExhausted
+	case baseerrors.NotExist:
+		if k := kindFromBaseSeverity(baseSeverity); k == errors.Temporary {
 			return errors.Temporary
 		}
-		aerr, ok := err.(awserr.Error)
-		if !ok {
-			break
-		}
-		if aerr.Code() == request.CanceledErrorCode {
-			return errors.Canceled
-		}
-		// The underlying error was an S3 error. Try to classify it.
-		// Best guess based on Amazon's descriptions:
-		switch aerr.Code() {
-		// Code NotFound is not documented, but it's what the API actually returns.
-		case s3.ErrCodeNoSuchBucket, "NoSuchVersion", "NotFound":
-			return errors.NotExist
-		case s3.ErrCodeNoSuchKey:
-			// Treat as temporary because sometimes they are, due to S3's eventual consistency model
-			// https://aws.amazon.com/premiumsupport/knowledge-center/404-error-nosuchkey-s3/
-			return errors.Temporary
-		case "AccessDenied":
-			return errors.NotAllowed
-		case "InvalidRequest", "InvalidArgument", "EntityTooSmall", "EntityTooLarge", "KeyTooLong", "MethodNotAllowed":
-			return errors.Fatal
-		case "ExpiredToken", "AccountProblem", "ServiceUnavailable", "TokenRefreshRequired", "OperationAborted":
-			return errors.Unavailable
-		case "PreconditionFailed":
-			return errors.Precondition
-		case "SlowDown":
-			return errors.ResourcesExhausted
-		case "BadRequest":
-			return errors.Temporary
-		case "XAmzContentSHA256Mismatch":
-			// Example:
-			//
-			// XAmzContentSHA256Mismatch: The provided 'x-amz-content-sha256' header
-			// does not match what was computed.
-			//
-			// Happens sporadically for no discernible reason.  Just retry.
-			return errors.Temporary
-		// "RequestError"s are not considered retryable by `request.IsErrorRetryable(err)`
-		// if the underlying cause is due to a "read: connection reset".  For explanation, see:
-		// https://github.com/aws/aws-sdk-go/issues/2525#issuecomment-519263830
-		// So we catch all "RequestError"s here as temporary.
-		case request.ErrCodeRequestError:
-			return errors.Temporary
-		// "SerializationError"s are not considered retryable by `request.IsErrorRetryable(err)`
-		// if the underlying cause is due to a "read: connection reset".  For explanation, see:
-		// https://github.com/aws/aws-sdk-go/issues/2525#issuecomment-519263830
-		// So we catch all "SerializationError"s here as temporary.
-		case request.ErrCodeSerialization:
+		return errors.NotExist
+	case baseerrors.Other:
+		if k := kindFromBaseSeverity(baseSeverity); k == errors.Temporary {
 			return errors.Temporary
 		}
-		if aerr.OrigErr() == nil {
-			break
-		}
-		err = aerr.OrigErr()
+	}
+	return errors.Other
+}
+
+func kindFromBaseSeverity(severity baseerrors.Severity) errors.Kind {
+	switch severity {
+	case baseerrors.Unknown:
+		return errors.Other
+	case baseerrors.Fatal:
+		return errors.Fatal
+	case baseerrors.Temporary, baseerrors.Retriable:
+		return errors.Temporary
 	}
 	return errors.Other
 }
