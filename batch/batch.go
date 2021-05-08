@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/reflow"
@@ -35,7 +36,6 @@ import (
 	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
-	"golang.org/x/time/rate"
 )
 
 //go:generate stringer -type=State
@@ -115,7 +115,10 @@ type Run struct {
 // Go commits the run state at every phase transition so that progress
 // should never be lost.
 func (r *Run) Go(ctx context.Context, initWG *sync.WaitGroup) error {
-	defer r.Status.Done()
+	defer func() {
+		r.Status.Done()
+		r.batch.Limiter.Release(1)
+	}()
 	flow, typ, err := r.flow()
 	if err != nil {
 		return err
@@ -161,10 +164,8 @@ func (r *Run) Go(ctx context.Context, initWG *sync.WaitGroup) error {
 	switch run.Phase {
 	default:
 		initWG.Wait()
-		if lim := r.batch.Admitter; run.Phase != runner.Done && lim != nil {
-			if err := lim.Wait(ctx); err != nil {
-				return err
-			}
+		if err := r.batch.Limiter.Acquire(ctx, 1); err != nil {
+			return err
 		}
 	case runner.Eval:
 		initWG.Done()
@@ -291,10 +292,10 @@ type Batch struct {
 
 	flow.EvalConfig
 
-	// Admitter is a rate limiter to control the rate of new evaluations.
-	// This can be used to prevent "thundering herds" against systems
-	// like S3. Admitter should be set prior to running the batch.
-	Admitter *rate.Limiter
+	// Limiter is a rate limiter to control the number of parallel evaluations.
+	// This can be used to prevent "thundering herds" against systems like S3.
+	// Limiterr should be set prior to running the batch.
+	Limiter *limiter.Limiter
 
 	file   *state.File
 	states map[string]*state.File

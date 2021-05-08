@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/batch"
@@ -92,15 +93,18 @@ level.
 
 Remaining arguments are passed on as parameters to all runs; these
 flags override any parameters in the batch sample file.
+
+The flag -parallelism controls the number of runs in the batch to run concurrently.
 `
 	retryFlag := flags.Bool("retry", false, "retry failed runs")
 	resetFlag := flags.Bool("reset", false, "reset failed runs")
+	parallelismFlag := flags.Int("parallelism", 50, "max number of runs to run in parallel")
 	idsFlag := flags.String("ids", "", "comma-separated list of ids to run; an empty list runs all")
 	var bc batchConfig
 	bc.Flags(flags)
 	var config CommonRunFlags
 	config.Flags(flags)
-	c.Parse(flags, args, help, "runbatch [-retry] [-reset] [flags]")
+	c.Parse(flags, args, help, "runbatch [-parallelism=10] [-retry] [-reset] [flags]")
 
 	if err := config.Err(); err != nil {
 		c.Errorln(err)
@@ -164,11 +168,13 @@ flags override any parameters in the batch sample file.
 			TaskDB:             tdb,
 			Scheduler:          scheduler,
 		},
-		Args:   flags.Args(),
-		Rundir: c.rundir(),
-		User:   string(*user),
-		Status: c.Status.Groupf("batch %s", wd),
+		Args:    flags.Args(),
+		Rundir:  c.rundir(),
+		User:    string(*user),
+		Limiter: limiter.New(),
+		Status:  c.Status.Groupf("batch %s", wd),
 	}
+	b.Limiter.Release(*parallelismFlag)
 	c.must(config.Configure(&b.EvalConfig))
 	bc.Configure(b)
 	c.must(b.Init(*resetFlag, *retryFlag))
