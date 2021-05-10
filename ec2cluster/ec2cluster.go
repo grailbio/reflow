@@ -132,8 +132,8 @@ type Cluster struct {
 	// AWS session
 	Session *session.Session `yaml:"-"`
 
-	// User's public SSH key.
-	SshKey string `yaml:"sshkey"`
+	// Public SSH keys.
+	SshKeys []string `yaml:"sshkeys"`
 	// AWS key name for launching instances.
 	KeyName string `yaml:"keyname"`
 	// Immortal determines whether instances should be made immortal.
@@ -208,7 +208,7 @@ func (c *Cluster) Config() interface{} {
 }
 
 // Init implements infra.Provider
-func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels, bootstrapimage *infra2.BootstrapImage, reflowVersion *infra2.ReflowVersion, id *infra2.User, logger *log.Logger, sshKey *infra2.SshKey) error {
+func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels, bootstrapimage *infra2.BootstrapImage, reflowVersion *infra2.ReflowVersion, id *infra2.User, logger *log.Logger, ssh infra2.Ssh) error {
 	// If InstanceTypes are not defined, include built-in verified instance types.
 	if len(c.InstanceTypes) == 0 {
 		verified := instances.VerifiedByRegion[c.Region]
@@ -240,7 +240,7 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	c.Labels = labels.Copy()
 	c.BootstrapImage = bootstrapimage.Value()
 	c.ReflowVersion = string(*reflowVersion)
-	c.SshKey = sshKey.Value()
+	c.SshKeys = ssh.Keys()
 	c.Session = sess
 
 	if c.MaxPendingInstances == 0 {
@@ -476,7 +476,7 @@ func (c *Cluster) newInstance(config instanceConfig) *instance {
 		EBSSize:         uint64(config.Resources["disk"]) >> 30,
 		NEBS:            c.DiskSlices,
 		AMI:             c.AMI,
-		SshKey:          c.SshKey,
+		SshKeys:         c.SshKeys,
 		KeyName:         c.KeyName,
 		SpotProber:      c.spotProber,
 		Immortal:        c.Immortal,

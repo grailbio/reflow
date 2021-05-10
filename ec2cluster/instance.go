@@ -148,7 +148,7 @@ type instance struct {
 	NEBS            int
 	AMI             string
 	KeyName         string
-	SshKey          string
+	SshKeys         []string
 	Immortal        bool
 	CloudConfig     cloudConfig
 	Task            *status.Task
@@ -628,10 +628,10 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 	// our instances via EC2's user-data mechanism.
 	var c cloudConfig
 
-	if i.SshKey == "" {
+	if len(i.SshKeys) == 0 {
 		i.Log.Debugf("instance launch: missing public SSH key")
 	} else {
-		c.SshAuthorizedKeys = []string{i.SshKey}
+		c.SshAuthorizedKeys = i.SshKeys
 	}
 
 	// /etc/ecrlogin contains the login command for ECR.

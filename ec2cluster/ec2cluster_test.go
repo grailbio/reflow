@@ -246,7 +246,7 @@ func getInfraSchema() infra.Schema {
 		"user":      new(infra2.User),
 		"bootstrap": new(infra2.BootstrapImage),
 		"reflow":    new(infra2.ReflowVersion),
-		"sshkey":    new(infra2.SshKey),
+		"sshkey":    new(infra2.Ssh),
 	}
 }
 

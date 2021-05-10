@@ -152,7 +152,11 @@ func (r *ReflowVersion) Value() string {
 	return string(*r)
 }
 
-const sshKeyFile = "$HOME/.ssh/id_rsa.pub"
+type Ssh interface {
+	Keys() []string
+}
+
+const userSshKeyFile = "$HOME/.ssh/id_rsa.pub"
 
 // SshKey is the infrastructure provider for ssh key
 type SshKey struct {
@@ -168,7 +172,7 @@ func (SshKey) Help() string {
 func (s *SshKey) Init() error {
 	if len(s.Key) == 0 {
 		// Ignore error: SSH key is optional.
-		b, err := ioutil.ReadFile(os.ExpandEnv(sshKeyFile))
+		b, err := ioutil.ReadFile(os.ExpandEnv(userSshKeyFile))
 		if err == nil {
 			s.Key = string(b)
 		}
@@ -177,7 +181,7 @@ func (s *SshKey) Init() error {
 }
 
 func (s *SshKey) Flags(flags *flag.FlagSet) {
-	flags.StringVar(&s.Key, "key", "", "public key")
+	flags.StringVar(&s.Key, "key", "", "value of public key to install on reflowlets")
 }
 
 // Config implements infra.Provider
@@ -185,9 +189,12 @@ func (s *SshKey) Config() interface{} {
 	return s
 }
 
-// Value returns the ssh key.
-func (s *SshKey) Value() string {
-	return s.Key
+func (s *SshKey) Keys() []string {
+	if len(s.Key) == 0 {
+		return []string{}
+	} else {
+		return []string{s.Key}
+	}
 }
 
 // CacheMode is a bitmask that determines how caching is to be used in the evaluator.

@@ -91,7 +91,7 @@ func main() {
 		infra2.Reflowlet:  new(infra2.ReflowletConfig),
 		infra2.Repository: new(reflow.Repository),
 		infra2.Session:    new(session.Session),
-		infra2.SSHKey:     new(infra2.SshKey),
+		infra2.SSHKey:     new(infra2.Ssh),
 		infra2.TLS:        new(tls.Certs),
 		infra2.Username:   new(infra2.User),
 		infra2.Tracer:     new(trace.Tracer),
