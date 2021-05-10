@@ -66,6 +66,22 @@ const (
 	// memSuggestThreshold is the minimum fraction of allocated memory an exec can use before a suggestion is
 	// displayed to use less memory.
 	memSuggestThreshold = 0.6
+
+	// maxFilesInFilesetForNoConcurrenyLimit is the maximum number of files a fileset can have
+	// to avoid being throttled in the case of concurrent marshaling of the fileset.
+	// TODO(swami): Tune this based on cached filesets
+	maxFilesInFilesetForNoConcurrenyLimit = 100
+
+	// maxSizeForNoConcurrencyLimit is the maximum size of the serialized fileset
+	// which can be unmarshalled without a concurrency limit.
+	// TODO(swami): Tune this based on cached filesets
+	maxSizeForNoConcurrencyLimit = 1 * 1024 * 1024 // 1MiB
+
+	// sizePerToken helps determine the number of tokens to acquire from the limiter
+	// based on the size of the file to unmarshal.
+	// If the file is too big (ie, bigger than sizePerToken * numCPUs), then we simply
+	// prevent more than one file of such size to be processed concurrently.
+	sizePerToken = 16 * 1024 * 1024 // 16MiB
 )
 
 const defaultCacheLookupTimeout = 20 * time.Minute
@@ -1243,8 +1259,13 @@ func (e *Eval) lookupFailed(f *Flow) {
 	}
 }
 
+var batchCacheDigest = reflow.Digester.FromString("batch cache lookup")
+
 // BatchLookup performs a cache lookup of a set of flow nodes.
 func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
+	var endTrace func()
+	ctx, endTrace = trace.Start(ctx, trace.Cache, batchCacheDigest, fmt.Sprintf("batch cache lookup (%d)", len(flows)))
+	defer endTrace()
 	batch := make(assoc.Batch)
 	for _, f := range flows {
 		if !e.valid(f) || !e.CacheMode.Reading() || e.NoCacheExtern && (f.Op == Extern || f == e.root) {
@@ -1290,10 +1311,7 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 	bg := e.newAssertionsBatchCache()
 	for _, f := range flows {
 		e.step(f, func(f *Flow) error {
-			var endTrace func()
-			ctx, endTrace = trace.Start(ctx, trace.Cache, f.Digest(), fmt.Sprintf("cache lookup %s", f.Digest().Short()))
 			trace.Note(ctx, "FlowID", f.Digest().Short())
-			defer endTrace()
 			var (
 				keys = f.CacheKeys()
 				fs   reflow.Fileset
@@ -2081,39 +2099,46 @@ func printFileset(w io.Writer, prefix string, fs reflow.Fileset) {
 // Marshal marshals the value v and stores it in the provided
 // repository. The digest of the contents of the marshaled content is
 // returned.
-func marshal(ctx context.Context, repo reflow.Repository, v interface{}) (digest.Digest, error) {
-	l := reflow.GetFilesetOpLimiter()
-	_ = l.Acquire(ctx, 1)
-	defer l.Release(1)
-	return repository.Marshal(ctx, repo, v)
+func marshal(ctx context.Context, repo reflow.Repository, fs *reflow.Fileset) (digest.Digest, error) {
+	if fs.N() > maxFilesInFilesetForNoConcurrenyLimit {
+		limiter := reflow.GetFilesetOpLimiter()
+		if err := limiter.Acquire(ctx, 1); err != nil {
+			return digest.Digest{}, errors.E("eval.marshal: unable to acquire token", errors.Unavailable, err)
+		}
+		defer limiter.Release(1)
+	}
+	return repository.Marshal(ctx, repo, fs)
 }
 
 // Unmarshal unmarshals the value named by digest k into v.
 // If the value does not exist in repository, an error is returned.
-func unmarshal(ctx context.Context, repo reflow.Repository, k digest.Digest, v interface{}) error {
-	l := reflow.GetFilesetOpLimiter()
+func unmarshal(ctx context.Context, repo reflow.Repository, k digest.Digest, fs *reflow.Fileset) error {
 	f, err := repo.Stat(ctx, k)
 	if err != nil {
-		return err
+		return errors.E("eval.unmarshal: stat", k, err)
 	}
-	// sizePerToken helps determine the number of tokens to acquire from the limiter
-	// based on the size of the file to unmarshal.
-	// If the file is too big (ie, bigger than sizePerToken * numCPUs), then we simply
-	// prevent more than one file of such size to be processed concurrently.
-	const sizePerToken = 512 * 1024 * 1024 // 512MiB
-	numTokens := int(f.Size / sizePerToken)
-	if numTokens < 1 {
-		numTokens = 1
+	var limited string
+	if f.Size > maxSizeForNoConcurrencyLimit {
+		var (
+			limiter   = reflow.GetFilesetOpLimiter()
+			numTokens = int(f.Size / sizePerToken)
+		)
+		if numTokens < 1 {
+			numTokens = 1
+		}
+		if numTokens > limiter.Limit() {
+			numTokens = limiter.Limit()/2 + 1
+		}
+		limited = fmt.Sprintf("limited (%d tokens)", numTokens)
+		if err = limiter.Acquire(ctx, numTokens); err != nil {
+			return errors.E("eval.unmarshal: unable to acquire token", errors.Unavailable, err)
+		}
+		defer limiter.Release(numTokens)
 	}
-	if numTokens > l.Limit() {
-		numTokens = l.Limit()/2 + 1
-	}
-	err = l.Acquire(ctx, numTokens)
-	if err != nil {
-		return nil
-	}
-	defer l.Release(numTokens)
-	return repository.Unmarshal(ctx, repo, k, v)
+	start := time.Now()
+	err = repository.Unmarshal(ctx, repo, k, fs)
+	log.Printf("unmarshal fileset: %s %d took:%s %s", data.Size(f.Size), f.Size, time.Since(start).Round(10*time.Millisecond), limited)
+	return err
 }
 
 // Missing returns the files in files that are missing from
