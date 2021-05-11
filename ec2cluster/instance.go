@@ -893,11 +893,13 @@ func (b *byteCounter) Write(p []byte) (n int, err error) {
 	return
 }
 
+const spotRequestTtl = 2 * time.Minute
+
 func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 	i.Log.Debugf("generating ec2 spot instance request for instance type %v", i.Config.Type)
 	// First make a spot instance request.
 	params := &ec2.RequestSpotInstancesInput{
-		ValidUntil: aws.Time(time.Now().Add(time.Minute)),
+		ValidUntil: aws.Time(time.Now().Add(spotRequestTtl)),
 		SpotPrice:  aws.String(fmt.Sprintf("%.3f", i.Price)),
 
 		LaunchSpecification: &ec2.RequestSpotLaunchSpecification{
@@ -930,7 +932,7 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 	i.Task.Printf("awaiting fulfillment of spot request %s", reqid)
 	i.Log.Debugf("waiting for spot fullfillment for instance type %v: %s", i.Config.Type, reqid)
 	// Also set a timeout context in case the AWS API is stuck.
-	toctx, cancel := context.WithTimeout(ctx, time.Minute+10*time.Second)
+	toctx, cancel := context.WithTimeout(ctx, spotRequestTtl+10*time.Second)
 	defer cancel()
 	waitErr := i.ec2WaitForSpotFulfillment(toctx, reqid)
 	var id, state string
@@ -975,9 +977,18 @@ func ec2SpotRequestStatus(ctx context.Context, api ec2iface.EC2API, spotID strin
 		}
 		id = aws.StringValue(out.SpotInstanceRequests[0].InstanceId)
 		state = aws.StringValue(out.SpotInstanceRequests[0].State)
-		if id != "" {
+		switch state { // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-request-status.html
+		case ec2.SpotInstanceStateCancelled:
+			err = errors.Errorf("ec2.describespotinstancerequests: spot request expired or canceled before fulfillment (after %d retries): %s", retries, out.GoString())
+			return
+		case ec2.SpotInstanceStateClosed:
+			err = errors.Errorf("ec2.describespotinstancerequests: spot request closed, could indicate an aws system error (after %d retries): %s", retries, out.GoString())
 			return
 		}
+		if id != "" {
+			return // request fulfilled and got an instance ID
+		}
+		// request fulfilled, but no instance ID so attempt retry
 		if rerr := retry.Wait(ctx, spotRequestStatusRetryPolicy, retries); rerr != nil {
 			err = errors.Errorf("ec2.describespotinstancerequests: missing instance ID in response (after %d retries): %s", retries, out.GoString())
 			return
