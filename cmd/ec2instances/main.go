@@ -23,7 +23,7 @@ import (
 )
 
 var (
-	url      = flag.String("url", "http://www.ec2instances.info/instances.json", "the URL from which to fetch instances.json")
+	url      = flag.String("url", "https://instances.vantage.sh/instances.json", "the URL from which to fetch instances.json")
 	stdout   = flag.Bool("stdout", false, "print the package to stdout instead of materializing it")
 	verified = flag.Bool("verified", false, "whether to generate verified.go")
 )
