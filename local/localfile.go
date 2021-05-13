@@ -191,6 +191,11 @@ func (e *localfileExec) Logs(ctx context.Context, stdout bool, stderr bool, foll
 	return ioutil.NopCloser(bytes.NewReader(nil)), nil
 }
 
+func (e *localfileExec) RemoteLogs(ctx context.Context, stdout bool) (l reflow.RemoteLogs, err error) {
+	l = reflow.RemoteLogs{Type: reflow.RemoteLogsTypeUnknown, LogGroupName: "localfile"}
+	return
+}
+
 func (e *localfileExec) Shell(ctx context.Context) (io.ReadWriteCloser, error) {
 	return nil, errors.New("cannot shell into a file intern/extern")
 }

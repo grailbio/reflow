@@ -9,11 +9,13 @@ import (
 	"io"
 	"time"
 
+	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/log"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs/cloudwatchlogsiface"
-	"github.com/grailbio/reflow/log"
 )
 
 // TODO(pgopal) - Put this code into a separate package and inject the
@@ -35,7 +37,7 @@ type remoteStream interface {
 	io.Closer
 	// NewStream creates a new stream for logging. Creating two remote
 	// loggers that write to the same output stream is undefined.
-	NewStream(string, streamType) (log.Outputter, error)
+	NewStream(string, streamType) (remoteLogsOutputter, error)
 }
 
 type logEntry struct {
@@ -48,7 +50,6 @@ type logEntry struct {
 type cloudWatchLogs struct {
 	client cloudwatchlogsiface.CloudWatchLogsAPI
 	group  string
-	stream string
 	buffer chan logEntry
 }
 
@@ -70,7 +71,7 @@ func newCloudWatchLogs(client cloudwatchlogsiface.CloudWatchLogsAPI, group strin
 }
 
 // NewStream creates new stream with the given stream prefix and type.
-func (c *cloudWatchLogs) NewStream(prefix string, sType streamType) (log.Outputter, error) {
+func (c *cloudWatchLogs) NewStream(prefix string, sType streamType) (remoteLogsOutputter, error) {
 	stream := &cloudWatchLogsStream{
 		client: c,
 		name:   prefix + "/" + string(sType),
@@ -116,6 +117,13 @@ func (c *cloudWatchLogs) loop() {
 	}()
 }
 
+type remoteLogsOutputter interface {
+	log.Outputter
+
+	// RemoteLogs returns the remote log description.
+	RemoteLogs() reflow.RemoteLogs
+}
+
 type cloudWatchLogsStream struct {
 	client *cloudWatchLogs
 	name   string
@@ -129,5 +137,13 @@ func (s *cloudWatchLogsStream) Output(calldepth int, msg string) error {
 		return nil
 	default:
 		return errDropped
+	}
+}
+
+func (s *cloudWatchLogsStream) RemoteLogs() reflow.RemoteLogs {
+	return reflow.RemoteLogs{
+		Type:          reflow.RemoteLogsTypeCloudwatch,
+		LogGroupName:  s.client.group,
+		LogStreamName: s.name,
 	}
 }

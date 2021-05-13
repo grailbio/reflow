@@ -201,8 +201,7 @@ func (e *Executor) Start() error {
 		switch m.Type {
 		case execDocker:
 			stdout, stderr := e.getRemoteStreams(id, true, true)
-			dx := newDockerExec(id, e, reflow.ExecConfig{},
-				log.New(stdout, log.InfoLevel), log.New(stderr, log.InfoLevel))
+			dx := newDockerExec(id, e, reflow.ExecConfig{}, stdout, stderr)
 			dx.Manifest = m
 			x = dx
 		case execBlob:
@@ -248,7 +247,7 @@ func (e *Executor) execHostPath(id digest.Digest, elem ...string) string {
 // URI returns the executor's ID.
 func (e *Executor) URI() string { return e.ID }
 
-func (e *Executor) getRemoteStreams(id digest.Digest, wantStdout, wantStderr bool) (so, se log.Outputter) {
+func (e *Executor) getRemoteStreams(id digest.Digest, wantStdout, wantStderr bool) (so, se remoteLogsOutputter) {
 	if e.remoteStream == nil {
 		return
 	}
@@ -325,7 +324,7 @@ func (e *Executor) Put(ctx context.Context, id digest.Digest, cfg reflow.ExecCon
 		}
 	default:
 		stdout, stderr := e.getRemoteStreams(id, true, true)
-		x = newDockerExec(id, e, cfg, log.New(stdout, log.InfoLevel), log.New(stderr, log.InfoLevel))
+		x = newDockerExec(id, e, cfg, stdout, stderr)
 	}
 	e.execs[id] = x
 	e.mu.Unlock()

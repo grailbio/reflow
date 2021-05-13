@@ -195,6 +195,10 @@ func (z *zombieExec) Logs(ctx context.Context, stdout, stderr, follow bool) (io.
 	return newAllCloser(io.MultiReader(readers...), closers...), nil
 }
 
+func (z *zombieExec) RemoteLogs(ctx context.Context, stdout bool) (reflow.RemoteLogs, error) {
+	return reflow.RemoteLogs{}, errors.New("cannot get logs location of a zombie exec")
+}
+
 func (z *zombieExec) Shell(ctx context.Context) (io.ReadWriteCloser, error) {
 	return nil, errors.New("cannot shell into a zombie exec")
 }

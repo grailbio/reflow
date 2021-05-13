@@ -10,6 +10,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -1508,17 +1509,19 @@ func (e *Eval) taskdbWrite(ctx context.Context, op Op, inspect reflow.ExecInspec
 		log.Errorf("repository put profile: %v", err)
 	}
 	if exec != nil {
-		if rc, err := exec.Logs(ctx, true, false, false); err == nil {
-			if stdout, err = e.Repository.Put(ctx, rc); err != nil {
-				log.Errorf("repository put stdout: %v", err)
+		if loc, err := exec.RemoteLogs(ctx, true); err == nil {
+			if b, err := json.Marshal(loc); err != nil {
+				log.Errorf("eval: json.marshal %v: %v", loc, err)
+			} else {
+				stdout = repoPut(ctx, e.repo, bytes.NewReader(b), "stdout remote logs")
 			}
-			rc.Close()
 		}
-		if rc, err := exec.Logs(ctx, false, true, false); err == nil {
-			if stderr, err = e.Repository.Put(ctx, rc); err != nil {
-				log.Errorf("repository put stderr: %v", err)
+		if loc, err := exec.RemoteLogs(ctx, false); err == nil {
+			if b, err := json.Marshal(loc); err != nil {
+				log.Errorf("eval: json.marshal %v: %v", loc, err)
+			} else {
+				stderr = repoPut(ctx, e.repo, bytes.NewReader(b), "stderr remote logs")
 			}
-			rc.Close()
 		}
 	}
 	if e.TaskDB != nil {
@@ -1531,6 +1534,14 @@ func (e *Eval) taskdbWrite(ctx context.Context, op Op, inspect reflow.ExecInspec
 		})
 	}
 	return g.Wait()
+}
+
+func repoPut(ctx context.Context, repo reflow.Repository, r io.Reader, msg string) (d digest.Digest) {
+	var err error
+	if d, err = repo.Put(ctx, r); err != nil {
+		log.Errorf("repository put %s: %v", msg, err)
+	}
+	return
 }
 
 // TODO(dnicolaou): Change to: taskdbWriteAsync(ctx context.Context, op Op, task *sched.Task) once nonscheduler mode is
@@ -2311,6 +2322,16 @@ var statusPrinters = [maxOp]struct {
 					}
 				}
 			} else {
+				if f.Exec != nil {
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel()
+					if loc, err := f.Exec.RemoteLogs(ctx, true); err == nil {
+						_, _ = fmt.Fprintf(w, "stdout location: %s\n", loc)
+					}
+					if loc, err := f.Exec.RemoteLogs(ctx, false); err == nil {
+						_, _ = fmt.Fprintf(w, "stderr location: %s\n", loc)
+					}
+				}
 				fmt.Fprintln(w, "result:")
 				seen := make(map[int]bool)
 				n := f.NExecArg()

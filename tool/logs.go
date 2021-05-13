@@ -19,7 +19,11 @@ func (c *Cmd) logs(ctx context.Context, args ...string) {
 		flags      = flag.NewFlagSet("logs", flag.ExitOnError)
 		stdoutFlag = flags.Bool("stdout", false, "display stdout instead of stderr")
 		followFlag = flags.Bool("f", false, "follow the logs")
-		help       = "Logs displays logs from execs."
+		help       = `Logs displays logs from execs.
+
+If the passed argument is an exec URI, then the logs will be retrieved from the executor (assuming it's still accessible).
+Otherwise, if the argument is an exec ID, then the location of logs is retrieved from taskdb.
+`
 	)
 	c.Parse(flags, args, help, "logs [-f] [-stdout] exec")
 	if flags.NArg() != 1 {

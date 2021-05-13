@@ -392,8 +392,7 @@ func (o *clientExec) Logs(ctx context.Context, stdout, stderr, follow bool) (io.
 			"logs", o.URI(), fmt.Sprint(stdout), fmt.Sprint(stderr),
 			errors.New("at least one of stdout, stderr must be set"))
 	}
-	call := o.Call("GET", "allocs/%s/execs/%s/%s?follow=%t", o.allocID, o.id, which, follow)
-	code, err := call.Do(ctx, nil)
+	call, code, err := o.makeLogsCall(ctx, which, follow)
 	if err != nil {
 		call.Close()
 		return nil, errors.E("logs", o.URI(), fmt.Sprint(stdout), fmt.Sprint(stderr), err)
@@ -401,9 +400,40 @@ func (o *clientExec) Logs(ctx context.Context, stdout, stderr, follow bool) (io.
 	if code != http.StatusOK {
 		err := call.Error()
 		call.Close()
-		return nil, err
+		return nil, errors.E("logs", o.URI(), fmt.Sprint(stdout), fmt.Sprint(stderr), err)
 	}
-	return call, nil
+	return call, err
+}
+
+// Logs returns this exec's remote logs reference.
+func (o *clientExec) RemoteLogs(ctx context.Context, stdout bool) (reflow.RemoteLogs, error) {
+	which := "stderrloc"
+	if stdout {
+		which = "stdoutloc"
+	}
+	call, code, err := o.makeLogsCall(ctx, which, false)
+	if err != nil {
+		return reflow.RemoteLogs{}, errors.E("logslocation", o.URI(), which, err)
+	}
+	defer func() { _ = call.Close() }()
+	if code != http.StatusOK {
+		return reflow.RemoteLogs{}, call.Error()
+	}
+	var loc reflow.RemoteLogs
+	if err := call.Unmarshal(&loc); err != nil {
+		return reflow.RemoteLogs{}, errors.E("logslocation", o.URI(), which, err)
+	}
+	return loc, nil
+}
+
+func (o *clientExec) makeLogsCall(ctx context.Context, which string, follow bool) (*rest.ClientCall, int, error) {
+	followParam := ""
+	if follow {
+		followParam = "?follow=true"
+	}
+	call := o.Call("GET", "allocs/%s/execs/%s/%s%s", o.allocID, o.id, which, followParam)
+	code, err := call.Do(ctx, nil)
+	return call, code, err
 }
 
 type conn struct {

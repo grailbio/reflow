@@ -66,8 +66,8 @@ type dockerExec struct {
 	client  *docker.Client
 	repo    *filerepo.Repository
 	staging filerepo.Repository
-	stdout  *log.Logger
-	stderr  *log.Logger
+	stdout  remoteLogsOutputter
+	stderr  remoteLogsOutputter
 
 	mu   sync.Mutex
 	cond *sync.Cond
@@ -81,7 +81,7 @@ type dockerExec struct {
 var retryPolicy = retry.MaxRetries(retry.Backoff(time.Second, 10*time.Second, 1.5), 5)
 
 // newExec creates a new exec with parent executor x.
-func newDockerExec(id digest.Digest, x *Executor, cfg reflow.ExecConfig, stdout, stderr *log.Logger) *dockerExec {
+func newDockerExec(id digest.Digest, x *Executor, cfg reflow.ExecConfig, stdout, stderr remoteLogsOutputter) *dockerExec {
 	e := &dockerExec{
 		Executor: x,
 		// Fill in from executor:
@@ -292,7 +292,7 @@ func (e *dockerExec) start(ctx context.Context) (execState, error) {
 			e.Log.Errorf("docker.containerlogs %q: %v", e.containerName(), err)
 		} else {
 			go func() {
-				err := scanLines(rcStdout, e.stdout)
+				err := scanLines(rcStdout, log.New(e.stdout, log.InfoLevel))
 				if err != nil {
 					log.Errorf("scanlines stdout: %v", err)
 				}
@@ -307,7 +307,7 @@ func (e *dockerExec) start(ctx context.Context) (execState, error) {
 			e.Log.Errorf("docker.containerlogs %q: %v", e.containerName(), err)
 		} else {
 			go func() {
-				err := scanLines(rcStderr, e.stderr)
+				err := scanLines(rcStderr, log.New(e.stderr, log.InfoLevel))
 				if err != nil {
 					log.Errorf("scanlines stderr: %v", err)
 				}
@@ -655,6 +655,13 @@ func (e *dockerExec) Logs(ctx context.Context, stdout, stderr, follow bool) (io.
 		return newAllCloser(io.MultiReader(readers...), closers...), nil
 	}
 	panic("bug")
+}
+
+func (e *dockerExec) RemoteLogs(_ context.Context, stdout bool) (reflow.RemoteLogs, error) {
+	if stdout {
+		return e.stdout.RemoteLogs(), nil
+	}
+	return e.stderr.RemoteLogs(), nil
 }
 
 func (e *dockerExec) Shell(ctx context.Context) (io.ReadWriteCloser, error) {

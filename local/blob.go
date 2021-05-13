@@ -567,6 +567,12 @@ func (e *blobExec) Logs(ctx context.Context, stdout bool, stderr bool, follow bo
 	return ioutil.NopCloser(bytes.NewReader(nil)), nil
 }
 
+func (e *blobExec) RemoteLogs(ctx context.Context, stdout bool) (l reflow.RemoteLogs, err error) {
+	// TODO(swami): Stream these logs also to Cloudwatch.
+	l = reflow.RemoteLogs{Type: reflow.RemoteLogsTypeUnknown, LogGroupName: "blobExec"}
+	return
+}
+
 func (e *blobExec) Shell(ctx context.Context) (io.ReadWriteCloser, error) {
 	return nil, errors.New("cannot shell into a file intern/extern")
 }

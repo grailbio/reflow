@@ -209,6 +209,29 @@ func (e ExecInspect) Runtime() time.Duration {
 	return diff
 }
 
+type RemoteLogsType string
+
+const (
+	RemoteLogsTypeUnknown    RemoteLogsType = "Unknown"
+	RemoteLogsTypeCloudwatch RemoteLogsType = "cloudwatch"
+)
+
+// RemoteLogs is a description of remote logs primarily useful for storing a reference.
+// It is expected to contain basic details necessary to retrieve the logs
+// but does not provide the means to do so.
+type RemoteLogs struct {
+	Type RemoteLogsType
+
+	// LogGroupName is the log group name (applicable if Type is 'Cloudwatch')
+	LogGroupName string
+	// LogStreamName is the log stream name (applicable if Type is 'Cloudwatch')
+	LogStreamName string
+}
+
+func (r RemoteLogs) String() string {
+	return fmt.Sprintf("(%s) %s %s", r.Type, r.LogGroupName, r.LogStreamName)
+}
+
 // An Exec computes a Value. It is created from an ExecConfig; the
 // Exec interface permits waiting on completion, and inspection of
 // results as well as ongoing execution.
@@ -234,6 +257,12 @@ type Exec interface {
 	// the logs until completion of execution.
 	// Completed Execs return the full set of available logs.
 	Logs(ctx context.Context, stdout, stderr, follow bool) (io.ReadCloser, error)
+
+	// RemoteLogs returns the remote location of the logs (if available).
+	// Returns the standard error (if 'stdout' is false) or standard output of the Exec.
+	// The location is just a reference and the content must be retrieved as appropriate for the type.
+	// RemoteLogs may (or may not) return a valid location during execution.
+	RemoteLogs(ctx context.Context, stdout bool) (RemoteLogs, error)
 
 	// Shell invokes /bin/bash inside an Exec. It can be invoked only when
 	// the Exec is executing. r provides the shell input. The returned read

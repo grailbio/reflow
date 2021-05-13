@@ -94,6 +94,14 @@ func (e *Exec) Logs(ctx context.Context, stdout bool, stderr bool, follow bool) 
 	return rc, err
 }
 
+func (e *Exec) RemoteLogs(ctx context.Context, stdout bool) (l reflow.RemoteLogs, err error) {
+	if _, err = e.result(ctx); err != nil {
+		return
+	}
+	l = reflow.RemoteLogs{Type: reflow.RemoteLogsTypeUnknown, LogGroupName: "testutil.Executor: exec completed"}
+	return
+}
+
 // Shell is not implemented
 func (e *Exec) Shell(ctx context.Context) (io.ReadWriteCloser, error) {
 	panic("not implemented")

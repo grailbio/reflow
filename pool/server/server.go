@@ -294,7 +294,20 @@ type execNode struct {
 	e reflow.Exec
 }
 
-func (n execNode) logNode(stdout, stderr bool, follow string) rest.Node {
+func (n execNode) logNode(loc, stdout, stderr bool, follow string) rest.Node {
+	if loc {
+		return rest.DoFunc(func(ctx context.Context, call *rest.Call) {
+			if !call.Allow("GET") {
+				return
+			}
+			logs, err := n.e.RemoteLogs(ctx, stdout)
+			if err != nil {
+				call.Error(err)
+				return
+			}
+			call.Reply(http.StatusOK, logs)
+		})
+	}
 	f := false
 	if follow == "true" {
 		f = true
@@ -309,7 +322,6 @@ func (n execNode) logNode(stdout, stderr bool, follow string) rest.Node {
 			return
 		}
 		_, err = io.Copy(&rest.StreamingCall{call}, rc)
-
 		if err != nil {
 			call.Error(err)
 			return
@@ -359,11 +371,15 @@ func (n execNode) Walk(ctx context.Context, call *rest.Call, path string) rest.N
 			}
 		})
 	case "logs":
-		return n.logNode(true, true, call.URL().Query().Get("follow"))
+		return n.logNode(false, true, true, call.URL().Query().Get("follow"))
 	case "stderr":
-		return n.logNode(false, true, call.URL().Query().Get("follow"))
+		return n.logNode(false, false, true, call.URL().Query().Get("follow"))
 	case "stdout":
-		return n.logNode(true, false, call.URL().Query().Get("follow"))
+		return n.logNode(false, true, false, call.URL().Query().Get("follow"))
+	case "stderrloc":
+		return n.logNode(true, false, true, "")
+	case "stdoutloc":
+		return n.logNode(true, true, false, "")
 	case "shell":
 		return n.shellNode()
 	case "result":
