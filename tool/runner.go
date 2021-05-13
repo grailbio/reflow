@@ -503,7 +503,7 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 	if r.schedCancel != nil {
 		r.schedCancel()
 	}
-	r.waitForBackgroundTasks(10 * time.Minute)
+	r.waitForBackgroundTasks(r.runConfig.RunFlags.BackgroundTimeout)
 	bgcancel()
 	return run.State, nil
 }
