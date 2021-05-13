@@ -691,16 +691,8 @@ the run ID:
     
     % reflow cat 29a4b506 > /tmp/29a4b506.execlog
 
-**Tracing**
+For more information about tracing, see: [doc/tracing.md](doc/tracing.md).
 
-The `*.trace` files in `$HOME/.reflow/runs` can be viewed using Google Chrome's
-built-in trace viewer at: `chrome://tracing/`. Use the `Load` button to select
-the `*.trace` file and click on traced events to see additional information. For
-more information on the trace visualization, see [`doc/tracing.md`](doc/tracing.md).
-
-Alternatively, the trace files are just json, so they can be viewed 
-directly.
-	
 ## Support and community
 
 Please join us on on [Gitter](https://gitter.im/grailbio/reflow) or 

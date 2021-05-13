@@ -545,7 +545,7 @@ func (r *Runner) setRunComplete(ctx context.Context, endTime time.Time) error {
 			_ = rc.Close()
 		}
 		if rc, err = os.Open(runbase + ".trace"); err == nil {
-			// this file will only exist if the localtracer is used (default)
+			// this file will only exist if the localtracer is used
 			pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			if trace, err = r.repo.Put(pctx, rc); err != nil {
 				r.Log.Debugf("put trace file in repo %s: %v", r.repo.URL(), err)

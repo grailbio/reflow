@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/infra"
 )
 
 // EventKind is the type of trace event.
@@ -69,6 +70,21 @@ var NopTracer Tracer = nopTracer{}
 
 type nopTracer struct{}
 
+func init() {
+	infra.Register("noptracer", new(nopTracer))
+}
+
+// Init implements infra.Provider and gets called when an instance of nopTracer
+// is created with infra.Config.Instance(...)
+func (nopTracer) Init() error {
+	return nil
+}
+
+// Help implements infra.Provider
+func (nopTracer) Help() string {
+	return "nopTracer does nothing, use it when you don't want any tracing"
+}
+
 func (nopTracer) Flush() {
 	return
 }
@@ -90,7 +106,7 @@ func (nopTracer) CopyTraceContext(src context.Context, dst context.Context) cont
 }
 
 func (nopTracer) URL(context.Context) string {
-	return ""
+	return "none (since nopTracer is in use)"
 }
 
 // WithTracer returns a context that emits trace events to the

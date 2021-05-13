@@ -113,7 +113,7 @@ func main() {
 		infra2.SSHKey:    "key",
 		infra2.TLS:       "tls,file=/tmp/ca.reflow",
 		infra2.Username:  "user",
-		infra2.Tracer:    "localtracer",
+		infra2.Tracer:    "noptracer",
 		infra2.Docker:    "docker,memlimit=soft",
 		infra2.RunID:     "runid",
 	}

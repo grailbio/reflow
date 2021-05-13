@@ -11,10 +11,12 @@
 
 ## Generate a trace for your run
 
-A trace will be generated automatically. Start your runs as you normally would
-and a `<reflow run id>.trace` file will appear in `$HOME/.reflow/runs`. Note
-that the trace file is valid even while the run is in progress, so you could
-potentially use it to debug a run that appears to be stuck.
+To enable tracing for your run, specify the `-tracer=localtracer` flag:
+
+    % reflow -tracer=localtracer run myprogram.rf 
+
+When the run finishes, a `<runid>.trace` file will be written to 
+`$HOME/.reflow/runs`.
 
 ## Visualize a trace
 

@@ -124,7 +124,7 @@ func (r *RunFlags) Flags(flags *flag.FlagSet) {
 	flags.BoolVar(&r.Local, "local", false, "execute flow on the Local Docker instance")
 	flags.StringVar(&r.LocalDir, "localdir", defaultFlowDir, "directory where execution state is stored in Local mode")
 	flags.StringVar(&r.Dir, "dir", "", "directory where execution state is stored in Local mode (alias for Local Dir for backwards compatibility)")
-	flags.BoolVar(&r.Trace, "trace", false, "trace flow evaluation")
+	flags.BoolVar(&r.Trace, "traceflow", false, "logs a trace of flow evaluation for debugging; not to be confused with -tracer (see reflow config -help)")
 	flags.StringVar(&r.resourcesFlag, "resources", "", "override offered resources in local mode (JSON formatted reflow.Resources)")
 	flags.BoolVar(&r.Pred, "pred", false, "use predictor to optimize resource usage. sched must also be true for the predictor to be used")
 	flags.BoolVar(&r.DotGraph, "dotgraph", true, "produce an evaluation graph for the run")
