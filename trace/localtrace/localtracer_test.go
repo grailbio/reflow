@@ -305,11 +305,6 @@ func TestLocalTracerContention(t *testing.T) {
 		wantDuration time.Duration // note: if test is run with go's race detector, it will take longer
 	}{
 		{
-			"1,000 concurrent traces",
-			1000,
-			30 * time.Millisecond,
-		},
-		{
 			"10,000 concurrent traces",
 			10000,
 			300 * time.Millisecond,
