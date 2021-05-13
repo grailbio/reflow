@@ -370,6 +370,7 @@ func (m *Manager) loop(pctx context.Context) {
 		for len(todo) > 0 && m.nPending() < m.maxPending && m.cluster.InstancePriceUSD(todo[0].Type) <= m.remainingBudgetUSD(true) {
 			var spec InstanceSpec
 			spec, todo = todo[0], todo[1:]
+			pending.Add(pending, spec.Resources)
 			m.markPending(spec)
 			m.log.Debugf("launch %v%v pending%v", spec.Type, spec.Resources, pending)
 			launched.Add(1)
