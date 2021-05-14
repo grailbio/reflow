@@ -264,53 +264,6 @@ func TestExecRetry(t *testing.T) {
 	}
 }
 
-func TestSteal(t *testing.T) {
-	const N = 10
-	var execs [N]*flow.Flow
-	for i := range execs {
-		execs[i] = op.Exec(fmt.Sprintf("cmd%d", i), "image", testutil.Resources)
-		testutil.AssignExecId(nil, execs[i])
-	}
-	merge := op.Merge(execs[:]...)
-	testutil.AssignExecId(nil, merge)
-
-	e := testutil.Executor{Have: testutil.Resources}
-	e.Init()
-	eval := flow.NewEval(merge, flow.EvalConfig{
-		Executor: &e,
-		Log:      logger(),
-		Trace:    logger(),
-	})
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	rc := testutil.EvalAsync(ctx, eval)
-	stolen := []*flow.Flow{execs[N-1]}
-	for i := 0; i < N; i++ {
-		exec := stolen[0]
-		e.Wait(ctx, exec)
-		s := eval.Stealer()
-		stolen = make([]*flow.Flow, N-i-1)
-		for j := 0; j < N-i-1; j++ {
-			stolen[j] = <-s.Admit(maxResources)
-		}
-		select {
-		case f := <-s.Admit(maxResources):
-			t.Errorf("stole too much %d: %v", i, f)
-		default:
-		}
-		e.Ok(ctx, exec, reflow.Fileset{})
-		// Return the rest undone.
-		for _, f := range stolen {
-			s.Return(f)
-		}
-		s.Close()
-	}
-	r := <-rc
-	if r.Err != nil {
-		t.Fatal(r.Err)
-	}
-}
-
 func TestCacheWrite(t *testing.T) {
 	for _, bottomup := range []bool{false, true} {
 		intern := op.Intern("internurl")

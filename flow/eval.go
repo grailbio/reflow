@@ -271,8 +271,6 @@ type Eval struct {
 	errors chan error
 	// Total and currently available resources.
 	total, available reflow.Resources
-	// The number of Flows stolen.
-	nstolen int
 	// Contains pending (currently executing) flows.
 	pending *workingset
 
@@ -294,13 +292,7 @@ type Eval struct {
 	begin                           time.Time
 	prevStateCounts, prevByteCounts counters
 
-	wakeupch chan bool
-
-	// Channels that support work stealing.
-	returnch   chan *Flow
-	newStealer chan *Stealer
-	// stealer is the head of the stealer list
-	stealer *Stealer
+	returnch chan *Flow
 
 	flowgraph *simple.DirectedGraph
 }
@@ -327,8 +319,6 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 		needch:     make(chan reflow.Requirements),
 		errors:     make(chan error),
 		returnch:   make(chan *Flow, 1024),
-		newStealer: make(chan *Stealer),
-		wakeupch:   make(chan bool, 1),
 		pending:    newWorkingset(),
 	}
 	if config.Executor != nil {
@@ -412,12 +402,6 @@ func (e *Eval) Err() error {
 // new Flow node (whose (*Flow).Parent is always set to its
 // ancestor). Evaluations are restartable.
 //
-// Eval permits supplementary workers to steal nodes to evaluate.
-// These workers are responsible for transferring any necessary data
-// between the Eval's repository and the worker's. Once a Flow node
-// has been stolen, it is owned by the worker until it is returned;
-// the worker must set the Flow node's state appropriately.
-//
 // This provides a simple evaluation scheme that also does not leave
 // any parallelism "on the ground".
 //
@@ -429,13 +413,6 @@ func (e *Eval) Err() error {
 // TODO(marius): wait for all nodes to complete before returning
 // (early) when cancelling...
 //
-// TODO(marius): explore making use of CAS flow states, so that we
-// don't have to separately track pending nodes internally (so we
-// don't clobber stolen nodes).
-//
-// TODO(marius): permit "steal-only" mode. The only provision for
-// this setup is that the parent must contain some sort of global
-// repository (e.g., S3).
 func (e *Eval) Do(ctx context.Context) error {
 	defer func() {
 		if e.DotWriter != nil && e.flowgraph != nil {
@@ -812,17 +789,6 @@ func (e *Eval) Need() reflow.Requirements {
 	return <-e.needch
 }
 
-// Stealer returns Stealer from which flow nodes may be stolen. This
-// permits an external worker to perform the work implied by the
-// return Flow, which is always in Ready state. When the external
-// worker has completed processing (or decided not to process after
-// all), the node must be returned via Return.
-func (e *Eval) Stealer() *Stealer {
-	s := newStealer(e)
-	e.newStealer <- s
-	return s
-}
-
 // Step asynchronously invokes proc on the provided flow. Once
 // processing is complete, the flow is returned. If an error is
 // returned, the error is communicated to the evaluation loop.
@@ -835,15 +801,6 @@ func (e *Eval) step(f *Flow, proc func(f *Flow) error) {
 			e.returnch <- f
 		}
 	}()
-}
-
-// wakeup wakes up a sleeping evaluator. Wakeup requests garbage collection
-// when needCollect is true.
-func (e *Eval) wakeup(needCollect bool) {
-	select {
-	case e.wakeupch <- needCollect:
-	default:
-	}
 }
 
 // wait returns when the next flow has completed. It returns an error
@@ -864,21 +821,6 @@ func (e *Eval) wait(ctx context.Context) (err error) {
 	}()
 
 	for {
-		// Collapse concurrent wakeups.
-		select {
-		case <-e.wakeupch:
-		default:
-		}
-		// Collect closed stealers.
-		for p := &e.stealer; *p != nil; {
-			if (*p).closed {
-				*p = (*p).next
-			}
-			if *p != nil {
-				p = &(*p).next
-			}
-		}
-		// Compute needed resources and find stealable nodes.
 		var (
 			need             reflow.Requirements
 			nready, nrunning int
@@ -899,17 +841,7 @@ func (e *Eval) wait(ctx context.Context) (err error) {
 				v.Visit()
 			case v.State == Ready:
 				nready++
-				admitted := false
-				for s := e.stealer; s != nil; s = s.next {
-					if admitted = s.admit(v.Flow); admitted {
-						e.pending.Add(v.Flow)
-						e.nstolen++
-						break
-					}
-				}
-				if !admitted {
-					need.AddParallel(v.Resources)
-				}
+				need.AddParallel(v.Resources)
 			}
 		}
 		for _, f := range e.needLog {
@@ -919,11 +851,7 @@ func (e *Eval) wait(ctx context.Context) (err error) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-e.wakeupch:
 		case e.needch <- need:
-		case s := <-e.newStealer:
-			s.next = e.stealer
-			e.stealer = s
 		case f := <-e.returnch:
 			e.returnFlow(f)
 			return nil
@@ -2423,76 +2351,6 @@ func accumulate(flows []*Flow) (int, string) {
 		ids[i] = fmt.Sprintf("%s:%d", id, count[id])
 	}
 	return n, strings.Join(ids, " ")
-}
-
-// A Stealer coordinates work stealing with an Eval. A Stealer
-// instance is obtained by (*Eval).Stealer.
-type Stealer struct {
-	mu     sync.Mutex
-	e      *Eval
-	max    reflow.Resources
-	closed bool
-	c      chan *Flow
-	next   *Stealer
-}
-
-func newStealer(e *Eval) *Stealer {
-	return &Stealer{e: e}
-}
-
-// Admit returns a channel that will return a stolen Flow node that
-// makes use of at most max resources. Only one Admit can be active
-// at a time: if Admit is called while another is outstanding, the first
-// Admit is cancelled, closing its channel.
-func (s *Stealer) Admit(max reflow.Resources) <-chan *Flow {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.c != nil {
-		select {
-		case f := <-s.c:
-			s.e.returnch <- f
-		default:
-		}
-		close(s.c)
-	}
-	s.max = max
-	s.c = make(chan *Flow, 1)
-	s.e.wakeup(false)
-	return s.c
-}
-
-func (s *Stealer) admit(f *Flow) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.c == nil || !s.max.Available(f.Resources) {
-		return false
-	}
-	s.max = reflow.Resources{}
-	s.c <- f
-	return true
-}
-
-// Return returns a stolen Flow to the evaluator.
-func (s *Stealer) Return(f *Flow) {
-	s.e.returnch <- f
-}
-
-// Close discards the Stealer and returns any potential pending
-// Flows. Admit should not be called after Close.
-func (s *Stealer) Close() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.c != nil {
-		select {
-		case f := <-s.c:
-			s.e.returnch <- f
-		default:
-		}
-		close(s.c)
-	}
-	s.max = reflow.Resources{}
-	s.closed = true
-	s.e.wakeup(false)
 }
 
 type writer struct {
