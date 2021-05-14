@@ -56,6 +56,8 @@ type instanceState struct {
 	configs   []instanceConfig
 	sleepTime time.Duration
 	region    string
+	// cheapestIndex points to the index in 'configs' of the cheapest instance config.
+	cheapestIndex int
 
 	mu          sync.Mutex
 	unavailable map[string]time.Time
@@ -72,6 +74,12 @@ func newInstanceState(configs []instanceConfig, sleep time.Duration, region stri
 	sort.Slice(s.configs, func(i, j int) bool {
 		return s.configs[j].Resources.ScaledDistance(nil) < s.configs[i].Resources.ScaledDistance(nil)
 	})
+	for i, cfg := range s.configs {
+		cheapestCfg := s.configs[s.cheapestIndex]
+		if price, cheapest := cfg.Price[region], cheapestCfg.Price[region]; price < cheapest {
+			s.cheapestIndex = i
+		}
+	}
 	return s
 }
 
@@ -96,6 +104,11 @@ func (s *instanceState) Available(need reflow.Resources) bool {
 // Largest returns the "largest" instance type from the current configuration.
 func (s *instanceState) Largest() instanceConfig {
 	return s.configs[0]
+}
+
+// Cheapest returns the "cheapest" instance type from the current configuration.
+func (s *instanceState) Cheapest() instanceConfig {
+	return s.configs[s.cheapestIndex]
 }
 
 // MaxAvailable returns the "largest" instance type that has at least

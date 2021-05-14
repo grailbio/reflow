@@ -59,3 +59,24 @@ func TestInstanceStateLargest(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+func TestInstanceStateCheapest(t *testing.T) {
+	instances := newInstanceState(
+		[]instanceConfig{instanceTypes["c5.2xlarge"]},
+		1*time.Second, "us-west-2")
+	if got, want := instances.Cheapest().Type, "c5.2xlarge"; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	instances = newInstanceState(
+		[]instanceConfig{instanceTypes["c5.2xlarge"], instanceTypes["c5.9xlarge"]},
+		1*time.Second, "us-west-2")
+	if got, want := instances.Cheapest().Type, "c5.2xlarge"; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	instances = newInstanceState(
+		[]instanceConfig{instanceTypes["r5a.8xlarge"], instanceTypes["c5.9xlarge"]},
+		1*time.Second, "us-west-2")
+	if got, want := instances.Cheapest().Type, "c5.9xlarge"; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

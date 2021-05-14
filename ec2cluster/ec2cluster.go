@@ -155,9 +155,6 @@ type Cluster struct {
 
 	instanceState   *instanceState
 	instanceConfigs map[string]instanceConfig
-	// cheapestInstancePrice is the price of the cheapest instance by maximum bid known to ec2cluster.
-	// It is constant and does not reflect changes in availability or spot market price.
-	cheapestInstancePrice float64
 
 	mu    sync.Mutex
 	pools map[string]reflowletPool
@@ -281,16 +278,12 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	// Construct the set of legal instances and set available disk space.
 	var configs []instanceConfig
 	c.instanceConfigs = make(map[string]instanceConfig)
-	c.cheapestInstancePrice = 1000.0
 	for _, config := range instanceTypes {
 		config.Resources["disk"] = float64(c.DiskSpace << 30)
 		if c.InstanceTypesMap == nil || c.InstanceTypesMap[config.Type] {
 			configs = append(configs, config)
 		}
 		c.instanceConfigs[config.Type] = config
-		if price := config.Price[c.Region]; price < c.cheapestInstancePrice {
-			c.cheapestInstancePrice = price
-		}
 	}
 	for inst := range c.InstanceTypesMap {
 		if _, ok := instanceTypes[inst]; !ok {
@@ -603,7 +596,7 @@ func (c *Cluster) InstancePriceUSD(typ string) float64 {
 }
 
 func (c *Cluster) CheapestInstancePriceUSD() float64 {
-	return c.cheapestInstancePrice
+	return c.InstancePriceUSD(c.instanceState.Cheapest().Type)
 }
 
 func (c *Cluster) printState(suffix string) {

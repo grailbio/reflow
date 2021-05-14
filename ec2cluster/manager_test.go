@@ -42,18 +42,24 @@ type testManagedCluster struct {
 func newCluster(configs []testConfig) *testManagedCluster {
 	rand.Seed(time.Now().Unix())
 	mActive, mAll := make(map[string]testConfig, len(configs)), make(map[string]testConfig, len(configs))
-
-	cheapestInstancePriceUSD := 1000.0
 	for _, c := range configs {
 		mActive[c.typ] = c
 		mAll[c.typ] = c
+	}
+	cluster := &testManagedCluster{activeConfigs: mActive, allConfigs: mAll, live: make(map[string]ManagedInstance)}
+	cluster.resetCheapest()
+	return cluster
+}
 
-		if c.price < cheapestInstancePriceUSD {
-			cheapestInstancePriceUSD = c.price
+// resetCheapest resets the cheapest price.  Must be called while 'c.mu' is held.
+func (c *testManagedCluster) resetCheapest() {
+	cheapest := 1000.0
+	for _, c := range c.activeConfigs {
+		if c.price < cheapest {
+			cheapest = c.price
 		}
 	}
-	cluster := &testManagedCluster{cheapestInstancePriceUSD: cheapestInstancePriceUSD, activeConfigs: mActive, allConfigs: mAll, live: make(map[string]ManagedInstance)}
-	return cluster
+	c.cheapestInstancePriceUSD = cheapest
 }
 
 // addConfig adds another config which can be used for launching instances.
@@ -62,12 +68,14 @@ func (c *testManagedCluster) addConfig(tc testConfig) {
 	defer c.mu.Unlock()
 	c.activeConfigs[tc.typ] = tc
 	c.allConfigs[tc.typ] = tc
+	c.resetCheapest()
 }
 
 // deleteConfig marks the given testConfig as inactive. It will no longer be used to launch instances
 // but is retained for cost accounting.
 func (c *testManagedCluster) deleteConfig(typ string) {
 	delete(c.activeConfigs, typ)
+	c.resetCheapest()
 }
 
 // clearLive clears all live instances from the cluster
@@ -147,7 +155,16 @@ func TestManagerStart(t *testing.T) {
 		ec2Is = append(ec2Is, i)
 	}
 	dio := &ec2.DescribeInstancesOutput{Reservations: []*ec2.Reservation{{Instances: ec2Is}}}
-	c := &Cluster{EC2: &mockEC2Client{output: dio}, stats: newStats(), pools: make(map[string]reflowletPool)}
+	var configs []instanceConfig
+	for _, config := range instanceTypes {
+		configs = append(configs, config)
+	}
+	c := &Cluster{
+		EC2:           &mockEC2Client{output: dio},
+		stats:         newStats(),
+		pools:         make(map[string]reflowletPool),
+		instanceState: newInstanceState(configs, time.Minute, "us-west-2"),
+	}
 	m := &Manager{cluster: c, refreshInterval: time.Millisecond}
 	m.Start()
 	defer m.Shutdown()
@@ -195,7 +212,7 @@ func TestManagerBasicWide(t *testing.T) {
 	c := newCluster([]testConfig{
 		{"type-a", 0.25, reflow.Resources{"cpu": 2, "mem": 4 * float64(data.GiB)}},
 	})
-	m := NewManager(c, 250, 5, log.Std)
+	m := NewManager(c, 5, 5, log.Std)
 	m.refreshInterval = 50 * time.Millisecond
 	m.launchTimeout = 500 * time.Millisecond
 	m.Start()
