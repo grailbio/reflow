@@ -79,13 +79,6 @@ retriable.`
 	c.must(e.Run())
 	c.must(e.ResolveImages(c.Config))
 
-	if e.V1 && config.GC {
-		log.Errorf("garbage collection disabled for v1 reflows")
-		config.GC = false
-	} else if config.Sched && config.GC {
-		log.Errorf("garbage collection disabled for with scalable scheduling")
-		config.GC = false
-	}
 	if e.Main() == nil {
 		c.Fatal("module has no Main")
 	}

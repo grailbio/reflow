@@ -210,10 +210,6 @@ func (r *Run) flow() (*flow.Flow, *types.T, error) {
 		})
 		return prog.Eval(), nil, err
 	case ".rf", ".rfx":
-		if r.batch.GC {
-			r.log.Errorf("garbage collection disabled for v1 reflows")
-			r.batch.GC = false
-		}
 		sess := syntax.NewSession(nil)
 		m, err := sess.Open(r.Program)
 		if err != nil {

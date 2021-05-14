@@ -5,7 +5,6 @@
 package flow_test
 
 import (
-	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -15,7 +14,6 @@ import (
 	"net/url"
 	"os"
 	"reflect"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -28,13 +26,11 @@ import (
 	"github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
-	"github.com/grailbio/reflow/repository/filerepo"
 	"github.com/grailbio/reflow/sched"
 	op "github.com/grailbio/reflow/test/flow"
 	"github.com/grailbio/reflow/test/testutil"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
-	grailtest "github.com/grailbio/testutil"
 )
 
 var (
@@ -1062,76 +1058,6 @@ func TestNoCacheExtern(t *testing.T) {
 		r := <-rc
 		if r.Err != nil {
 			t.Fatal(r.Err)
-		}
-	}
-}
-
-func TestGC(t *testing.T) {
-	intern := op.Intern("internurl")
-	groupby := op.Groupby("^(.)/.*", intern)
-	mapCollect := op.Map(func(f *flow.Flow) *flow.Flow {
-		c := op.Collect("^./(.*)", "$1", f)
-		testutil.AssignExecId(nil, c)
-		return c
-	}, groupby)
-	mapPullup := op.Map(func(f *flow.Flow) *flow.Flow {
-		p := op.Pullup(f, op.Collect("orphan", "anotherfile", intern))
-		testutil.AssignExecId(nil, p)
-		return p
-	}, mapCollect)
-	pullup := op.Pullup(mapPullup)
-	testutil.AssignExecId(nil, intern, groupby, mapCollect, mapPullup, pullup)
-
-	e := testutil.Executor{Have: testutil.Resources}
-	e.Init()
-	objects, cleanup := grailtest.TempDir(t, "", "test-")
-	defer cleanup()
-	repo := filerepo.Repository{Root: objects}
-	e.Repo = &repo
-	eval := flow.NewEval(pullup, flow.EvalConfig{
-		Executor: &e,
-		GC:       true,
-		Log:      logger(),
-		Trace:    logger(),
-	})
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	rc := testutil.EvalAsync(ctx, eval)
-	files := []string{
-		"a/x:x", "a/y:y", "a/z:z", "b/1:1", "b/2:2", "c/xxx:xxx",
-		"orphan:orphan", "unrooted:unrooted"}
-	for _, file := range files {
-		contents := strings.Split(file, ":")[1]
-		_, err := repo.Put(context.Background(), bytes.NewReader([]byte(contents)))
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	e.Ok(ctx, intern, testutil.Files(files...))
-	r := <-rc
-	if r.Err != nil {
-		t.Fatal(r.Err)
-	}
-	expect := testutil.Files("x:x", "y:y", "z:z", "1:1", "2:2", "xxx:xxx", "anotherfile:orphan")
-	if got, want := r.Val, expect; !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	for k, file := range expect.Pullup().Map {
-		ok, err := repo.Contains(file.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !ok {
-			t.Errorf("missing file %s:%v", k, file)
-		}
-	}
-	for _, file := range testutil.Files("unrooted:unrooted").Files() {
-		ok, err := repo.Contains(file.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if ok {
-			t.Errorf("failed to collect file %v", file)
 		}
 	}
 }

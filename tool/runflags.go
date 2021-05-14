@@ -17,8 +17,6 @@ const defaultFlowDir = "/tmp/flow"
 
 // CommonRunFlags are the run flags that are common across various run modes (run, batch, etc)
 type CommonRunFlags struct {
-	// GC indiciates if objects should be garbage collected (valid only in v0 flows).
-	GC bool
 	// NoCacheExtern indicates if extern operations should be written to cache.
 	NoCacheExtern bool
 	// RecomputeEmpty indicates if cache results with empty filesets be automatically recomputed.
@@ -37,7 +35,8 @@ type CommonRunFlags struct {
 
 // Flags adds the common run flags to the provided flagset.
 func (r *CommonRunFlags) Flags(flags *flag.FlagSet) {
-	flags.BoolVar(&r.GC, "gc", false, "enable garbage collection during evaluation")
+	var vacuum bool
+	flags.BoolVar(&vacuum, "gc", false, "(DEPRECATED) enable garbage collection during evaluation")
 	flags.BoolVar(&r.NoCacheExtern, "nocacheextern", false, "don't cache extern ops")
 	flags.BoolVar(&r.RecomputeEmpty, "recomputeempty", false, "recompute empty cache values")
 	flags.StringVar(&r.EvalStrategy, "eval", "topdown", "evaluation strategy")
@@ -68,14 +67,11 @@ func (r *CommonRunFlags) Err() error {
 
 // Configure stores the RunFlags's configuration into the provided
 // EvalConfig.
-func (r *CommonRunFlags) Configure(c *flow.EvalConfig) error {
-	var err error
-	c.Assert, err = asserter(r.Assert)
-	if err != nil {
+func (r *CommonRunFlags) Configure(c *flow.EvalConfig) (err error) {
+	if c.Assert, err = asserter(r.Assert); err != nil {
 		return err
 	}
 	c.NoCacheExtern = r.NoCacheExtern
-	c.GC = r.GC
 	c.RecomputeEmpty = r.RecomputeEmpty
 	c.BottomUp = r.EvalStrategy == "bottomup"
 	c.PostUseChecksum = r.PostUseChecksum

@@ -30,7 +30,6 @@ import (
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
 	infra2 "github.com/grailbio/reflow/infra"
-	"github.com/grailbio/reflow/liveset/bloomlive"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/predictor"
@@ -39,7 +38,6 @@ import (
 	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/trace"
 	"github.com/grailbio/reflow/values"
-	"github.com/willf/bloom"
 	"golang.org/x/sync/errgroup"
 	"gonum.org/v1/gonum/graph/encoding/dot"
 	"gonum.org/v1/gonum/graph/simple"
@@ -152,10 +150,6 @@ type EvalConfig struct {
 	// NoCacheExtern determines whether externs are cached.
 	NoCacheExtern bool
 
-	// GC tells whether Eval should perform garbage collection
-	// after each exec has completed.
-	GC bool
-
 	// RecomputeEmpty determines whether cached empty values
 	// are recomputed.
 	RecomputeEmpty bool
@@ -235,11 +229,6 @@ func (e EvalConfig) String() string {
 			flags = append(flags, "cachewrite")
 		}
 	}
-	if e.GC {
-		flags = append(flags, "gc")
-	} else {
-		flags = append(flags, "nogc")
-	}
 	if e.RecomputeEmpty {
 		flags = append(flags, "recomputeempty")
 	} else {
@@ -312,14 +301,6 @@ type Eval struct {
 	newStealer chan *Stealer
 	// stealer is the head of the stealer list
 	stealer *Stealer
-
-	needCollect             bool
-	live                    *bloom.BloomFilter
-	nlive                   int
-	livebytes, maxlivebytes data.Size
-	muGC                    sync.RWMutex
-	writers                 *writer
-	writersMu               sync.Mutex
 
 	flowgraph *simple.DirectedGraph
 }
@@ -444,9 +425,6 @@ func (e *Eval) Err() error {
 // do not exceed available resources.
 //
 // The root flow is canonicalized before evaluation.
-//
-// Eval reclaims unreachable objects after each exec has completed
-// and e.GC is set to true.
 //
 // TODO(marius): wait for all nodes to complete before returning
 // (early) when cancelling...
@@ -670,7 +648,6 @@ func (e *Eval) Do(ctx context.Context) error {
 					}
 					// Write to the cache only if a task was successfully completed.
 					if e.CacheMode.Writing() && task.Err == nil && task.Result.Err == nil {
-						e.Mutate(f, Incr) // just so the cache write can decr it
 						e.cacheWriteAsync(ctx, f)
 					}
 					return nil
@@ -725,7 +702,6 @@ func (e *Eval) Do(ctx context.Context) error {
 			return err
 		}
 	}
-	e.collect(ctx)
 	for _, f := range e.needLog {
 		e.LogFlow(ctx, f)
 	}
@@ -890,8 +866,7 @@ func (e *Eval) wait(ctx context.Context) (err error) {
 	for {
 		// Collapse concurrent wakeups.
 		select {
-		case needCollect := <-e.wakeupch:
-			e.needCollect = e.needCollect || needCollect
+		case <-e.wakeupch:
 		default:
 		}
 		// Collect closed stealers.
@@ -903,11 +878,6 @@ func (e *Eval) wait(ctx context.Context) (err error) {
 				p = &(*p).next
 			}
 		}
-		if e.needCollect {
-			e.collect(ctx)
-			e.needCollect = false
-		}
-
 		// Compute needed resources and find stealable nodes.
 		var (
 			need             reflow.Requirements
@@ -949,7 +919,7 @@ func (e *Eval) wait(ctx context.Context) (err error) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case e.needCollect = <-e.wakeupch:
+		case <-e.wakeupch:
 		case e.needch <- need:
 		case s := <-e.newStealer:
 			s.next = e.stealer
@@ -1031,112 +1001,11 @@ func (e *Eval) returnFlow(f *Flow) {
 		// Might need re-evaluation, so we need to re-traverse.
 		e.roots.Push(f)
 	}
-	e.needCollect = true
 	e.available.Add(e.available, f.Reserved)
 	e.Mutate(f, Unreserve(f.Reserved))
 	if f.Tracked && f.State == Done {
 		e.needLog = append(e.needLog, f)
 	}
-}
-
-// Collect reclaims unreachable objects from the executor's repository.
-// Objects are considered live if:
-//
-//	(1) They are part of the frontier of flow nodes in Done state.
-//	    These are the nodes for which not all dependent nodes are processed
-//	    yet, and thus data dependencies still exist. Values attached to nodes
-//	    behind this frontier are dead, since they are not dependencies of
-//	    any runnable node, or any node that will become runnable.
-//	(2) They are part of a liveset, as managed by (*Eval).Live and (*Eval).Dead.
-//	    These are values that must be retained for other reasons, for example
-//	    because they are being uploaded to cache.
-//
-// This scheme requires that all files in the repository which may
-// become live must be accounted for either through (1) or (2). In
-// order to guarantee this for execs and interns, we write these
-// results into staging repositories which are not subject to
-// reclamation. Once the full result is available in the staging
-// repository, they are promoted to the main repository, only after
-// being declared live (by atomically, and nonconcurrently with the
-// garbage collector, setting the corresponding node's state to
-// Done, and setting the node's Value).
-func (e *Eval) collect(ctx context.Context) {
-	if !e.GC {
-		return
-	}
-	// We have two roots for garbage collection:
-	// - the Flow itself, for which we find the frontier of completed nodes;
-	//   we know that no waiting of ready node can depend on any value behind
-	//   this frontier.
-	// - the set of writers, whose objects must remain live until they are fully
-	//   transferred to or from cache.
-	//
-	// TODO(marius): ideally we'd rewrite the flow graph itself ot account for
-	// cache writes, so that they are handled uniformly here (and elsewhere).
-	e.muGC.Lock()
-	defer e.muGC.Unlock()
-	// Collect all live values
-	var livevals []*reflow.Fileset
-	e.nlive = 0
-	for v := e.root.Visitor(); v.Walk(); {
-		fs, ok := v.Value.(reflow.Fileset)
-		switch {
-		case ok && v.State == Done:
-			if n := fs.N(); n > 0 {
-				e.nlive += n
-				livevals = append(livevals, &fs)
-			}
-		default:
-			v.Visit()
-			// Unevaluated maps must also be traversed, since they
-			// may introduce dependencies that would otherwise be
-			// garbage collected: they're just not evident yet.
-			if v.Op == Map {
-				v.Push(v.MapFlow)
-			}
-		}
-	}
-	var nwriter int
-	for w := e.writers; w != nil; w = w.next {
-		nwriter++
-		fs, _ := w.Flow.Value.(reflow.Fileset)
-		if n := fs.N(); n > 0 {
-			e.nlive += fs.N()
-			livevals = append(livevals, &fs)
-		}
-	}
-	// Construct a bloom filter with a 0.1% false positive rate
-	// for our live set.
-	var live *bloom.BloomFilter
-	if e.nlive > 0 {
-		live = bloom.NewWithEstimates(uint(e.nlive), 0.001)
-	} else {
-		live = bloom.New(64, 1)
-	}
-	var b bytes.Buffer
-	e.livebytes = data.Size(0)
-	// Add live files to the filter, count live unique objects.
-	e.nlive = 0
-	for _, v := range livevals {
-		for _, file := range v.Files() {
-			b.Reset()
-			if _, err := digest.WriteDigest(&b, file.ID); err != nil {
-				panic("failed to write file digest " + file.ID.String() + ": " + err.Error())
-			}
-			e.livebytes += data.Size(file.Size)
-			live.Add(b.Bytes())
-			e.nlive++
-		}
-	}
-	if e.livebytes > e.maxlivebytes {
-		e.maxlivebytes = e.livebytes
-	}
-	if e.live == nil || !e.live.Equal(live) {
-		if err := e.Executor.Repository().Collect(ctx, bloomlive.New(live)); err != nil {
-			e.Log.Errorf("collect: %v", err)
-		}
-	}
-	e.live = live
 }
 
 // Dirty determines whether node f is (transitively) dirty, and must
@@ -1338,7 +1207,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 		for i, k := range keys {
 			fs.List[i] = groups[k]
 		}
-		e.Mutate(f, fs, Incr, Done)
+		e.Mutate(f, fs, Done)
 	case Map:
 		v := f.Deps[0].Value.(reflow.Fileset)
 		ff := &Flow{
@@ -1360,21 +1229,21 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 			dst := f.Re.ReplaceAllString(path, f.Repl)
 			fileset[dst] = file
 		}
-		e.Mutate(f, reflow.Fileset{Map: fileset}, Incr, Done)
+		e.Mutate(f, reflow.Fileset{Map: fileset}, Done)
 	case Merge:
 		list := make([]reflow.Fileset, len(f.Deps))
 		for i, dep := range f.Deps {
 			list[i] = dep.Value.(reflow.Fileset)
 		}
-		e.Mutate(f, reflow.Fileset{List: list}, Incr, Done)
+		e.Mutate(f, reflow.Fileset{List: list}, Done)
 	case Val:
-		e.Mutate(f, Incr, Done)
+		e.Mutate(f, Done)
 	case Pullup:
 		v := &reflow.Fileset{List: make([]reflow.Fileset, len(f.Deps))}
 		for i, dep := range f.Deps {
 			v.List[i] = dep.Value.(reflow.Fileset)
 		}
-		e.Mutate(f, v.Pullup(), Incr, Done)
+		e.Mutate(f, v.Pullup(), Done)
 	case K:
 		vs := make([]values.T, len(f.Deps))
 		for i, dep := range f.Deps {
@@ -1394,21 +1263,21 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 		e.Mutate(f.Parent, Done)
 	case Coerce:
 		if v, err := f.Coerce(f.Deps[0].Value); err != nil {
-			e.Mutate(f, err, Incr, Done)
+			e.Mutate(f, err, Done)
 		} else {
-			e.Mutate(f, Value{v}, Incr, Done)
+			e.Mutate(f, Value{v}, Done)
 		}
 	case Requirements:
-		e.Mutate(f, Value{f.Deps[0].Value}, Incr, Done)
+		e.Mutate(f, Value{f.Deps[0].Value}, Done)
 	case Data:
 		if id, err := e.repo.Put(ctx, bytes.NewReader(f.Data)); err != nil {
-			e.Mutate(f, err, Incr, Done)
+			e.Mutate(f, err, Done)
 		} else {
 			e.Mutate(f, reflow.Fileset{
 				Map: map[string]reflow.File{
 					".": {ID: id, Size: int64(len(f.Data))},
 				},
-			}, Incr, Done)
+			}, Done)
 		}
 	default:
 		panic(fmt.Sprintf("bug %v", f))
@@ -1420,7 +1289,6 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 		}
 	}
 	if !e.CacheMode.Writing() {
-		e.Mutate(f, Decr)
 		return nil
 	}
 	// We're currently pretty conservative in what we choose to cache:
@@ -1491,7 +1359,6 @@ func (e *Eval) cacheWriteAsync(ctx context.Context, f *Flow) {
 			e.Log.Errorf("cache write %v: %v", f, err)
 		}
 		bgctx.Complete()
-		e.Mutate(f, Decr)
 	}()
 }
 
@@ -1982,7 +1849,7 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 				return e.Executor.VerifyIntegrity(ctx, fs)
 			})
 		case statePromote:
-			e.Mutate(f, r.Fileset, Incr, Propagate)
+			e.Mutate(f, r.Fileset, Propagate)
 			err = x.Promote(ctx)
 		}
 		if err != nil {
@@ -1996,39 +1863,10 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 		}
 	}
 	if err != nil {
-		if s > stateResult {
-			e.Mutate(f, Decr)
-		}
 		return err
 	}
 	e.Mutate(f, r.Err, Done)
 	return nil
-}
-
-// Live registers value v as being live. Live implements a safepoint:
-// it returns only when the value v has been considered live with
-// respect to the garbage collector.
-func (e *Eval) incr(f *Flow) {
-	e.writersMu.Lock()
-	e.writers = &writer{f, e.writers}
-	e.writersMu.Unlock()
-}
-
-// Dead unregisters the value v as being live, and (asynchronously)
-// requests a garbage collection.
-func (e *Eval) decr(f *Flow) {
-	e.writersMu.Lock()
-	defer e.writersMu.Unlock()
-	for p := &e.writers; *p != nil; {
-		if (*p).Flow == f {
-			*p = (*p).next
-			return
-		}
-		if *p != nil {
-			p = &(*p).next
-		}
-	}
-	e.wakeup(true)
 }
 
 // Fork is a an argument to (*Eval).Mutate to indicate a fork mutation.
@@ -2050,12 +1888,7 @@ type Unreserve reflow.Resources
 type Status string
 
 const (
-	// Incr is the mutation that increments the reference count used for
-	// GC.
-	Incr Mutation = iota
-	// Decr is the mutation that decrements the reference count used for
-	// GC.
-	Decr
+	Invalid Mutation = iota
 	// Cached is the mutation that sets the flow's flag.
 	Cached
 	// Refresh is the mutation that refreshes the status of the flow node.
@@ -2069,9 +1902,7 @@ const (
 	Propagate
 )
 
-// Mutate safely applies a set of mutations vis-a-vis the garbage
-// collector. Mutations may be applied concurrently with each other;
-// mutations are not applied during garbage collection.
+// Mutate safely applies a set of mutations which may be applied concurrently with each other.
 func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 	if e.Trace != nil {
 		strs := make([]string, len(muts))
@@ -2080,7 +1911,6 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 		}
 		e.Trace.Printf("mutate %s: %v", f, strings.Join(strs, ", "))
 	}
-	e.muGC.RLock()
 	var (
 		prevState, thisState State
 		refresh              bool
@@ -2104,10 +1934,6 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 			f.Value = arg.Value
 		case Mutation:
 			switch arg {
-			case Incr:
-				e.incr(f)
-			case Decr:
-				e.decr(f)
 			case Cached:
 				f.Cached = true
 			case Refresh:
@@ -2129,7 +1955,6 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 			panic(fmt.Sprintf("invalid argument type %T", arg))
 		}
 	}
-	e.muGC.RUnlock()
 	// Assign an ExecId for Execing (external) flows. In the scheduler case, f.ExecId is a random digest and is only set
 	// if the digest is its zero value.
 	if f.Op.External() && f.State == Execing {
