@@ -1504,7 +1504,7 @@ func (e *Eval) taskdbWrite(ctx context.Context, op Op, inspect reflow.ExecInspec
 		pid            digest.Digest
 	)
 	g, ctx := errgroup.WithContext(ctx)
-	if pid, err = marshal(ctx, e.Repository, inspect); err != nil {
+	if pid, err = repository.Marshal(ctx, e.Repository, inspect); err != nil {
 		log.Errorf("repository put profile: %v", err)
 	}
 	if exec != nil {
