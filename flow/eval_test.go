@@ -999,12 +999,13 @@ func newTestScheduler() (alloc *testAlloc, config flow.EvalConfig, done func()) 
 	}()
 
 	config = flow.EvalConfig{
-		Scheduler:  sched,
-		Assoc:      testutil.NewInmemoryAssoc(),
-		Repository: sharedRepo,
-		Transferer: sched.Transferer,
-		Log:        logger(),
-		Trace:      logger(),
+		Scheduler:   sched,
+		Snapshotter: snapshotter{},
+		Assoc:       testutil.NewInmemoryAssoc(),
+		Repository:  sharedRepo,
+		Transferer:  sched.Transferer,
+		Log:         logger(),
+		Trace:       logger(),
 	}
 	return
 }

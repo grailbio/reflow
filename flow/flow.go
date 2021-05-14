@@ -26,7 +26,6 @@ import (
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/values"
 )
 
@@ -160,13 +159,6 @@ const (
 	// for evaluation once its dependencies are completed.
 	TODO
 
-	// NeedTransfer indicates that the evaluator should transfer all
-	// objects needed for execution into the evaluator's repository.
-	NeedTransfer
-	// Transfer indicates that the evaluator is currently
-	// transferring the flow's dependent objects from cache.
-	Transfer
-
 	// Ready indicates that the node is ready for evaluation and should
 	// be scheduled by the evaluator. A node is ready only once all of its
 	// dependent objects are available in the evaluator's repository.
@@ -198,10 +190,6 @@ func (s State) Name() string {
 		return "needlookup"
 	case Lookup:
 		return "lookup"
-	case NeedTransfer:
-		return "needtransfer"
-	case Transfer:
-		return "transfer"
 	case TODO:
 		return "todo"
 	case Ready:
@@ -321,24 +309,12 @@ type Flow struct {
 	// Cached stores whether the flow was retrieved from cache.
 	Cached bool
 
-	// The amount of data to be transferred.
-	TransferSize data.Size
-
 	// Inspect stores an exec's inspect output.
 	Inspect reflow.ExecInspect
-
-	// TaskID is the identifier used to store this flow's Task representation in TaskDB.
-	// This is only used for non-scheduler mode because in scheduler mode,
-	// the corresponding task object will contain the relevant identifier.
-	// TODO(dnicolaou): Remove TaskID once nonscheduler mode is removed.
-	TaskID taskdb.TaskID
 
 	Tracked bool
 
 	Status *status.Task
-	// StatusAux is the flow's auxilliary status string, printed
-	// alongside the task's status.
-	StatusAux string
 
 	Data []byte // Data
 

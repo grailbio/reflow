@@ -12,19 +12,17 @@ func _() {
 	_ = x[NeedLookup-1]
 	_ = x[Lookup-2]
 	_ = x[TODO-3]
-	_ = x[NeedTransfer-4]
-	_ = x[Transfer-5]
-	_ = x[Ready-6]
-	_ = x[NeedSubmit-7]
-	_ = x[Running-8]
-	_ = x[Execing-9]
-	_ = x[Done-10]
-	_ = x[Max-11]
+	_ = x[Ready-4]
+	_ = x[NeedSubmit-5]
+	_ = x[Running-6]
+	_ = x[Execing-7]
+	_ = x[Done-8]
+	_ = x[Max-9]
 }
 
-const _State_name = "InitNeedLookupLookupTODONeedTransferTransferReadyNeedSubmitRunningExecingDoneMax"
+const _State_name = "InitNeedLookupLookupTODOReadyNeedSubmitRunningExecingDoneMax"
 
-var _State_index = [...]uint8{0, 4, 14, 20, 24, 36, 44, 49, 59, 66, 73, 77, 80}
+var _State_index = [...]uint8{0, 4, 14, 20, 24, 29, 39, 46, 53, 57, 60}
 
 func (i State) String() string {
 	if i < 0 || i >= State(len(_State_index)-1) {
