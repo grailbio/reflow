@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"strings"
 	"sync"
 
 	"github.com/grailbio/base/digest"
@@ -163,7 +164,7 @@ type Executor struct {
 func (e *Executor) Init() {
 	e.cond = ctxsync.NewCond(&e.mu)
 	e.execs = map[digest.Digest]*Exec{}
-	e.Repo = &panicRepository{}
+	e.Repo = NewInmemoryRepository()
 }
 
 // Put defines a new exec (idempotently).
@@ -258,7 +259,11 @@ func (e *Executor) Exec(ctx context.Context, f *flow.Flow) *Exec {
 			return x
 		}
 		if err := e.cond.Wait(ctx); err != nil {
-			panic(fmt.Sprintf("ctx done waiting for result %v: %v", f, err))
+			var existing []string
+			for id := range e.execs {
+				existing = append(existing, id.Short())
+			}
+			panic(fmt.Sprintf("gave up waiting for flow (f.Digest(): %s, f.ExecId: %s) but only have ExecId(s): %s)", f.Digest().Short(), f.ExecId.Short(), strings.Join(existing, ",")))
 		}
 	}
 }

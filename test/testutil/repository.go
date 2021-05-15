@@ -335,36 +335,6 @@ func (r *ExpectGetFilerRepository) GetFile(_ context.Context, id digest.Digest, 
 	return call.ReplyN, call.ReplyErr
 }
 
-// panicRepository is an unimplemented Repository.
-type panicRepository struct{}
-
-func (*panicRepository) Stat(context.Context, digest.Digest) (reflow.File, error) {
-	panic("not implemented")
-}
-func (*panicRepository) Get(context.Context, digest.Digest) (io.ReadCloser, error) {
-	panic("not implemented")
-}
-func (*panicRepository) Put(context.Context, io.Reader) (digest.Digest, error) {
-	panic("not implemented")
-}
-func (*panicRepository) WriteTo(context.Context, digest.Digest, *url.URL) error {
-	panic("not implemented")
-}
-func (*panicRepository) ReadFrom(context.Context, digest.Digest, *url.URL) error {
-	panic("not implemented")
-}
-func (*panicRepository) Collect(context.Context, liveset.Liveset) error {
-	panic("not implemented")
-}
-func (*panicRepository) CollectWithThreshold(ctx context.Context, live liveset.Liveset, dead liveset.Liveset, threshold time.Time, dryRun bool) error {
-	panic("not implemented")
-}
-func (*panicRepository) URL() *url.URL { panic("not implemented") }
-
-// PanicRepository is an unimplemented repository.
-// It panics on each call.
-var PanicRepository reflow.Repository = &panicRepository{}
-
 type repositoryCallKey struct {
 	Kind RepositoryCallKind
 	Arg  digest.Digest
