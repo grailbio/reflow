@@ -107,9 +107,9 @@ testloop:
 	}
 	if nfail == 0 {
 		c.Printf("PASS (%s)\n", time.Since(start))
-		c.Exit(1)
 	} else {
 		c.Printf("FAIL (%s)\n", time.Since(start))
+		c.Exit(1)
 	}
 }
 
