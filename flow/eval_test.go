@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
@@ -83,7 +84,6 @@ func TestSimpleEval(t *testing.T) {
 	intern := op.Intern("internurl")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
 	extern := op.Extern("externurl", exec)
-	testutil.AssignExecIdRandom(intern, exec, extern)
 
 	e, config, done := newTestScheduler()
 	defer done()
@@ -177,9 +177,6 @@ func assertKEval(t *testing.T, e *testAlloc, config flow.EvalConfig, interns, ex
 		return &flow.Flow{Op: flow.Val, Value: fs, FlowDigest: values.Digest(fs, types.Fileset)}
 	}, ks...)
 
-	testutil.AssignExecIdRandom(interns...)
-	testutil.AssignExecIdRandom(execs...)
-
 	eval := flow.NewEval(finalk, config)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -214,7 +211,6 @@ func TestGroupbyMapCollect(t *testing.T) {
 	mapCollect := op.Map(func(f *flow.Flow) *flow.Flow {
 		return op.Collect("^./(.*)", "$1", f)
 	}, groupby)
-	testutil.AssignExecIdRandom(intern, groupby, mapCollect)
 
 	e, config, done := newTestScheduler()
 	defer done()
@@ -237,7 +233,6 @@ func TestGroupbyMapCollect(t *testing.T) {
 
 func TestExecRetry(t *testing.T) {
 	exec := op.Exec("image", "command", testutil.Resources)
-	testutil.AssignExecIdRandom(exec)
 
 	e, config, done := newTestScheduler()
 	defer done()
@@ -267,7 +262,6 @@ func TestCacheWrite(t *testing.T) {
 		exec := op.Exec("image", "command", testutil.Resources, intern)
 		groupby := op.Groupby("(.*)", exec)
 		pullup := op.Pullup(groupby)
-		testutil.AssignExecIdRandom(intern, exec, groupby, pullup)
 
 		eval := flow.NewEval(pullup, config)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -298,15 +292,12 @@ func TestCacheWrite(t *testing.T) {
 func TestCacheLookup(t *testing.T) {
 	intern := op.Intern("internurl")
 	groupby := op.Groupby("(.*)", intern)
-	mapFunc := func(f *flow.Flow) *flow.Flow {
-		exec := op.Exec("image", "command", testutil.Resources, f)
-		testutil.AssignExecId(nil, exec)
-		return exec
-	}
-	mapCollect := op.Map(mapFunc, groupby)
+	m := newMapper(func(f *flow.Flow) *flow.Flow {
+		return op.Exec("image", "command", testutil.Resources, f)
+	})
+	mapCollect := op.Map(m.mapFunc, groupby)
 	pullup := op.Pullup(mapCollect)
 	extern := op.Extern("externurl", pullup)
-	testutil.AssignExecIdRandom(intern, groupby, mapCollect, pullup, extern)
 
 	e, config, done := newTestScheduler()
 	defer done()
@@ -339,7 +330,7 @@ func TestCacheLookup(t *testing.T) {
 		testutil.WriteFiles(e.Repo, "b"),
 	} {
 		v := v
-		f := mapFunc(&flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done})
+		f := m.mapFunc(&flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done})
 		go e.Ok(ctx, f, v) // identity
 	}
 
@@ -348,7 +339,7 @@ func TestCacheLookup(t *testing.T) {
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if !e.Equiv(extern, mapFunc(flowFiles("a")), mapFunc(flowFiles("b"))) {
+	if !e.Equiv(extern, m.mapFunc(flowFiles("a")), m.mapFunc(flowFiles("b"))) {
 		t.Error("wrong set of expected flows")
 	}
 }
@@ -356,15 +347,12 @@ func TestCacheLookup(t *testing.T) {
 func TestCacheLookupWithAssertions(t *testing.T) {
 	intern := op.Intern("internurl")
 	groupby := op.Groupby("(.*)", intern)
-	mapFunc := func(f *flow.Flow) *flow.Flow {
-		exec := op.Exec("image", "command", testutil.Resources, f)
-		testutil.AssignExecId(nil, exec)
-		return exec
-	}
-	mapCollect := op.Map(mapFunc, groupby)
+	m := newMapper(func(f *flow.Flow) *flow.Flow {
+		return op.Exec("image", "command", testutil.Resources, f)
+	})
+	mapCollect := op.Map(m.mapFunc, groupby)
 	pullup := op.Pullup(mapCollect)
 	extern := op.Extern("externurl", pullup)
-	testutil.AssignExecIdRandom(intern, groupby, mapCollect, pullup, extern)
 
 	e, config, done := newTestScheduler()
 	defer done()
@@ -413,7 +401,7 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 		testutil.WriteFiles(e.Repo, "b"),
 	} {
 		v := v
-		f := mapFunc(&flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done})
+		f := m.mapFunc(&flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done})
 		go e.Ok(ctx, f, v) // identity
 	}
 
@@ -424,7 +412,7 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if !e.Equiv(extern, mapFunc(flowFiles("a")), mapFunc(flowFiles("b"))) {
+	if !e.Equiv(extern, m.mapFunc(flowFiles("a")), m.mapFunc(flowFiles("b"))) {
 		t.Error("wrong set of expected flows")
 	}
 
@@ -452,7 +440,7 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 		testutil.WriteFiles(e.Repo, "b"),
 	} {
 		v := v
-		f := mapFunc(&flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done})
+		f := m.mapFunc(&flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done})
 		go e.Ok(ctx, f, v) // identity
 	}
 
@@ -463,7 +451,7 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if !e.Equiv(extern, mapFunc(flowFiles("a")), mapFunc(flowFiles("b"))) {
+	if !e.Equiv(extern, m.mapFunc(flowFiles("a")), m.mapFunc(flowFiles("b"))) {
 		t.Error("wrong set of expected flows")
 	}
 }
@@ -471,15 +459,12 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 func TestCacheLookupBottomup(t *testing.T) {
 	intern := op.Intern("internurl")
 	groupby := op.Groupby("(.*)", intern)
-	mapFunc := func(f *flow.Flow) *flow.Flow {
-		exec := op.Exec("image", "command", testutil.Resources, f)
-		testutil.AssignExecId(nil, exec)
-		return exec
-	}
-	mapCollect := op.Map(mapFunc, groupby)
+	m := newMapper(func(f *flow.Flow) *flow.Flow {
+		return op.Exec("image", "command", testutil.Resources, f)
+	})
+	mapCollect := op.Map(m.mapFunc, groupby)
 	pullup := op.Pullup(mapCollect)
 	extern := op.Extern("externurl", pullup)
-	testutil.AssignExecIdRandom(intern, groupby, mapCollect, pullup, extern)
 
 	e, config, done := newTestScheduler()
 	defer done()
@@ -497,17 +482,17 @@ func TestCacheLookupBottomup(t *testing.T) {
 
 	testutil.WriteCache(eval, intern.Digest(), "a", "b")
 	// "a" gets a cache hit, "b" a miss.
-	testutil.WriteCache(eval, mapFunc(flowFiles("a")).Digest(), "a")
+	testutil.WriteCache(eval, m.mapFunc(flowFiles("a")).Digest(), "a")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	rc := testutil.EvalAsync(ctx, eval)
-	go e.Ok(ctx, mapFunc(flowFiles("b")), testutil.WriteFiles(e.Repo, "b"))
+	go e.Ok(ctx, m.mapFunc(flowFiles("b")), testutil.WriteFiles(e.Repo, "b"))
 	e.Ok(ctx, extern, reflow.Fileset{})
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if !e.Equiv(extern, mapFunc(flowFiles("b"))) {
+	if !e.Equiv(extern, m.mapFunc(flowFiles("b"))) {
 		t.Error("wrong set of expected flows")
 	}
 }
@@ -525,7 +510,6 @@ func testCacheOff(t *testing.T, bottomup bool) {
 	intern := op.Intern("internurl")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
 	extern := op.Extern("externurl", exec)
-	testutil.AssignExecIdRandom(intern, exec, extern)
 
 	e, config, done := newTestScheduler()
 	config.BottomUp = bottomup
@@ -556,7 +540,6 @@ func TestCacheLookupBottomupPhysical(t *testing.T) {
 	execA.Ident, execB.Ident = "execA", "execB"
 	merge := op.Merge(execA, execB)
 	extern := op.Extern("externurl", merge)
-	testutil.AssignExecIdRandom(internA, internB, execA, execB, merge, extern)
 
 	e, config, done := newTestScheduler()
 	defer done()
@@ -606,15 +589,12 @@ func TestCacheLookupBottomupPhysical(t *testing.T) {
 func TestCacheLookupBottomupWithAssertions(t *testing.T) {
 	intern := op.Intern("internurl")
 	groupby := op.Groupby("(.*)", intern)
-	mapFunc := func(f *flow.Flow) *flow.Flow {
-		exec := op.Exec("image", "command", testutil.Resources, f)
-		testutil.AssignExecId(nil, exec)
-		return exec
-	}
-	mapCollect := op.Map(mapFunc, groupby)
+	m := newMapper(func(f *flow.Flow) *flow.Flow {
+		return op.Exec("image", "command", testutil.Resources, f)
+	})
+	mapCollect := op.Map(m.mapFunc, groupby)
 	pullup := op.Pullup(mapCollect)
 	extern := op.Extern("externurl", pullup)
-	testutil.AssignExecIdRandom(intern, groupby, mapCollect, pullup, extern)
 
 	e, config, done := newTestScheduler()
 	defer done()
@@ -638,27 +618,27 @@ func TestCacheLookupBottomupWithAssertions(t *testing.T) {
 	// "a" has "v1" and will get "v1" from the generator, so the cache hit will be accepted.
 	_ = fsA.AddAssertions(reflow.AssertionsFromEntry(
 		reflow.AssertionKey{"a", "namespace"}, map[string]string{"tag": "v1"}))
-	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("a")).Digest(), fsA)
+	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("a")).Digest(), fsA)
 	// "b" has "v2" but will get "v1" from the generator, so the cache hit will be rejected.
 	_ = fsB.AddAssertions(reflow.AssertionsFromEntry(
 		reflow.AssertionKey{"b", "namespace"}, map[string]string{"tag": "v2"}))
-	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("b")).Digest(), fsB)
+	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("b")).Digest(), fsB)
 	// "c" has "error" in the namespace so the generator will error out, so the cache hit will be rejected.
 	_ = fsC.AddAssertions(reflow.AssertionsFromEntry(
 		reflow.AssertionKey{"c", "error"}, map[string]string{"tag": "v"}))
-	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("c")).Digest(), fsC)
+	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("c")).Digest(), fsC)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	rc := testutil.EvalAsync(ctx, eval)
-	go e.Ok(ctx, mapFunc(flowFiles("b")), testutil.WriteFiles(e.Repo, "b"))
-	go e.Ok(ctx, mapFunc(flowFiles("c")), testutil.WriteFiles(e.Repo, "c"))
+	go e.Ok(ctx, m.mapFunc(flowFiles("b")), testutil.WriteFiles(e.Repo, "b"))
+	go e.Ok(ctx, m.mapFunc(flowFiles("c")), testutil.WriteFiles(e.Repo, "c"))
 	e.Ok(ctx, extern, reflow.Fileset{})
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if !e.Equiv(extern, mapFunc(flowFiles("b")), mapFunc(flowFiles("c"))) {
+	if !e.Equiv(extern, m.mapFunc(flowFiles("b")), m.mapFunc(flowFiles("c"))) {
 		t.Error("wrong set of expected flows")
 	}
 }
@@ -673,7 +653,6 @@ func TestCacheLookupBottomupWithAssertExact(t *testing.T) {
 	mapCollect := op.Map(mapFunc, groupby)
 	pullup := op.Pullup(mapCollect)
 	extern := op.Extern("externurl", pullup)
-	testutil.AssignExecIdRandom(extern)
 
 	e, config, done := newTestScheduler()
 	defer done()
@@ -714,15 +693,12 @@ func TestCacheLookupBottomupWithAssertExact(t *testing.T) {
 func TestCacheLookupBottomupWithAssertNever(t *testing.T) {
 	intern := op.Intern("internurl")
 	groupby := op.Groupby("(.*)", intern)
-	mapFunc := func(f *flow.Flow) *flow.Flow {
-		exec := op.Exec("image", "command", testutil.Resources, f)
-		testutil.AssignExecId(nil, exec)
-		return exec
-	}
-	mapCollect := op.Map(mapFunc, groupby)
+	m := newMapper(func(f *flow.Flow) *flow.Flow {
+		return op.Exec("image", "command", testutil.Resources, f)
+	})
+	mapCollect := op.Map(m.mapFunc, groupby)
 	pullup := op.Pullup(mapCollect)
 	extern := op.Extern("externurl", pullup)
-	testutil.AssignExecIdRandom(intern, groupby, mapCollect, pullup, extern)
 
 	e, config, done := newTestScheduler()
 	defer done()
@@ -775,9 +751,9 @@ func TestCacheLookupBottomupWithAssertNever(t *testing.T) {
 		reflow.AssertionKey{"b", "namespace"}, map[string]string{"tag": "invalid"}))
 	_ = fsC.AddAssertions(reflow.AssertionsFromEntry(
 		reflow.AssertionKey{"c", "namespace"}, map[string]string{"tag": "invalid"}))
-	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("a")).Digest(), fsA)
-	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("b")).Digest(), fsB)
-	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("c")).Digest(), fsC)
+	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("a")).Digest(), fsA)
+	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("b")).Digest(), fsB)
+	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("c")).Digest(), fsC)
 
 	// extern also has a cached result.
 	testutil.WriteCache(eval, extern.Digest())
@@ -796,7 +772,6 @@ func TestCacheLookupBottomupWithAssertNever(t *testing.T) {
 func TestCacheLookupMissing(t *testing.T) {
 	intern := op.Intern("internurl")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
-	testutil.AssignExecIdRandom(intern, exec)
 
 	e, config, done := newTestScheduler()
 	defer done()
@@ -827,15 +802,12 @@ func TestNoCacheExtern(t *testing.T) {
 	for _, bottomup := range []bool{false, true} {
 		intern := op.Intern("internurl")
 		groupby := op.Groupby("(.*)", intern)
-		mapFunc := func(f *flow.Flow) *flow.Flow {
-			exec := op.Exec("image", "command", testutil.Resources, f)
-			testutil.AssignExecId(nil, exec)
-			return exec
-		}
-		mapCollect := op.Map(mapFunc, groupby)
+		m := newMapper(func(f *flow.Flow) *flow.Flow {
+			return op.Exec("image", "command", testutil.Resources, f)
+		})
+		mapCollect := op.Map(m.mapFunc, groupby)
 		pullup := op.Pullup(mapCollect)
 		extern := op.Extern("externurl", pullup)
-		testutil.AssignExecIdRandom(intern, groupby, mapCollect, pullup, extern)
 
 		e, config, done := newTestScheduler()
 		defer done()
@@ -853,7 +825,7 @@ func TestNoCacheExtern(t *testing.T) {
 			testutil.WriteFiles(e.Repo, "b"),
 		} {
 			f := &flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done}
-			go e.Ok(ctx, mapFunc(f), v)
+			go e.Ok(ctx, m.mapFunc(f), v)
 		}
 
 		e.Ok(ctx, extern, reflow.Fileset{})
@@ -1054,7 +1026,6 @@ func TestScheduler(t *testing.T) {
 	intern := op.Intern("internurl")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
 	extern := op.Extern("externurl", exec)
-	testutil.AssignExecIdRandom(intern, exec, extern)
 
 	eval := flow.NewEval(extern, config)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -1096,7 +1067,6 @@ func TestSnapshotter(t *testing.T) {
 	intern := op.Intern("s3://bucket/prefix")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
 	extern := op.Extern("externurl", exec)
-	testutil.AssignExecIdRandom(intern, exec, extern)
 
 	eval := flow.NewEval(extern, config)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -1150,7 +1120,6 @@ func TestSnapshotterMustIntern(t *testing.T) {
 	internMust := op.Intern("s3://bucket/prefix")
 	internMust.MustIntern = true
 	out := op.Merge(exec, internMust)
-	testutil.AssignExecIdRandom(intern, exec, internMust, out)
 
 	eval := flow.NewEval(out, config)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -1187,7 +1156,6 @@ func TestResolverFail(t *testing.T) {
 	intern := op.Intern("s3://bucket/prefix")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
 	extern := op.Extern("externurl", exec)
-	testutil.AssignExecIdRandom(intern, exec, extern)
 
 	eval := flow.NewEval(extern, config)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -1222,7 +1190,6 @@ func TestLoadFail(t *testing.T) {
 	intern := op.Intern("s3://bucket/prefix")
 	exec := op.Exec("image", "command", testutil.Resources, intern)
 	extern := op.Extern("externurl", exec)
-	testutil.AssignExecIdRandom(intern, exec, extern)
 
 	eval := flow.NewEval(extern, config)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -1244,7 +1211,6 @@ func TestSchedulerSubmit(t *testing.T) {
 	exec2 := op.Exec("image", "command2", testutil.Resources, intern)
 	merged := op.Pullup(exec1, exec2)
 	extern := op.Extern("externurl", merged)
-	testutil.AssignExecIdRandom(intern, exec1, exec2, merged, extern)
 
 	wa := newWaitAssoc()
 	config.Assoc = wa
@@ -1354,4 +1320,26 @@ func TestOomAdjust(t *testing.T) {
 func flowFiles(files ...string) *flow.Flow {
 	v := testutil.Files(files...)
 	return &flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done}
+}
+
+// onceMapper maps flows to other flows only once and returns the mapped result subsequently.
+// This is particularly necessary for 'Map' flows which need to map a flow to another flow.
+// Since we set a random value to 'ExecConfig.Ident', the mapped flows should be cached.
+type onceMapper struct {
+	once      once.Map
+	mapped    sync.Map
+	doMapFunc func(f *flow.Flow) *flow.Flow
+}
+
+func newMapper(mapFunc func(f *flow.Flow) *flow.Flow) *onceMapper {
+	return &onceMapper{doMapFunc: mapFunc}
+}
+
+func (m *onceMapper) mapFunc(f *flow.Flow) *flow.Flow {
+	_ = m.once.Do(f.Digest(), func() error {
+		m.mapped.Store(f.Digest(), m.doMapFunc(f))
+		return nil
+	})
+	v, _ := m.mapped.Load(f.Digest())
+	return v.(*flow.Flow)
 }

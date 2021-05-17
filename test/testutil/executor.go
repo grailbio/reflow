@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"strings"
 	"sync"
 
 	"github.com/grailbio/base/digest"
@@ -136,8 +135,8 @@ func (e *Exec) Error(err error) {
 func (e *Exec) result(ctx context.Context) (ExecResult, error) {
 	select {
 	case result := <-e.resultc:
-		e.resultc <- result
 		result.Inspect.Config = e.config
+		e.resultc <- result
 		return result, nil
 	case err := <-e.err:
 		// We don't put error back--it resets the result.
@@ -158,12 +157,16 @@ type Executor struct {
 	mu    sync.Mutex
 	cond  *ctxsync.Cond
 	execs map[digest.Digest]*Exec
+	// execIdByIdentDigest maps the digest of the Exec's Ident to the id of the exec.
+	// This is needed to rendezvous exec's in unit tests.
+	execIdByIdentDigest map[digest.Digest]digest.Digest
 }
 
 // Init initializes the test executor.
 func (e *Executor) Init() {
 	e.cond = ctxsync.NewCond(&e.mu)
 	e.execs = map[digest.Digest]*Exec{}
+	e.execIdByIdentDigest = map[digest.Digest]digest.Digest{}
 	e.Repo = NewInmemoryRepository()
 }
 
@@ -173,6 +176,7 @@ func (e *Executor) Put(ctx context.Context, id digest.Digest, config reflow.Exec
 	defer e.mu.Unlock()
 	if e.execs[id] == nil {
 		e.execs[id] = newExec(id, config)
+		e.computeRendezvousId(id, config)
 		e.cond.Broadcast()
 	}
 	return e.execs[id], nil
@@ -225,21 +229,13 @@ func (e *Executor) Repository() reflow.Repository {
 	return e.Repo
 }
 
-// flowId computes the exec id for this flow.
-func (e *Executor) flowId(f *flow.Flow) digest.Digest {
-	if f.ExecId.IsZero() {
-		panic(fmt.Errorf("no exec id set for flow %v", f))
-	}
-	return f.ExecId
-}
-
 // Equiv tells whether this executor contains precisely a set of flows.
 func (e *Executor) Equiv(flows ...*flow.Flow) bool {
 	ids := map[digest.Digest]bool{}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for _, f := range flows {
-		ids[e.flowId(f)] = true
+		ids[e.getRendezvousId(f)] = true
 	}
 	for id := range e.execs {
 		if !ids[id] {
@@ -255,15 +251,12 @@ func (e *Executor) Exec(ctx context.Context, f *flow.Flow) *Exec {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for {
-		if x := e.execs[e.flowId(f)]; x != nil {
+		fid := e.getRendezvousId(f)
+		if x := e.execs[fid]; !fid.IsZero() && x != nil {
 			return x
 		}
 		if err := e.cond.Wait(ctx); err != nil {
-			var existing []string
-			for id := range e.execs {
-				existing = append(existing, id.Short())
-			}
-			panic(fmt.Sprintf("gave up waiting for flow (f.Digest(): %s, f.ExecId: %s) but only have ExecId(s): %s)", f.Digest().Short(), f.ExecId.Short(), strings.Join(existing, ",")))
+			panic(fmt.Sprintf("gave up waiting for flow %v", f))
 		}
 	}
 }
@@ -277,7 +270,7 @@ func (e *Executor) Wait(ctx context.Context, f *flow.Flow) {
 func (e *Executor) Pending(f *flow.Flow) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	_, ok := e.execs[e.flowId(f)]
+	_, ok := e.execs[e.getRendezvousId(f)]
 	return ok
 }
 
@@ -287,7 +280,7 @@ func (e *Executor) WaitAny(ctx context.Context, flows ...*flow.Flow) *flow.Flow 
 	defer e.mu.Unlock()
 	for {
 		for _, flow := range flows {
-			if e.execs[e.flowId(flow)] != nil {
+			if e.execs[e.getRendezvousId(flow)] != nil {
 				return flow
 			}
 		}
@@ -314,19 +307,16 @@ func (e *Executor) Error(ctx context.Context, f *flow.Flow, err error) {
 	e.Exec(ctx, f).Error(err)
 }
 
-// AssignExecId assigns ExecIds for the given set of flows using the given assertions.
-func AssignExecId(a *reflow.Assertions, flows ...*flow.Flow) {
-	if a == nil {
-		a = new(reflow.Assertions)
-	}
-	for _, f := range flows {
-		f.ExecId = reflow.Digester.FromDigests(f.Digest(), a.Digest())
-	}
+// computeRendezvousId computes the rendezvous id for a given exec id and config.
+// The evaluator/scheduler is free to set any id for an exec corresponding to a 'flow.Flow'.
+// However, in unit tests, we need to set the result/error for an exec that's put in the test executor,
+// using a reference id which is computable in the absence of the 'flow.Flow' object.
+// For this purpose we use the digest of flow's `Ident`.
+func (e *Executor) computeRendezvousId(id digest.Digest, config reflow.ExecConfig) {
+	e.execIdByIdentDigest[reflow.Digester.FromString(config.Ident)] = id
 }
 
-// AssignExecIdRandom assigns random ExecIds for the given set of flows.
-func AssignExecIdRandom(flows ...*flow.Flow) {
-	for _, f := range flows {
-		f.ExecId = reflow.Digester.Rand(nil)
-	}
+// getRendezvousId computes the exec id for this flow.
+func (e *Executor) getRendezvousId(f *flow.Flow) digest.Digest {
+	return e.execIdByIdentDigest[reflow.Digester.FromString(f.Ident)]
 }

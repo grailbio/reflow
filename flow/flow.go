@@ -318,13 +318,6 @@ type Flow struct {
 	// The exec working on this node.
 	Exec reflow.Exec
 
-	// The exec id assigned to this node which is used to submit the flow to an executor.
-	// This is different from the flow's digest, should be set only by the evaluator
-	// because it encompasses assertions of the flow's dependencies (See Eval.assignExecId).
-	// TODO(dnicolaou): Remove ExecId from scheduler mode once ExecId no longer required by scheduler
-	// tests in eval_test.go.
-	ExecId digest.Digest
-
 	// Cached stores whether the flow was retrieved from cache.
 	Cached bool
 
@@ -422,9 +415,6 @@ func (f *Flow) Requirements() (req reflow.Requirements) {
 // ExecReset resets all flow parameters related to running
 // a single exec.
 func (f *Flow) ExecReset() {
-	// TODO(dnicolaou): Remove ExecId reset once it is no longer required
-	// for scheduler mode unit tests in eval_test.go.
-	f.ExecId = digest.Digest{}
 	f.Exec = nil
 	f.Err = nil
 	f.Inspect = reflow.ExecInspect{}

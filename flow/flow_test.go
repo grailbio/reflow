@@ -104,7 +104,7 @@ func TestVisitor(t *testing.T) {
 	for v := extern.Visitor(); v.Walk(); v.Visit() {
 		visited = append(visited, v.Flow)
 	}
-	if got, want := visited, []*flow.Flow{extern, merged, intern1, intern2}; !reflect.DeepEqual(got, want) {
+	if got, want := visited, []*flow.Flow{extern, merged, intern2, intern1}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }

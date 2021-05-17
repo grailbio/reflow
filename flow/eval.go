@@ -1636,21 +1636,6 @@ func (e *Eval) transfer(ctx context.Context, f *Flow) error {
 	return errors.E(errors.Unavailable, "cache.Transfer", err)
 }
 
-// assignExecId assigns an Exec ID appropriate for the given Flow
-// by merging its digest with the assertions it depends on.
-func (e *Eval) assignExecId(ctx context.Context, f *Flow) error {
-	as, err := e.refreshAssertions(ctx, f.depAssertions(), nil)
-	if err != nil {
-		return errors.E("AssignExecID", f.Digest(), err)
-	}
-	state, err := reflow.MergeAssertions(as...)
-	if err != nil {
-		return errors.E("AssignExecID", f.Digest(), err)
-	}
-	f.ExecId = reflow.Digester.FromDigests(f.Digest(), state.Digest())
-	return nil
-}
-
 // assertionsConsistent checks whether the given set of assertions
 // are consistent with the given flow's dependencies.
 //
@@ -1748,7 +1733,7 @@ func (e *Eval) exec(ctx context.Context, f *Flow) error {
 				}
 				go func() { _ = taskdb.KeepTaskAlive(tctx, e.TaskDB, f.TaskID) }()
 			}
-			x, err = e.Executor.Put(ctx, f.ExecId, cfg)
+			x, err = e.Executor.Put(ctx, f.Digest(), cfg)
 			if err == nil {
 				f.Exec = x
 				e.LogFlow(ctx, f)
@@ -1881,22 +1866,6 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 			f.Reserved.Sub(f.Reserved, reflow.Resources(arg))
 		default:
 			panic(fmt.Sprintf("invalid argument type %T", arg))
-		}
-	}
-	// Assign an ExecId for Execing (external) flows. In the scheduler case, f.ExecId is a random digest and is only set
-	// if the digest is its zero value.
-	if f.Op.External() && f.State == Execing {
-		switch {
-		case e.Scheduler == nil:
-			if err := e.assignExecId(context.Background(), f); err != nil {
-				f.Err = errors.Recover(errors.E("assign execid", f.Digest(), errors.Temporary, err))
-			}
-		// TODO(dnicolaou): Remove ExecId from scheduler mode once eval_test.go scheduler tests no longer
-		// require ExecId to keep track of execs and their respective tasks. f.ExecId.IsZero() check exists
-		// to ensure that eval_test.go scheduler tests will pass because in these tests, each flow is provided
-		// an ExecId that must remain unchanged.
-		case e.Scheduler != nil && f.ExecId.IsZero():
-			f.ExecId = reflow.Digester.Rand(nil)
 		}
 	}
 	// When a flow is done (without errors), add all its assertions to the vector clock.
@@ -2259,7 +2228,7 @@ func (e *Eval) taskWait(ctx context.Context, f *Flow, task *sched.Task) error {
 
 func (e *Eval) newTask(f *Flow) *sched.Task {
 	t := sched.NewTask()
-	t.ID = taskdb.TaskID(f.ExecId)
+	t.ID = taskdb.TaskID(reflow.Digester.Rand(nil))
 	t.RunID = e.RunID
 	t.FlowID = f.Digest()
 	t.Config = f.ExecConfig()
