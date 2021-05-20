@@ -74,10 +74,10 @@ func (v *testVolume) ResizeFS() error {
 }
 
 func TestWatcher_initError(t *testing.T) {
-	if _, err := NewWatcher(context.Background(), log.Std, &testVolume{sizeErr: errTest}, testWatcherParams); err == nil {
+	if _, err := NewWatcher(&testVolume{sizeErr: errTest}, testWatcherParams, log.Std); err == nil {
 		t.Errorf("got no error, want error")
 	}
-	if _, err := NewWatcher(context.Background(), log.Std, &testVolume{size: data.GiB, duErr: errTest}, testWatcherParams); err == nil {
+	if _, err := NewWatcher(&testVolume{size: data.GiB, duErr: errTest}, testWatcherParams, log.Std); err == nil {
 		t.Errorf("got no error, want error")
 	}
 }
@@ -107,7 +107,7 @@ func TestWatcher(t *testing.T) {
 			2 * data.GiB, 2 * data.GiB, 5, 1, 1, 3, 1,
 		},
 	} {
-		w, err := NewWatcher(context.Background(), log.Std, tt.v, testWatcherParams)
+		w, err := NewWatcher(tt.v, testWatcherParams, log.Std)
 		if err != nil {
 			t.Error(err)
 			continue

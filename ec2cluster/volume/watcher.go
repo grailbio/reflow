@@ -23,14 +23,14 @@ type Watcher struct {
 }
 
 // NewWatcher creates a new watcher
-func NewWatcher(ctx context.Context, log *log.Logger, v Volume, w infra.VolumeWatcher) (Watcher, error) {
-	if _, err := v.GetSize(ctx); err != nil {
-		return Watcher{}, fmt.Errorf("get volume size: %v", err)
+func NewWatcher(v Volume, w infra.VolumeWatcher, log *log.Logger) (*Watcher, error) {
+	if _, err := v.GetSize(context.Background()); err != nil {
+		return nil, fmt.Errorf("get volume size: %v", err)
 	}
 	if _, err := v.Usage(); err != nil {
-		return Watcher{}, err
+		return nil, err
 	}
-	return Watcher{v: v, w: w, log: log}, nil
+	return &Watcher{v: v, w: w, log: log}, nil
 }
 
 // Watch watches the underlying volume and resizes it whenever necessary.

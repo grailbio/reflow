@@ -10,11 +10,14 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -144,23 +147,36 @@ func (s *Server) setTags(sess *session.Session) error {
 	return err
 }
 
-// setupWatcher sets up a volume watcher for the given path.
-func (s *Server) setupWatcher(ctx context.Context, sess *session.Session, path string, vw infra2.VolumeWatcher) error {
+// getVolumeWatcher returns a volume watcher for the given path (or an error).
+// This does not start the volume watcher, which must be done explicitly by calling `Watch()` on it.
+func (s *Server) getVolumeWatcher(sess *session.Session, path string, vw infra2.VolumeWatcher) (*volume.Watcher, error) {
 	if vw == (infra2.VolumeWatcher{}) {
 		log.Print("volume watcher not configured, skipping\n")
-		return nil
+		return nil, nil
 	}
 	logger := log.Std.Tee(nil, fmt.Sprintf("watcher %s: ", path))
 	v, err := volume.NewEbsLvmVolume(sess, logger, path)
 	if err != nil {
-		return fmt.Errorf("create volume for path %s: %v", path, err)
+		return nil, fmt.Errorf("create volume for path %s: %v", path, err)
 	}
-	w, err := volume.NewWatcher(ctx, logger, v, vw)
-	if err != nil {
-		return err
+	return volume.NewWatcher(v, vw, logger)
+}
+
+// loopUtilIdle loops forever while the given pool is in use; if the pool is idle for long enough it returns.
+func (s *Server) loopUntilIdle(p *local.Pool, rc *infra2.ReflowletConfig, logger *log.Logger) {
+	// Always give the instance an expiry period to receive work,
+	// then check periodically if the instance has been idle for more
+	// than the expiry time.
+	t := time.NewTimer(rc.MaxIdleDuration)
+	defer t.Stop()
+	for {
+		<-t.C
+		if stopped, _ := p.StopIfIdleFor(rc.MaxIdleDuration); stopped {
+			logger.Printf("idle for %s; shutting down", rc.MaxIdleDuration)
+			return
+		}
+		t.Reset(time.Minute)
 	}
-	go w.Watch(ctx)
-	return nil
 }
 
 // ListenAndServe serves the Reflowlet server on the configured address.
@@ -237,45 +253,60 @@ func (s *Server) ListenAndServe() error {
 	if err := p.Start(); err != nil {
 		return err
 	}
+
+	var (
+		logType = "local"
+		w       *volume.Watcher
+		wg      sync.WaitGroup
+	)
 	if s.EC2Cluster {
-		ec2Log := log.Std.Tee(nil, fmt.Sprintf("reflowlet (%s) ", s.ec2Identity.InstanceType))
-		ec2Log.Printf("started (version %s)", s.version)
-		ctx, cancel := context.WithCancel(context.Background())
-		if err := s.setupWatcher(ctx, sess, filepath.Join(s.Prefix, s.Dir), rc.VolumeWatcher); err != nil {
-			log.Fatal(err)
+		logType = s.ec2Identity.InstanceType
+
+		if w, err = s.getVolumeWatcher(sess, filepath.Join(s.Prefix, s.Dir), rc.VolumeWatcher); err != nil {
+			return fmt.Errorf("getVolumeWatcher: %v", err)
 		}
-		go s.spotNoticeWatcher(ctx)
+	}
+
+	logger := log.Std.Tee(nil, fmt.Sprintf("reflowlet (%s) ", logType))
+	logger.Printf("started (version %s)", s.version)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	if s.EC2Cluster {
+		// Start the volume watcher.
+		wg.Add(1)
 		go func() {
-			const period = time.Minute
-			// Always give the instance an expiry period to receive work,
-			// then check periodically if the instance has been idle for more
-			// than the expiry time.
-			time.Sleep(rc.MaxIdleDuration)
-			for {
-				if stopped, tte := p.StopIfIdleFor(rc.MaxIdleDuration); stopped {
-					ec2Log.Printf("idle for %s; shutting down", rc.MaxIdleDuration)
-					cancel()
-					// Exit normally
-					os.Exit(0)
-				} else {
-					tot, free, freePct := p.Resources(), p.Available(), 1.0
-					freeFrac := free.Div(tot)
-					for _, k := range []string{"mem", "cpu"} {
-						if v := freeFrac[k]; v < freePct {
-							freePct = v
-						}
-					}
-					busyPct := 100.0 * (1.0 - freePct)
-					ec2Log.Printf("%.2f%% busy for %s; resources total %s free %s", busyPct, tte, tot, free)
-				}
-				time.Sleep(period)
-			}
+			defer wg.Done()
+			w.Watch(ctx)
+		}()
+
+		// Start the spot notice watcher.
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.spotNoticeWatcher(ctx)
 		}()
 	}
 
+	// Start periodic stats logging
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		logStats(ctx, p, logger.Tee(nil, "stats: "), rc.LogMemStatsDuration)
+	}()
+
+	// Start the loop to exit reflowlet if idle.
+	go func() {
+		s.loopUntilIdle(p, rc, logger)
+		// Cancel and wait for other goroutines
+		cancel()
+		wg.Wait()
+		// Exit normally
+		os.Exit(0)
+	}()
+
 	var httpLog *log.Logger
 	if s.HTTPDebug {
-		httpLog = log.Std.Tee(nil, "http: ")
+		httpLog = logger.Tee(nil, "http: ")
 		httpLog.Level = log.DebugLevel
 		log.Std.Level = log.DebugLevel
 	}
@@ -301,7 +332,6 @@ func (s *Server) ListenAndServe() error {
 	http2.ConfigureServer(s.server, &http2.Server{
 		MaxConcurrentStreams: maxConcurrentStreams,
 	})
-	go logMemStats(context.Background(), log.Std.Tee(nil, "memstats: "), rc.LogMemStatsDuration)
 	return s.server.ListenAndServeTLS("", "")
 }
 
@@ -339,13 +369,22 @@ func newConfigNode(cfg infra.Config) (rest.DoFunc, error) {
 	}, nil
 }
 
-// logMemStats logs runtime memstats to the given logger every d duration.
-func logMemStats(ctx context.Context, log *log.Logger, d time.Duration) {
+// logStats logs various stats to the given logger every d duration.
+func logStats(ctx context.Context, p *local.Pool, log *log.Logger, d time.Duration) {
 	iter := time.NewTicker(d)
 	for {
 		memStats := new(runtime.MemStats)
 		runtime.ReadMemStats(memStats)
 		log.Printf("Heap %s, Sys %s", data.Size(memStats.HeapAlloc), data.Size(memStats.Sys))
+
+		tot, free := p.Resources(), p.Available()
+		freeFrac := free.Div(tot)
+		var usedPcts []string
+		for _, k := range []string{"cpu", "mem"} {
+			usedPcts = append(usedPcts, fmt.Sprintf("%s: %.1f%%", k, 100.0-math.Round(100*freeFrac[k])))
+		}
+		log.Printf("Used resources %s; total %s free %s", strings.Join(usedPcts, " "), tot, free)
+
 		select {
 		case <-ctx.Done():
 			return
