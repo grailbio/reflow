@@ -311,26 +311,65 @@ var (
 
 // KeepRunAlive keeps runID alive in the task db until the provided context is canceled.
 func KeepRunAlive(ctx context.Context, taskdb TaskDB, id RunID) error {
-	return keepAlive(ctx, func(keepalive time.Time) error {
+	return keepAliveAndEnd(ctx, func(keepalive time.Time) error {
 		return taskdb.KeepRunAlive(ctx, id, keepalive)
-	})
+	},
+		func() error { return ctx.Err() },
+	)
 }
 
 // KeepTaskAlive keeps taskID alive in the task db until the provided context is canceled.
 func KeepTaskAlive(ctx context.Context, taskdb TaskDB, id TaskID) error {
-	return keepAlive(ctx, func(keepalive time.Time) error {
+	return keepAliveAndEnd(ctx, func(keepalive time.Time) error {
 		return taskdb.KeepTaskAlive(ctx, id, keepalive)
-	})
+	},
+		func() error { return ctx.Err() },
+	)
 }
 
-func keepAlive(ctx context.Context, keepAliveFunc func(keepalive time.Time) error) error {
-	t := time.NewTimer(time.Minute)
-	t.Stop() // stop the timer immediately, we don't need it yet.
+// KeepIDAliveAndEnd keeps id alive in the task db until the provided context is canceled,
+// and upon cancellation, updates the id with the end time.  `endTimeout` is the timeout
+// for the context to update end time once `ctx` is cancelled.
+func KeepIDAliveAndEnd(ctx context.Context, taskdb TaskDB, id digest.Digest, endTimeout time.Duration) error {
+	if taskdb == nil {
+		return fmt.Errorf("taskdb.KeepIDAliveAndEnd %s: no taskdb", id)
+	}
+	return keepAliveAndEnd(ctx,
+		func(keepalive time.Time) error {
+			return taskdb.KeepIDAlive(ctx, id, keepalive)
+		},
+		// End func
+		func() error {
+			ectx, ecancel := context.WithTimeout(context.Background(), endTimeout)
+			defer ecancel()
+
+			var err error
+			for retries := 0; ; retries++ {
+				err = taskdb.SetEndTime(ectx, id, time.Now())
+				if err == nil || errors.Is(errors.Fatal, err) {
+					break
+				}
+				if err = retry.Wait(ectx, policy, retries); err != nil {
+					break
+				}
+			}
+			return err
+		},
+	)
+}
+
+func keepAliveAndEnd(ctx context.Context, keepAliveFunc func(keepalive time.Time) error, endFunc func() error) error {
+	t := time.NewTimer(0)
+	defer t.Stop()
 	for {
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			return endFunc()
+		}
 		var err error
 		for retries := 0; ; retries++ {
-			t := time.Now().Add(keepaliveInterval)
-			err = keepAliveFunc(t)
+			err = keepAliveFunc(time.Now().Add(keepaliveInterval))
 			if err == nil || errors.Is(errors.Fatal, err) {
 				break
 			}
@@ -342,11 +381,5 @@ func keepAlive(ctx context.Context, keepAliveFunc func(keepalive time.Time) erro
 			return err
 		}
 		t.Reset(keepaliveInterval - ivOffset)
-		select {
-		case <-t.C:
-		case <-ctx.Done():
-			t.Stop()
-			return ctx.Err()
-		}
 	}
 }
