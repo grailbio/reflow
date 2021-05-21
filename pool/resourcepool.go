@@ -169,9 +169,15 @@ func (p *ResourcePool) New(ctx context.Context, meta AllocMeta) (Alloc, error) {
 
 // Free frees alloc a from this ResourcePool and invokes `AllocManager.Kill` on it.
 func (p *ResourcePool) Free(a Alloc) error {
-	id := a.ID()
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	return p.doFree(a)
+}
+
+// doFree frees alloc a from this ResourcePool and invokes `AllocManager.Kill` on it.
+// This must be call only if the lock `p.mu` is held.
+func (p *ResourcePool) doFree(a Alloc) error {
+	id := a.ID()
 	if p.allocs[id] != a {
 		return nil
 	}
@@ -275,6 +281,12 @@ func (p *ResourcePool) StopIfIdleFor(d time.Duration) (bool, time.Duration) {
 		}
 	}
 	if idle {
+		// Kill all allocs (best effort)
+		for _, alloc := range p.allocs {
+			if err := p.doFree(alloc); err != nil {
+				p.log.Debugf("alloc %v free: %v", alloc.ID(), err)
+			}
+		}
 		p.stopped = true
 		return true, 0
 	}

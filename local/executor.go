@@ -594,6 +594,12 @@ func (e *Executor) promote(ctx context.Context, res reflow.Fileset, repo *filere
 	return e.FileRepository.Vacuum(ctx, repo)
 }
 
+func (e *Executor) isDead() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.dead
+}
+
 // Kill disposes of the executors and all of its execs. It also sets
 // the executor's "dead" flag, so that all future operations on the
 // executor returns an error.

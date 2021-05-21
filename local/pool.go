@@ -303,11 +303,11 @@ type alloc struct {
 	*Executor
 	mu            sync.Mutex
 	id            string
+	taskDBAllocId reflow.StringDigest
 	p             *Pool
 	created       time.Time
 	expires       time.Time
 	lastKeepalive time.Time
-	freed         bool
 	meta          pool.AllocMeta
 	remoteStream
 }
@@ -336,7 +336,10 @@ func (p *Pool) newAlloc(id string, keepalive time.Duration) *alloc {
 		}
 		e.remoteStream = remoteStream
 	}
-
+	var taskDBAllocId reflow.StringDigest
+	if p.TaskDBPoolId.IsValid() {
+		taskDBAllocId = reflow.NewStringDigest(p.TaskDBPoolId.String() + "/" + id)
+	}
 	// Note that we refresh the keepalive time on exec restore. This is
 	// probably a useful safeguard, but could be annoying when keepalive
 	// intervals are large.
@@ -346,12 +349,13 @@ func (p *Pool) newAlloc(id string, keepalive time.Duration) *alloc {
 	// the reflowlet terminates, but it should be done for potential future
 	// implementations.
 	return &alloc{
-		Executor:     e,
-		id:           id,
-		p:            p,
-		created:      time.Now(),
-		expires:      time.Now().Add(keepalive),
-		remoteStream: e.remoteStream,
+		Executor:      e,
+		id:            id,
+		taskDBAllocId: taskDBAllocId,
+		p:             p,
+		created:       time.Now(),
+		expires:       time.Now().Add(keepalive),
+		remoteStream:  e.remoteStream,
 	}
 }
 
@@ -402,11 +406,19 @@ func (a *alloc) Resources() reflow.Resources {
 // Start assigns the run id and starts the alloc executor.
 func (a *alloc) Start() error {
 	a.RunID = a.meta.Labels["Name"]
-	err := a.Executor.Start()
-	return err
+	if err := a.Executor.Start(); err != nil {
+		return err
+	}
+	if a.p.TaskDB == nil || !a.taskDBAllocId.IsValid() {
+		return nil
+	}
+	if err := a.p.TaskDB.StartAlloc(context.Background(), a.taskDBAllocId, a.p.TaskDBPoolId, a.resources, a.created); err != nil {
+		a.Log.Debugf("taskdb alloc %s StartAlloc: %v", a.taskDBAllocId, err)
+	}
+	return nil
 }
 
-// Keepalive maintains the alloc's lease.
+// Keepalive maintains the alloc's lease as well as the alloc's corresponding row in taskdb (if applicable).
 func (a *alloc) Keepalive(ctx context.Context, next time.Duration) (time.Duration, error) {
 	if !a.p.Alive(a) {
 		return time.Duration(0), errors.E("keepalive", a.id, fmt.Sprint(next), errors.NotExist, errAllocExpired)
@@ -416,8 +428,19 @@ func (a *alloc) Keepalive(ctx context.Context, next time.Duration) (time.Duratio
 		next = pool.MaxKeepaliveInterval
 	}
 	a.lastKeepalive = time.Now()
-	a.expires = a.lastKeepalive.Add(next)
+	nextKeepalive := a.lastKeepalive.Add(next)
+	a.expires = nextKeepalive
 	a.mu.Unlock()
+	if a.p.TaskDB != nil && a.taskDBAllocId.IsValid() {
+		// Keepalive the alloc's taskdb row asynchronously
+		go func() {
+			tctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := a.p.TaskDB.KeepIDAlive(tctx, a.taskDBAllocId.Digest(), nextKeepalive); err != nil {
+				a.Log.Debugf("taskdb alloc %s KeepIDAlive: %v", a.taskDBAllocId, err)
+			}
+		}()
+	}
 	a.Log.Printf("keepalive until %s", a.expires.Format(time.RFC3339))
 	return next, nil
 }
@@ -444,14 +467,20 @@ func (a *alloc) Free(ctx context.Context) error {
 
 // kill kills this alloc's executor and removes its repository,
 // but its metadata and logs are kept intact so that they may be examined posthumously.
+// kill will also update the end time of this alloc's task db row (if applicable).
 func (a *alloc) kill() error {
-	a.mu.Lock()
-	free := !a.freed
-	a.freed = true
-	a.mu.Unlock()
-	if free {
+	if !a.isDead() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 		a.p.Log.Printf("killing alloc %s", a.id)
-		a.Kill(context.Background())
+		if err := a.Kill(ctx); err != nil {
+			a.Log.Debugf("killing alloc %s: %v", a.id, err)
+		}
+		if a.p.TaskDB != nil && a.taskDBAllocId.IsValid() {
+			if err := a.p.TaskDB.SetEndTime(ctx, a.taskDBAllocId.Digest(), time.Now()); err != nil {
+				a.Log.Debugf("taskdb alloc %s SetEndTime: %v", a.taskDBAllocId, err)
+			}
+		}
 	}
 	if a.remoteStream != nil {
 		a.remoteStream.Close()
