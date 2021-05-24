@@ -257,9 +257,6 @@ type Eval struct {
 
 	// A channel for evaluation errors.
 	errors chan error
-	// Total and currently available resources.
-	// TODO(swami): Remove these.
-	total, available reflow.Resources
 	// Contains pending (currently executing) flows.
 	pending *workingset
 
@@ -318,7 +315,6 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 	if e.CacheLookupTimeout == time.Duration(0) {
 		e.CacheLookupTimeout = defaultCacheLookupTimeout
 	}
-	e.available = e.total
 	if e.Log == nil && printAllTasks {
 		e.Log = log.Std
 	}
@@ -503,22 +499,11 @@ func (e *Eval) Do(ctx context.Context) error {
 				e.pending.Add(f)
 				lookupFlows = append(lookupFlows, f)
 			case Ready:
-				if !e.total.Available(f.Resources) {
-					// TODO(marius): we could also attach this error to the node.
-					return errors.E(errors.ResourcesExhausted,
-						errors.Errorf("eval %v: requested resources %v exceeds total available %v",
-							f.Ident, f.Resources, e.total))
-				}
-				if !e.available.Available(f.Resources) {
-					e.roots.Push(f)
-					continue dequeue
-				}
-				e.available.Sub(e.available, f.Resources)
 				state := Running
 				if f.Op.External() {
 					state = Execing
 				}
-				e.Mutate(f, state, Reserve(f.Resources))
+				e.Mutate(f, state, SetReserved(f.Resources))
 				e.pending.Add(f)
 				e.step(f, func(f *Flow) error { return e.eval(ctx, f) })
 			case NeedSubmit:
@@ -538,7 +523,7 @@ func (e *Eval) Do(ctx context.Context) error {
 					}(err)
 					break
 				}
-				e.Mutate(f, Execing, Reserve(f.Resources))
+				e.Mutate(f, Execing, SetReserved(f.Resources))
 				task := e.newTask(f)
 				tasks = append(tasks, task)
 				flows = append(flows, f)
@@ -836,8 +821,7 @@ func (e *Eval) returnFlow(f *Flow) {
 		// Might need re-evaluation, so we need to re-traverse.
 		e.roots.Push(f)
 	}
-	e.available.Add(e.available, f.Reserved)
-	e.Mutate(f, Unreserve(f.Reserved))
+	e.Mutate(f, SetReserved(nil))
 	if f.Tracked && f.State == Done {
 		e.needLog = append(e.needLog, f)
 	}
@@ -1528,11 +1512,8 @@ type Value struct{ Value values.T }
 // Mutation is a type of mutation.
 type Mutation int
 
-// Reserve adds resources to the flow's reservation.
-type Reserve reflow.Resources
-
-// Unreserve subtracts resources from the flow's reservation.
-type Unreserve reflow.Resources
+// SetReserved sets the flow's Reserved resources.
+type SetReserved reflow.Resources
 
 // Status amends the task's status string.
 type Status string
@@ -1597,10 +1578,8 @@ func (e *Eval) Mutate(f *Flow, muts ...interface{}) {
 					panic(fmt.Errorf("unexpected propagation error: %v", err))
 				}
 			}
-		case Reserve:
-			f.Reserved.Add(f.Reserved, reflow.Resources(arg))
-		case Unreserve:
-			f.Reserved.Sub(f.Reserved, reflow.Resources(arg))
+		case SetReserved:
+			f.Reserved.Set(reflow.Resources(arg))
 		default:
 			panic(fmt.Sprintf("invalid argument type %T", arg))
 		}
@@ -1974,7 +1953,7 @@ func (e *Eval) reviseResources(ctx context.Context, tasks []*sched.Task, flows [
 				newReserved[k] = v
 			}
 			newReserved["mem"] = math.Max(newReserved["mem"], minExecMemory)
-			e.Mutate(f, Unreserve(f.Reserved), Reserve(newReserved))
+			e.Mutate(f, SetReserved(newReserved))
 			task.Config = f.ExecConfig()
 			e.Log.Debugf("task %s (flow %s): modifying resources from %s to %s", task.ID.IDShort(), task.FlowID.Short(), oldResources, task.Config.Resources)
 			task.ExpectedDuration = predicted.Duration
@@ -1988,7 +1967,7 @@ func (e *Eval) retryTask(ctx context.Context, f *Flow, resources reflow.Resource
 	// Apply ExecReset so that the exec can be resubmitted to the scheduler with the flow's
 	// exec runtime parameters reset.
 	f.ExecReset()
-	e.Mutate(f, Unreserve(f.Reserved), Reserve(resources), Execing)
+	e.Mutate(f, SetReserved(resources), Execing)
 	task := e.newTask(f)
 	e.Log.Printf("flow %s: %s: re-submitting task %s with %s", f.Digest().Short(), retryType, task.ID.IDShort(), msg)
 	e.Scheduler.Submit(task)
