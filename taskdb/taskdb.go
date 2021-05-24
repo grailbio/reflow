@@ -169,7 +169,8 @@ type TaskDB interface {
 	// StartAlloc creates a new alloc in the taskdb with the provided parameters.
 	StartAlloc(ctx context.Context, allocID, poolID reflow.StringDigest, resources reflow.Resources, start time.Time) error
 	// StartPool creates a new pool in the taskdb with the provided parameters.
-	StartPool(ctx context.Context, poolID reflow.StringDigest, url, poolType string, resources reflow.Resources, start time.Time) error
+	StartPool(ctx context.Context, pool Pool) error
+
 	// SetResources sets the resources field in the taskdb for the row with the given id.
 	SetResources(ctx context.Context, id digest.Digest, resources reflow.Resources) error
 	// KeepIDAlive updates the keepalive timer for the specified id.
@@ -261,6 +262,20 @@ func (t Task) String() string {
 		et = t.End
 	}
 	return fmt.Sprintf("task %s %s %s %s %s", t.ID.IDShort(), t.RunID.IDShort(), t.FlowID.Short(), t.Start.String(), et.String())
+}
+
+// Pool is the pool info stored in the taskdb.
+type Pool struct {
+	PoolID    reflow.StringDigest
+	PoolType  string
+	Resources reflow.Resources
+	URI       string
+	Start     time.Time
+
+	// Cluster identifiers
+	ClusterName   string
+	User          string
+	ReflowVersion string
 }
 
 // TaskQuery is the task-querying struct for TaskDB.Tasks. There are two ways to query tasks:

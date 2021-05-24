@@ -58,6 +58,13 @@ const (
 	defaultClusterName         = "default"
 	defaultMaxHourlyCostUSD    = 10.0
 	defaultMaxPendingInstances = 5
+
+	// Cluster identification keys.  That is, the following are keys into Cluster.InstanceTags
+	// which determine which set of instances belong to the "current" cluster.
+	userKey        = "user"
+	clusterNameKey = "cluster"
+	managedByKey   = "managedby"
+	versionKey     = "reflowlet:version"
 )
 
 // validateBootstrap is func for validating the bootstrap image
@@ -256,10 +263,11 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 			c.InstanceTypesMap[typ] = true
 		}
 	}
-	qtags := make(map[string]string)
-	qtags["Name"] = fmt.Sprintf("%s (reflow)", id.User())
-	qtags["cluster"] = c.Name
-	c.InstanceTags = qtags
+	c.InstanceTags = make(map[string]string)
+	c.InstanceTags["Name"] = fmt.Sprintf("%s (reflow)", id.User())
+	c.InstanceTags[userKey] = id.User()
+	c.InstanceTags[clusterNameKey] = c.Name
+	c.InstanceTags[managedByKey] = "reflow"
 
 	if c.DiskType == "" {
 		return errors.New("missing disk type parameter")
@@ -276,7 +284,6 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	if c.SecurityGroup == "" {
 		return errors.New("missing EC2 security group")
 	}
-	c.InstanceTags["managedby"] = "reflow"
 
 	// Construct the set of legal instances and set available disk space.
 	var configs []instanceConfig
@@ -419,7 +426,7 @@ func (c *Cluster) QueryTags() map[string]string {
 	for k, v := range c.InstanceTags {
 		qtags[k] = v
 	}
-	qtags["reflowlet:version"] = c.ReflowVersion
+	qtags[versionKey] = c.ReflowVersion
 	return qtags
 }
 
@@ -481,6 +488,7 @@ func (c *Cluster) newInstance(config instanceConfig) *instance {
 		SpotProber:      c.spotProber,
 		Immortal:        c.Immortal,
 		CloudConfig:     c.CloudConfig,
+		ReflowVersion:   c.ReflowVersion,
 	}
 }
 

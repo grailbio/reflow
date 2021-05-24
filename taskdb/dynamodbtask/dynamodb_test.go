@@ -410,15 +410,20 @@ func TestStartAlloc(t *testing.T) {
 
 func TestStartPool(t *testing.T) {
 	var (
-		mockdb   = mockDynamodbPut{}
-		taskb    = &TaskDB{DB: &mockdb, TableName: mockTableName}
-		poolID   = reflow.NewStringDigest("poolid")
-		url      = "http://some_url"
-		poolType = "pool_type"
-		res      = reflow.Resources{"cpu": 2, "mem": 4 * 1024 * 1024 * 1024}
-		start    = time.Now().Add(-time.Hour)
+		mockdb = mockDynamodbPut{}
+		taskb  = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		p      = taskdb.Pool{
+			PoolID:        reflow.NewStringDigest("poolid"),
+			PoolType:      "pool_type",
+			Resources:     reflow.Resources{"cpu": 2, "mem": 4 * 1024 * 1024 * 1024},
+			URI:           "http://some_url",
+			Start:         time.Now().Add(-time.Hour),
+			ClusterName:   "cluster_name",
+			User:          "user@grailbio.com",
+			ReflowVersion: "version_x",
+		}
 	)
-	err := taskb.StartPool(context.Background(), poolID, url, poolType, res, start)
+	err := taskb.StartPool(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,14 +432,17 @@ func TestStartPool(t *testing.T) {
 		expected string
 	}{
 		{*mockdb.pinput.TableName, "mockdynamodb"},
-		{*mockdb.pinput.Item[colID].S, poolID.Digest().String()},
-		{*mockdb.pinput.Item[colID4].S, poolID.Digest().Short()},
-		{*mockdb.pinput.Item[colPoolID].S, poolID.String()},
-		{*mockdb.pinput.Item[colURI].S, url},
-		{*mockdb.pinput.Item[colPoolType].S, poolType},
+		{*mockdb.pinput.Item[colID].S, p.PoolID.Digest().String()},
+		{*mockdb.pinput.Item[colID4].S, p.PoolID.Digest().Short()},
+		{*mockdb.pinput.Item[colPoolID].S, p.PoolID.String()},
+		{*mockdb.pinput.Item[colURI].S, p.URI},
+		{*mockdb.pinput.Item[colPoolType].S, p.PoolType},
 		{*mockdb.pinput.Item[colResources].S, "{\"cpu\":2,\"mem\":4294967296}"},
 		{*mockdb.pinput.Item[colType].S, "pool"},
-		{*mockdb.pinput.Item[colStartTime].S, start.UTC().Format(timeLayout)},
+		{*mockdb.pinput.Item[colStartTime].S, p.Start.UTC().Format(timeLayout)},
+		{*mockdb.pinput.Item[colClusterName].S, p.ClusterName},
+		{*mockdb.pinput.Item[colUser].S, p.User},
+		{*mockdb.pinput.Item[colReflowVersion].S, p.ReflowVersion},
 	} {
 		if test.expected != test.actual {
 			t.Errorf("expected %s, got %v", test.expected, test.actual)

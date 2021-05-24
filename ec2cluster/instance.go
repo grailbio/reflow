@@ -153,6 +153,7 @@ type instance struct {
 	SshKeys         []string
 	Immortal        bool
 	CloudConfig     cloudConfig
+	ReflowVersion   string
 	Task            *status.Task
 	SpotProber      *spotProber
 
@@ -328,11 +329,19 @@ func (i *instance) Go(ctx context.Context) {
 				} else {
 					dns = *i.ec2inst.PublicDnsName
 					if i.TaskDB != nil {
-						// TaskDB row id for the pool is based on the EC2 instance ID.
-						poolId = reflow.NewStringDigest(id)
 						// Record the start of the new pool in TaskDB and set an initial KeepAlive until
 						// the pool (ie, reflowlet) has the chance to come up and takeover maintaining the row.
-						if err := i.TaskDB.StartPool(ctx, poolId, dns, *i.ec2inst.InstanceType, nil, *i.ec2inst.LaunchTime); err != nil {
+						p := taskdb.Pool{
+							// TaskDB row id for the pool is based on the EC2 instance ID.
+							PoolID:        reflow.NewStringDigest(id),
+							PoolType:      aws.StringValue(i.ec2inst.InstanceType),
+							URI:           dns,
+							Start:         aws.TimeValue(i.ec2inst.LaunchTime),
+							ClusterName:   i.InstanceTags[clusterNameKey],
+							User:          i.InstanceTags[userKey],
+							ReflowVersion: i.ReflowVersion,
+						}
+						if err := i.TaskDB.StartPool(ctx, p); err != nil {
 							i.Log.Debugf("taskdb pool %s StartPool: %v", poolId, err)
 						} else if err = i.TaskDB.KeepIDAlive(ctx, poolId.Digest(), time.Now().Add(1*time.Minute)); err != nil {
 							i.Log.Debugf("taskdb pool %s KeepIDAlive: %v", poolId, err)

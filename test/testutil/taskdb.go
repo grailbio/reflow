@@ -72,7 +72,7 @@ func (n nopTaskDB) StartAlloc(ctx context.Context, allocID, poolID reflow.String
 }
 
 // StartPool does nothing.
-func (n nopTaskDB) StartPool(ctx context.Context, poolID reflow.StringDigest, url, poolType string, resources reflow.Resources, start time.Time) error {
+func (n nopTaskDB) StartPool(ctx context.Context, pool taskdb.Pool) error {
 	return nil
 }
 

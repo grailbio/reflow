@@ -87,6 +87,8 @@ const (
 	Trace
 	Resources
 	PoolType
+	ClusterName
+	ReflowVersion
 )
 
 func init() {
@@ -115,71 +117,75 @@ const (
 
 // Column names used in dynamodb table.
 const (
-	colID        = "ID"
-	colID4       = "ID4"
-	colRunID     = "RunID"
-	colRunID4    = "RunID4"
-	colFlowID    = "FlowID"
-	colAllocID   = "AllocID"
-	colPoolID    = "PoolID"
-	colPoolType  = "PoolType"
-	colResultID  = "ResultID"
-	colImgCmdID  = "ImgCmdID"
-	colIdent     = "Ident"
-	colAttempt   = "Attempt"
-	colKeepalive = "Keepalive"
-	colStartTime = "StartTime"
-	colEndTime   = "EndTime"
-	colStdout    = "Stdout"
-	colStderr    = "Stderr"
-	colInspect   = "Inspect"
-	colError     = "Error"
-	colURI       = "URI"
-	colLabels    = "Labels"
-	colUser      = "User"
-	colType      = "Type"
-	colDate      = "Date"
-	colBundle    = "Bundle"
-	colArgs      = "Args"
-	colExecLog   = "ExecLog"
-	colSysLog    = "Syslog"
-	colEvalGraph = "EvalGraph"
-	colTrace     = "Trace"
-	colResources = "Resources"
+	colID            = "ID"
+	colID4           = "ID4"
+	colRunID         = "RunID"
+	colRunID4        = "RunID4"
+	colFlowID        = "FlowID"
+	colAllocID       = "AllocID"
+	colPoolID        = "PoolID"
+	colPoolType      = "PoolType"
+	colResultID      = "ResultID"
+	colImgCmdID      = "ImgCmdID"
+	colIdent         = "Ident"
+	colAttempt       = "Attempt"
+	colKeepalive     = "Keepalive"
+	colStartTime     = "StartTime"
+	colEndTime       = "EndTime"
+	colStdout        = "Stdout"
+	colStderr        = "Stderr"
+	colInspect       = "Inspect"
+	colError         = "Error"
+	colURI           = "URI"
+	colLabels        = "Labels"
+	colUser          = "User"
+	colType          = "Type"
+	colDate          = "Date"
+	colBundle        = "Bundle"
+	colArgs          = "Args"
+	colExecLog       = "ExecLog"
+	colSysLog        = "Syslog"
+	colEvalGraph     = "EvalGraph"
+	colTrace         = "Trace"
+	colResources     = "Resources"
+	colClusterName   = "ClusterName"
+	colReflowVersion = "ReflowVersion"
 )
 
 var colmap = map[taskdb.Kind]string{
-	ID:          colID,
-	ID4:         colID4,
-	RunID:       colRunID,
-	RunID4:      colRunID4,
-	FlowID:      colFlowID,
-	AllocID:     colAllocID,
-	PoolID:      colPoolID,
-	PoolType:    colPoolType,
-	ImgCmdID:    colImgCmdID,
-	Ident:       colIdent,
-	Attempt:     colAttempt,
-	ResultID:    colResultID,
-	KeepAlive:   colKeepalive,
-	StartTime:   colStartTime,
-	EndTime:     colEndTime,
-	Stdout:      colStdout,
-	Stderr:      colStderr,
-	ExecInspect: colInspect,
-	Error:       colError,
-	URI:         colURI,
-	Labels:      colLabels,
-	User:        colUser,
-	Type:        colType,
-	Date:        colDate,
-	Bundle:      colBundle,
-	Args:        colArgs,
-	ExecLog:     colExecLog,
-	SysLog:      colSysLog,
-	EvalGraph:   colEvalGraph,
-	Trace:       colTrace,
-	Resources:   colResources,
+	ID:            colID,
+	ID4:           colID4,
+	RunID:         colRunID,
+	RunID4:        colRunID4,
+	FlowID:        colFlowID,
+	AllocID:       colAllocID,
+	PoolID:        colPoolID,
+	PoolType:      colPoolType,
+	ImgCmdID:      colImgCmdID,
+	Ident:         colIdent,
+	Attempt:       colAttempt,
+	ResultID:      colResultID,
+	KeepAlive:     colKeepalive,
+	StartTime:     colStartTime,
+	EndTime:       colEndTime,
+	Stdout:        colStdout,
+	Stderr:        colStderr,
+	ExecInspect:   colInspect,
+	Error:         colError,
+	URI:           colURI,
+	Labels:        colLabels,
+	User:          colUser,
+	Type:          colType,
+	Date:          colDate,
+	Bundle:        colBundle,
+	Args:          colArgs,
+	ExecLog:       colExecLog,
+	SysLog:        colSysLog,
+	EvalGraph:     colEvalGraph,
+	Trace:         colTrace,
+	Resources:     colResources,
+	ClusterName:   colClusterName,
+	ReflowVersion: colReflowVersion,
 }
 
 // Index names used in dynamodb table.
@@ -567,11 +573,13 @@ func (t *TaskDB) StartAlloc(ctx context.Context, allocID, poolID reflow.StringDi
 }
 
 // StartPool creates a new pool in the taskdb with the provided parameters.
-func (t *TaskDB) StartPool(ctx context.Context, poolID reflow.StringDigest, url, poolType string, resources reflow.Resources, start time.Time) error {
+func (t *TaskDB) StartPool(ctx context.Context, pool taskdb.Pool) error {
 	var (
-		now = time.Now().UTC()
-		id  = poolID.Digest()
-		res string
+		now       = time.Now().UTC()
+		id        = pool.PoolID.Digest()
+		start     = pool.Start
+		resources = pool.Resources
+		res       string
 	)
 	if start.IsZero() {
 		start = now
@@ -591,16 +599,25 @@ func (t *TaskDB) StartPool(ctx context.Context, poolID reflow.StringDigest, url,
 				S: aws.String(id.Short()),
 			},
 			colPoolID: {
-				S: aws.String(poolID.String()),
+				S: aws.String(pool.PoolID.String()),
 			},
 			colURI: {
-				S: aws.String(url),
+				S: aws.String(pool.URI),
 			},
 			colPoolType: {
-				S: aws.String(poolType),
+				S: aws.String(pool.PoolType),
 			},
 			colResources: {
 				S: aws.String(res),
+			},
+			colClusterName: {
+				S: aws.String(pool.ClusterName),
+			},
+			colUser: {
+				S: aws.String(pool.User),
+			},
+			colReflowVersion: {
+				S: aws.String(pool.ReflowVersion),
 			},
 			colType: {
 				S: aws.String(string(poolObj)),
