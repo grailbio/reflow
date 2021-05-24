@@ -931,7 +931,7 @@ func (a *testAlloc) Inspect(ctx context.Context) (pool.AllocInspect, error) {
 }
 
 func (a *testAlloc) Free(ctx context.Context) error {
-	panic("not implemented")
+	return nil
 }
 
 func (a *testAlloc) Keepalive(ctx context.Context, interval time.Duration) (time.Duration, error) {

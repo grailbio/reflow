@@ -417,14 +417,25 @@ func (s *Scheduler) allocate(ctx context.Context, alloc *alloc, notify, dead cha
 	alloc.Cancel()
 	endAllocLifespanTrace()
 
-	if err != nil && err == ctx.Err() {
-		var cancel func()
-		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-		_, err = alloc.Keepalive(ctx, 0)
-		cancel()
-	}
-	if err != nil {
+	switch {
+	case err == nil:
+		s.Log.Debugf("alloc %s keepalive stopped (this should never happen!)", alloc.id)
+	case alloc.Context.Err() != nil:
+		// Alloc.Context error (which means we cancelled the alloc's context)
+		s.Log.Debugf("alloc %s keepalive stopped (alloc.Context): %v", alloc.id, alloc.Context.Err())
+	case ctx.Err() != nil:
+		// parent ctx error
+		s.Log.Debugf("alloc %s keepalive stopped (scheduler Context): %v", alloc.id, ctx)
+	default:
+		// Unexpected keepalive error
 		s.Log.Errorf("alloc %s keepalive failed: %v", alloc.id, err)
+	}
+	// Always free the alloc since it is no longer usable anyway.
+	var cancel func()
+	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err = alloc.Free(ctx); err != nil {
+		s.Log.Errorf("alloc %s free failed: %v", alloc.id, err)
 	}
 	dead <- alloc
 }
