@@ -291,8 +291,8 @@ func (p *Pool) MaintainTaskDBRow(ctx context.Context) {
 	if err := p.TaskDB.SetResources(ctx, p.TaskDBPoolId.Digest(), p.Resources()); err != nil {
 		p.Log.Debugf("taskdb pool %s SetResources: %v", p.TaskDBPoolId, err)
 	}
-	if err := taskdb.KeepAliveAndEnd(ctx, p.TaskDB, p.TaskDBPoolId.Digest(), 10*time.Second); err != nil {
-		p.Log.Debugf("taskdb pool %s KeepAliveAndEnd: %v", p.TaskDBPoolId, err)
+	if err := taskdb.KeepIDAliveAndEnd(ctx, p.TaskDB, p.TaskDBPoolId.Digest(), 10*time.Second); err != nil {
+		p.Log.Debugf("taskdb pool %s KeepIDAliveAndEnd: %v", p.TaskDBPoolId, err)
 	}
 }
 
