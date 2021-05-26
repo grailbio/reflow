@@ -229,7 +229,7 @@ type RemoteLogs struct {
 }
 
 func (r RemoteLogs) String() string {
-	return fmt.Sprintf("(%s) %s %s", r.Type, r.LogGroupName, r.LogStreamName)
+	return fmt.Sprintf("(%s) LogGroupName: %s, LogStreamName: %s", r.Type, r.LogGroupName, r.LogStreamName)
 }
 
 // An Exec computes a Value. It is created from an ExecConfig; the

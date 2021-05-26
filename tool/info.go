@@ -432,13 +432,14 @@ func allocURI(n name) string {
 	return strings.Join([]string{n.InstanceID, n.AllocID}, "/")
 }
 
-// parseName parses a Reflow object name. Examples include:
-//
-//	9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49
-//	9909853c
-// 	sha256:9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49
-//	ec2-35-165-199-174.us-west-2.compute.amazonaws.com:9000/bb97e35db4101030
-//	ec2-35-165-199-174.us-west-2.compute.amazonaws.com:9000/bb97e35db4101030/9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49
+const objNameExamples = `
+	9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49
+	9909853c
+	sha256:9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49
+	ec2-35-165-199-174.us-west-2.compute.amazonaws.com:9000/bb97e35db4101030
+	ec2-35-165-199-174.us-west-2.compute.amazonaws.com:9000/bb97e35db4101030/9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49`
+
+// parseName parses a Reflow object name. See objNameExamples for examples.
 func parseName(raw string) (name, error) {
 	head, tail := peel(raw, "/")
 	if tail == "" {
@@ -446,7 +447,7 @@ func parseName(raw string) (name, error) {
 		var err error
 		n.ID, err = reflow.Digester.Parse(head)
 		if _, ok := err.(hex.InvalidByteError); ok {
-			return n, errors.E("invalid reflow object name: ", raw, err)
+			return n, errors.Errorf("invalid reflow object name: %s\ngot: %s\nbut expected something like one of the following:%s", err, raw, objNameExamples)
 		}
 		return n, err
 	}
@@ -461,7 +462,7 @@ func parseName(raw string) (name, error) {
 	var err error
 	n.ID, err = reflow.Digester.Parse(tail)
 	if _, ok := err.(hex.InvalidByteError); ok {
-		return n, errors.E("invalid reflow object name: ", raw, err)
+		return n, errors.Errorf("invalid reflow object name: %s\ngot: %s\nbut expected something like one of the following:%s", err, raw, objNameExamples)
 	}
 	if err != nil {
 		return name{}, err

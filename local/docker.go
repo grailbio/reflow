@@ -287,7 +287,7 @@ func (e *dockerExec) start(ctx context.Context) (execState, error) {
 
 	if e.stdout != nil {
 		rcStdout, err := e.client.ContainerLogs(ctx, e.containerName(),
-			types.ContainerLogsOptions{ShowStdout: true, Follow: true})
+			types.ContainerLogsOptions{ShowStdout: true, Follow: true, Timestamps: true})
 		if err != nil {
 			e.Log.Errorf("docker.containerlogs %q: %v", e.containerName(), err)
 		} else {
@@ -302,7 +302,7 @@ func (e *dockerExec) start(ctx context.Context) (execState, error) {
 	}
 	if e.stderr != nil {
 		rcStderr, err := e.client.ContainerLogs(ctx, e.containerName(),
-			types.ContainerLogsOptions{ShowStderr: true, Follow: true})
+			types.ContainerLogsOptions{ShowStderr: true, Follow: true, Timestamps: true})
 		if err != nil {
 			e.Log.Errorf("docker.containerlogs %q: %v", e.containerName(), err)
 		} else {
