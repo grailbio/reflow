@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/ec2"
-
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/log"
+	"golang.org/x/time/rate"
 )
 
 // testConfig implements InstanceSpec to simulate an instance configuration.
@@ -160,10 +160,11 @@ func TestManagerStart(t *testing.T) {
 		configs = append(configs, config)
 	}
 	c := &Cluster{
-		EC2:           &mockEC2Client{output: dio},
-		stats:         newStats(),
-		pools:         make(map[string]reflowletPool),
-		instanceState: newInstanceState(configs, time.Minute, "us-west-2"),
+		EC2:            &mockEC2Client{output: dio},
+		stats:          newStats(),
+		pools:          make(map[string]reflowletPool),
+		instanceState:  newInstanceState(configs, time.Minute, "us-west-2"),
+		refreshLimiter: rate.NewLimiter(rate.Every(time.Millisecond), 1),
 	}
 	m := &Manager{cluster: c, refreshInterval: time.Millisecond}
 	m.Start()

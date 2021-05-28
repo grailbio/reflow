@@ -20,8 +20,6 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/grailbio/base/retry"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -29,6 +27,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/limiter"
+	"github.com/grailbio/base/retry"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/infra"
@@ -156,6 +156,8 @@ type instance struct {
 	ReflowVersion   string
 	Task            *status.Task
 	SpotProber      *spotProber
+	DescInstLimiter *limiter.BatchLimiter
+	DescSpotLimiter *limiter.BatchLimiter
 
 	userData string
 	err      error
@@ -211,10 +213,10 @@ const (
 	stateCapacity stateT = iota
 	// Launch the instance via EC2.
 	stateLaunch
-	// Tag the instance
-	stateTag
 	// Wait for the instance to enter running state.
 	stateWaitInstance
+	// Tag the instance
+	stateTag
 	// Describe the instance via EC2 to get the DNS name.
 	stateDescribeDns
 	// Wait for the bootstrap to become live (and metadata to become available).
@@ -236,10 +238,10 @@ func (s stateT) String() string {
 		what = "probing for EC2 capacity"
 	case stateLaunch:
 		what = "launching EC2 instance"
-	case stateTag:
-		what = "tagging instance and EBS volumes"
 	case stateWaitInstance:
 		what = "waiting for instance to become ready"
+	case stateTag:
+		what = "tagging instance and EBS volumes"
 	case stateDescribeDns:
 		what = "describing instance (dns)"
 	case stateWaitBootstrap:
@@ -277,7 +279,7 @@ func (i *instance) Go(ctx context.Context) {
 		// Perform cleanup tasks
 		i.Log.Debugf("cleaning up non-reflowlet EC2 instance: %s (state: %s)", id, state)
 		// Terminate a successfully provisioned but un-viable instance.
-		ec2TerminateInstance(i.EC2, id)
+		ec2TerminateInstance(i.EC2, id, i.Log)
 		if i.TaskDB == nil || !poolId.IsValid() || state <= stateDescribeDns || state >= stateWaitReflowlet {
 			return
 		}
@@ -304,60 +306,58 @@ func (i *instance) Go(ctx context.Context) {
 				i.Task.Printf("launch error: %v", i.err)
 				i.Log.Errorf("instance launch error: %v", i.err)
 			} else {
+				i.Log = i.Log.Tee(nil, fmt.Sprintf("[%s]: ", id))
 				i.Task.Title(id)
-				i.print(id, "launched")
 			}
-		case stateTag:
-			i.print(id, state.String())
-			vids, err := getVolumeIds(ctx, i.EC2, id)
-			if err != nil {
-				i.Log.Errorf("get attached volumes %s: %v", id, err)
-			}
-			_, i.err = i.EC2.CreateTags(&ec2.CreateTagsInput{
-				Resources: append([]*string{aws.String(id)}, aws.StringSlice(vids)...), Tags: i.getTags()})
 		case stateWaitInstance:
 			i.print(id, state.String())
-			i.err = i.EC2.WaitUntilInstanceRunning(&ec2.DescribeInstancesInput{
-				InstanceIds: []*string{aws.String(id)},
-			})
+			i.ec2inst, i.err = waitUntilRunning(ctx, i.DescInstLimiter, id, i.Log)
+		case stateTag:
+			i.print(id, state.String())
+			resources := make([]*string, 1+len(i.ec2inst.BlockDeviceMappings))
+			resources[0] = aws.String(id)
+			for i, bdm := range i.ec2inst.BlockDeviceMappings {
+				resources[i+1] = bdm.Ebs.VolumeId
+			}
+			_, i.err = i.EC2.CreateTags(&ec2.CreateTagsInput{Resources: resources, Tags: i.getTags()})
 		case stateDescribeDns:
 			i.print(id, state.String())
-			i.ec2inst, i.err = describeInstance(ctx, i.EC2, id)
-			if i.err == nil {
-				if i.ec2inst.PublicDnsName == nil || *i.ec2inst.PublicDnsName == "" {
-					i.err = errors.Errorf("ec2.describeinstances %v: no public DNS name", id)
-				} else {
-					dns = *i.ec2inst.PublicDnsName
-					if i.TaskDB != nil {
-						// Record the start of the new pool in TaskDB and set an initial KeepAlive until
-						// the pool (ie, reflowlet) has the chance to come up and takeover maintaining the row.
-						p := taskdb.Pool{
-							// TaskDB row id for the pool is based on the EC2 instance ID.
-							PoolID:        reflow.NewStringDigest(id),
-							PoolType:      aws.StringValue(i.ec2inst.InstanceType),
-							URI:           dns,
-							Start:         aws.TimeValue(i.ec2inst.LaunchTime),
-							ClusterName:   i.InstanceTags[clusterNameKey],
-							User:          i.InstanceTags[userKey],
-							ReflowVersion: i.ReflowVersion,
-						}
-						if err := i.TaskDB.StartPool(ctx, p); err != nil {
-							i.Log.Debugf("taskdb pool %s StartPool: %v", poolId, err)
-						} else if err = i.TaskDB.KeepIDAlive(ctx, poolId.Digest(), time.Now().Add(1*time.Minute)); err != nil {
-							i.Log.Debugf("taskdb pool %s KeepIDAlive: %v", poolId, err)
-						}
-					}
-				}
+			if dnsPtr := i.ec2inst.PublicDnsName; dnsPtr == nil || aws.StringValue(dnsPtr) == "" {
+				i.ec2inst, i.err = describeInstance(ctx, i.DescInstLimiter, id, i.Log)
 			}
+			if i.err != nil {
+				i.err = errors.E(state.String(), errors.Temporary, i.err)
+				break
+			}
+			dns = aws.StringValue(i.ec2inst.PublicDnsName)
 			spot := ""
 			if i.Spot {
 				spot = "spot "
 			}
 			i.Log.Debugf("launched %sinstance %v (%s): %s%s", spot, id, dns, i.Config.Type, i.Config.Resources)
+			if i.TaskDB != nil {
+				// Record the start of the new pool in TaskDB and set an initial KeepAlive until
+				// the pool (ie, reflowlet) has the chance to come up and takeover maintaining the row.
+				p := taskdb.Pool{
+					// TaskDB row id for the pool is based on the EC2 instance ID.
+					PoolID:        reflow.NewStringDigest(id),
+					PoolType:      aws.StringValue(i.ec2inst.InstanceType),
+					URI:           dns,
+					Start:         aws.TimeValue(i.ec2inst.LaunchTime),
+					ClusterName:   i.InstanceTags[clusterNameKey],
+					User:          i.InstanceTags[userKey],
+					ReflowVersion: i.ReflowVersion,
+				}
+				if err := i.TaskDB.StartPool(ctx, p); err != nil {
+					i.Log.Debugf("taskdb pool %s StartPool: %v", poolId, err)
+				} else if err = i.TaskDB.KeepIDAlive(ctx, poolId.Digest(), time.Now().Add(1*time.Minute)); err != nil {
+					i.Log.Debugf("taskdb pool %s KeepIDAlive: %v", poolId, err)
+				}
+			}
 		case stateWaitBootstrap:
 			if n > maxTries/2 {
 				i.print(id, fmt.Sprintf("confirming instance still running (%d/%d)", n, maxTries))
-				if err := ec2StillRunning(ctx, i.EC2, id); err != nil {
+				if err := stillRunning(ctx, i.DescInstLimiter, id, i.Log); err != nil {
 					// Instance not running anymore
 					i.err = errors.E("wait bootstrap instance running", errors.Fatal, err)
 					break
@@ -414,7 +414,7 @@ func (i *instance) Go(ctx context.Context) {
 		case stateWaitReflowlet:
 			if n > maxTries/2 {
 				i.print(id, fmt.Sprintf("confirming instance still running (%d/%d)", n, maxTries))
-				if err := ec2StillRunning(ctx, i.EC2, id); err != nil {
+				if err := stillRunning(ctx, i.DescInstLimiter, id, i.Log); err != nil {
 					// Instance not running anymore
 					i.err = errors.E("wait bootstrap instance running", errors.Fatal, err)
 					break
@@ -435,7 +435,7 @@ func (i *instance) Go(ctx context.Context) {
 			}
 		case stateDescribeTags:
 			i.print(id, state.String())
-			i.ec2inst, i.err = describeInstance(ctx, i.EC2, id)
+			i.ec2inst, i.err = describeInstance(ctx, i.DescInstLimiter, id, i.Log)
 			if i.err != nil {
 				i.err = errors.E(errors.Temporary, "%s: describe instance: %v", id)
 				break
@@ -498,24 +498,8 @@ func (i *instance) Go(ctx context.Context) {
 }
 
 func (i *instance) print(id, msg string) {
-	msg = fmt.Sprintf("[%s] %s", id, msg)
 	i.Log.Debug(msg)
-	i.Task.Print(msg)
-}
-
-func describeInstance(ctx context.Context, EC2 ec2iface.EC2API, id string) (*ec2.Instance, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	resp, err := EC2.DescribeInstancesWithContext(ctx, &ec2.DescribeInstancesInput{
-		InstanceIds: []*string{aws.String(id)},
-	})
-	if err != nil {
-		return nil, err
-	}
-	if len(resp.Reservations) != 1 || len(resp.Reservations[0].Instances) != 1 {
-		return nil, errors.Errorf("ec2.describeinstances %v: invalid output", id)
-	}
-	return resp.Reservations[0].Instances[0], nil
+	i.Task.Print(fmt.Sprintf("[%s] %s", id, msg))
 }
 
 func getReflowletFile(ctx context.Context, repo reflow.Repository, log *log.Logger) error {
@@ -575,30 +559,6 @@ func hasEmbedded() bool {
 	return err == nil
 }
 
-// getVolumeIds gets the IDs of the volumes currently attached (or attaching) to the given EC2 instance.
-func getVolumeIds(ctx context.Context, api ec2iface.EC2API, instanceId string) ([]string, error) {
-	req := &ec2.DescribeVolumesInput{
-		Filters: []*ec2.Filter{
-			{Name: aws.String("attachment.instance-id"), Values: aws.StringSlice([]string{instanceId})},
-		},
-	}
-	resp, err := api.DescribeVolumesWithContext(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	var vids []string
-	for _, v := range resp.Volumes {
-		for _, a := range v.Attachments {
-			vid, state := aws.StringValue(v.VolumeId), aws.StringValue(a.State)
-			if aws.StringValue(a.InstanceId) == instanceId &&
-				(state == ec2.AttachmentStatusAttached || state == ec2.AttachmentStatusAttaching) {
-				vids = append(vids, vid)
-			}
-		}
-	}
-	return vids, nil
-}
-
 // getTags gets the EC2 tags for the instance.
 func (i *instance) getTags() (tags []*ec2.Tag) {
 	for k, v := range i.InstanceTags {
@@ -640,19 +600,6 @@ func (i *instance) bootstrapExpiryArgs() []string {
 		expiry = minExpiry
 	}
 	return []string{"-expiry", fmt.Sprintf("%s", expiry)}
-}
-
-func ec2StillRunning(ctx context.Context, api ec2iface.EC2API, id string) error {
-	const (
-		attempts = 5
-		delay    = 2 * time.Second
-	)
-	ctx, cancel := context.WithTimeout(ctx, (attempts+1)*delay)
-	defer cancel()
-	return api.WaitUntilInstanceRunningWithContext(
-		ctx, &ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String(id)}},
-		request.WithWaiterMaxAttempts(attempts),
-		request.WithWaiterDelay(request.ConstantWaiterDelay(delay)))
 }
 
 func (i *instance) launch(ctx context.Context) (string, error) {
@@ -957,20 +904,21 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 	if n := len(resp.SpotInstanceRequests); n != 1 {
 		return "", errors.Errorf("ec2.requestspotinstances: got %v entries, want 1", n)
 	}
-	reqid := aws.StringValue(resp.SpotInstanceRequests[0].SpotInstanceRequestId)
-	if reqid == "" {
+	spotID := aws.StringValue(resp.SpotInstanceRequests[0].SpotInstanceRequestId)
+	if spotID == "" {
 		return "", errors.Errorf("ec2.requestspotinstances: empty request id")
 	}
-	i.Task.Printf("awaiting fulfillment of spot request %s", reqid)
-	i.Log.Debugf("waiting for spot fullfillment for instance type %v: %s", i.Config.Type, reqid)
+	i.Task.Printf("awaiting fulfillment of spot request %s", spotID)
+	spotLogger := i.Log.Tee(nil, fmt.Sprintf("[%s, %s]: ", spotID, i.Config.Type))
+	spotLogger.Debugf("waiting for spot fullfillment")
 	// Also set a timeout context in case the AWS API is stuck.
 	toctx, cancel := context.WithTimeout(ctx, spotRequestTtl+10*time.Second)
-	defer cancel()
-	waitErr := i.ec2WaitForSpotFulfillment(toctx, reqid)
+	sir, waitErr := waitUntilFulfilled(toctx, i.DescSpotLimiter, spotID, spotLogger)
+	cancel()
 	var id, state string
 	switch {
 	case waitErr == nil:
-		id, state, err = ec2SpotRequestStatus(ctx, i.EC2, reqid, i.Log)
+		id, state, err = getInstanceIdStateFromSir(sir)
 		if err == nil {
 			break
 		}
@@ -980,87 +928,36 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 	default:
 		// We were unable to fulfill by our deadline, or we were unable to get the instance ID after (supposed) fulfillment.
 		// Since we consider the spot instance unavailable, cleanup the request.
-		msg := ec2CleanupSpotRequest(context.Background(), i.EC2, reqid, i.Log)
-		i.Log.Debugf("ec2 spot request %s failed\n%s", reqid, msg)
+		ec2CleanupSpotRequest(context.Background(), i.DescSpotLimiter, i.EC2, spotID, spotLogger)
 		// Boot this up to the caller so they can pick a different instance types.
-		if err != nil {
-			msg = fmt.Sprintf("%s\ndue to: %v", msg, err)
-		}
-		return "", errors.E(errors.Unavailable, fmt.Errorf("spot request %s cleanup:\n%s", reqid, msg))
+		return "", errors.E(errors.Unavailable, fmt.Errorf("spot request %s", spotID))
 	}
-	i.print(id, fmt.Sprintf("ec2 request (spot) %s fulfilled, state: %s", reqid, state))
+	i.print(id, fmt.Sprintf("spot request %s fulfilled, instance: %s state: %s", spotID, id, state))
 	return id, nil
-}
-
-var spotRequestStatusRetryPolicy = retry.MaxRetries(retry.Backoff(2*time.Second, 5*time.Second, 1.5), 5)
-
-func ec2SpotRequestStatus(ctx context.Context, api ec2iface.EC2API, spotID string, log *log.Logger) (id, state string, err error) {
-	for retries := 0; ; retries++ {
-		var out *ec2.DescribeSpotInstanceRequestsOutput
-		out, err = api.DescribeSpotInstanceRequestsWithContext(ctx, &ec2.DescribeSpotInstanceRequestsInput{
-			SpotInstanceRequestIds: []*string{aws.String(spotID)},
-		})
-		if err != nil {
-			return
-		}
-		if n := len(out.SpotInstanceRequests); n != 1 {
-			err = errors.Errorf("ec2.describespotinstancerequests: got %v entries, want 1", n)
-			return
-		}
-		id = aws.StringValue(out.SpotInstanceRequests[0].InstanceId)
-		state = aws.StringValue(out.SpotInstanceRequests[0].State)
-		switch state { // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-request-status.html
-		case ec2.SpotInstanceStateCancelled:
-			err = errors.Errorf("ec2.describespotinstancerequests: spot request expired or canceled before fulfillment (after %d retries): %s", retries, out.GoString())
-			return
-		case ec2.SpotInstanceStateClosed:
-			err = errors.Errorf("ec2.describespotinstancerequests: spot request closed, could indicate an aws system error (after %d retries): %s", retries, out.GoString())
-			return
-		}
-		if id != "" {
-			return // request fulfilled and got an instance ID
-		}
-		// request fulfilled, but no instance ID so attempt retry
-		if rerr := retry.Wait(ctx, spotRequestStatusRetryPolicy, retries); rerr != nil {
-			err = errors.Errorf("ec2.describespotinstancerequests: missing instance ID in response (after %d retries): %s", retries, out.GoString())
-			return
-		}
-		log.Debugf("ec2.describespotinstancerequests: spot request fulfilled but missing instance ID (attempt %d): %s", retries, out.GoString())
-	}
 }
 
 // ec2CleanupSpotRequest attempts to clean up a spot request by cancelling it
 // and terminating associated EC2 instance (if any).
 // Returns a text summary of what happened appropriate for logging.
-func ec2CleanupSpotRequest(ctx context.Context, api ec2iface.EC2API, spotID string, log *log.Logger) string {
-	var b strings.Builder
-	iid, state, rerr := ec2SpotRequestStatus(ctx, api, spotID, log)
-	b.WriteString(fmt.Sprintf("spot request %s status: ", spotID))
-	if rerr != nil {
-		b.WriteString(fmt.Sprintf("%v", rerr))
-	}
+func ec2CleanupSpotRequest(ctx context.Context, l *limiter.BatchLimiter, api ec2iface.EC2API, spotID string, log *log.Logger) {
+	log = log.Tee(nil, "ec2CleanupSpotRequest: ")
+	iid, state, rerr := spotReqStatus(ctx, l, spotID, log)
+	log.Debugf("instance id %s state %s spotReqStatus err: %v", iid, state, rerr)
 	if state != ec2.SpotInstanceStateCancelled {
-		b.WriteString(fmt.Sprintf("%s (instance %s)\n", state, iid))
-		b.WriteString(fmt.Sprintf("cancel spot request %s: ", spotID))
-		if state, cerr := ec2CancelSpotRequest(ctx, api, spotID); cerr != nil {
-			b.WriteString(fmt.Sprintf("%v\n", cerr))
-		} else {
-			b.WriteString(fmt.Sprintf("%s\n", state))
-		}
+		state, cerr := ec2CancelSpotRequest(ctx, api, spotID)
+		log.Debugf("cancelling spot request state %s err: %v", state, cerr)
 	}
-	if iid == "" {
-		b.WriteString("spot request did not have instance ID")
-	} else {
+	if iid != "" {
+		msgPrefix := fmt.Sprintf("terminating instance %s", iid)
 		req := &ec2.TerminateInstancesInput{InstanceIds: aws.StringSlice([]string{iid})}
 		if resp, terr := api.TerminateInstancesWithContext(ctx, req); terr != nil {
-			b.WriteString(fmt.Sprintf("terminate instance %s: %v\n", iid, terr))
+			log.Debugf("%s err: %v", msgPrefix, terr)
 		} else {
 			for _, ti := range resp.TerminatingInstances {
-				b.WriteString(fmt.Sprintf("terminate instance %s: %s -> %s\n", iid, *ti.PreviousState.Name, *ti.CurrentState.Name))
+				log.Debugf(fmt.Sprintf("%s: %s -> %s", msgPrefix, *ti.PreviousState.Name, *ti.CurrentState.Name))
 			}
 		}
 	}
-	return b.String()
 }
 
 // ec2CancelSpotRequest cancels the spot request spotID and returns its state (or error if applicable)
@@ -1075,58 +972,6 @@ func ec2CancelSpotRequest(ctx context.Context, api ec2iface.EC2API, spotID strin
 		return "", errors.Errorf("ec2.cancelspotinstancerequests: got %v entries, want 1", n)
 	}
 	return aws.StringValue(out.CancelledSpotInstanceRequests[0].State), err
-}
-
-// ec2WaitForSpotFulfillment waits until the spot request spotID has been fulfilled.
-// It differs from (*ec2.EC2).WaitUntilSpotInstanceRequestFulfilledWithContext
-// in that it request-cancelled-and-instance-running as a success.
-func (i *instance) ec2WaitForSpotFulfillment(ctx context.Context, spotID string) error {
-	w := request.Waiter{
-		Name:        "ec2WaitForSpotFulfillment",
-		MaxAttempts: 40,                                            // default from SDK
-		Delay:       request.ConstantWaiterDelay(15 * time.Second), // default from SDK
-		Acceptors: []request.WaiterAcceptor{
-			{
-				State:   request.SuccessWaiterState,
-				Matcher: request.PathAllWaiterMatch, Argument: "SpotInstanceRequests[].Status.Code",
-				Expected: "fulfilled",
-			},
-			{
-				State:   request.SuccessWaiterState,
-				Matcher: request.PathAllWaiterMatch, Argument: "SpotInstanceRequests[].Status.Code",
-				Expected: "request-canceled-and-instance-running",
-			},
-			{
-				State:   request.FailureWaiterState,
-				Matcher: request.PathAnyWaiterMatch, Argument: "SpotInstanceRequests[].Status.Code",
-				Expected: "schedule-expired",
-			},
-			{
-				State:   request.FailureWaiterState,
-				Matcher: request.PathAnyWaiterMatch, Argument: "SpotInstanceRequests[].Status.Code",
-				Expected: "canceled-before-fulfillment",
-			},
-			{
-				State:   request.FailureWaiterState,
-				Matcher: request.PathAnyWaiterMatch, Argument: "SpotInstanceRequests[].Status.Code",
-				Expected: "bad-parameters",
-			},
-			{
-				State:   request.FailureWaiterState,
-				Matcher: request.PathAnyWaiterMatch, Argument: "SpotInstanceRequests[].Status.Code",
-				Expected: "system-error",
-			},
-		},
-		NewRequest: func(opts []request.Option) (*request.Request, error) {
-			req, _ := i.EC2.DescribeSpotInstanceRequestsRequest(&ec2.DescribeSpotInstanceRequestsInput{
-				SpotInstanceRequestIds: []*string{aws.String(spotID)},
-			})
-			req.SetContext(ctx)
-			req.ApplyOptions(opts...)
-			return req, nil
-		},
-	}
-	return w.WaitWithContext(ctx)
 }
 
 var (
@@ -1185,15 +1030,15 @@ func ec2HasCapacity(ctx context.Context, api ec2iface.EC2API, imageId, instanceT
 	return false, fmt.Errorf("spot probing %s (depth=%d) exhausted retries", instanceType, n)
 }
 
-func ec2TerminateInstance(api ec2iface.EC2API, id string) {
+func ec2TerminateInstance(api ec2iface.EC2API, id string, log *log.Logger) {
 	req := &ec2.TerminateInstancesInput{InstanceIds: aws.StringSlice([]string{id})}
 	resp, err := api.TerminateInstances(req)
 	if err != nil {
-		log.Errorf("terminating instance %s: %v", id, err)
+		log.Errorf("terminate instance: %v", err)
 		return
 	}
 	for _, ti := range resp.TerminatingInstances {
-		log.Printf("%s: %s -> %s", *ti.InstanceId, *ti.PreviousState.Name, *ti.CurrentState.Name)
+		log.Printf("terminating: %s -> %s", *ti.PreviousState.Name, *ti.CurrentState.Name)
 	}
 }
 

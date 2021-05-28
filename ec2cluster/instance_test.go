@@ -6,9 +6,13 @@ import (
 	"log"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/grailbio/base/limiter"
+	"github.com/grailbio/base/retry"
 	rlog "github.com/grailbio/reflow/log"
+	"golang.org/x/time/rate"
 )
 
 func TestConfigureEBS(t *testing.T) {
@@ -50,6 +54,7 @@ func (c *counter) next(prefix string) string {
 }
 
 func TestCancelSpot(t *testing.T) {
+	spotReqStatusPolicy = retry.MaxRetries(retry.Backoff(10*time.Millisecond, 100*time.Millisecond, 1.2), 5)
 	var c counter
 	for _, state := range []string{
 		ec2.CancelSpotInstanceRequestStateActive,
@@ -80,13 +85,14 @@ func TestCancelSpot(t *testing.T) {
 					client.instState = instState
 				}
 				testLogger := rlog.New(log.New(os.Stderr, "", log.LstdFlags), rlog.DebugLevel)
-				result := ec2CleanupSpotRequest(context.Background(), client, sirId, testLogger)
+				l := limiter.NewBatchLimiter(&descSpotBatchApi{api: client, log: testLogger}, rate.NewLimiter(rate.Every(time.Millisecond), 10))
+				ec2CleanupSpotRequest(context.Background(), l, client, sirId, testLogger)
 				if got, want := client.state, ec2.SpotInstanceStateCancelled; got != want {
-					t.Errorf("got %v, want %v for %s\n%s", got, want, tcMsg, result)
+					t.Errorf("got %v, want %v for %s", got, want, tcMsg)
 				}
 				if instState != "" {
 					if got, want := client.instState, ec2.InstanceStateNameTerminated; got != want {
-						t.Errorf("got %v, want %v for %s\n%s", got, want, tcMsg, result)
+						t.Errorf("got %v, want %v for %s", got, want, tcMsg)
 					}
 				}
 			})

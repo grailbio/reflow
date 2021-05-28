@@ -25,6 +25,7 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/runner"
+	"golang.org/x/time/rate"
 )
 
 func TestGetEC2State(t *testing.T) {
@@ -40,6 +41,7 @@ func TestGetEC2State(t *testing.T) {
 	dio := &ec2.DescribeInstancesOutput{Reservations: []*ec2.Reservation{{Instances: ec2Is}}}
 	client := mockEC2Client{output: dio}
 	c := &Cluster{EC2: &client}
+	c.refreshLimiter = rate.NewLimiter(rate.Every(time.Millisecond), 1)
 	instances, _ := c.getEC2State(context.Background())
 	if got, want := len(instances), 2; got != want {
 		t.Fatalf("got %d, want %d", got, want)
@@ -61,7 +63,7 @@ func TestRefresh(t *testing.T) {
 	dio := &ec2.DescribeInstancesOutput{Reservations: []*ec2.Reservation{{Instances: ec2Is}}}
 	mockEC2 := mockEC2Client{output: dio}
 	c := &Cluster{EC2: &mockEC2, stats: newStats(), pools: make(map[string]reflowletPool)}
-
+	c.refreshLimiter = rate.NewLimiter(rate.Every(time.Millisecond), 1)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	if _, err := c.Refresh(ctx); err != nil {
 		t.Errorf("reconcile: %v", err)

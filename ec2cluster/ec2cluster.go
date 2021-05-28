@@ -30,6 +30,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
+	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/infra"
@@ -45,6 +46,7 @@ import (
 	"github.com/grailbio/reflow/pool/client"
 	"github.com/grailbio/reflow/taskdb"
 	"golang.org/x/net/http2"
+	"golang.org/x/time/rate"
 )
 
 func init() {
@@ -173,6 +175,12 @@ type Cluster struct {
 	manager *Manager
 	// spotProber probes for spot instance availability.
 	spotProber *spotProber
+	// descInstLimiter limits batch calls of `DescribeInstances`
+	descInstLimiter *limiter.BatchLimiter
+	// descSpotLimiter limits batch calls of `DescribeSpotInstanceRequests`
+	descSpotLimiter *limiter.BatchLimiter
+	// refreshLimiter limits the rate of cluster refresh.
+	refreshLimiter *rate.Limiter
 
 	initOnce once.Task
 	stats    *statsImpl
@@ -336,6 +344,13 @@ func (c *Cluster) verifyAndInitialize() error {
 		c.Log.Debugf("cluster taskdb: %v", err)
 	}
 	c.EC2 = ec2.New(c.Session, &aws.Config{MaxRetries: aws.Int(13)})
+	c.descInstLimiter = limiter.NewBatchLimiter(
+		&descInstBatchApi{api: c.EC2, log: c.Log, maxPerBatch: 100},
+		/* 5 qps */ rate.NewLimiter(rate.Every(time.Second), 5))
+	c.descSpotLimiter = limiter.NewBatchLimiter(
+		&descSpotBatchApi{api: c.EC2, log: c.Log, maxPerBatch: 30},
+		/* 2 qps */ rate.NewLimiter(rate.Every(time.Second), 2))
+	c.refreshLimiter = rate.NewLimiter(rate.Every(time.Second), 1) // 1 qps
 	c.SetCaching(true)
 	c.manager.Start()
 	return nil
@@ -444,7 +459,7 @@ func (c *Cluster) Probe(ctx context.Context, instanceType string) (time.Duration
 probe:
 	i.Task = c.Status.Startf("%s", instanceType)
 	i.Go(context.Background())
-	ec2TerminateInstance(i.EC2, *i.ec2inst.InstanceId)
+	ec2TerminateInstance(i.EC2, *i.ec2inst.InstanceId, i.Log)
 	if i.err != nil {
 		// If the error was due to Spot unavailability, try on-demand instead.
 		if i.Spot && errors.Is(errors.Unavailable, i.err) {
@@ -486,6 +501,8 @@ func (c *Cluster) newInstance(config instanceConfig) *instance {
 		SshKeys:         c.SshKeys,
 		KeyName:         c.KeyName,
 		SpotProber:      c.spotProber,
+		DescInstLimiter: c.descInstLimiter,
+		DescSpotLimiter: c.descSpotLimiter,
 		Immortal:        c.Immortal,
 		CloudConfig:     c.CloudConfig,
 		ReflowVersion:   c.ReflowVersion,
@@ -582,6 +599,11 @@ func (c *Cluster) getEC2State(ctx context.Context) (map[string]*reflowletInstanc
 	state := make(map[string]*reflowletInstance)
 	for req != nil {
 		ctx2, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err := c.refreshLimiter.Wait(ctx2)
+		if err != nil {
+			cancel()
+			return nil, errors.E("refreshLimiter", errors.Temporary, err)
+		}
 		resp, err := c.EC2.DescribeInstancesWithContext(ctx2, req)
 		cancel()
 		if err != nil {
@@ -590,7 +612,7 @@ func (c *Cluster) getEC2State(ctx context.Context) (map[string]*reflowletInstanc
 		for _, resv := range resp.Reservations {
 			for _, inst := range resv.Instances {
 				switch *inst.State.Name {
-				case "running":
+				case ec2.InstanceStateNameRunning:
 					state[*inst.InstanceId] = newReflowletInstance(inst)
 				default:
 				}
