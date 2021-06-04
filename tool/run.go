@@ -27,6 +27,7 @@ import (
 	"github.com/grailbio/reflow/flow"
 	reflowinfra "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/metrics"
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/taskdb"
@@ -110,6 +111,9 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 	var tracer trace.Tracer
 	c.must(c.Config.Instance(&tracer))
 	ctx = trace.WithTracer(ctx, tracer)
+	var mc metrics.Client
+	c.must(c.Config.Instance(&mc))
+	ctx = metrics.WithClient(ctx, mc)
 
 	var cache *reflowinfra.CacheProvider
 	c.must(c.Config.Instance(&cache))

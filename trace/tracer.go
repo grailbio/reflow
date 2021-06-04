@@ -11,6 +11,7 @@ import (
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/infra"
+	rfcontext "github.com/grailbio/reflow/context"
 )
 
 // EventKind is the type of trace event.
@@ -115,22 +116,22 @@ func WithTracer(ctx context.Context, tracer Tracer) context.Context {
 	if tracer == nil {
 		return ctx
 	}
-	return context.WithValue(ctx, tracerKey, tracer)
+	return context.WithValue(ctx, rfcontext.TracerKey, tracer)
 
 }
 
 // On returns true if there is a current tracer associated with the
 // provided context.
 func On(ctx context.Context) bool {
-	_, ok := ctx.Value(tracerKey).(Tracer)
+	_, ok := ctx.Value(rfcontext.TracerKey).(Tracer)
 	return ok
 }
 
 func tracer(ctx context.Context) Tracer {
-	return ctx.Value(tracerKey).(Tracer)
+	return ctx.Value(rfcontext.TracerKey).(Tracer)
 }
 
 // Emit emits a raw event on the tracer affiliated with the provided context.
 func Emit(ctx context.Context, event Event) (context.Context, error) {
-	return ctx.Value(tracerKey).(Tracer).Emit(ctx, event)
+	return ctx.Value(rfcontext.TracerKey).(Tracer).Emit(ctx, event)
 }

@@ -21,6 +21,8 @@ import (
 	infra2 "github.com/grailbio/reflow/infra"
 	_ "github.com/grailbio/reflow/localcluster"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/metrics"
+	_ "github.com/grailbio/reflow/metrics/prometrics"
 	"github.com/grailbio/reflow/pool"
 	_ "github.com/grailbio/reflow/repository/s3"
 	"github.com/grailbio/reflow/runner"
@@ -95,6 +97,7 @@ func main() {
 		infra2.TLS:        new(tls.Certs),
 		infra2.Username:   new(infra2.User),
 		infra2.Tracer:     new(trace.Tracer),
+		infra2.Metrics:    new(metrics.Client),
 		infra2.TaskDB:     new(taskdb.TaskDB),
 		infra2.Docker:     new(infra2.DockerConfig),
 		infra2.Predictor:  new(infra2.PredictorConfig),
@@ -114,6 +117,7 @@ func main() {
 		infra2.TLS:       "tls,file=/tmp/ca.reflow",
 		infra2.Username:  "user",
 		infra2.Tracer:    "noptracer",
+		infra2.Metrics:   "nopmetrics",
 		infra2.Docker:    "docker,memlimit=soft",
 		infra2.RunID:     "runid",
 	}

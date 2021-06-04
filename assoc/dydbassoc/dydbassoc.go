@@ -33,6 +33,7 @@ import (
 	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/liveset"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/metrics"
 	"github.com/grailbio/reflow/pool"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
@@ -212,6 +213,11 @@ func (a *Assoc) Version() int {
 // Store associates the digest v with the key digest k of the provided kind. If v is zero,
 // k's association for (kind,v) will be removed.
 func (a *Assoc) Store(ctx context.Context, kind assoc.Kind, k, v digest.Digest) error {
+	reqStartTime := time.Now()
+	defer func() {
+		metrics.GetAssocOpDurationSecondsHistogram(ctx, "store").Observe(time.Now().Sub(reqStartTime).Seconds())
+	}()
+
 	switch kind {
 	case assoc.Fileset, assoc.ExecInspect, assoc.Logs, assoc.Bundle:
 	default:
@@ -254,6 +260,11 @@ func (a *Assoc) Store(ctx context.Context, kind assoc.Kind, k, v digest.Digest) 
 
 // Delete deletes the key k unconditionally from the provided assoc.
 func (a *Assoc) Delete(ctx context.Context, k digest.Digest) error {
+	reqStartTime := time.Now()
+	defer func() {
+		metrics.GetAssocOpDurationSecondsHistogram(ctx, "delete").Observe(time.Now().Sub(reqStartTime).Seconds())
+	}()
+
 	input := &dynamodb.DeleteItemInput{
 		Key: map[string]*dynamodb.AttributeValue{
 			"ID": {
@@ -346,6 +357,11 @@ func (a *Assoc) getUpdateComponents(kind assoc.Kind, k, v digest.Digest) (expr s
 // can be used for LRU object garbage collection.
 // Get expands abbreviated keys by making use of a DynamoDB index.
 func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (digest.Digest, digest.Digest, error) {
+	reqStartTime := time.Now()
+	defer func() {
+		metrics.GetAssocOpDurationSecondsHistogram(ctx, "get").Observe(time.Now().Sub(reqStartTime).Seconds())
+	}()
+
 	var v digest.Digest
 	switch kind {
 	case assoc.Fileset, assoc.ExecInspect, assoc.Logs, assoc.Bundle:
@@ -461,6 +477,11 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 // cancellation, S3 API errors or a key parse error would be returned from BatchGet. Any value parse
 // errors would be returned as part of the result for that key.
 func (a *Assoc) BatchGet(ctx context.Context, batch assoc.Batch) error {
+	reqStartTime := time.Now()
+	defer func() {
+		metrics.GetAssocOpDurationSecondsHistogram(ctx, "batchget").Observe(time.Now().Sub(reqStartTime).Seconds())
+	}()
+
 	unique := make(map[digest.Digest]map[assoc.Kind]bool)
 	for k := range batch {
 		if _, ok := unique[k.Digest]; !ok {
@@ -670,6 +691,11 @@ func (c *counter) Get() int64 {
 // CollectWithThreshold removes from this Assoc any objects whose keys are not in the
 // liveset and have not been accessed more recently than the liveset's threshold
 func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, dead liveset.Liveset, threshold time.Time, rate int64, dryRun bool) error {
+	reqStartTime := time.Now()
+	defer func() {
+		metrics.GetAssocOpDurationSecondsHistogram(ctx, "collectwiththreshold").Observe(time.Now().Sub(reqStartTime).Seconds())
+	}()
+
 	log.Debug("Collecting association")
 	scanner := newScanner(a)
 
@@ -749,6 +775,11 @@ func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, 
 
 // Count returns an estimate of the number of associations in this mapping
 func (a *Assoc) Count(ctx context.Context) (int64, error) {
+	reqStartTime := time.Now()
+	defer func() {
+		metrics.GetAssocOpDurationSecondsHistogram(ctx, "count").Observe(time.Now().Sub(reqStartTime).Seconds())
+	}()
+
 	if err := a.Limiter.Acquire(ctx, 1); err != nil {
 		return 0, err
 	}
@@ -766,6 +797,11 @@ func (a *Assoc) Count(ctx context.Context) (int64, error) {
 // Scan calls the handler function for every association in the mapping.
 // Note that the handler function may be called asynchronously from multiple threads.
 func (a *Assoc) Scan(ctx context.Context, kind assoc.Kind, mappingHandler assoc.MappingHandler) error {
+	reqStartTime := time.Now()
+	defer func() {
+		metrics.GetAssocOpDurationSecondsHistogram(ctx, "scan").Observe(time.Now().Sub(reqStartTime).Seconds())
+	}()
+
 	scanner := newScanner(a)
 	colname, ok := colmap[kind]
 	if !ok {

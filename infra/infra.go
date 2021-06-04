@@ -51,6 +51,7 @@ const (
 	Username   = "user"
 	TLS        = "tls"
 	Tracer     = "tracer"
+	Metrics    = "metrics"
 	TaskDB     = "taskdb"
 	Docker     = "docker"
 	Predictor  = "predictor"

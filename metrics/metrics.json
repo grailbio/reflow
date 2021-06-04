@@ -1,0 +1,19 @@
+[
+	{
+		"name": "tasks_started_count",
+		"type": "counter",
+		"help": "Count of started tasks."
+	},
+	{
+		"name": "tasks_finished_count",
+		"type": "counter",
+		"help": "Count of finished tasks."
+	},
+	{
+		"name": "assoc_op_duration_seconds",
+		"type": "histogram",
+		"help": "Duration of queries against dydbassoc.",
+		"buckets": [0.001, 0.01, 0.1, 1, 10],
+		"labels": ["operation"]
+	}
+]

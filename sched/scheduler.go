@@ -36,6 +36,7 @@ import (
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/metrics"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/sched/internal"
 	"github.com/grailbio/reflow/taskdb"
@@ -453,6 +454,8 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		loadedData     sync.Map
 		resultUnloaded bool
 	)
+	metrics.GetTasksStartedCountCounter(ctx).Inc()
+	defer metrics.GetTasksFinishedCountCounter(ctx).Inc()
 	defer func() {
 		if tcancel == nil {
 			return
