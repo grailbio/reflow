@@ -155,10 +155,10 @@ func (lt *LocalTracer) Emit(ctx context.Context, e trace.Event) (context.Context
 		return context.WithValue(ctx, eventKey, event), nil
 	case trace.EndEvent:
 		if event, err := eventKey.getEvent(ctx); err == nil {
+			lt.rwmu.Lock()
 			// convert to microseconds to ensure common units before calculating duration
 			event.Dur = (e.Time.UnixNano() / 1000) - event.Ts
 			event.Args["endTime"] = e.Time.Format(time.RFC850)
-			lt.rwmu.Lock()
 			lt.trace.Events = append(lt.trace.Events, event)
 			lt.rwmu.Unlock()
 		}

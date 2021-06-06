@@ -117,7 +117,8 @@ func TestLocalTracerEmit(t *testing.T) {
 	}
 }
 
-// If running with `go test`, make sure to include the `-race` flag to highlight any regressions.
+// If running with `go test`, make sure to include the `-race` flag to highlight any regressions
+// e.g. `go test -v -race -run TestLocalTracerConcurrent`
 func TestLocalTracerConcurrentEmitPids(t *testing.T) {
 	const numRoutines = 5
 	testcases := []struct {
@@ -175,6 +176,16 @@ func TestLocalTracerConcurrentEmitPids(t *testing.T) {
 						SpanKind: tc.spanKind,
 					})
 					time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
+					wg.Add(1)
+					go func() { // async emit a NoteEvent while also emitting a EndEvent
+						_, _ = lt.Emit(startCtx, trace.Event{
+							Time:  time.Now(),
+							Kind:  trace.NoteEvent,
+							Key:   fmt.Sprintf("noteEvent%d", i),
+							Value: i,
+						})
+						wg.Done()
+					}()
 					_, _ = lt.Emit(startCtx, trace.Event{
 						Time:     time.Now(),
 						Kind:     trace.EndEvent,
@@ -204,8 +215,10 @@ func TestLocalTracerConcurrentEmitPids(t *testing.T) {
 	}
 }
 
+// If running with `go test`, make sure to include the `-race` flag to highlight any regressions
+// e.g. `go test -v -race -run TestLocalTracerConcurrent`
 func TestLocalTracerConcurrentNoteEvents(t *testing.T) {
-	const numConcurrentNotes = 5
+	const numConcurrentNotes = 500
 	name := "concurrent note events"
 	id := reflow.Digester.FromString(name)
 
@@ -230,6 +243,12 @@ func TestLocalTracerConcurrentNoteEvents(t *testing.T) {
 			_, _ = lt.Emit(startCtx, trace.Event{
 				Time:  time.Now(),
 				Kind:  trace.NoteEvent,
+				Key:   "noteEventSameKey",
+				Value: i,
+			})
+			_, _ = lt.Emit(startCtx, trace.Event{
+				Time:  time.Now(),
+				Kind:  trace.NoteEvent,
 				Key:   fmt.Sprintf("noteEvent%d", i),
 				Value: i,
 			})
@@ -250,7 +269,8 @@ func TestLocalTracerConcurrentNoteEvents(t *testing.T) {
 		t.Errorf("got %d emitted events, wanted %d", got, want)
 	}
 
-	if got, want := len(lt.trace.Events[0].Args), numConcurrentNotes+2; got != want {
+	// +3 because we have: 1 for StartEvent, 1 for EndEvent, 1 for NoteEvent with "noteEventSameKey"
+	if got, want := len(lt.trace.Events[0].Args), numConcurrentNotes+3; got != want {
 		t.Errorf("got %d attributes on the emitted event, wanted %d (start time, end time, and %d notes)", got, want, numConcurrentNotes)
 	}
 }

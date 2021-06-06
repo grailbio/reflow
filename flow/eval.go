@@ -1265,7 +1265,16 @@ var batchCacheDigest = reflow.Digester.FromString("batch cache lookup")
 func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 	var endTrace func()
 	ctx, endTrace = trace.Start(ctx, trace.Cache, batchCacheDigest, fmt.Sprintf("batch cache lookup (%d)", len(flows)))
-	defer endTrace()
+	var wg sync.WaitGroup // will be incremented for each parallel cache lookup
+	defer func() {
+		go func() {
+			// to ensure an accurate trace duration, wait for all of the per-flow operations
+			// to complete before ending the trace
+			wg.Wait()
+			endTrace()
+		}()
+	}()
+
 	batch := make(assoc.Batch)
 	for _, f := range flows {
 		if !e.valid(f) || !e.CacheMode.Reading() || e.NoCacheExtern && (f.Op == Extern || f == e.root) {
@@ -1310,8 +1319,10 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 	}
 	bg := e.newAssertionsBatchCache()
 	for _, f := range flows {
+		wg.Add(1)
+		trace.Note(ctx, "FlowID", f.Digest().Short())
 		e.step(f, func(f *Flow) error {
-			trace.Note(ctx, "FlowID", f.Digest().Short())
+			defer wg.Done()
 			var (
 				keys = f.CacheKeys()
 				fs   reflow.Fileset
