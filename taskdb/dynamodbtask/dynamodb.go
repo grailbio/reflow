@@ -903,6 +903,7 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 			result, stderr, stdout, inspect   digest.Digest
 			keepalive, et                     time.Time
 			ident, uri                        string
+			attempt                           int
 		)
 
 		id, err = digest.Parse(*it[colID].S)
@@ -974,6 +975,12 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 				errs = append(errs, fmt.Errorf("parse imagecmdid %v: %v", *it[colImgCmdID].S, err))
 			}
 		}
+		if v, ok := it[colAttempt]; ok {
+			attempt, err = strconv.Atoi(*v.N)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("parse attempt %v: %v", *it[colAttempt].N, err))
+			}
+		}
 		if v, ok := it[colIdent]; ok {
 			ident = *v.S
 		}
@@ -995,6 +1002,7 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 			Stdout:    stdout,
 			Stderr:    stderr,
 			Inspect:   inspect,
+			Attempt:   attempt,
 		})
 	}
 	if len(errs) == 0 {

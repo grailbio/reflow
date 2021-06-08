@@ -27,7 +27,7 @@ import (
 
 const (
 	runHeader                   = "runid\tuser\tstart\tend\tExecLog\tSysLog\tEvalGraph\tTrace"
-	taskHeader                  = "taskid\tident\tstart\tend\tduration\tstate\tmem\tcpu\tdisk\tprocs"
+	taskHeader                  = "taskid\tflowid\tattempts\tident\tstart\tend\tduration\tstate\tmem\tcpu\tdisk\tprocs"
 	taskHeaderLongWithTaskDB    = "uri/resultid\tinspect"
 	taskHeaderLongWithoutTaskDB = "uri"
 )
@@ -494,8 +494,8 @@ func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
 		// This is a conservative estimate--we don't keep track of total max.
 		disk = info.Profile["disk"].Max + info.Profile["tmp"].Max
 	}
-	fmt.Fprintf(w, "\t%s\t%s\t%s\t%s\t%d:%02d\t%s\t%s\t%.1f\t%s\t%s",
-		task.Task.ID.IDShort(), ident,
+	fmt.Fprintf(w, "\t%s\t%s\t%d\t%s\t%s\t%s\t%d:%02d\t%s\t%s\t%.1f\t%s\t%s",
+		task.ID.IDShort(), task.FlowID.Short(), 1+task.Attempt, ident,
 		startTime.Local().Format(layout),
 		endTime.Local().Format(layout),
 		int(runtime.Hours()),
