@@ -6,7 +6,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"go/format"
@@ -17,6 +16,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v2"
 )
 
 func convertToPascalCase(id string) string {
@@ -45,18 +46,19 @@ func convertHelpToCommentFmt(help string) string {
 var idRe = regexp.MustCompile(`[a-z][a-z_]*[a-z]`)
 var helpRe = regexp.MustCompile(`[A-Z][a-zA-Z0-9 ]*\.`)
 
-type metricDef struct {
-	Name    string
+type confRoot map[string]metricConf
+
+type metricConf struct {
 	Type    string
 	Help    string
+	Buckets []float64 // Only allowed for histogram type metrics.
 	Labels  []string
-	Buckets []float64
 }
 
 // validate returns if the metric definition is well formed, otherwise exits with a fatal error.
-func (m metricDef) validate() {
-	if !idRe.MatchString(m.Name) {
-		log.Fatalf("invalid metric name %s, must match id regex: %s", m.Name, idRe.String())
+func (m metricConf) validate(name string) {
+	if !idRe.MatchString(name) {
+		log.Fatalf("invalid metric name %s, must match id regex: %s", name, idRe.String())
 	}
 
 	switch m.Type {
@@ -64,29 +66,29 @@ func (m metricDef) validate() {
 	case "gauge":
 	case "histogram":
 	default:
-		log.Fatalf("unknown metric type %s on %s, must be one of {counter,gauge,histogram}", m.Type, m.Name)
+		log.Fatalf("unknown metric type %s on %s, must be one of {counter,gauge,histogram}", m.Type, name)
 	}
 
 	if !helpRe.MatchString(m.Help) {
-		log.Fatalf("invalid help text for metric %s, %s", m.Name, m.Help)
+		log.Fatalf("invalid help text for metric %s, %s", name, m.Help)
 	}
 
 	for _, l := range m.Labels {
 		if !idRe.MatchString(l) {
-			log.Fatalf("label %s on metric %s is incorrectly formatted", m.Name, l)
+			log.Fatalf("label %s on metric %s is incorrectly formatted", name, l)
 		}
 	}
 
 	if m.Buckets != nil && m.Type != "histogram" {
 		log.Fatalf("metric %s has type %s and buckets %v, but buckets are only allowed for histogram type",
-			m.Name, m.Type, m.Buckets)
+			name, m.Type, m.Buckets)
 	}
 }
 
 // printVarDefToGen prints a {metricType}Opt definition to the generator. These definitions
 // are used by clients to initialize metric backing stores.
-func (m metricDef) printVarDefToGen(gen *generator) {
-	gen.Printf("		\"%s\": {\n", m.Name)
+func (m metricConf) printVarDefToGen(name string, gen *generator) {
+	gen.Printf("		\"%s\": {\n", name)
 
 	if m.Help != "" {
 		gen.Printf("			Help: \"%s\",\n", m.Help)
@@ -114,9 +116,9 @@ func (m metricDef) printVarDefToGen(gen *generator) {
 
 // printGetterToGen prints a function definition for metricDef to the generator. This function
 // definition is used by clients and guarantees correctness of metric and label names.
-func (m metricDef) printGetterToGen(gen *generator) {
-	fnName := fmt.Sprintf("Get%s%s", convertToPascalCase(m.Name), convertToPascalCase(m.Type))
-	gen.Printf("// %s returns a %s to set metric %s", fnName, convertToPascalCase(m.Type), m.Name)
+func (m metricConf) printGetterToGen(name string, gen *generator) {
+	fnName := fmt.Sprintf("Get%s%s", convertToPascalCase(name), convertToPascalCase(m.Type))
+	gen.Printf("// %s returns a %s to set metric %s", fnName, convertToPascalCase(m.Type), name)
 	if m.Help != "" {
 		gen.Printf(" (%s)", convertHelpToCommentFmt(m.Help))
 	}
@@ -139,7 +141,7 @@ func (m metricDef) printGetterToGen(gen *generator) {
 		}
 		labelDict = fmt.Sprintf("map[string]string{%s}", strings.Join(assns, ","))
 	}
-	gen.Printf("	return get%s(ctx, \"%s\", %s)\n", convertToPascalCase(m.Type), m.Name, labelDict)
+	gen.Printf("	return get%s(ctx, \"%s\", %s)\n", convertToPascalCase(m.Type), name, labelDict)
 	gen.Printf("}\n\n")
 }
 
@@ -172,22 +174,24 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var defs []metricDef
-	d := json.NewDecoder(f)
-	if err := d.Decode(&defs); err != nil {
+	var conf confRoot
+	yd := yaml.NewDecoder(f)
+	if err := yd.Decode(&conf); err != nil {
 		log.Fatal(err)
 	}
 
-	var counters, gauges, histograms []metricDef
-	for _, def := range defs {
-		def.validate()
+	counters := make(map[string]metricConf)
+	gauges := make(map[string]metricConf)
+	histograms := make(map[string]metricConf)
+	for name, def := range conf {
+		def.validate(name)
 		switch def.Type {
 		case "counter":
-			counters = append(counters, def)
+			counters[name] = def
 		case "gauge":
-			gauges = append(gauges, def)
+			gauges[name] = def
 		case "histogram":
-			histograms = append(histograms, def)
+			histograms[name] = def
 		}
 	}
 
@@ -209,22 +213,22 @@ func main() {
 
 	// counters
 	gen.Printf("	Counters = map[string]counterOpts{\n")
-	for _, c := range counters {
-		c.printVarDefToGen(gen)
+	for name, c := range counters {
+		c.printVarDefToGen(name, gen)
 	}
 	gen.Printf("	}\n")
 
 	// gauges
 	gen.Printf("	Gauges = map[string]gaugeOpts{\n")
-	for _, g := range gauges {
-		g.printVarDefToGen(gen)
+	for name, g := range gauges {
+		g.printVarDefToGen(name, gen)
 	}
 	gen.Printf("	}\n")
 
 	// histograms
 	gen.Printf("	Histograms = map[string]histogramOpts{\n")
-	for _, h := range histograms {
-		h.printVarDefToGen(gen)
+	for name, h := range histograms {
+		h.printVarDefToGen(name, gen)
 	}
 	gen.Printf("	}\n")
 
@@ -232,16 +236,16 @@ func main() {
 
 	// define getters to access specific metrics from client embedded in context.
 	// counters
-	for _, c := range counters {
-		c.printGetterToGen(gen)
+	for name, c := range counters {
+		c.printGetterToGen(name, gen)
 	}
 	// gauges
-	for _, g := range gauges {
-		g.printGetterToGen(gen)
+	for name, g := range gauges {
+		g.printGetterToGen(name, gen)
 	}
 	// histograms
-	for _, h := range histograms {
-		h.printGetterToGen(gen)
+	for name, h := range histograms {
+		h.printGetterToGen(name, gen)
 	}
 
 	src := gen.Gofmt()

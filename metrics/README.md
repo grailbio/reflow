@@ -5,20 +5,18 @@ Reflow.
 
 ## Defining metrics
 
-Metrics are defined by `metrics.json`. Each dictionary in the
-`metrics.json` root array will produce a metric, and those dictionaries
-are configured by the following fields:
-
-- Name
-  - Metric names are written in snake_case and can only contain 
-    lowercase alpha characters.
+Metrics are defined in `metrics.yaml`. Each named dictionary in the
+`metrics.yaml` root array will produce a metric. Note that the name for
+a metric must be given in snake_case and contain only lowercase alpha
+characters. Metric configuration dictionaries can have the following
+fields:
 
 - Type
   - The following types of metrics are available.
-    - Counter: counters can only be incremented or reset to zero.
-    - Gauge: gauges can be incremented, decremented or set to an
+    - `counter` - counters can only be incremented or reset to zero.
+    - `gauge` - gauges can be incremented, decremented or set to an
       arbitrary value.
-    - Histogram: histograms can used to observe arbitrary values
+    - `histogram` - histograms can used to observe arbitrary values
       (discretized to a set of buckets configured at compilation).
 
 - Help
@@ -40,4 +38,4 @@ After updating metrics.json, use the genmetrics utility binary to
 generate static the go package functions that are called to provide
 observations.
 
-`go run cmd/genmetrics/main.go metrics/metrics.json metrics`
+`go run cmd/genmetrics/main.go metrics/metrics.yaml metrics`
