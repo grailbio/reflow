@@ -66,9 +66,9 @@ The columns displayed by list are:
 		for _, arg := range args {
 			n, err := parseName(arg)
 			if err != nil {
-				c.Fatalf("invalid URI %s: %s", arg, err)
+				c.Fatalf("not an alloc or exec %s: %s", arg, err)
 			}
-			if n.Kind == idName {
+			if n.Kind != execName && n.Kind != allocName {
 				c.Errorf("%s: can only list allocs and execs", arg)
 				continue
 			}

@@ -27,7 +27,8 @@ Note that exec URIs are of the form host:port/alloc/exec.`
 	arg := flags.Arg(0)
 	n, err := parseName(arg)
 	if err != nil {
-		c.Fatalf("parse %s: %v", arg, err)
+		c.Printf("invalid argument '%s', must be one of the following examples:\n%s", arg, objNameExamples)
+		c.Fatal(err)
 	}
 	if n.Kind != execName {
 		c.Fatalf("%s: not an exec URI", arg)

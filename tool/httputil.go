@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"time"
 
@@ -145,36 +144,9 @@ func (c *Cmd) reposExecInspect(ctx context.Context, d digest.Digest) (reflow.Exe
 	return ins, nil
 }
 
-func (c *Cmd) execLogs(ctx context.Context, stdout, follow bool, n name) (io.ReadCloser, error) {
-	httpClient, err := c.httpClient()
-	if err != nil {
-		c.Fatal(err)
-	}
-	httpClient.Timeout = 2 * time.Minute
-	switch n.Kind {
-	case execName:
-		path := "/stderr"
-		if stdout {
-			path = "/stdout"
-		}
-		if follow {
-			path = path + fmt.Sprintf("?follow=%t", follow)
-		}
-		url := constructHTTPUrl(n) + path
-		resp, err := httpClient.Get(url)
-		if err != nil {
-			c.Log.Errorf("error inspecting exec %q: %s", url, err)
-			return nil, err
-		}
-		return resp.Body, nil
-	default:
-		return nil, fmt.Errorf("not an exec id: %v", n)
-	}
-}
-
 func constructHTTPUrl(n name) string {
 	var url string
-	prefix := "https://" + n.InstanceID + "/v1"
+	prefix := "https://" + n.HostAndPort + "/v1"
 	switch n.Kind {
 	case allocName:
 		url = prefix + "/allocs/" + n.AllocID

@@ -20,16 +20,17 @@ func (c *Cmd) kill(ctx context.Context, args ...string) {
 	for _, arg := range flags.Args() {
 		n, err := parseName(arg)
 		if err != nil {
-			c.Errorf("%s: %s\n", arg, err)
+			c.Printf("invalid argument '%s': %v", arg, err)
 			continue
 		}
 		if n.Kind != allocName {
-			c.Errorf("%s: only allocs can be killed\n", arg)
+			c.Errorf("'%s' not an alloc\n", arg)
 			continue
 		}
-		alloc, err := cluster.Alloc(ctx, allocURI(n))
+		allocUri := allocURI(n)
+		alloc, err := cluster.Alloc(ctx, allocUri)
 		if err != nil {
-			c.Errorf("%s: %s\n", arg, err)
+			c.Errorf("alloc %s (from arg %s): %v\n", allocUri, arg, err)
 			continue
 		}
 		if err := alloc.Free(ctx); err != nil {

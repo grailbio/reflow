@@ -6,12 +6,12 @@ package tool
 
 import (
 	"context"
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -419,56 +419,87 @@ const (
 	allocName nameKind = iota
 	execName
 	idName
+	hostName
 )
 
+func (nk nameKind) String() string {
+	switch nk {
+	case allocName:
+		return "alloc"
+	case execName:
+		return "exec"
+	case idName:
+		return "id"
+	case hostName:
+		return "hostname"
+	}
+	return "unknown"
+}
+
 type name struct {
-	Kind       nameKind
-	InstanceID string
-	AllocID    string
-	ID         digest.Digest
+	Kind        nameKind
+	Hostname    string
+	HostAndPort string
+	AllocID     string
+	ID          digest.Digest
 }
 
 func allocURI(n name) string {
-	return strings.Join([]string{n.InstanceID, n.AllocID}, "/")
+	return strings.Join([]string{n.HostAndPort, n.AllocID}, "/")
+}
+
+func execPath(n name) string {
+	if n.Kind == execName {
+		return strings.Join([]string{"", n.AllocID, n.ID.Hex()}, "/")
+	}
+	panic(fmt.Sprintf("execPath not applicable for name: %v", n))
 }
 
 const objNameExamples = `
-	9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49
-	9909853c
-	sha256:9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49
-	ec2-35-165-199-174.us-west-2.compute.amazonaws.com:9000/bb97e35db4101030
-	ec2-35-165-199-174.us-west-2.compute.amazonaws.com:9000/bb97e35db4101030/9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49`
+	9909853c                                                                    (requires taskdb)
+	9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49            (requires taskdb)
+	sha256:9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49     (requires taskdb)
+	ec2-35-165-199-174.us-west-2.compute.amazonaws.com                          (works only with -reflowlet)
+	ec2-35-165-199-174.us-west-2.compute.amazonaws.com:9000/bb97e35db4101030    (works only with -reflowlet)
+	ec2-35-165-199-174.us-west-2.compute.amazonaws.com:9000/bb97e35db4101030/9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49
+`
+
+var (
+	hexRe     = regexp.MustCompile("^(sha256:)?[0-9a-f]+$")
+	ec2HostRe = regexp.MustCompile("^ec2.*compute\\.amazonaws\\.com$")
+)
 
 // parseName parses a Reflow object name. See objNameExamples for examples.
-func parseName(raw string) (name, error) {
+func parseName(raw string) (n name, err error) {
+	defer func() {
+		if err != nil {
+			err = errors.E("parseName", raw, err)
+		}
+	}()
 	head, tail := peel(raw, "/")
 	if tail == "" {
-		n := name{Kind: idName}
-		var err error
-		n.ID, err = reflow.Digester.Parse(head)
-		if _, ok := err.(hex.InvalidByteError); ok {
-			return n, errors.Errorf("invalid reflow object name: %s\ngot: %s\nbut expected something like one of the following:%s", err, raw, objNameExamples)
+		switch {
+		case hexRe.MatchString(head):
+			n.Kind = idName
+			n.ID, err = reflow.Digester.Parse(head)
+		case ec2HostRe.MatchString(head):
+			n.Kind, n.Hostname = hostName, head
 		}
-		return n, err
+		return
 	}
-	var n name
-	n.InstanceID = head
-	head, tail = peel(tail, "/")
+	if !hexRe.MatchString(head) {
+		n.Hostname = strings.Split(head, ":")[0]
+		n.HostAndPort = head
+		head, tail = peel(tail, "/")
+	}
 	n.AllocID = head
 	if tail == "" {
 		n.Kind = allocName
-		return n, nil
-	}
-	var err error
-	n.ID, err = reflow.Digester.Parse(tail)
-	if _, ok := err.(hex.InvalidByteError); ok {
-		return n, errors.Errorf("invalid reflow object name: %s\ngot: %s\nbut expected something like one of the following:%s", err, raw, objNameExamples)
-	}
-	if err != nil {
-		return name{}, err
+		return
 	}
 	n.Kind = execName
-	return n, nil
+	n.ID, err = reflow.Digester.Parse(tail)
+	return
 }
 
 func peel(s, sep string) (head, tail string) {

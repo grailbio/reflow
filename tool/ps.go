@@ -313,7 +313,8 @@ func (c *Cmd) taskInfo(ctx context.Context, q taskdb.TaskQuery, liveOnly bool) (
 			} else {
 				n, err := parseName(v.URI)
 				if err != nil {
-					return err
+					c.Errorf("task %s URI %s: %v", v.ID.IDShort(), v.URI, err)
+					return nil
 				}
 				// TODO(pgopal) Fix this when we can query local execs
 				// Local reflow execs have URI of the form "/<exec id>
