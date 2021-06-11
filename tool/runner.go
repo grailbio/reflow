@@ -193,7 +193,7 @@ func NewScheduler(ctx context.Context, config infra.Config, wg *wg.WaitGroup, cl
 
 // NewRunner returns a new runner that can run the given run config. If scheduler is non nil,
 // it will be used for scheduling tasks.
-func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger) (r *Runner, err error) {
+func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger, scheduler *sched.Scheduler) (r *Runner, err error) {
 	var (
 		mux         blob.Mux
 		repo        reflow.Repository
@@ -230,8 +230,8 @@ func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger) (r 
 	}
 
 	var pred *predictor.Predictor
-	var scheduler *sched.Scheduler
-	if runConfig.RunFlags.Sched {
+	startSched := runConfig.RunFlags.Sched && scheduler == nil
+	if startSched {
 		var schedCtx context.Context
 		// disable govet check due to https://github.com/golang/go/issues/29587
 		// schedCancel is called, if appropriate, in a defer above.
@@ -244,22 +244,25 @@ func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger) (r 
 		scheduler.Transferer = transferer
 		scheduler.Mux = mux
 		scheduler.PostUseChecksum = runConfig.RunFlags.PostUseChecksum
+	}
 
-		// Configure the Predictor.
-		if runConfig.RunFlags.Pred {
-			var tdb taskdb.TaskDB
-			if err := runConfig.Config.Instance(&tdb); err != nil {
-				logger.Error(err)
-			}
-			if predConfig, err := getPredictorConfig(runConfig, repo, tdb); err != nil {
-				logger.Errorf("error while configuring predictor: %s", err)
-			} else {
-				pred = predictor.New(repo, tdb, logger.Tee(nil, "predictor: "), predConfig.MinData, predConfig.MaxInspect, predConfig.MemPercentile)
-			}
+	// Configure the Predictor.
+	if runConfig.RunFlags.Pred {
+		var tdb taskdb.TaskDB
+		if err = runConfig.Config.Instance(&tdb); err != nil {
+			logger.Error(err)
+		}
+		if cfg, cerr := getPredictorConfig(runConfig, repo, tdb); cerr != nil {
+			logger.Errorf("error while configuring predictor: %s", cerr)
+		} else {
+			pred = predictor.New(repo, tdb, logger.Tee(nil, "predictor: "), cfg.MinData, cfg.MaxInspect, cfg.MemPercentile)
 		}
 	}
 	var runID *taskdb.RunID
 	err = runConfig.Config.Instance(&runID)
+	if startSched {
+		logger.Debugf("Setting up new scheduler for runID: %s", runID.ID())
+	}
 	if err != nil {
 		return
 	}

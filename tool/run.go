@@ -142,7 +142,7 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 	runConfig.RunFlags.Cluster, err = clusterInstance(c.Config, c.Status)
 	c.must(err)
 
-	r, err := NewRunner(ctx, runConfig, c.Log)
+	r, err := NewRunner(ctx, runConfig, c.Log, nil)
 	c.must(err)
 
 	// Set up run transcript and log files.
