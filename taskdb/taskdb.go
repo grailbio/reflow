@@ -190,20 +190,25 @@ type TaskDB interface {
 	Scan(ctx context.Context, kind Kind, handler MappingHandler) error
 }
 
+// CommonFields are various common fields found in all taskdb row types.
+type CommonFields struct {
+	// Keepalive is the keepalive lease on the row.
+	Keepalive time.Time
+	// Start is the time the taskdb row was started.
+	Start time.Time
+	// End is the time the taskdb row ended (if it has).
+	End time.Time
+}
+
 // Run is the run info stored in the taskdb.
 type Run struct {
+	CommonFields
 	// ID is the run id.
 	ID RunID
 	// Labels is the labels specified during the invocation.
 	Labels pool.Labels
 	// User is the specified config.User()
 	User string
-	// Keepalive is the keepalive lease on the run.
-	Keepalive time.Time
-	// Start is the time the run was started.
-	Start time.Time
-	// End is the time the run ended (if it has).
-	End time.Time
 	// Various logs and other run info generated for the run.
 	ExecLog, SysLog, EvalGraph, Trace digest.Digest
 }
@@ -222,6 +227,7 @@ func (r Run) String() string {
 
 // Task is the task info stored in the taskdb.
 type Task struct {
+	CommonFields
 	// ID is the task id.
 	ID TaskID
 	// RunID is the run id that created this task.
@@ -244,12 +250,6 @@ type Task struct {
 	// Resources is the amount of resources reserved for this task.
 	// Note that this may not represent actual utilized resources necessarily.
 	Resources reflow.Resources
-	// Keepalive is the keepalive lease on the task.
-	Keepalive time.Time
-	// Start is the time the task was started.
-	Start time.Time
-	// End is the time the task ended (if it has).
-	End time.Time
 	// URI is the uri of the task.
 	URI string
 	// Stdout, Stderr and Inspect are the stdout, stderr and inspect ids of the task.
@@ -266,11 +266,11 @@ func (t Task) String() string {
 
 // Pool is the pool info stored in the taskdb.
 type Pool struct {
+	CommonFields
 	PoolID    reflow.StringDigest
 	PoolType  string
 	Resources reflow.Resources
 	URI       string
-	Start     time.Time
 
 	// Cluster identifiers
 	ClusterName   string

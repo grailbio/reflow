@@ -417,12 +417,12 @@ func TestStartPool(t *testing.T) {
 			PoolType:      "pool_type",
 			Resources:     reflow.Resources{"cpu": 2, "mem": 4 * 1024 * 1024 * 1024},
 			URI:           "http://some_url",
-			Start:         time.Now().Add(-time.Hour),
 			ClusterName:   "cluster_name",
 			User:          "user@grailbio.com",
 			ReflowVersion: "version_x",
 		}
 	)
+	p.Start = time.Now().Add(-time.Hour)
 	err := taskb.StartPool(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)
@@ -1461,6 +1461,42 @@ func TestTaskDBScan(t *testing.T) {
 		}
 		if got, want := gotLabel, tt.wantLabel; got != want {
 			t.Errorf("label got %v, want %v", got, want)
+		}
+	}
+}
+
+func TestParseAttr(t *testing.T) {
+	id := reflow.Digester.Rand(nil)
+	ts := time.Now()
+	tsParsed, _ := time.Parse(timeLayout, ts.Format(timeLayout))
+	for _, tt := range []struct {
+		it    map[string]*dynamodb.AttributeValue
+		k     taskdb.Kind
+		f     func(s string) (interface{}, error)
+		want  interface{}
+		wantE error
+	}{
+		{it: map[string]*dynamodb.AttributeValue{}, k: User, want: ""},
+		{it: map[string]*dynamodb.AttributeValue{}, k: ID, f: parseDigestFunc, want: nil},
+		{it: map[string]*dynamodb.AttributeValue{colUser: {S: aws.String("user")}}, k: User, want: "user"},
+		{it: map[string]*dynamodb.AttributeValue{colID: {S: aws.String(id.String())}}, k: ID, f: parseDigestFunc, want: id},
+		{it: map[string]*dynamodb.AttributeValue{colID: {S: aws.String("hello")}}, k: ID, f: parseDigestFunc, wantE: fmt.Errorf("parse ID hello: %v", digest.ErrInvalidDigest)},
+		{it: map[string]*dynamodb.AttributeValue{colStartTime: {S: aws.String(ts.Format(timeLayout))}}, k: StartTime, f: parseTimeFunc, want: tsParsed},
+		{it: map[string]*dynamodb.AttributeValue{colStartTime: {S: aws.String("hello")}}, k: StartTime, f: parseTimeFunc, wantE: fmt.Errorf("parse StartTime hello: parsing time \"hello\" as \"2006-01-02T15:04:05Z07:00\": cannot parse \"hello\" as \"2006\"")},
+	} {
+		var errs []error
+		v := parseAttr(tt.it, tt.k, tt.f, &errs)
+		if got, want := len(errs) == 1, tt.wantE != nil; got != want {
+			t.Errorf("got %d errors, want 1", len(errs))
+		}
+		if tt.wantE != nil {
+			if got, want := errs[0], tt.wantE; got.Error() != want.Error() {
+				t.Errorf("got %v, want %v", got, want)
+			}
+			continue
+		}
+		if got, want := v, tt.want; got != want {
+			t.Errorf("got %v, want %v", got, want)
 		}
 	}
 }

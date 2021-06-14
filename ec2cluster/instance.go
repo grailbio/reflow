@@ -343,11 +343,11 @@ func (i *instance) Go(ctx context.Context) {
 					PoolID:        reflow.NewStringDigest(id),
 					PoolType:      aws.StringValue(i.ec2inst.InstanceType),
 					URI:           dns,
-					Start:         aws.TimeValue(i.ec2inst.LaunchTime),
 					ClusterName:   i.InstanceTags[clusterNameKey],
 					User:          i.InstanceTags[userKey],
 					ReflowVersion: i.ReflowVersion,
 				}
+				p.Start = aws.TimeValue(i.ec2inst.LaunchTime)
 				if err := i.TaskDB.StartPool(ctx, p); err != nil {
 					i.Log.Debugf("taskdb pool %s StartPool: %v", poolId, err)
 				} else if err = i.TaskDB.KeepIDAlive(ctx, poolId.Digest(), time.Now().Add(1*time.Minute)); err != nil {

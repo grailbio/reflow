@@ -853,169 +853,61 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 		}
 		queries = t.buildSinceUserQueries(q)
 	}
-	var (
-		responses  = make([][]map[string]*dynamodb.AttributeValue, len(queries))
-		err        error
-		errs       []error
-		totalTasks int64
-	)
-	err = traverse.Each(len(queries), func(i int) error {
-		var (
-			query   = queries[i]
-			lastKey map[string]*dynamodb.AttributeValue
-		)
-		for {
-			query.ExclusiveStartKey = lastKey
-			resp, err := t.DB.QueryWithContext(ctx, query)
-			if err != nil {
-				if aerr, ok := err.(awserr.Error); ok {
-					switch aerr.Code() {
-					case "ValidationException":
-						if strings.Contains(aerr.Message(),
-							"The table does not have the specified index") {
-							return errors.E(`index missing: run "reflow migrate"`, err)
-						}
-					}
-				}
-				return err
-			}
-
-			atomic.AddInt64(&totalTasks, int64(len(resp.Items)))
-			responses[i] = append(responses[i], resp.Items...)
-			lastKey = resp.LastEvaluatedKey
-			if lastKey == nil || (taskQuery.Limit > 0 && atomic.LoadInt64(&totalTasks) >= taskQuery.Limit) {
-				break
-			}
-		}
-		return nil
-	})
+	items, err := t.getItems(ctx, queries, taskQuery.Limit)
 	if err != nil {
 		return nil, err
 	}
-	var items []map[string]*dynamodb.AttributeValue
-	for i := range responses {
-		items = append(items, responses[i]...)
-	}
-	tasks := make([]taskdb.Task, 0, len(items))
+	var (
+		tasks = make([]taskdb.Task, 0, len(items))
+		errs  []error
+	)
 	for _, it := range items {
-		var (
-			id, fid, runid, allocID, imgCmdID digest.Digest
-			result, stderr, stdout, inspect   digest.Digest
-			keepalive, et                     time.Time
-			ident, uri                        string
-			attempt                           int
-		)
-
-		id, err = digest.Parse(*it[colID].S)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("parse id %v: %v", *it[colID], err))
+		var t taskdb.Task
+		if v := parseAttr(it, ID, parseDigestFunc, &errs); v != nil {
+			t.ID = taskdb.TaskID(v.(digest.Digest))
 		}
-		if d := digest.Digest(taskQuery.ID); taskQuery.ID.IsValid() && d.IsAbbrev() {
+		if id, d := digest.Digest(t.ID), digest.Digest(taskQuery.ID); !d.IsZero() && d.IsAbbrev() {
 			if !id.Expands(d) {
 				continue
 			}
 		}
-		fid, err := reflow.Digester.Parse(*it[colFlowID].S)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("parse flowid %v: %v", *it[colFlowID].S, err))
+		if v := parseAttr(it, FlowID, parseDigestFunc, &errs); v != nil {
+			t.FlowID = v.(digest.Digest)
 		}
-		runid, err = digest.Parse(*it[colRunID].S)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("parse runid %v: %v", *it[colRunID].S, err))
+		if v := parseAttr(it, RunID, parseDigestFunc, &errs); v != nil {
+			t.RunID = taskdb.RunID(v.(digest.Digest))
 		}
-		if allocIDValue, ok := it[colAllocID]; ok {
-			allocID, err = digest.Parse(*allocIDValue.S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse allocID %v: %v", *allocIDValue.S, err))
-			}
+		if v := parseAttr(it, AllocID, parseDigestFunc, &errs); v != nil {
+			t.AllocID = v.(digest.Digest)
 		}
-		if resultID, ok := it[colResultID]; ok {
-			result, err = digest.Parse(*resultID.S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse resultid %v: %v", *resultID.S, err))
-			}
+		if v := parseAttr(it, ResultID, parseDigestFunc, &errs); v != nil {
+			t.ResultID = v.(digest.Digest)
 		}
-		if _, ok := it[colKeepalive]; ok {
-			keepalive, err = time.Parse(timeLayout, *it[colKeepalive].S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse keepalive %v: %v", *it[colKeepalive].S, err))
-			}
+		errs = append(errs, setCommonFields(it, &t.CommonFields)...)
+
+		if v := parseAttr(it, Stdout, parseDigestFunc, &errs); v != nil {
+			t.Stdout = v.(digest.Digest)
 		}
-		st, err := time.Parse(timeLayout, *it[colStartTime].S)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("parse starttime %v: %v", *it[colStartTime].S, err))
+		if v := parseAttr(it, Stderr, parseDigestFunc, &errs); v != nil {
+			t.Stderr = v.(digest.Digest)
 		}
-		if v, ok := it[colEndTime]; ok {
-			et, err = time.Parse(timeLayout, *v.S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse endtime %v: %v", *it[colEndTime].S, err))
-			}
+		if v := parseAttr(it, ExecInspect, parseDigestFunc, &errs); v != nil {
+			t.Inspect = v.(digest.Digest)
 		}
-		if v, ok := it[colStdout]; ok {
-			stdout, err = digest.Parse(*v.S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse stdout %v: %v", *it[colStdout].S, err))
-			}
+		if v := parseAttr(it, ImgCmdID, parseDigestFunc, &errs); v != nil {
+			t.ImgCmdID = taskdb.ImgCmdID(v.(digest.Digest))
 		}
-		if v, ok := it[colStderr]; ok {
-			stderr, err = digest.Parse(*v.S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse stderr %v: %v", *it[colStderr].S, err))
-			}
-		}
-		if v, ok := it[colInspect]; ok {
-			inspect, err = digest.Parse(*v.S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse inspect %v: %v", *it[colInspect].S, err))
-			}
-		}
-		if v, ok := it[colImgCmdID]; ok {
-			imgCmdID, err = digest.Parse(*v.S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse imagecmdid %v: %v", *it[colImgCmdID].S, err))
-			}
-		}
+		t.Ident = parseAttr(it, Ident, nil, &errs).(string)
+		t.URI = parseAttr(it, URI, nil, &errs).(string)
 		if v, ok := it[colAttempt]; ok {
-			attempt, err = strconv.Atoi(*v.N)
+			t.Attempt, err = strconv.Atoi(*v.N)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("parse attempt %v: %v", *it[colAttempt].N, err))
+				errs = append(errs, fmt.Errorf("parse attempt %v: %v", *v.N, err))
 			}
 		}
-		if v, ok := it[colIdent]; ok {
-			ident = *v.S
-		}
-		if v, ok := it[colURI]; ok {
-			uri = *v.S
-		}
-		tasks = append(tasks, taskdb.Task{
-			ID:        taskdb.TaskID(id),
-			RunID:     taskdb.RunID(runid),
-			FlowID:    fid,
-			AllocID:   allocID,
-			ResultID:  result,
-			ImgCmdID:  taskdb.ImgCmdID(imgCmdID),
-			Ident:     ident,
-			URI:       uri,
-			Keepalive: keepalive,
-			Start:     st,
-			End:       et,
-			Stdout:    stdout,
-			Stderr:    stderr,
-			Inspect:   inspect,
-			Attempt:   attempt,
-		})
+		tasks = append(tasks, t)
 	}
-	if len(errs) == 0 {
-		return tasks, nil
-	}
-	var b strings.Builder
-	for i, err := range errs {
-		b.WriteString(err.Error())
-		if i != len(errs)-1 {
-			b.WriteString(", ")
-		}
-	}
-	return nil, errors.New(b.String())
+	return tasks, getError(errs)
 }
 
 // Runs returns runs that matches the query.
@@ -1035,130 +927,51 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 		}
 		queries = t.buildSinceUserQueries(q)
 	}
-	var (
-		responses = make([][]map[string]*dynamodb.AttributeValue, len(queries))
-		errs      []error
-		err       error
-	)
-	err = traverse.Each(len(queries), func(i int) error {
-		var (
-			query   = queries[i]
-			lastKey map[string]*dynamodb.AttributeValue
-		)
-		for {
-			query.ExclusiveStartKey = lastKey
-			resp, err := t.DB.QueryWithContext(ctx, query)
-			if err != nil {
-				if aerr, ok := err.(awserr.Error); ok {
-					switch aerr.Code() {
-					case "ValidationException":
-						if strings.Contains(aerr.Message(),
-							"The table does not have the specified index") {
-							return errors.E(`index missing: run "reflow migrate"`, err)
-						}
-					}
-				}
-				return err
-			}
-			responses[i] = append(responses[i], resp.Items...)
-			lastKey = resp.LastEvaluatedKey
-			if lastKey == nil {
-				break
-			}
-		}
-		return nil
-	})
+	items, err := t.getItems(ctx, queries, 0)
 	if err != nil {
 		return nil, err
 	}
-	var items []map[string]*dynamodb.AttributeValue
-	for i := range responses {
-		items = append(items, responses[i]...)
-	}
-	runs := make([]taskdb.Run, 0, len(items))
+	var (
+		runs = make([]taskdb.Run, 0, len(items))
+		errs []error
+	)
 	for _, it := range items {
-		id, err := reflow.Digester.Parse(*it[colID].S)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("parse id %v: %v", *it[colID].S, err))
+		var r taskdb.Run
+		if v := parseAttr(it, ID, parseDigestFunc, &errs); v != nil {
+			r.ID = taskdb.RunID(v.(digest.Digest))
 		}
-		if runQuery.ID.IsValid() && digest.Digest(runQuery.ID).IsAbbrev() {
-			if !id.Expands(digest.Digest(runQuery.ID)) {
+		if id, d := digest.Digest(r.ID), digest.Digest(runQuery.ID); !d.IsZero() && d.IsAbbrev() {
+			if !id.Expands(d) {
 				continue
 			}
 		}
-		l := make(pool.Labels)
+		r.Labels = make(pool.Labels)
 		for _, va := range it[colLabels].SS {
 			vals := strings.Split(*va, "=")
 			if len(vals) != 2 {
 				errs = append(errs, fmt.Errorf("label not well formed: %v", *va))
 				continue
 			}
-			l[vals[0]] = vals[1]
+			r.Labels[vals[0]] = vals[1]
 		}
-		keepalive, err := time.Parse(timeLayout, *it[colKeepalive].S)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("parse keepalive %v: %v", *it[colKeepalive].S, err))
+		errs = append(errs, setCommonFields(it, &r.CommonFields)...)
+
+		if v := parseAttr(it, ExecLog, parseDigestFunc, &errs); v != nil {
+			r.ExecLog = v.(digest.Digest)
 		}
-		st, err := time.Parse(timeLayout, *it[colStartTime].S)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("parse starttime %v: %v", *it[colStartTime].S, err))
+		if v := parseAttr(it, SysLog, parseDigestFunc, &errs); v != nil {
+			r.SysLog = v.(digest.Digest)
 		}
-		var et time.Time
-		if v, ok := it[colEndTime]; ok {
-			et, err = time.Parse(timeLayout, *v.S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse endtime %v: %v", *it[colEndTime].S, err))
-			}
+		if v := parseAttr(it, EvalGraph, parseDigestFunc, &errs); v != nil {
+			r.EvalGraph = v.(digest.Digest)
 		}
-		var execLog, sysLog, evalGraph, trace digest.Digest
-		if v, ok := it[colExecLog]; ok {
-			execLog, err = digest.Parse(*v.S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse execLog %v: %v", *v.S, err))
-			}
+		if v := parseAttr(it, Trace, parseDigestFunc, &errs); v != nil {
+			r.Trace = v.(digest.Digest)
 		}
-		if v, ok := it[colSysLog]; ok {
-			sysLog, err = digest.Parse(*v.S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse sysLog %v: %v", *v.S, err))
-			}
-		}
-		if v, ok := it[colEvalGraph]; ok {
-			evalGraph, err = digest.Parse(*v.S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse evalGraph %v: %v", *v.S, err))
-			}
-		}
-		if v, ok := it[colTrace]; ok {
-			trace, err = digest.Parse(*v.S)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("parse trace %v: %v", *v.S, err))
-			}
-		}
-		runs = append(runs, taskdb.Run{
-			ID:        taskdb.RunID(id),
-			Labels:    l,
-			User:      *it["User"].S,
-			Keepalive: keepalive,
-			Start:     st,
-			End:       et,
-			ExecLog:   execLog,
-			SysLog:    sysLog,
-			EvalGraph: evalGraph,
-			Trace:     trace,
-		})
+		r.User = parseAttr(it, User, nil, &errs).(string)
+		runs = append(runs, r)
 	}
-	if len(errs) == 0 {
-		return runs, nil
-	}
-	var b strings.Builder
-	for i, err := range errs {
-		b.WriteString(err.Error())
-		if i != len(errs)-1 {
-			b.WriteString(", ")
-		}
-	}
-	return nil, fmt.Errorf("%s", b.String())
+	return runs, getError(errs)
 }
 
 // Scan calls the handler function for every association in the mapping.
@@ -1201,4 +1014,102 @@ func (t *TaskDB) Scan(ctx context.Context, kind taskdb.Kind, mappingHandler task
 		}
 		return nil
 	}))
+}
+
+// getItems gets the items (QueryOutput.Items) for all the given queries.
+// getItems makes best-effort attempt to limit the results to limit (if it is > 0).
+func (t *TaskDB) getItems(ctx context.Context, queries []*dynamodb.QueryInput, limit int64) (items []map[string]*dynamodb.AttributeValue, err error) {
+	var responses = make([][]map[string]*dynamodb.AttributeValue, len(queries))
+	err = traverse.Each(len(queries), func(i int) error {
+		var (
+			query   = queries[i]
+			lastKey map[string]*dynamodb.AttributeValue
+			total   int64
+		)
+		for {
+			query.ExclusiveStartKey = lastKey
+			resp, qerr := t.DB.QueryWithContext(ctx, query)
+			if qerr != nil {
+				if aerr, ok := qerr.(awserr.Error); ok {
+					switch aerr.Code() {
+					case "ValidationException":
+						if strings.Contains(aerr.Message(),
+							"The table does not have the specified index") {
+							return errors.E(`index missing: run "reflow migrate"`, qerr)
+						}
+					}
+				}
+				return qerr
+			}
+			atomic.AddInt64(&total, int64(len(resp.Items)))
+			responses[i] = append(responses[i], resp.Items...)
+			lastKey = resp.LastEvaluatedKey
+			if lastKey == nil || (limit > 0 && atomic.LoadInt64(&total) >= limit) {
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return
+	}
+	for i := range responses {
+		items = append(items, responses[i]...)
+	}
+	return
+}
+
+// parseAttr gets the AttributeValue corresponding to the given taskdb.Kind from map 'it'
+// and parses the 'S' field of the AttributeValue using the given func 'f' (nil f acts as identity)
+func parseAttr(it map[string]*dynamodb.AttributeValue, k taskdb.Kind, f func(s string) (interface{}, error), errs *[]error) interface{} {
+	key, ok := colmap[k]
+	if !ok {
+		panic(fmt.Sprintf("invalid kind %v", k))
+	}
+	av, ok := it[key]
+	switch {
+	case !ok && f == nil:
+		return ""
+	case !ok:
+		return nil
+	case f == nil:
+		return *av.S
+	}
+	v, err := f(*av.S)
+	if err != nil {
+		*errs = append(*errs, fmt.Errorf("parse %s %v: %v", key, *av.S, err))
+	}
+	return v
+}
+
+var (
+	parseTimeFunc   = func(s string) (interface{}, error) { return time.Parse(timeLayout, s) }
+	parseDigestFunc = func(s string) (interface{}, error) { return digest.Parse(s) }
+)
+
+func setCommonFields(it map[string]*dynamodb.AttributeValue, dst *taskdb.CommonFields) (errs []error) {
+	if v := parseAttr(it, StartTime, parseTimeFunc, &errs); v != nil {
+		dst.Start = v.(time.Time)
+	}
+	if v := parseAttr(it, KeepAlive, parseTimeFunc, &errs); v != nil {
+		dst.Keepalive = v.(time.Time)
+	}
+	if v := parseAttr(it, EndTime, parseTimeFunc, &errs); v != nil {
+		dst.End = v.(time.Time)
+	}
+	return
+}
+
+func getError(errs []error) (err error) {
+	var b strings.Builder
+	for i, e := range errs {
+		b.WriteString(e.Error())
+		if i != len(errs)-1 {
+			b.WriteString(", ")
+		}
+	}
+	if b.Len() > 0 {
+		err = fmt.Errorf("%s", b.String())
+	}
+	return
 }
