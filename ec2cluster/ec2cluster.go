@@ -636,6 +636,9 @@ func (c *Cluster) CheapestInstancePriceUSD() float64 {
 	return c.InstancePriceUSD(c.instanceState.Cheapest().Type)
 }
 
+// GetName implements runner.Cluster
+func (c *Cluster) GetName() string { return c.Name }
+
 func (c *Cluster) printState(suffix string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

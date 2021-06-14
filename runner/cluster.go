@@ -28,6 +28,9 @@ type Cluster interface {
 	// Shutdown instructs the cluster to perform any shutting-down operations.
 	// Implementations are allowed to (but not required to) bring down all the allocs.
 	Shutdown() error
+
+	// GetName returns the name of the cluster
+	GetName() string
 }
 
 // TracingCluster is a cluster that traces the actions of an underlying

@@ -27,7 +27,8 @@ type client struct {
 	// Port is the port to serve Prometheus metrics.
 	Port int
 
-	reg        *prometheus.Registry
+	reg        prometheus.Registerer
+	gath       prometheus.Gatherer
 	gauges     map[string]*prometheus.GaugeVec
 	counters   map[string]*prometheus.CounterVec
 	histograms map[string]*prometheus.HistogramVec
@@ -45,14 +46,16 @@ func (r *client) Help() string {
 
 // Init implements infra.Provider.
 func (r *client) Init() error {
-	r.reg = prometheus.NewRegistry()
+	reg := prometheus.NewRegistry()
+	r.reg = reg
+	r.gath = reg
 	r.gauges = make(map[string]*prometheus.GaugeVec)
 	r.counters = make(map[string]*prometheus.CounterVec)
 	r.histograms = make(map[string]*prometheus.HistogramVec)
 	r.initCollectors()
 	go func() {
 		log.Printf("hosting prometheus at %d", r.Port)
-		handler := promhttp.HandlerFor(r.reg, promhttp.HandlerOpts{})
+		handler := promhttp.HandlerFor(r.gath, promhttp.HandlerOpts{})
 		log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", r.Port), handler))
 	}()
 	return nil
@@ -134,9 +137,10 @@ func (r *client) GetHistogram(name string, labels map[string]string) metrics.His
 }
 
 // NewClient returns a prometheus metrics Client that wraps the existing registry.
-func NewClient(reg *prometheus.Registry) metrics.Client {
+func NewClient(reg prometheus.Registerer, gath prometheus.Gatherer) metrics.Client {
 	r := &client{
 		reg:        reg,
+		gath:       gath,
 		Namespace:  "reflow",
 		gauges:     make(map[string]*prometheus.GaugeVec),
 		counters:   make(map[string]*prometheus.CounterVec),

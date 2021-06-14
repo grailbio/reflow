@@ -164,6 +164,9 @@ func (c *Cluster) Shutdown() error {
 	return nil
 }
 
+// GetName implements runner.Cluster
+func (c *Cluster) GetName() string { return "localcluster" }
+
 func dockerClient() (*docker.Client, reflow.Resources, error) {
 	addr := os.Getenv("DOCKER_HOST")
 	if addr == "" {
