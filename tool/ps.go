@@ -25,12 +25,54 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const (
-	runHeader                   = "runid\tuser\tstart\tend\tExecLog\tSysLog\tEvalGraph\tTrace"
-	taskHeader                  = "taskid\tflowid\tattempts\tident\tstart\tend\tduration\tstate\tmem\tcpu\tdisk\tprocs"
-	taskHeaderLongWithTaskDB    = "uri/resultid\tinspect"
-	taskHeaderLongWithoutTaskDB = "uri"
+type headerDesc struct {
+	name, description string
+}
+
+var (
+	runCols = []headerDesc{
+		{"runid", "the run id"},
+		{"user", "user who initiated the run"},
+		{"start", "start time of the run"},
+		{"end", "(if completed) end time of the run"},
+		{"ExecLog", "(if completed) ID of the run's exec logs"},
+		{"SysLog", "(if completed) ID of the run's sys logs"},
+		{"EvalGraph", "(if completed) ID of the run's evaluation graph (in dot format)"},
+		{"Trace", "(if completed) ID of the run's trace'"},
+	}
+	taskCols = []headerDesc{
+		{"taskid", "ID of the task"},
+		{"flowid", "ID of the flow (corresponds to the node in the evaluation graph)"},
+		{"attempt", "the attempt number (of the flow) that this task represents"},
+		{"ident", "the exec identifier"},
+		{"start", "the exec's start time"},
+		{"end", "(if completed) the exec's end time"},
+		{"duration", "the exec's run duration"},
+		{"state", "the exec's (current) state"},
+		{"mem", "the amount of memory used by the exec"},
+		{"cpu", "the number of CPU cores used by the exec"},
+		{"disk", "the total amount of disk space used by the exec"},
+		{"procs", "the set of processes running in the exec"},
+	}
+	taskColsUri     = headerDesc{"uri/resultid", "(long listing only) URI of a running task or (if taskdb exists) ID of the result of a completed task"}
+	taskColsInspect = headerDesc{"inspect", "(long listing and if taskdb exists) ID of the inspect of a completed task"}
 )
+
+func header(hd []headerDesc) string {
+	cols := make([]string, len(hd))
+	for i, s := range hd {
+		cols[i] = s.name
+	}
+	return strings.Join(cols, "\t")
+}
+
+func description(hd []headerDesc) string {
+	cols := make([]string, len(hd))
+	for i, s := range hd {
+		cols[i] = fmt.Sprintf("\t%-15s\t%s", s.name, s.description)
+	}
+	return strings.Join(cols, "\n")
+}
 
 type taskInfo struct {
 	taskdb.Task
@@ -53,29 +95,20 @@ func (c *Cmd) ps(ctx context.Context, args ...string) {
 	flags := flag.NewFlagSet("ps", flag.ExitOnError)
 	allFlag := flags.Bool("i", false, "list inactive/dead execs")
 	longFlag := flags.Bool("l", false, "show long listing")
-	userFlag := flags.String("u", "", "user")
+	userFlag := flags.String("u", "", "user (full username, eg: <username>@grailbio.com)")
 	sinceFlag := flags.String("since", "", "runs that were active since")
 	allUsersFlag := flags.Bool("a", false, "show runs of all users")
 	help := `Ps lists runs and tasks.
 
-The rows displayed by ps are runs or tasks. Tasks associated with a run
-are listed below the run.
-The columns associated with a run:
-	runid     the run id
-	user      user who initiated the run
+The rows displayed by ps are runs and tasks.
+Tasks associated with a run are listed below the run.
 
-task:
-	taskid        the id associated with the task
-	ident         the exec identifier
-	time          the exec's start time
-	duration      the exec's run duration
-	state         the exec's state
-	mem           the amount of memory used by the exec
-	cpu           the number of CPU cores used by the exec
-	disk          the total amount of disk space used by the exec
-	procs         the set of processes running in the exec
-	uri/resultid  the uri of a running task or the result id of a completed task (long listing only)
-	inspect       the inspect of a completed task (long listing only)
+The columns associated with a run are as follows:
+(content of IDs can be retrieved using "reflow cat")
+` + description(runCols) + `
+
+The columns associated with a task are as follows:
+` + description(append(taskCols, taskColsUri, taskColsInspect)) + `
 
 Ps lists only running execs for the current user by default.
 It supports the following filters:
@@ -151,9 +184,9 @@ printed on the console.`
 		var tw tabwriter.Writer
 		tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 		defer tw.Flush()
-		fmt.Fprint(&tw, taskHeader)
+		fmt.Fprint(&tw, header(taskCols))
 		if *longFlag {
-			fmt.Fprint(&tw, "\t", taskHeaderLongWithoutTaskDB)
+			fmt.Fprint(&tw, "\t", header([]headerDesc{taskColsUri}))
 		}
 		fmt.Fprint(&tw, "\n")
 		for _, info := range infos {
@@ -407,11 +440,11 @@ func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing bool) {
 		if d := run.Run.Trace; !d.IsZero() {
 			trace = d.Short()
 		}
-		fmt.Fprint(w, runHeader, "\n")
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", run.Run.ID.IDShort(), run.Run.User, st, et, exec, sys, graph, trace)
-		fmt.Fprint(w, "\t", taskHeader)
+		fmt.Fprint(w, header(runCols), "\n")
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n\n", run.Run.ID.IDShort(), run.Run.User, st, et, exec, sys, graph, trace)
+		fmt.Fprint(w, "\t", header(taskCols))
 		if longListing {
-			fmt.Fprint(w, "\t", taskHeaderLongWithTaskDB)
+			fmt.Fprint(w, "\t", header([]headerDesc{taskColsUri, taskColsInspect}))
 		}
 		fmt.Fprint(w, "\n")
 		for _, task := range run.taskInfo {
