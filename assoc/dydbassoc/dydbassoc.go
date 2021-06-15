@@ -215,7 +215,7 @@ func (a *Assoc) Version() int {
 func (a *Assoc) Store(ctx context.Context, kind assoc.Kind, k, v digest.Digest) error {
 	reqStartTime := time.Now()
 	defer func() {
-		metrics.GetAssocOpDurationSecondsHistogram(ctx, "store").Observe(time.Now().Sub(reqStartTime).Seconds())
+		metrics.GetDydbassocOpLatencySecondsHistogram(ctx, "store").Observe(time.Now().Sub(reqStartTime).Seconds())
 	}()
 
 	switch kind {
@@ -262,7 +262,7 @@ func (a *Assoc) Store(ctx context.Context, kind assoc.Kind, k, v digest.Digest) 
 func (a *Assoc) Delete(ctx context.Context, k digest.Digest) error {
 	reqStartTime := time.Now()
 	defer func() {
-		metrics.GetAssocOpDurationSecondsHistogram(ctx, "delete").Observe(time.Now().Sub(reqStartTime).Seconds())
+		metrics.GetDydbassocOpLatencySecondsHistogram(ctx, "delete").Observe(time.Now().Sub(reqStartTime).Seconds())
 	}()
 
 	input := &dynamodb.DeleteItemInput{
@@ -359,7 +359,7 @@ func (a *Assoc) getUpdateComponents(kind assoc.Kind, k, v digest.Digest) (expr s
 func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (digest.Digest, digest.Digest, error) {
 	reqStartTime := time.Now()
 	defer func() {
-		metrics.GetAssocOpDurationSecondsHistogram(ctx, "get").Observe(time.Now().Sub(reqStartTime).Seconds())
+		metrics.GetDydbassocOpLatencySecondsHistogram(ctx, "get").Observe(time.Now().Sub(reqStartTime).Seconds())
 	}()
 
 	var v digest.Digest
@@ -479,7 +479,7 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 func (a *Assoc) BatchGet(ctx context.Context, batch assoc.Batch) error {
 	reqStartTime := time.Now()
 	defer func() {
-		metrics.GetAssocOpDurationSecondsHistogram(ctx, "batchget").Observe(time.Now().Sub(reqStartTime).Seconds())
+		metrics.GetDydbassocOpLatencySecondsHistogram(ctx, "batchget").Observe(time.Now().Sub(reqStartTime).Seconds())
 	}()
 
 	unique := make(map[digest.Digest]map[assoc.Kind]bool)
@@ -693,7 +693,7 @@ func (c *counter) Get() int64 {
 func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, dead liveset.Liveset, threshold time.Time, rate int64, dryRun bool) error {
 	reqStartTime := time.Now()
 	defer func() {
-		metrics.GetAssocOpDurationSecondsHistogram(ctx, "collectwiththreshold").Observe(time.Now().Sub(reqStartTime).Seconds())
+		metrics.GetDydbassocOpLatencySecondsHistogram(ctx, "collectwiththreshold").Observe(time.Now().Sub(reqStartTime).Seconds())
 	}()
 
 	log.Debug("Collecting association")
@@ -777,7 +777,7 @@ func (a *Assoc) CollectWithThreshold(ctx context.Context, live liveset.Liveset, 
 func (a *Assoc) Count(ctx context.Context) (int64, error) {
 	reqStartTime := time.Now()
 	defer func() {
-		metrics.GetAssocOpDurationSecondsHistogram(ctx, "count").Observe(time.Now().Sub(reqStartTime).Seconds())
+		metrics.GetDydbassocOpLatencySecondsHistogram(ctx, "count").Observe(time.Now().Sub(reqStartTime).Seconds())
 	}()
 
 	if err := a.Limiter.Acquire(ctx, 1); err != nil {
@@ -799,7 +799,7 @@ func (a *Assoc) Count(ctx context.Context) (int64, error) {
 func (a *Assoc) Scan(ctx context.Context, kind assoc.Kind, mappingHandler assoc.MappingHandler) error {
 	reqStartTime := time.Now()
 	defer func() {
-		metrics.GetAssocOpDurationSecondsHistogram(ctx, "scan").Observe(time.Now().Sub(reqStartTime).Seconds())
+		metrics.GetDydbassocOpLatencySecondsHistogram(ctx, "scan").Observe(time.Now().Sub(reqStartTime).Seconds())
 	}()
 
 	scanner := newScanner(a)

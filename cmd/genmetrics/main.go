@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -181,26 +182,40 @@ func main() {
 	}
 
 	counters := make(map[string]metricConf)
+	cOrdered := make([]string, 0)
+
 	gauges := make(map[string]metricConf)
+	gOrdered := make([]string, 0)
+
 	histograms := make(map[string]metricConf)
+	hOrdered := make([]string, 0)
+
 	for name, def := range conf {
 		def.validate(name)
 		switch def.Type {
 		case "counter":
 			counters[name] = def
+			cOrdered = append(cOrdered, name)
 		case "gauge":
 			gauges[name] = def
+			gOrdered = append(gOrdered, name)
 		case "histogram":
 			histograms[name] = def
+			hOrdered = append(hOrdered, name)
 		}
 	}
+
+	sort.Strings(cOrdered)
+	sort.Strings(gOrdered)
+	sort.Strings(hOrdered)
 
 	gen := &generator{}
 	gen.Printf("// Copyright 2021 GRAIL, Inc. All rights reserved.\n")
 	gen.Printf("// Use of this source code is governed by the Apache 2.0\n")
 	gen.Printf("// license that can be found in the LICENSE file.\n")
 	gen.Printf("\n")
-	gen.Printf("// THIS FILE WAS AUTOMATICALLY GENERATED. DO NOT EDIT.\n")
+	// (@g...) hides generated code in Differential.
+	gen.Printf("// THIS FILE WAS AUTOMATICALLY GENERATED (@" + "generated). DO NOT EDIT.\n")
 	gen.Printf("\n")
 	gen.Printf("package %s\n", filepath.Base(dstpackage))
 	gen.Printf("\n")
@@ -213,21 +228,24 @@ func main() {
 
 	// counters
 	gen.Printf("	Counters = map[string]counterOpts{\n")
-	for name, c := range counters {
+	for _, name := range cOrdered {
+		c := counters[name]
 		c.printVarDefToGen(name, gen)
 	}
 	gen.Printf("	}\n")
 
 	// gauges
 	gen.Printf("	Gauges = map[string]gaugeOpts{\n")
-	for name, g := range gauges {
+	for _, name := range gOrdered {
+		g := gauges[name]
 		g.printVarDefToGen(name, gen)
 	}
 	gen.Printf("	}\n")
 
 	// histograms
 	gen.Printf("	Histograms = map[string]histogramOpts{\n")
-	for name, h := range histograms {
+	for _, name := range hOrdered {
+		h := histograms[name]
 		h.printVarDefToGen(name, gen)
 	}
 	gen.Printf("	}\n")
@@ -236,15 +254,18 @@ func main() {
 
 	// define getters to access specific metrics from client embedded in context.
 	// counters
-	for name, c := range counters {
+	for _, name := range cOrdered {
+		c := counters[name]
 		c.printGetterToGen(name, gen)
 	}
 	// gauges
-	for name, g := range gauges {
+	for _, name := range gOrdered {
+		g := gauges[name]
 		g.printGetterToGen(name, gen)
 	}
 	// histograms
-	for name, h := range histograms {
+	for _, name := range hOrdered {
+		h := histograms[name]
 		h.printGetterToGen(name, gen)
 	}
 

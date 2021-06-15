@@ -1,11 +1,41 @@
+# scheduler
+## tasks
+tasks_submitted_count:
+  type: "counter"
+  help: "Count of submitted tasks."
 tasks_started_count:
   type: "counter"
   help: "Count of started tasks."
-tasks_finished_count:
+tasks_completed_count:
   type: "counter"
-  help: "Count of finished tasks."
-assoc_op_duration_seconds:
+  help: "Count of completed tasks."
+tasks_submitted_size:
+  type: "counter"
+  help: "Size of submitted tasks."
+tasks_started_size:
+  type: "counter"
+  help: "Size of started tasks."
+tasks_completed_size:
+  type: "counter"
+  help: "Size of completed tasks."
+
+## allocs
+allocs_started_count:
+  type: "counter"
+  help: "Count of started allocs."
+allocs_completed_count:
+  type: "counter"
+  help: "Count of completed allocs."
+allocs_started_size:
+  type: "counter"
+  help: "Size of started allocs."
+allocs_completed_size:
+  type: "counter"
+  help: "Size of completed allocs."
+
+# assoc
+dydbassoc_op_latency_seconds:
   type: "histogram"
-  help: "Duration of queries against dydbassoc."
+  help: "Dydbassoc operation latency in seconds."
   buckets: [0.001, 0.01, 0.1, 1, 10]
   labels: ["operation"]

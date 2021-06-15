@@ -250,6 +250,8 @@ func (s *Scheduler) Do(ctx context.Context) error {
 					task.Set(TaskDone)
 					continue
 				}
+				metrics.GetTasksSubmittedCountCounter(ctx).Inc()
+				metrics.GetTasksSubmittedSizeCounter(ctx).Add(task.Config.ScaledDistance(nil))
 				heap.Push(&todo, task)
 			}
 		case task := <-returnc:
@@ -410,6 +412,8 @@ func (s *Scheduler) allocate(ctx context.Context, alloc *alloc, notify, dead cha
 	trace.Note(allocReqCtx, "allocID", alloc.Alloc.ID())
 	endAllocReqTrace()
 
+	metrics.GetAllocsStartedCountCounter(ctx).Inc()
+	metrics.GetAllocsStartedSizeCounter(ctx).Add(alloc.Resources().ScaledDistance(nil))
 	alloc.Context, alloc.Cancel = context.WithCancel(ctx)
 	var endAllocLifespanTrace func()
 	alloc.Context, endAllocLifespanTrace = trace.Start(alloc.Context, trace.AllocLifespan, reflow.Digester.FromString(alloc.Alloc.ID()), "alloc: "+alloc.Alloc.ID())
@@ -417,6 +421,8 @@ func (s *Scheduler) allocate(ctx context.Context, alloc *alloc, notify, dead cha
 	err = pool.Keepalive(alloc.Context, s.Log, alloc.Alloc)
 	alloc.Cancel()
 	endAllocLifespanTrace()
+	metrics.GetAllocsCompletedCountCounter(ctx).Inc()
+	metrics.GetAllocsCompletedSizeCounter(ctx).Add(alloc.Resources().ScaledDistance(nil))
 
 	switch {
 	case err == nil:
@@ -454,8 +460,12 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		loadedData     sync.Map
 		resultUnloaded bool
 	)
+
 	metrics.GetTasksStartedCountCounter(ctx).Inc()
-	defer metrics.GetTasksFinishedCountCounter(ctx).Inc()
+	metrics.GetTasksStartedSizeCounter(ctx).Add(task.Config.ScaledDistance(nil))
+	defer metrics.GetTasksCompletedCountCounter(ctx).Inc()
+	defer metrics.GetTasksCompletedSizeCounter(ctx).Add(task.Config.ScaledDistance(nil))
+
 	defer func() {
 		if tcancel == nil {
 			return
