@@ -706,23 +706,6 @@ func (t *TaskDB) KeepIDAlive(ctx context.Context, id digest.Digest, keepalive ti
 	return err
 }
 
-// query is the generic query struct for the TaskDB querying interface. All fields, with
-// the exception of Typ, are optional. If a user filter is
-// specified, all queries are restricted to runs/tasks created by the user.
-// If id is specified, runs/tasks with id is looked up. If Since is specified,
-// runs/tasks whose keepalive is within that time frame are looked up. The only valid Typs are
-// "run" and "task".
-type query struct {
-	// ID is the task/run id being queried.
-	ID digest.Digest
-	// Since queries for runs/tasks that were active past this time.
-	Since time.Time
-	// User looks up the runs/tasks that are created by the user. If empty, the user filter is dropped.
-	User string
-	// Typ is the type (either run or task).
-	Typ objType
-}
-
 // buildIndexQuery returns a dynamodb QueryInput for the specified key on the specified index.
 func (t *TaskDB) buildIndexQuery(kind taskdb.Kind, indexName, partKey string, typ objType) []*dynamodb.QueryInput {
 	colname, colnameOk := colmap[kind]
@@ -747,8 +730,20 @@ func (t *TaskDB) buildIndexQuery(kind taskdb.Kind, indexName, partKey string, ty
 	return []*dynamodb.QueryInput{input}
 }
 
-// buildSinceUserQueries builds Since and User-based queries. All query fields are optional.
-func (t *TaskDB) buildSinceUserQueries(q query) []*dynamodb.QueryInput {
+// buildSinceQueries builds queries that return taskdb rows with Type set to `typ`,
+// and whose keepalive column value is from `since` and now.
+// If filters is specified, the queries will return only taskdb rows with column values matching
+// the column kind to value specified in the map
+func (t *TaskDB) buildSinceQueries(typ objType, since time.Time, filters map[taskdb.Kind]string) []*dynamodb.QueryInput {
+	if since.IsZero() {
+		panic("taskdb invalid query: missing since")
+	}
+	switch typ {
+	case runObj, taskObj, poolObj, allocObj:
+	default:
+		panic(fmt.Sprintf("taskdb invalid query: unrecognized row type %s", typ))
+	}
+	since = since.UTC()
 	// Build time bucket based queries.
 	type part struct {
 		keyExpression string
@@ -756,39 +751,37 @@ func (t *TaskDB) buildSinceUserQueries(q query) []*dynamodb.QueryInput {
 		attrNames     map[string]*string
 	}
 	var (
-		keyExpression    string
-		timeBuckets      []part
-		attributeValues  = make(map[string]*dynamodb.AttributeValue)
-		attributeNames   = make(map[string]*string)
-		filterExpression []string
-		now              = time.Now().UTC()
+		keyExpression   string
+		timeBuckets     []part
+		filterExprs     = []string{"#Type = :type"}
+		attributeValues = map[string]*dynamodb.AttributeValue{":type": {S: aws.String(string(typ))}}
+		attributeNames  = map[string]*string{"#Type": aws.String(colType)}
+		now             = time.Now().UTC()
 	)
-	if q.Since.IsZero() {
-		panic("taskdb invalid query: missing since")
-	}
-	since := q.Since.UTC()
 	for _, d := range dates(since, now) {
 		part := part{
 			keyExpression: "#Date = :date and " + colKeepalive + " > :ka ",
 			attrValues: map[string]*dynamodb.AttributeValue{
-				":date": &dynamodb.AttributeValue{S: aws.String(d.Format(dateLayout))},
-				":ka":   &dynamodb.AttributeValue{S: aws.String(since.Format(timeLayout))},
+				":date": {S: aws.String(d.Format(dateLayout))},
+				":ka":   {S: aws.String(since.Format(timeLayout))},
 			},
-			attrNames: map[string]*string{
-				"#Date": aws.String(colDate),
-			},
+			attrNames: map[string]*string{"#Date": aws.String(colDate)},
 		}
 		timeBuckets = append(timeBuckets, part)
 	}
 
-	filterExpression = append(filterExpression, "#Type = :type")
-	attributeValues[":type"] = &dynamodb.AttributeValue{S: aws.String(string(q.Typ))}
-	attributeNames["#Type"] = aws.String(colType)
-
-	if q.User != "" && q.Typ == runObj {
-		filterExpression = append(filterExpression, "#User = :user")
-		attributeValues[":user"] = &dynamodb.AttributeValue{S: aws.String(q.User)}
-		attributeNames["#User"] = aws.String(colUser)
+	for k, v := range filters {
+		key, ok := colmap[k]
+		if !ok {
+			panic(fmt.Sprintf("invalid kind %v", k))
+		}
+		if v == "" {
+			panic(fmt.Sprintf("empty value for kind %v", k))
+		}
+		derefK, subK := "#"+key, ":"+strings.ToLower(key)
+		filterExprs = append(filterExprs, fmt.Sprintf("%s = %s", derefK, subK))
+		attributeValues[subK] = &dynamodb.AttributeValue{S: aws.String(v)}
+		attributeNames[derefK] = aws.String(key)
 	}
 
 	if len(timeBuckets) > 0 {
@@ -809,8 +802,8 @@ func (t *TaskDB) buildSinceUserQueries(q query) []*dynamodb.QueryInput {
 			if len(ti.attrNames) > 0 {
 				query.ExpressionAttributeNames = ti.attrNames
 			}
-			if len(filterExpression) > 0 {
-				query.FilterExpression = aws.String(strings.Join(filterExpression, " and "))
+			if len(filterExprs) > 0 {
+				query.FilterExpression = aws.String(strings.Join(filterExprs, " and "))
 			}
 			queries = append(queries, query)
 		}
@@ -826,8 +819,8 @@ func (t *TaskDB) buildSinceUserQueries(q query) []*dynamodb.QueryInput {
 	if len(attributeNames) > 0 {
 		input.ExpressionAttributeNames = attributeNames
 	}
-	if len(filterExpression) > 0 {
-		input.FilterExpression = aws.String(strings.Join(filterExpression, " and "))
+	if len(filterExprs) > 0 {
+		input.FilterExpression = aws.String(strings.Join(filterExprs, " and "))
 	}
 	return []*dynamodb.QueryInput{input}
 }
@@ -847,11 +840,7 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 	case taskQuery.Ident != "":
 		queries = t.buildIndexQuery(Ident, identIndex, taskQuery.Ident, taskObj)
 	default:
-		q := query{
-			Since: taskQuery.Since,
-			Typ:   taskObj,
-		}
-		queries = t.buildSinceUserQueries(q)
+		queries = t.buildSinceQueries(taskObj, taskQuery.Since, nil)
 	}
 	items, err := t.getItems(ctx, queries, taskQuery.Limit)
 	if err != nil {
@@ -918,14 +907,10 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 		queries = t.buildIndexQuery(ID4, id4Index, runQuery.ID.IDShort(), runObj)
 	case runQuery.ID.IsValid():
 		queries = t.buildIndexQuery(ID, idIndex, runQuery.ID.ID(), runObj)
+	case runQuery.User != "":
+		queries = t.buildSinceQueries(runObj, runQuery.Since, map[taskdb.Kind]string{User: runQuery.User})
 	default:
-		q := query{
-			ID:    digest.Digest(runQuery.ID),
-			Since: runQuery.Since,
-			User:  runQuery.User,
-			Typ:   runObj,
-		}
-		queries = t.buildSinceUserQueries(q)
+		queries = t.buildSinceQueries(runObj, runQuery.Since, nil)
 	}
 	items, err := t.getItems(ctx, queries, 0)
 	if err != nil {
