@@ -826,23 +826,29 @@ func (t *TaskDB) buildSinceQueries(typ objType, since time.Time, filters map[tas
 }
 
 // Tasks returns tasks that matches the query.
-func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskdb.Task, error) {
-	var queries []*dynamodb.QueryInput
+func (t *TaskDB) Tasks(ctx context.Context, q taskdb.TaskQuery) ([]taskdb.Task, error) {
+	var (
+		queries   []*dynamodb.QueryInput
+		withAlloc bool
+	)
 	switch {
-	case taskQuery.ID.IsValid() && digest.Digest(taskQuery.ID).IsAbbrev():
-		queries = t.buildIndexQuery(ID4, id4Index, taskQuery.ID.IDShort(), taskObj)
-	case taskQuery.ID.IsValid():
-		queries = t.buildIndexQuery(ID, idIndex, taskQuery.ID.ID(), taskObj)
-	case taskQuery.RunID.IsValid():
-		queries = t.buildIndexQuery(RunID, runIDIndex, taskQuery.RunID.ID(), taskObj)
-	case taskQuery.ImgCmdID.IsValid():
-		queries = t.buildIndexQuery(ImgCmdID, imgCmdIDIndex, taskQuery.ImgCmdID.ID(), taskObj)
-	case taskQuery.Ident != "":
-		queries = t.buildIndexQuery(Ident, identIndex, taskQuery.Ident, taskObj)
+	case q.ID.IsValid() && digest.Digest(q.ID).IsAbbrev():
+		withAlloc = q.WithAlloc
+		queries = t.buildIndexQuery(ID4, id4Index, q.ID.IDShort(), taskObj)
+	case q.ID.IsValid():
+		withAlloc = q.WithAlloc
+		queries = t.buildIndexQuery(ID, idIndex, q.ID.ID(), taskObj)
+	case q.RunID.IsValid():
+		withAlloc = q.WithAlloc
+		queries = t.buildIndexQuery(RunID, runIDIndex, q.RunID.ID(), taskObj)
+	case q.ImgCmdID.IsValid():
+		queries = t.buildIndexQuery(ImgCmdID, imgCmdIDIndex, q.ImgCmdID.ID(), taskObj)
+	case q.Ident != "":
+		queries = t.buildIndexQuery(Ident, identIndex, q.Ident, taskObj)
 	default:
-		queries = t.buildSinceQueries(taskObj, taskQuery.Since, nil)
+		queries = t.buildSinceQueries(taskObj, q.Since, nil)
 	}
-	items, err := t.getItems(ctx, queries, taskQuery.Limit)
+	items, err := t.getItems(ctx, queries, q.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -855,7 +861,7 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 		if v := parseAttr(it, ID, parseDigestFunc, &errs); v != nil {
 			t.ID = taskdb.TaskID(v.(digest.Digest))
 		}
-		if id, d := digest.Digest(t.ID), digest.Digest(taskQuery.ID); !d.IsZero() && d.IsAbbrev() {
+		if id, d := digest.Digest(t.ID), digest.Digest(q.ID); !d.IsZero() && d.IsAbbrev() {
 			if !id.Expands(d) {
 				continue
 			}
@@ -886,6 +892,9 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 		if v := parseAttr(it, ImgCmdID, parseDigestFunc, &errs); v != nil {
 			t.ImgCmdID = taskdb.ImgCmdID(v.(digest.Digest))
 		}
+		if v := parseAttr(it, Resources, parseResourcesFunc, &errs); v != nil {
+			t.Resources = v.(reflow.Resources)
+		}
 		t.Ident = parseAttr(it, Ident, nil, &errs).(string)
 		t.URI = parseAttr(it, URI, nil, &errs).(string)
 		if v, ok := it[colAttempt]; ok {
@@ -896,7 +905,40 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 		}
 		tasks = append(tasks, t)
 	}
-	return tasks, getError(errs)
+
+	if withAlloc {
+		allocsById := make(map[digest.Digest]*taskdb.Alloc)
+		var aids []digest.Digest
+		for _, t := range tasks {
+			if _, ok := allocsById[t.AllocID]; !ok {
+				aids = append(aids, t.AllocID)
+			}
+			allocsById[t.AllocID] = nil
+		}
+		if len(aids) > 0 {
+			allocs, aerr := t.Allocs(ctx, taskdb.AllocQuery{IDs: aids})
+			if aerr != nil {
+				log.Errorf("taskdb.Allocs for tasks: %v", aerr)
+			} else {
+				for _, a := range allocs {
+					allocsById[a.ID] = &a
+				}
+				b := tasks[:0]
+				for _, t := range tasks {
+					if aid := t.AllocID; !aid.IsZero() {
+						t.Alloc = allocsById[aid]
+					}
+					b = append(b, t)
+				}
+				tasks = b
+			}
+		}
+	}
+	if err = getError(errs); err != nil && len(tasks) > 0 {
+		log.Errorf("taskdb.Tasks: %v", err)
+		err = nil
+	}
+	return tasks, err
 }
 
 // Runs returns runs that matches the query.
@@ -956,14 +998,92 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 		r.User = parseAttr(it, User, nil, &errs).(string)
 		runs = append(runs, r)
 	}
-	return runs, getError(errs)
+	if err = getError(errs); err != nil && len(runs) > 0 {
+		log.Errorf("taskdb.Runs: %v", err)
+		err = nil
+	}
+	return runs, err
 }
 
-func (t *TaskDB) Pools(ctx context.Context, poolQuery taskdb.PoolQuery) ([]taskdb.PoolRow, error) {
+// Allocs returns allocs (with their pools) that matches the query.
+func (t *TaskDB) Allocs(ctx context.Context, q taskdb.AllocQuery) ([]taskdb.Alloc, error) {
 	var queries []*dynamodb.QueryInput
 	switch {
-	case len(poolQuery.IDs) > 0:
-		for _, id := range poolQuery.IDs {
+	case len(q.IDs) == 0:
+		return nil, fmt.Errorf("invalid AllocQuery (missing IDs): %v", q)
+	default:
+		for _, id := range q.IDs {
+			switch {
+			case id.IsZero(): // Skip
+			case id.IsAbbrev():
+				queries = append(queries, t.buildIndexQuery(ID4, id4Index, id.Short(), allocObj)...)
+			default:
+				queries = append(queries, t.buildIndexQuery(ID, idIndex, id.String(), allocObj)...)
+			}
+		}
+	}
+	items, err := t.getItems(ctx, queries, 0)
+	if err != nil {
+		return nil, err
+	}
+	var (
+		allocs = make([]taskdb.Alloc, 0, len(items))
+		errs   []error
+	)
+	for _, it := range items {
+		var a taskdb.Alloc
+		if v := parseAttr(it, ID, parseDigestFunc, &errs); v != nil {
+			a.ID = v.(digest.Digest)
+		}
+		errs = append(errs, setTimeFields(it, &a.TimeFields)...)
+		if v := parseAttr(it, Resources, parseResourcesFunc, &errs); v != nil {
+			a.Resources = v.(reflow.Resources)
+		}
+		a.URI = parseAttr(it, URI, nil, &errs).(string)
+		if v := parseAttr(it, PoolID, parseDigestFunc, &errs); v != nil {
+			a.PoolID = v.(digest.Digest)
+		}
+		allocs = append(allocs, a)
+	}
+	pools := make(map[digest.Digest]*taskdb.PoolRow)
+	var pids []digest.Digest
+	for _, a := range allocs {
+		if _, ok := pools[a.PoolID]; !ok {
+			pids = append(pids, a.PoolID)
+		}
+		pools[a.PoolID] = nil
+	}
+	if len(pids) > 0 {
+		prs, perr := t.Pools(ctx, taskdb.PoolQuery{IDs: pids})
+		if perr != nil {
+			log.Errorf("taskdb.Pools for allocs: %v", perr)
+		} else {
+			for _, pr := range prs {
+				pools[pr.ID] = &pr
+			}
+			b := allocs[:0]
+			for _, a := range allocs {
+				if pid := a.PoolID; !pid.IsZero() {
+					a.Pool = pools[pid]
+				}
+				b = append(b, a)
+			}
+			allocs = b
+		}
+	}
+	if err = getError(errs); err != nil && len(allocs) > 0 {
+		log.Errorf("taskdb.Allocs: %v", err)
+		err = nil
+	}
+	return allocs, err
+}
+
+// Pools returns pools that matches the query.
+func (t *TaskDB) Pools(ctx context.Context, q taskdb.PoolQuery) ([]taskdb.PoolRow, error) {
+	var queries []*dynamodb.QueryInput
+	switch {
+	case len(q.IDs) > 0:
+		for _, id := range q.IDs {
 			switch {
 			case id.IsZero(): // Skip
 			case id.IsAbbrev():
@@ -972,20 +1092,20 @@ func (t *TaskDB) Pools(ctx context.Context, poolQuery taskdb.PoolQuery) ([]taskd
 				queries = append(queries, t.buildIndexQuery(ID, idIndex, id.String(), poolObj)...)
 			}
 		}
-	case poolQuery.Since.IsZero():
-		return nil, fmt.Errorf("invalid PoolQuery (missing either IDs OR Since): %v", poolQuery)
+	case q.Since.IsZero():
+		return nil, fmt.Errorf("invalid PoolQuery (missing either IDs OR Since): %v", q)
 	default:
 		filters := make(map[taskdb.Kind]string)
-		if v := poolQuery.Cluster.ClusterName; v != "" {
+		if v := q.Cluster.ClusterName; v != "" {
 			filters[ClusterName] = v
 		}
-		if v := poolQuery.Cluster.User; v != "" {
+		if v := q.Cluster.User; v != "" {
 			filters[User] = v
 		}
-		if v := poolQuery.Cluster.ReflowVersion; v != "" {
+		if v := q.Cluster.ReflowVersion; v != "" {
 			filters[ReflowVersion] = v
 		}
-		queries = t.buildSinceQueries(poolObj, poolQuery.Since, filters)
+		queries = t.buildSinceQueries(poolObj, q.Since, filters)
 	}
 	items, err := t.getItems(ctx, queries, 0)
 	if err != nil {
@@ -1007,8 +1127,10 @@ func (t *TaskDB) Pools(ctx context.Context, poolQuery taskdb.PoolQuery) ([]taskd
 		if pid := parseAttr(it, PoolID, nil, &errs).(string); pid != "" {
 			pr.PoolID = reflow.NewStringDigest(pid)
 		}
+		if v := parseAttr(it, Resources, parseResourcesFunc, &errs); v != nil {
+			pr.Resources = v.(reflow.Resources)
+		}
 		pr.PoolType = parseAttr(it, PoolType, nil, &errs).(string)
-		pr.Resources = parseAttr(it, Resources, parseResourcesFunc, &errs).(reflow.Resources)
 		pr.URI = parseAttr(it, URI, nil, &errs).(string)
 		pools = append(pools, pr)
 	}
@@ -1131,6 +1253,9 @@ var (
 	parseTimeFunc      = func(s string) (interface{}, error) { return time.Parse(timeLayout, s) }
 	parseDigestFunc    = func(s string) (interface{}, error) { return digest.Parse(s) }
 	parseResourcesFunc = func(s string) (interface{}, error) {
+		if len(s) == 0 {
+			return nil, nil
+		}
 		var r reflow.Resources
 		err := json.Unmarshal([]byte(s), &r)
 		return r, err

@@ -15,6 +15,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
@@ -26,7 +27,17 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const allFlagValue = "_all_"
+const (
+	allFlagValue = "_all_"
+	costHelp     = `
+Cost: The cost displayed is an exact cost if it does not have an "<" sign.
+If it does have an "<" sign, then the cost is an upper-bound.
+The cost can be an upper-bound if the exact cost incurred for the underlying instance
+is not available and the computation was based on the on-demand price (of the relevant instance type),
+which is the maximum bid reflow uses in the spot market.
+If only the upper-bound cost is displayed, the actual cost incurred can be smaller.
+`
+)
 
 type headerDesc struct {
 	name, description string
@@ -38,6 +49,7 @@ var (
 		{"user", "user who initiated the run"},
 		{"start", "start time of the run"},
 		{"end", "(if completed) end time of the run"},
+		{"cost", "cost of the run"},
 		{"ExecLog", "(if completed) ID of the run's exec logs"},
 		{"SysLog", "(if completed) ID of the run's sys logs"},
 		{"EvalGraph", "(if completed) ID of the run's evaluation graph (in dot format)"},
@@ -48,6 +60,7 @@ var (
 		{"flowid", "ID of the flow (corresponds to the node in the evaluation graph)"},
 		{"attempt", "the attempt number (of the flow) that this task represents"},
 		{"ident", "the exec identifier"},
+		{"cost", "cost of the task"},
 		{"start", "the task's start time"},
 		{"end", "(if completed) the task's end time"},
 		{"taskDur", "the task's run duration"},
@@ -74,6 +87,14 @@ var (
 		{"resources", "(long listing only) the pool's resources"},
 		{"dns", "(long listing only) the pool's EC2 instance's public DNS"},
 	}
+	runTaskHelp = `
+The columns associated with a run are as follows:
+(content of IDs can be retrieved using "reflow cat")
+` + description(runCols) + `
+
+The columns associated with a task are as follows:
+` + description(append(taskCols, taskColsUri, taskColsInspect)) + `
+`
 )
 
 func header(hd []headerDesc) string {
@@ -92,23 +113,6 @@ func description(hd []headerDesc) string {
 	return strings.Join(cols, "\n")
 }
 
-type taskInfo struct {
-	taskdb.Task
-	reflow.ExecInspect
-}
-
-type runInfo struct {
-	taskdb.Run
-	taskInfo []taskInfo
-}
-
-type execInfo struct {
-	URI string
-	ID  digest.Digest
-	reflow.ExecInspect
-	Alloc pool.AllocInspect
-}
-
 func (c *Cmd) ps(ctx context.Context, args ...string) {
 	flags := flag.NewFlagSet("ps", flag.ExitOnError)
 	allFlag := flags.Bool("i", false, "list inactive/dead execs")
@@ -122,13 +126,9 @@ func (c *Cmd) ps(ctx context.Context, args ...string) {
 	help := `--- ps lists runs and tasks
 
 Tasks associated with a run are listed below the run.
+` + runTaskHelp + `
 
-The columns associated with a run are as follows:
-(content of IDs can be retrieved using "reflow cat")
-` + description(runCols) + `
-
-The columns associated with a task are as follows:
-` + description(append(taskCols, taskColsUri, taskColsInspect)) + `
+(Note: ps does not report run/task level costs.  Use "reflow info" instead) 
 
 Ps lists only running execs for the current user by default.
 It supports the following filters:
@@ -150,14 +150,7 @@ printed on the console.
 
 The columns associated with a pool are as follows:
 ` + description(append(poolCols, poolColsLong...)) + `
-
-Cost: The cost displayed is an exact cost if it does not have an "<" sign.
-If it does have an "<" sign, then the cost is an upper-bound.
-The cost can be an upper-bound if the exact cost incurred for the underlying instance
-is not available and the computation was based on the on-demand price (of the relevant instance type),
-which is the maximum bid reflow uses in the spot market.
-If only the upper-bound cost is displayed, the actual cost incurred can be smaller.
-
+` + costHelp + `
 "ps -p" only lists pools that are currently active and match the "current" cluster identifier.
 A cluster identifier is a combination of <user, cluster name, reflow version>.
 By default, the cluster identifier is based on:
@@ -364,11 +357,11 @@ For example, the following query will return all pools that were active in the l
 		var tw tabwriter.Writer
 		tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 		defer tw.Flush()
-		c.writePools(&tw, prs, ec2c.Region, *longFlag)
+		c.writePools(&tw, prs, *longFlag)
 		return
 	}
 
-	ri, err := c.runInfo(ctx, taskdb.RunQuery{User: user, Since: since}, !*allFlag)
+	ri, err := c.runInfo(ctx, taskdb.RunQuery{User: user, Since: since}, !*allFlag, false /* cost */)
 	if err != nil {
 		c.Log.Debug(err)
 	}
@@ -376,6 +369,13 @@ For example, the following query will return all pools that were active in the l
 	tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 	defer tw.Flush()
 	c.writeRuns(ri, &tw, *longFlag)
+}
+
+type execInfo struct {
+	URI string
+	ID  digest.Digest
+	reflow.ExecInspect
+	Alloc pool.AllocInspect
 }
 
 func (c *Cmd) execInfos(ctx context.Context, execs []reflow.Exec) []execInfo {
@@ -404,7 +404,13 @@ func (c *Cmd) execInfos(ctx context.Context, execs []reflow.Exec) []execInfo {
 	return validInfos
 }
 
-func (c *Cmd) taskInfo(ctx context.Context, q taskdb.TaskQuery, liveOnly bool) ([]taskInfo, error) {
+type taskInfo struct {
+	taskdb.Task
+	cost Cost
+	reflow.ExecInspect
+}
+
+func (c *Cmd) taskInfo(ctx context.Context, q taskdb.TaskQuery, liveOnly, cost bool) ([]taskInfo, error) {
 	var tdb taskdb.TaskDB
 	err := c.Config.Instance(&tdb)
 	if err != nil {
@@ -413,13 +419,14 @@ func (c *Cmd) taskInfo(ctx context.Context, q taskdb.TaskQuery, liveOnly bool) (
 	if tdb == nil {
 		log.Fatal("nil taskdb")
 	}
-	t, err := tdb.Tasks(ctx, q)
+	q.WithAlloc = cost
+	tasks, err := tdb.Tasks(ctx, q)
 	if err != nil {
 		log.Error(err)
 	}
-	ti := make([]taskInfo, len(t))
+	ti := make([]taskInfo, len(tasks))
 	g, gctx := errgroup.WithContext(ctx)
-	for i, v := range t {
+	for i, v := range tasks {
 		i, v := i, v
 		g.Go(func() error {
 			var inspect reflow.ExecInspect
@@ -456,10 +463,21 @@ func (c *Cmd) taskInfo(ctx context.Context, q taskdb.TaskQuery, liveOnly bool) (
 	}
 	err = g.Wait()
 	b := ti[:0]
-	for _, v := range ti {
-		if v.Task.ID.IsValid() {
-			b = append(b, v)
+	for _, t := range ti {
+		if !t.Task.ID.IsValid() {
+			continue
 		}
+		if cost && t.Alloc != nil && t.Alloc.Pool != nil {
+			a, p := t.Alloc, t.Alloc.Pool
+			// TODO(swami): Get appropriate region
+			pi := poolInfo{*p, "us-west-2"}
+			t.cost = pi.cost(t.TimeFields) // cost of the pool for the task's duration
+			// Scale the cost by the ratio of the task's resources to the alloc's resources.
+			t.cost.Mul(t.Resources.MaxRatio(a.Resources))
+			// Then scale the cost by the ratio of the alloc's resources to the pool's resources.
+			t.cost.Mul(a.Resources.MaxRatio(p.Resources))
+		}
+		b = append(b, t)
 	}
 	ti = b
 	sort.Slice(ti, func(i, j int) bool {
@@ -468,7 +486,12 @@ func (c *Cmd) taskInfo(ctx context.Context, q taskdb.TaskQuery, liveOnly bool) (
 	return ti, err
 }
 
-func (c *Cmd) runInfo(ctx context.Context, q taskdb.RunQuery, liveOnly bool) ([]runInfo, error) {
+type runInfo struct {
+	taskdb.Run
+	taskInfo []taskInfo
+}
+
+func (c *Cmd) runInfo(ctx context.Context, q taskdb.RunQuery, liveOnly, cost bool) ([]runInfo, error) {
 	var tdb taskdb.TaskDB
 	err := c.Config.Instance(&tdb)
 	if err != nil {
@@ -486,13 +509,10 @@ func (c *Cmd) runInfo(ctx context.Context, q taskdb.RunQuery, liveOnly bool) ([]
 	for i, run := range r {
 		i, run := i, run
 		g.Go(func() error {
-			qu := taskdb.TaskQuery{
-				RunID: run.ID,
-				Since: q.Since,
-			}
-			ti, err := c.taskInfo(gctx, qu, liveOnly)
-			if err != nil {
-				log.Debug(err)
+			qu := taskdb.TaskQuery{RunID: run.ID}
+			ti, terr := c.taskInfo(gctx, qu, liveOnly, cost)
+			if terr != nil {
+				log.Debug(terr)
 			}
 			ri[i] = runInfo{Run: run, taskInfo: ti}
 			return nil
@@ -502,7 +522,27 @@ func (c *Cmd) runInfo(ctx context.Context, q taskdb.RunQuery, liveOnly bool) ([]
 	return ri, err
 }
 
-func (c *Cmd) poolInfo(ctx context.Context, q taskdb.PoolQuery) ([]taskdb.PoolRow, error) {
+type poolInfo struct {
+	taskdb.PoolRow
+	region string
+}
+
+func (p poolInfo) cost(c taskdb.TimeFields) (cost Cost) {
+	start, end := c.StartEnd()
+	if typ := p.PoolType; typ != "" {
+		if hourlyPriceUsd := ec2cluster.OnDemandPrice(typ, p.region); hourlyPriceUsd > 0 {
+			cost = NewCostUB(hourlyPriceUsd * end.Sub(start).Hours())
+		}
+	}
+	return
+}
+
+func (c *Cmd) poolInfo(ctx context.Context, q taskdb.PoolQuery) ([]poolInfo, error) {
+	var sess *session.Session
+	if err := c.Config.Instance(&sess); err != nil {
+		c.Fatal(err)
+	}
+	region := *sess.Config.Region
 	var tdb taskdb.TaskDB
 	if err := c.Config.Instance(&tdb); err != nil {
 		c.Fatalf("taskdb: %v", err)
@@ -510,7 +550,16 @@ func (c *Cmd) poolInfo(ctx context.Context, q taskdb.PoolQuery) ([]taskdb.PoolRo
 	if tdb == nil {
 		return nil, fmt.Errorf("poolInfo: no taskdb")
 	}
-	return tdb.Pools(ctx, q)
+	prs, err := tdb.Pools(ctx, q)
+	return poolInfos(prs, region), err
+}
+
+func poolInfos(prs []taskdb.PoolRow, region string) []poolInfo {
+	pis := make([]poolInfo, len(prs))
+	for i, pr := range prs {
+		pis[i] = poolInfo{PoolRow: pr, region: region}
+	}
+	return pis
 }
 
 func printTaskHeader(w io.Writer, longListing bool) {
@@ -527,12 +576,18 @@ func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing bool) {
 			continue
 		}
 		st, et := formatStartEnd(run.TimeFields)
+		var cost Cost
+		for _, t := range run.taskInfo {
+			cost.Add(t.cost)
+		}
 		exec := getShort(run.Run.ExecLog)
 		sys := getShort(run.Run.SysLog)
 		graph := getShort(run.Run.EvalGraph)
 		trace := getShort(run.Run.Trace)
 		fmt.Fprint(w, header(runCols), "\n")
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n\n", run.Run.ID.IDShort(), run.Run.User, st, et, exec, sys, graph, trace)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s", run.Run.ID.IDShort(), run.Run.User, st, et, cost)
+		fmt.Fprintf(w, "\t%s\t%s\t%s\t%s", exec, sys, graph, trace)
+		fmt.Fprintf(w, "\n\n")
 		printTaskHeader(w, longListing)
 		for _, task := range run.taskInfo {
 			if !task.Task.ID.IsValid() {
@@ -560,26 +615,14 @@ func formatStartEnd(c taskdb.TimeFields) (st, et string) {
 	}
 	var layout = time.Kitchen
 	switch dur := time.Since(start); {
-	case dur > 7*24*time.Hour:
-		layout = "2Jan06"
-	case dur > 24*time.Hour:
+	case dur > 24*time.Hour: // Older than 24 hours
 		layout = "Mon3:04PM"
+	case dur > 6*24*time.Hour: // Older than 6 days
+		layout = time.RFC822
 	}
 	st = start.Local().Format(layout)
 	et = end.Local().Format(layout)
 	return
-}
-
-// format returns an appropriate time layout for the given start time.
-func format(start time.Time) string {
-	var format = time.Kitchen
-	switch dur := time.Since(start); {
-	case dur > 7*24*time.Hour:
-		format = "2Jan06"
-	case dur > 24*time.Hour:
-		format = "Mon3:04PM"
-	}
-	return format
 }
 
 func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
@@ -639,12 +682,9 @@ func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
 	}
 	s, e := task.StartEnd()
 	dur := e.Sub(s).Truncate(time.Second)
-
-	fmt.Fprintf(w, "\t%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.1f\t%s\t%s",
-		task.ID.IDShort(), getShort(task.FlowID), 1+task.Attempt, ident, st, et,
-		dur, runtime.Truncate(time.Second),
-		state, data.Size(mem), cpu, data.Size(disk), procs,
-	)
+	fmt.Fprintf(w, "\t%s\t%s\t%d\t%s", task.ID.IDShort(), getShort(task.FlowID), 1+task.Attempt, ident)
+	fmt.Fprintf(w, "\t%s\t%s\t%s\t%s", task.cost, st, et, dur)
+	fmt.Fprintf(w, "\t%s\t%s\t%s\t%.1f\t%s\t%s", runtime.Truncate(time.Second), state, data.Size(mem), cpu, data.Size(disk), procs)
 	if longListing {
 		result := getShort(task.Task.ResultID)
 		if result == "" {
@@ -656,60 +696,41 @@ func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
 	fmt.Fprint(w, "\n")
 }
 
-func poolCost(pr taskdb.PoolRow, region string) (cost Cost, start, end time.Time) {
-	if t := pr.Start; !t.IsZero() {
-		start = t
-	}
-	if t := pr.Keepalive; !t.IsZero() {
-		end = t
-	}
-	if t := pr.End; !t.IsZero() {
-		end = t
-	}
-
-	if typ := pr.PoolType; typ != "" {
-		if hourlyPriceUsd := ec2cluster.OnDemandPrice(typ, region); hourlyPriceUsd > 0 {
-			cost = NewCostUB(hourlyPriceUsd * end.Sub(start).Hours())
-		}
-	}
-	return
-}
-
-func (c *Cmd) writePools(w io.Writer, prs []taskdb.PoolRow, region string, longListing bool) {
-	byCluster := make(map[taskdb.ClusterID][]taskdb.PoolRow)
+func (c *Cmd) writePools(w io.Writer, pis []poolInfo, longListing bool) {
+	byCluster := make(map[taskdb.ClusterID][]poolInfo)
 	clusterCost := make(map[taskdb.ClusterID]Cost)
-	sort.Slice(prs, func(i, j int) bool {
-		return prs[i].Start.Before(prs[j].Start)
+	sort.Slice(pis, func(i, j int) bool {
+		return pis[i].Start.Before(pis[j].Start)
 	})
-	for _, pr := range prs {
-		cost, _, _ := poolCost(pr, region)
-		byCluster[pr.ClusterID] = append(byCluster[pr.ClusterID], pr)
-		cc := clusterCost[pr.ClusterID]
-		cc.Add(cost)
-		clusterCost[pr.ClusterID] = cc
+	for _, pi := range pis {
+		byCluster[pi.ClusterID] = append(byCluster[pi.ClusterID], pi)
+		cc := clusterCost[pi.ClusterID]
+		cc.Add(pi.cost(pi.TimeFields))
+		clusterCost[pi.ClusterID] = cc
 	}
 	cols := poolCols
 	if longListing {
 		cols = append(cols, poolColsLong...)
 	}
 
-	for c, prs := range byCluster {
+	for c, poolInfos := range byCluster {
 		fmt.Fprintf(w, "Cluster id: %s (user), %s (name), %s (reflowversion)\n", c.User, c.ClusterName, c.ReflowVersion)
 		fmt.Fprintf(w, "Cost: %s (see 'ps -help' for details)\n", clusterCost[c])
 		fmt.Fprint(w, "\t", header(cols), "\n")
-		for _, pr := range prs {
+		for _, pi := range poolInfos {
 			var (
-				cost, start, end = poolCost(pr, region)
-				st, et           = start.Local().Format(format(start)), end.Local().Format(format(end))
-				id, iid          string
+				cost    = pi.cost(pi.TimeFields)
+				st, et  = formatStartEnd(pi.TimeFields)
+				id, iid string
 			)
-			if pid := pr.PoolID; pid.IsValid() {
+			if pid := pi.PoolID; pid.IsValid() {
 				id = pid.Digest().Short()
 				iid = pid.String()
 			}
-			fmt.Fprintf(w, "\t%s\t%s\t%s\t%s\t%s\t%s\t%s", id, iid, pr.PoolType, cost, st, et, end.Sub(start).Truncate(time.Minute))
+			s, e := pi.StartEnd()
+			fmt.Fprintf(w, "\t%s\t%s\t%s\t%s\t%s\t%s\t%s", id, iid, pi.PoolType, cost, st, et, e.Sub(s).Truncate(time.Minute))
 			if longListing {
-				fmt.Fprintf(w, "\t%s\t%s", pr.Resources, pr.URI)
+				fmt.Fprintf(w, "\t%s\t%s", pi.Resources, pi.URI)
 			}
 			fmt.Fprintln(w, "")
 		}

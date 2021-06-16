@@ -33,6 +33,9 @@ func (c *Cost) Mul(v float64) {
 }
 
 func (c Cost) String() string {
+	if c.value == 0.0 {
+		return "<unknown>"
+	}
 	prefix := ""
 	if !c.exact {
 		prefix = "<"

@@ -178,13 +178,20 @@ type TaskDB interface {
 	// SetEndTime sets the end time for the given id.
 	SetEndTime(ctx context.Context, id digest.Digest, end time.Time) error
 
-	// Runs looks up a runs which matches query. If error is not nil, then some error (retrieval, parse) could have
-	// occurred. The returned slice will still contain information about the runs that did not cause an error.
+	// Runs looks up a runs which matches query.
+	// If error is not nil, then some error (retrieval, parse) could have occurred.
+	// The returned slice will still contain information about the runs that did not cause an error.
 	Runs(ctx context.Context, runQuery RunQuery) ([]Run, error)
-	// Tasks returns all the tasks with the specified run id. If error is not nil, then some error (retrieval, parse)
-	// could have occurred. The returned slice will still contain information about the runs that did not cause an
-	// error.
+
+	// Tasks returns all the tasks with the specified run id.
+	// If error is not nil, then some error (retrieval, parse) could have occurred.
+	// The returned slice will still contain information about the runs that did not cause an error.
 	Tasks(ctx context.Context, taskQuery TaskQuery) ([]Task, error)
+
+	// Allocs looks up Allocs which match query.
+	// If error is not nil, then some error (retrieval, parse) could have occurred.
+	// The returned slice will still contain information about the Allocs that did not cause an error.
+	Allocs(ctx context.Context, query AllocQuery) ([]Alloc, error)
 
 	// Pools returns all the pools matching the given pool query.
 	// If error is not nil, then some error (retrieval, parse) could have occurred.
@@ -270,6 +277,9 @@ type Task struct {
 	URI string
 	// Stdout, Stderr and Inspect are the stdout, stderr and inspect ids of the task.
 	Stdout, Stderr, Inspect digest.Digest
+
+	// Alloc is the Alloc this task was executed on.
+	Alloc *Alloc
 }
 
 func (t Task) String() string {
@@ -313,11 +323,29 @@ type PoolRow struct {
 	ID digest.Digest
 }
 
+// Alloc is info stored in the taskdb for Allocs.
+type Alloc struct {
+	TimeFields
+	// ID is the id of the Alloc.
+	ID digest.Digest
+	// PoolID is the id of the pool this alloc belongs to.
+	PoolID digest.Digest
+	// Resources is the amount of resources in this Alloc.
+	Resources reflow.Resources
+	// URI is the value of URI for the Pool.
+	URI string
+	// Pool is the Pool this alloc belongs to.
+	Pool *PoolRow
+}
+
 // TaskQuery is the task-querying struct for TaskDB.Tasks. There are two ways to query tasks:
 //
 // 1. Only ID/RunID/ImgCmdID/Ident specified: Query tasks with the corresponding ID.
 //
 // 2. Since specified: Query tasks whose keepalive is within that time frame.
+//
+// If either ID or RunID is provided, then if WithAlloc is also set, then the allocs
+// that the tasks were executed on are also fetched (along with their Pools)
 type TaskQuery struct {
 	// ID is the task id being queried.
 	ID TaskID
@@ -334,6 +362,9 @@ type TaskQuery struct {
 	// all matching tasks. It is possible to get more tasks than is specified than the Limit because
 	// querying is stopped once there are at least as many tasks as Limit.
 	Limit int64
+	// WithAlloc determines if each Tasks's Alloc should also be returned.
+	// WithAlloc is applicable only if either ID or RunID is specified.
+	WithAlloc bool
 }
 
 // RunQuery is the run-querying struct for TaskDB.Runs. There are two ways to query runs:
@@ -363,6 +394,12 @@ type PoolQuery struct {
 	Since time.Time
 	// Cluster looks up the pools that match the given cluster description.
 	Cluster ClusterID
+}
+
+// AllocQuery is the querying struct for TaskDB Allocs (and the Pool they belong to).
+type AllocQuery struct {
+	// IDs are the list of Alloc ids being queried.
+	IDs []digest.Digest
 }
 
 var (

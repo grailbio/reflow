@@ -37,14 +37,19 @@ func (c *Cmd) info(ctx context.Context, args ...string) {
 Info displays information about:
 
 	- runs
+	- tasks (execs)
 	- cached filesets
 	- files
-	- execs
 	- allocs
 
 Where an opaque identifier is given (a sha256 checksum), info looks
 it up in all candidate data sources and displays the first match.
-Abbreviated IDs are expanded where possible.`
+Abbreviated IDs are expanded where possible.
+
+If given a RunId or TaskId, the following info is shown:
+` + runTaskHelp + `
+` + costHelp + `
+`
 	c.Parse(flags, args, help, "info names...")
 	if flags.NArg() == 0 {
 		flags.Usage()
@@ -215,7 +220,7 @@ func (c *Cmd) printLocalRunInfo(ctx context.Context, w io.Writer, id digest.Dige
 
 func (c *Cmd) printTdbRunInfo(ctx context.Context, w io.Writer, runId digest.Digest) bool {
 	q := taskdb.RunQuery{ID: taskdb.RunID(runId)}
-	infos, err := c.runInfo(ctx, q, false /* liveOnly */)
+	infos, err := c.runInfo(ctx, q, false /* liveOnly */, true /* cost */)
 	if err != nil {
 		c.Log.Debugf("RunQuery %v: %v", q, err)
 	}
@@ -228,7 +233,7 @@ func (c *Cmd) printTdbRunInfo(ctx context.Context, w io.Writer, runId digest.Dig
 
 func (c *Cmd) printTdbTaskInfo(ctx context.Context, w io.Writer, taskId digest.Digest) bool {
 	q := taskdb.TaskQuery{ID: taskdb.TaskID(taskId)}
-	infos, err := c.taskInfo(ctx, q, false /* liveOnly */)
+	infos, err := c.taskInfo(ctx, q, false /* liveOnly */, true /* cost */)
 	if err != nil {
 		c.Log.Debugf("TaskQuery %v: %v", q, err)
 	}

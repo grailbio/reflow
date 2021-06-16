@@ -102,6 +102,10 @@ func (n nopTaskDB) Tasks(ctx context.Context, query taskdb.TaskQuery) ([]taskdb.
 	return []taskdb.Task{}, nil
 }
 
+func (n nopTaskDB) Allocs(ctx context.Context, query taskdb.AllocQuery) ([]taskdb.Alloc, error) {
+	return []taskdb.Alloc{}, nil
+}
+
 func (n nopTaskDB) Pools(ctx context.Context, poolQuery taskdb.PoolQuery) ([]taskdb.PoolRow, error) {
 	return []taskdb.PoolRow{}, nil
 }
