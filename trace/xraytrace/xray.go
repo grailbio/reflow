@@ -76,7 +76,7 @@ func (Tracer) Emit(ctx context.Context, e trace.Event) (context.Context, error) 
 			parent := xray.GetSegment(ctx)
 			if parent != nil {
 				h := parent.DownstreamHeader()
-				ctx, seg = xray.NewSegmentFromHeader(ctx, name, h)
+				ctx, seg = xray.NewSegmentFromHeader(ctx, name, nil, h)
 			} else {
 				ctx, seg = xray.BeginSegment(ctx, name)
 			}
