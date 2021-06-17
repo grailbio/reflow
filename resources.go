@@ -13,6 +13,12 @@ import (
 	"github.com/grailbio/base/data"
 )
 
+const (
+	mem  = "mem"
+	cpu  = "cpu"
+	disk = "disk"
+)
+
 // Resources describes a set of labeled resources. Each resource is
 // described by a string label and assigned a value. The zero value
 // of Resources represents the resources with zeros for all labels.
@@ -29,13 +35,13 @@ func (r Resources) String() string {
 }
 
 func (r Resources) writeResources(b *bytes.Buffer) {
-	if r["mem"] != 0 || r["cpu"] != 0 || r["disk"] != 0 {
-		fmt.Fprintf(b, "mem:%s cpu:%g disk:%s", data.Size(r["mem"]), r["cpu"], data.Size(r["disk"]))
+	if r[mem] != 0 || r[cpu] != 0 || r[disk] != 0 {
+		fmt.Fprintf(b, "mem:%s cpu:%g disk:%s", data.Size(r[mem]), r[cpu], data.Size(r[disk]))
 	}
 	var keys []string
 	for key := range r {
 		switch key {
-		case "mem", "cpu", "disk":
+		case mem, cpu, disk:
 		default:
 			keys = append(keys, key)
 		}
@@ -134,8 +140,8 @@ func (r Resources) ScaledDistance(u Resources) float64 {
 		memoryScaling = 1.0 / (6 * G)
 		cpuScaling    = 1
 	)
-	return math.Abs(float64(r["mem"])-float64(u["mem"]))*memoryScaling +
-		math.Abs(float64(r["cpu"])-float64(u["cpu"]))*cpuScaling
+	return math.Abs(float64(r[mem])-float64(u[mem]))*memoryScaling +
+		math.Abs(float64(r[cpu])-float64(u[cpu]))*cpuScaling
 }
 
 // Equal tells whether the resources r and s are equal in all dimensions
@@ -154,14 +160,26 @@ func (r Resources) Equal(s Resources) bool {
 	return true
 }
 
-// Div returns a mapping of each key in s to the fraction r[key]/s[key].
+// Div returns a mapping of the intersection of keys in r and s to the fraction r[key]/s[key].
 // Since the returned value cannot be treated as Resources, Div simply returns a map.
 func (r Resources) Div(s Resources) map[string]float64 {
 	f := make(map[string]float64)
-	for key := range s {
-		f[key] = r[key] / s[key]
+	for key, rv := range r {
+		if sv, ok := s[key]; ok {
+			f[key] = rv / sv
+		}
 	}
 	return f
+}
+
+// MaxRatio computes the max across ratios of values in r to s for the intersection of keys in r and s.
+func (r Resources) MaxRatio(s Resources) (max float64) {
+	for _, v := range r.Div(s) {
+		if v > max {
+			max = v
+		}
+	}
+	return
 }
 
 // Requirements stores resource requirements, comprising the minimum
