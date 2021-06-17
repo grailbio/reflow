@@ -64,7 +64,7 @@ var (
 		{"poolid", "ID of the pool"},
 		{"instanceid", "ID of the pool's underlying EC2 instance"},
 		{"type", "type of the EC2 instance"},
-		{"cost (USD)", "(upper bound) cost of the EC2 instance based on the duration of use"},
+		{"cost", "cost of the EC2 instance based on the duration of use"},
 		{"start", "start time of the pool"},
 		{"end", "if ended, end time of the pool, or the last keepalive"},
 	}
@@ -149,9 +149,12 @@ printed on the console.
 The columns associated with a pool are as follows:
 ` + description(append(poolCols, poolColsLong...)) + `
 
-Cost: The cost displayed is based on the on-demand price of the relevant instance type,
-which is the maximum bid reflow uses in the spot market.  So it works primarily as an
-*upper bound* and the actual cost incurred can be (much) smaller.
+Cost: The cost displayed is an exact cost if it does not have an "<" sign.
+If it does have an "<" sign, then the cost is an upper-bound.
+The cost can be an upper-bound if the exact cost incurred for the underlying instance
+is not available and the computation was based on the on-demand price (of the relevant instance type),
+which is the maximum bid reflow uses in the spot market.
+If only the upper-bound cost is displayed, the actual cost incurred can be smaller.
 
 "ps -p" only lists pools that are currently active and match the "current" cluster identifier.
 A cluster identifier is a combination of <user, cluster name, reflow version>.
@@ -359,7 +362,7 @@ For example, the following query will return all pools that were active in the l
 		var tw tabwriter.Writer
 		tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 		defer tw.Flush()
-		c.writePools(prs, &tw, *longFlag)
+		c.writePools(&tw, prs, ec2c.Region, *longFlag)
 		return
 	}
 
@@ -647,7 +650,7 @@ func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
 	fmt.Fprint(w, "\n")
 }
 
-func poolCost(pr taskdb.PoolRow) (cost float64, start, end time.Time) {
+func poolCost(pr taskdb.PoolRow, region string) (cost Cost, start, end time.Time) {
 	if t := pr.Start; !t.IsZero() {
 		start = t
 	}
@@ -659,21 +662,25 @@ func poolCost(pr taskdb.PoolRow) (cost float64, start, end time.Time) {
 	}
 
 	if typ := pr.PoolType; typ != "" {
-		// TODO(swami): Fix this by storing the region of the pool as well in taskdb.
-		if hourlyPriceUsd := ec2cluster.OnDemandPrice(typ, "us-west-2"); hourlyPriceUsd > 0 {
-			cost = hourlyPriceUsd * end.Sub(start).Hours()
+		if hourlyPriceUsd := ec2cluster.OnDemandPrice(typ, region); hourlyPriceUsd > 0 {
+			cost = NewCostUB(hourlyPriceUsd * end.Sub(start).Hours())
 		}
 	}
 	return
 }
 
-func (c *Cmd) writePools(prs []taskdb.PoolRow, w io.Writer, longListing bool) {
+func (c *Cmd) writePools(w io.Writer, prs []taskdb.PoolRow, region string, longListing bool) {
 	byCluster := make(map[taskdb.ClusterID][]taskdb.PoolRow)
-	clusterCost := make(map[taskdb.ClusterID]float64)
+	clusterCost := make(map[taskdb.ClusterID]Cost)
+	sort.Slice(prs, func(i, j int) bool {
+		return prs[i].Start.Before(prs[j].Start)
+	})
 	for _, pr := range prs {
-		cost, _, _ := poolCost(pr)
+		cost, _, _ := poolCost(pr, region)
 		byCluster[pr.ClusterID] = append(byCluster[pr.ClusterID], pr)
-		clusterCost[pr.ClusterID] = clusterCost[pr.ClusterID] + cost
+		cc := clusterCost[pr.ClusterID]
+		cc.Add(cost)
+		clusterCost[pr.ClusterID] = cc
 	}
 	cols := poolCols
 	if longListing {
@@ -682,36 +689,19 @@ func (c *Cmd) writePools(prs []taskdb.PoolRow, w io.Writer, longListing bool) {
 
 	for c, prs := range byCluster {
 		fmt.Fprintf(w, "Cluster id: %s (user), %s (name), %s (reflowversion)\n", c.User, c.ClusterName, c.ReflowVersion)
-		fmt.Fprintf(w, "Cost (upper bound): %5.4f (see 'ps -help' for details)\n", clusterCost[c])
+		fmt.Fprintf(w, "Cost: %s (see 'ps -help' for details)\n", clusterCost[c])
 		fmt.Fprint(w, "\t", header(cols), "\n")
 		for _, pr := range prs {
 			var (
-				start, end      time.Time
-				st, et, id, iid string
-				hourlyPriceUsd  float64
+				cost, start, end = poolCost(pr, region)
+				st, et           = start.Local().Format(format(start)), end.Local().Format(format(end))
+				id, iid          string
 			)
-			if t := pr.Start; !t.IsZero() {
-				start, st = t, t.Local().Format(format(t))
-			}
-			if t := pr.Keepalive; !t.IsZero() {
-				end, et = t, t.Local().Format(format(t))
-			}
-			if t := pr.End; !t.IsZero() {
-				end, et = t, t.Local().Format(format(t))
-			}
 			if pid := pr.PoolID; pid.IsValid() {
 				id = pid.Digest().Short()
 				iid = pid.String()
 			}
-			var cost float64
-			if typ := pr.PoolType; typ != "" {
-				// TODO(swami): Fix this by storing the region of the pool as well in taskdb.
-				hourlyPriceUsd = ec2cluster.OnDemandPrice(typ, "us-west-2")
-				if hourlyPriceUsd > 0 {
-					cost = hourlyPriceUsd * end.Sub(start).Hours()
-				}
-			}
-			fmt.Fprintf(w, "\t%s\t%s\t%s\t%5.4f\t%s\t%s", id, iid, pr.PoolType, cost, st, et)
+			fmt.Fprintf(w, "\t%s\t%s\t%s\t%s\t%s\t%s", id, iid, pr.PoolType, cost, st, et)
 			if longListing {
 				fmt.Fprintf(w, "\t%s\t%s", pr.Resources, pr.URI)
 			}
