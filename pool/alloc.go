@@ -18,20 +18,23 @@ import (
 const (
 	MaxKeepaliveInterval = 5 * time.Minute
 	keepaliveInterval    = 2 * time.Minute
-	keepaliveTimeout     = 10 * time.Second
 	keepaliveTries       = 5
 	ivOffset             = 30 * time.Second
 )
 
-// KeepaliveRetryInitialWaitInterval is the initial duration to wait before
-// retrying if a keepalive attempt fails on an alloc (with a retryable failure)
-var KeepaliveRetryInitialWaitInterval = 2 * time.Second
+var (
+	// KeepaliveRetryInitialWaitInterval is the initial duration to wait before
+	// retrying if a keepalive attempt fails on an alloc (with a retryable failure)
+	KeepaliveRetryInitialWaitInterval = 2 * time.Second
+	// KeepaliveTimeout is the timeout for keepalive calls.
+	KeepaliveTimeout = 10 * time.Second
 
-// Non-fatal keepalive failures will be retried using this policy. The policy is
-// configured such that the last retry will occur within the policy's max duration.
-// With a=KeepaliveRetryInitialWaitInterval, b=backoffFactor (1.5), n=keepaliveTries,
-// ivOffset should be such that: sum_{i=0 .. n-1} a*b^i < ivOffset
-var keepaliveRetryPolicy = retry.Jitter(retry.MaxRetries(retry.Backoff(KeepaliveRetryInitialWaitInterval, ivOffset, 1.5), keepaliveTries), 0.2)
+	// Non-fatal keepalive failures will be retried using this policy. The policy is
+	// configured such that the last retry will occur within the policy's max duration.
+	// With a=KeepaliveRetryInitialWaitInterval, b=backoffFactor (1.5), n=keepaliveTries,
+	// ivOffset should be such that: sum_{i=0 .. n-1} a*b^i < ivOffset
+	KeepaliveRetryPolicy = retry.Jitter(retry.MaxRetries(retry.Backoff(KeepaliveRetryInitialWaitInterval, ivOffset, 1.5), keepaliveTries), 0.2)
+)
 
 // Alloc represent a resource allocation attached to a single
 // executor, a reservation of resources on a single node.
@@ -90,6 +93,7 @@ type AllocMeta struct {
 // AllocInspect contains Alloc metadata.
 type AllocInspect struct {
 	ID            string
+	TaskDBAllocID reflow.StringDigest
 	Resources     reflow.Resources
 	Meta          AllocMeta
 	Created       time.Time
@@ -99,7 +103,7 @@ type AllocInspect struct {
 
 // keepalive returns the interval to the next keepalive.
 func keepalive(ctx context.Context, alloc Alloc) (time.Duration, error) {
-	ctx, cancel := context.WithTimeout(ctx, keepaliveTimeout)
+	ctx, cancel := context.WithTimeout(ctx, KeepaliveTimeout)
 	defer cancel()
 	return alloc.Keepalive(ctx, keepaliveInterval)
 }
@@ -132,7 +136,7 @@ func Keepalive(ctx context.Context, log *log.Logger, alloc Alloc) error {
 			}
 			// We blindly retry other (non-Fatal) errors.
 			log.Errorf("try %d/%d failed to maintain keepalive: %s", retries, keepaliveTries, err)
-			if rerr := retry.Wait(ctx, keepaliveRetryPolicy, retries); rerr != nil {
+			if rerr := retry.Wait(ctx, KeepaliveRetryPolicy, retries); rerr != nil {
 				return rerr
 			}
 		}

@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 )
 
@@ -76,14 +76,24 @@ type alloc struct {
 	// id is the alloc id. It is the same as Alloc.ID(). It is present here
 	// so that we can retrieve the id to update the stats after the alloc dies.
 	id string
+
+	// taskdbAllocID is the alloc's ID in taskdb.
+	taskdbAllocID reflow.StringDigest
 }
 
 // Init is called to initialize the alloc from its underlying Reflow alloc.
-func (a *alloc) Init() {
+func (a *alloc) Init(ctx context.Context, log *log.Logger) {
 	a.Available = a.Alloc.Resources()
 	a.Pending = 0
 	a.idleTime = time.Now()
 	a.id = a.Alloc.ID()
+	if ai, err := a.Alloc.Inspect(ctx); err != nil {
+		log.Debugf("alloc %s inspect: %v", a.id, err)
+	} else {
+		a.taskdbAllocID = ai.TaskDBAllocID
+		// TODO(swami): Remove this log
+		log.Debugf("alloc %s taskdballocid: %s", a.id, a.taskdbAllocID)
+	}
 }
 
 func (a *alloc) String() string {
@@ -122,10 +132,6 @@ func (a *alloc) IdleFor() time.Duration {
 		return 0
 	}
 	return time.Since(a.idleTime)
-}
-
-func (a *alloc) AllocDigest() digest.Digest {
-	return reflow.Digester.FromString(a.ID())
 }
 
 func newAlloc() *alloc {

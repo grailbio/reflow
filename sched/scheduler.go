@@ -282,7 +282,7 @@ func (s *Scheduler) Do(ctx context.Context) error {
 		case alloc := <-notifyc:
 			heap.Remove(&pending, alloc.index)
 			if alloc.Alloc != nil {
-				alloc.Init()
+				alloc.Init(ctx, s.Log)
 				heap.Push(&live, alloc)
 				s.Stats.AddAlloc(alloc)
 			}
@@ -492,16 +492,19 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			if s.TaskDB != nil && tctx == nil {
 				// disable govet check due to https://github.com/golang/go/issues/29587
 				tctx, tcancel = context.WithCancel(ctx) //nolint: govet
-				if taskdbErr := s.TaskDB.CreateTask(tctx, taskdb.Task{
+				tdbtask := taskdb.Task{
 					ID:        task.ID,
 					RunID:     task.RunID,
-					AllocID:   alloc.AllocDigest(),
 					FlowID:    task.FlowID,
 					ImgCmdID:  taskdb.NewImgCmdID(task.Config.Image, task.Config.Cmd),
 					Ident:     task.Config.Ident,
 					Attempt:   task.Attempt(),
 					Resources: task.Config.Resources,
-				}); taskdbErr != nil {
+				}
+				if aid := alloc.taskdbAllocID; aid.IsValid() {
+					tdbtask.AllocID = aid.Digest()
+				}
+				if taskdbErr := s.TaskDB.CreateTask(tctx, tdbtask); taskdbErr != nil {
 					task.Log.Errorf("taskdb createtask: %v", taskdbErr)
 				} else {
 					go func() { _ = taskdb.KeepTaskAlive(tctx, s.TaskDB, task.ID) }()

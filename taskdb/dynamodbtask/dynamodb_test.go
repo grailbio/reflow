@@ -381,7 +381,7 @@ func TestStartAlloc(t *testing.T) {
 		mockdb  = mockDynamodbPut{}
 		taskb   = &TaskDB{DB: &mockdb, TableName: mockTableName}
 		allocID = reflow.NewStringDigest("allocid")
-		poolID  = reflow.NewStringDigest("poolid")
+		poolID  = reflow.Digester.Rand(nil)
 		res     = reflow.Resources{"cpu": 2, "mem": 4 * 1024 * 1024 * 1024}
 		start   = time.Now().Add(-time.Hour)
 	)
@@ -396,7 +396,7 @@ func TestStartAlloc(t *testing.T) {
 		{*mockdb.pinput.TableName, "mockdynamodb"},
 		{*mockdb.pinput.Item[colID].S, allocID.Digest().String()},
 		{*mockdb.pinput.Item[colID4].S, allocID.Digest().Short()},
-		{*mockdb.pinput.Item[colPoolID].S, poolID.Digest().String()},
+		{*mockdb.pinput.Item[colPoolID].S, poolID.String()},
 		{*mockdb.pinput.Item[colAllocID].S, allocID.String()},
 		{*mockdb.pinput.Item[colResources].S, "{\"cpu\":2,\"mem\":4294967296}"},
 		{*mockdb.pinput.Item[colType].S, "alloc"},

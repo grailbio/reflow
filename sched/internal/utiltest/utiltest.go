@@ -192,6 +192,10 @@ func (e *testExec) ID() digest.Digest {
 	return e.id
 }
 
+func (e *testExec) URI() string {
+	return fmt.Sprintf("uri_%s", e.id)
+}
+
 func (e *testExec) Result(ctx context.Context) (reflow.Result, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -264,6 +268,7 @@ func (p *TestPool) Kill(a pool.Alloc) error {
 type TestAlloc struct {
 	pool.Alloc
 	id         string
+	tdbAllocId reflow.StringDigest
 	repository *testutil.InmemoryRepository
 	resources  reflow.Resources
 
@@ -291,6 +296,7 @@ func NewTestAllocWithId(id string, resources reflow.Resources) *TestAlloc {
 		resources:  resources,
 		created:    time.Now(),
 		id:         id,
+		tdbAllocId: reflow.NewStringDigest(fmt.Sprintf("tdb_alloc_id_%s", id)),
 		refCount:   make(map[digest.Digest]int64),
 	}
 	alloc.cond = sync.NewCond(&alloc.mu)
@@ -445,7 +451,8 @@ func (a *TestAlloc) Inspect(ctx context.Context) (pool.AllocInspect, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return pool.AllocInspect{
-		ID:            a.ID(),
+		ID:            a.id,
+		TaskDBAllocID: a.tdbAllocId,
 		Resources:     a.resources,
 		Created:       a.created,
 		LastKeepalive: a.lastkeepalive,
@@ -538,4 +545,83 @@ func (a *TestAlloc) hang() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.hung = true
+}
+
+type MockTaskDB struct {
+	taskdb.TaskDB
+
+	mu       sync.Mutex
+	numCalls map[string]int
+	tasks    map[taskdb.TaskID]taskdb.Task
+}
+
+func NewMockTaskDB() *MockTaskDB {
+	return &MockTaskDB{
+		numCalls: make(map[string]int),
+		tasks:    make(map[taskdb.TaskID]taskdb.Task),
+	}
+}
+
+func (t *MockTaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskdb.Task, error) {
+	tasks := make([]taskdb.Task, 0, len(t.tasks))
+	for _, tsk := range t.tasks {
+		tasks = append(tasks, tsk)
+	}
+	return tasks, nil
+}
+
+// CreateTask creates a new task in the taskdb with the provided task.
+func (t *MockTaskDB) CreateTask(ctx context.Context, task taskdb.Task) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.tasks[task.ID] = task
+	t.numCalls["CreateTask"] = t.numCalls["CreateTask"] + 1
+	return nil
+}
+
+// SetTaskResult sets the result of the task post completion.
+func (t *MockTaskDB) SetTaskResult(ctx context.Context, id taskdb.TaskID, result digest.Digest) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if tsk, ok := t.tasks[id]; ok {
+		tsk.ResultID = result
+		t.tasks[id] = tsk
+	}
+	t.numCalls["SetTaskResult"] = t.numCalls["SetTaskResult"] + 1
+	return nil
+}
+
+// SetTaskUri updates the task URI.
+func (t *MockTaskDB) SetTaskUri(ctx context.Context, id taskdb.TaskID, uri string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if tsk, ok := t.tasks[id]; ok {
+		tsk.URI = uri
+		t.tasks[id] = tsk
+	}
+	t.numCalls["SetTaskUri"] = t.numCalls["SetTaskUri"] + 1
+	return nil
+}
+
+// SetTaskComplete mark the task as completed as of the given end time with the error (if any)
+func (t *MockTaskDB) SetTaskComplete(ctx context.Context, id taskdb.TaskID, err error, end time.Time) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if tsk, ok := t.tasks[id]; ok {
+		tsk.End = end
+		t.tasks[id] = tsk
+	}
+	t.numCalls["SetTaskComplete"] = t.numCalls["SetTaskComplete"] + 1
+	return nil
+}
+
+func (t *MockTaskDB) KeepTaskAlive(ctx context.Context, id taskdb.TaskID, keepalive time.Time) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if tsk, ok := t.tasks[id]; ok {
+		tsk.Keepalive = keepalive
+		t.tasks[id] = tsk
+	}
+	t.numCalls["KeepTaskAlive"] = t.numCalls["KeepTaskAlive"] + 1
+	return nil
 }

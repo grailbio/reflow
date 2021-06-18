@@ -927,7 +927,7 @@ func (a *testAlloc) ID() string {
 }
 
 func (a *testAlloc) Inspect(ctx context.Context) (pool.AllocInspect, error) {
-	panic("not implemented")
+	return pool.AllocInspect{ID: a.ID()}, nil
 }
 
 func (a *testAlloc) Free(ctx context.Context) error {

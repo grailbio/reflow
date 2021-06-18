@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/grailbio/base/retry"
+
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
@@ -43,6 +45,7 @@ func newTestSchedulerWithRepo(t *testing.T, repo reflow.Repository) (scheduler *
 	scheduler.Repository = repo
 	scheduler.Cluster = cluster
 	scheduler.PostUseChecksum = true
+	scheduler.TaskDB = utiltest.NewMockTaskDB()
 	scheduler.MinAlloc = reflow.Resources{}
 	out := golog.New(os.Stderr, "scheduler: ", golog.LstdFlags)
 	scheduler.Log = log.New(out, log.DebugLevel)
@@ -86,7 +89,7 @@ func TestSchedulerBasic(t *testing.T) {
 	if got, want := req.Requirements, utiltest.NewRequirements(10, 10<<30, 0); !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	alloc := utiltest.NewTestAlloc(reflow.Resources{"cpu": 25, "mem": 20 << 30})
+	alloc := utiltest.NewTestAllocWithId("basic", reflow.Resources{"cpu": 25, "mem": 20 << 30})
 	// TODO(pgopal): There is no way to wait for the tasks to be added to the scheduler queue.
 	// Hence we cannot check task stats here.
 	stats := scheduler.Stats.GetStats()
@@ -152,6 +155,20 @@ func TestSchedulerBasic(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	expectExists(t, repo, out)
+
+	mtdb := scheduler.TaskDB.(*utiltest.MockTaskDB)
+	tasks, _ := mtdb.Tasks(ctx, taskdb.TaskQuery{})
+	if got, want := len(tasks), 1; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	tsk := tasks[0]
+	if got, want := tsk.ID, task.ID; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	ai, _ := alloc.Inspect(ctx)
+	if got, want := tsk.AllocID, ai.TaskDBAllocID.Digest(); got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
 }
 
 func TestSchedulerAlloc(t *testing.T) {
@@ -447,10 +464,15 @@ func TestTaskErrors(t *testing.T) {
 // Only some type of task errors are considered 'lost' (and retries are attempted),
 // whereas any error from alloc keepalives will result in tasks being considered as lost.
 func TestLostTasksSwitchAllocs(t *testing.T) {
-	old := pool.KeepaliveRetryInitialWaitInterval
+	oldWait, oldTimeout := pool.KeepaliveRetryInitialWaitInterval, pool.KeepaliveTimeout
+	oldPolicy := pool.KeepaliveRetryPolicy
 	pool.KeepaliveRetryInitialWaitInterval = 50 * time.Millisecond
+	pool.KeepaliveTimeout = 50 * time.Millisecond
+	pool.KeepaliveRetryPolicy = retry.Jitter(retry.MaxRetries(retry.Backoff(50*time.Millisecond, 200*time.Millisecond, 1.5), 3), 0.2)
 	defer func() {
-		pool.KeepaliveRetryInitialWaitInterval = old
+		pool.KeepaliveRetryInitialWaitInterval = oldWait
+		pool.KeepaliveTimeout = oldTimeout
+		pool.KeepaliveRetryPolicy = oldPolicy
 	}()
 	allocFatal := errors.E("fatal alloc failure", errors.Fatal)
 	allocCancel := errors.E("alloc cancelled", errors.Canceled)

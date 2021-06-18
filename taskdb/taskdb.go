@@ -167,7 +167,7 @@ type TaskDB interface {
 	KeepTaskAlive(ctx context.Context, id TaskID, keepalive time.Time) error
 
 	// StartAlloc creates a new alloc in the taskdb with the provided parameters.
-	StartAlloc(ctx context.Context, allocID, poolID reflow.StringDigest, resources reflow.Resources, start time.Time) error
+	StartAlloc(ctx context.Context, allocID reflow.StringDigest, poolID digest.Digest, resources reflow.Resources, start time.Time) error
 	// StartPool creates a new pool in the taskdb with the provided parameters.
 	StartPool(ctx context.Context, pool Pool) error
 
@@ -238,8 +238,8 @@ type Task struct {
 	ID TaskID
 	// RunID is the run id that created this task.
 	RunID RunID
-	// AllocID is the digest of id of the alloc where this task was attempted.
-	// ie, AllocID = reflow.Digester.FromString(Alloc.ID())
+	// AllocID is the id of the alloc where this task was attempted.
+	// This should be set to the digest of 'allocID' using which StartAlloc was called for this alloc.
 	AllocID digest.Digest
 	// FlowID is the flow id of this task.
 	FlowID digest.Digest

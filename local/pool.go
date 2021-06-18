@@ -412,7 +412,7 @@ func (a *alloc) Start() error {
 	if a.p.TaskDB == nil || !a.taskDBAllocId.IsValid() {
 		return nil
 	}
-	if err := a.p.TaskDB.StartAlloc(context.Background(), a.taskDBAllocId, a.p.TaskDBPoolId, a.resources, a.created); err != nil {
+	if err := a.p.TaskDB.StartAlloc(context.Background(), a.taskDBAllocId, a.p.TaskDBPoolId.Digest(), a.resources, a.created); err != nil {
 		a.Log.Debugf("taskdb alloc %s StartAlloc: %v", a.taskDBAllocId, err)
 	}
 	return nil
@@ -451,6 +451,7 @@ func (a *alloc) Inspect(ctx context.Context) (pool.AllocInspect, error) {
 	defer a.mu.Unlock()
 	i := pool.AllocInspect{
 		ID:            a.id,
+		TaskDBAllocID: a.taskDBAllocId,
 		Resources:     a.meta.Want,
 		Meta:          a.meta,
 		Created:       a.created,
