@@ -48,10 +48,11 @@ var (
 		{"flowid", "ID of the flow (corresponds to the node in the evaluation graph)"},
 		{"attempt", "the attempt number (of the flow) that this task represents"},
 		{"ident", "the exec identifier"},
-		{"start", "the exec's start time"},
-		{"end", "(if completed) the exec's end time"},
-		{"duration", "the exec's run duration"},
-		{"state", "the exec's (current) state"},
+		{"start", "the task's start time"},
+		{"end", "(if completed) the task's end time"},
+		{"taskDur", "the task's run duration"},
+		{"execDur", "the exec's run duration"},
+		{"state", "the task's (current) state"},
 		{"mem", "the amount of memory used by the exec"},
 		{"cpu", "the number of CPU cores used by the exec"},
 		{"disk", "the total amount of disk space used by the exec"},
@@ -67,6 +68,7 @@ var (
 		{"cost", "cost of the EC2 instance based on the duration of use"},
 		{"start", "start time of the pool"},
 		{"end", "if ended, end time of the pool, or the last keepalive"},
+		{"dur", "the duration for which the pool was live"},
 	}
 	poolColsLong = []headerDesc{
 		{"resources", "(long listing only) the pool's resources"},
@@ -294,7 +296,7 @@ For example, the following query will return all pools that were active in the l
 			}
 			runtime := info.Runtime()
 			fmt.Fprintf(&tw, "%s\t%s\t%s\t%d:%02d\t%s\t%s\t%.1f\t%s\t%s",
-				info.ID.Short(), info.Config.Ident,
+				getShort(info.ID), info.Config.Ident,
 				info.Created.Local().Format(layout),
 				int(runtime.Hours()),
 				int(runtime.Minutes()-60*runtime.Hours()),
@@ -511,39 +513,27 @@ func (c *Cmd) poolInfo(ctx context.Context, q taskdb.PoolQuery) ([]taskdb.PoolRo
 	return tdb.Pools(ctx, q)
 }
 
+func printTaskHeader(w io.Writer, longListing bool) {
+	fmt.Fprint(w, "\t", header(taskCols))
+	if longListing {
+		fmt.Fprint(w, "\t", header([]headerDesc{taskColsUri, taskColsInspect}))
+	}
+	fmt.Fprint(w, "\n")
+}
+
 func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing bool) {
 	for _, run := range ri {
 		if len(run.taskInfo) == 0 {
 			continue
 		}
-		var st, et, exec, sys, graph, trace string
-		layout := time.RFC822
-		if t := run.Run.Start; !t.IsZero() {
-			layout = format(t)
-			st = t.Local().Format(layout)
-		}
-		if t := run.Run.End; !t.IsZero() {
-			et = t.Local().Format(layout)
-		}
-		if d := run.Run.ExecLog; !d.IsZero() {
-			exec = d.Short()
-		}
-		if d := run.Run.SysLog; !d.IsZero() {
-			sys = d.Short()
-		}
-		if d := run.Run.EvalGraph; !d.IsZero() {
-			graph = d.Short()
-		}
-		if d := run.Run.Trace; !d.IsZero() {
-			trace = d.Short()
-		}
+		st, et := formatStartEnd(run.TimeFields)
+		exec := getShort(run.Run.ExecLog)
+		sys := getShort(run.Run.SysLog)
+		graph := getShort(run.Run.EvalGraph)
+		trace := getShort(run.Run.Trace)
 		fmt.Fprint(w, header(runCols), "\n")
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n\n", run.Run.ID.IDShort(), run.Run.User, st, et, exec, sys, graph, trace)
-		fmt.Fprint(w, "\t", header(taskCols))
-		if longListing {
-			fmt.Fprint(w, "\t", header([]headerDesc{taskColsUri, taskColsInspect}))
-		}
-		fmt.Fprint(w, "\n")
+		printTaskHeader(w, longListing)
 		for _, task := range run.taskInfo {
 			if !task.Task.ID.IsValid() {
 				continue
@@ -552,6 +542,32 @@ func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing bool) {
 		}
 		fmt.Fprint(w, "\n")
 	}
+}
+
+func getShort(d digest.Digest) (s string) {
+	if !d.IsZero() {
+		s = d.Short()
+	}
+	return
+}
+
+// formatStartEnd formats the start and end times from the given TimeFields
+// and returns the them formatted in an appropriate time layout based on the start time.
+func formatStartEnd(c taskdb.TimeFields) (st, et string) {
+	start, end := c.StartEnd()
+	if start.IsZero() {
+		return
+	}
+	var layout = time.Kitchen
+	switch dur := time.Since(start); {
+	case dur > 7*24*time.Hour:
+		layout = "2Jan06"
+	case dur > 24*time.Hour:
+		layout = "Mon3:04PM"
+	}
+	st = start.Local().Format(layout)
+	et = end.Local().Format(layout)
+	return
 }
 
 // format returns an appropriate time layout for the given start time.
@@ -570,17 +586,13 @@ func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
 	var (
 		procs, ident, state string
 		info                = task.ExecInspect
-		layout              = format(task.Start)
 		runtime             = info.Runtime()
-		startTime, endTime  = task.Start, task.End
+		st, et              = formatStartEnd(task.TimeFields)
 	)
 	switch info.Config.Type {
 	case "exec":
 		ident = task.Config.Ident
 		state = info.State
-		if endTime.IsZero() {
-			endTime = task.Start.Add(runtime)
-		}
 		if len(info.Commands) == 0 {
 			procs = "[exec]"
 		} else {
@@ -606,7 +618,7 @@ func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
 		}
 	default:
 		ident = task.Ident
-		if !endTime.IsZero() {
+		if !task.End.IsZero() {
 			state = "complete"
 		} else {
 			state = "unknown"
@@ -625,26 +637,20 @@ func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
 		// This is a conservative estimate--we don't keep track of total max.
 		disk = info.Profile["disk"].Max + info.Profile["tmp"].Max
 	}
-	fmt.Fprintf(w, "\t%s\t%s\t%d\t%s\t%s\t%s\t%d:%02d\t%s\t%s\t%.1f\t%s\t%s",
-		task.ID.IDShort(), task.FlowID.Short(), 1+task.Attempt, ident,
-		startTime.Local().Format(layout),
-		endTime.Local().Format(layout),
-		int(runtime.Hours()),
-		int(runtime.Minutes()-60*runtime.Hours()),
-		state,
-		data.Size(mem), cpu, data.Size(disk),
-		procs,
+	s, e := task.StartEnd()
+	dur := e.Sub(s).Truncate(time.Second)
+
+	fmt.Fprintf(w, "\t%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.1f\t%s\t%s",
+		task.ID.IDShort(), getShort(task.FlowID), 1+task.Attempt, ident, st, et,
+		dur, runtime.Truncate(time.Second),
+		state, data.Size(mem), cpu, data.Size(disk), procs,
 	)
 	if longListing {
-		result, inspect := "NA", "NA"
-		if task.Task.ResultID.IsZero() {
+		result := getShort(task.Task.ResultID)
+		if result == "" {
 			result = task.Task.URI
-		} else {
-			result = task.Task.ResultID.Short()
 		}
-		if !task.Task.Inspect.IsZero() {
-			inspect = task.Task.Inspect.Short()
-		}
+		inspect := getShort(task.Task.Inspect)
 		fmt.Fprintf(w, "\t%s\t%s", result, inspect)
 	}
 	fmt.Fprint(w, "\n")
@@ -701,7 +707,7 @@ func (c *Cmd) writePools(w io.Writer, prs []taskdb.PoolRow, region string, longL
 				id = pid.Digest().Short()
 				iid = pid.String()
 			}
-			fmt.Fprintf(w, "\t%s\t%s\t%s\t%s\t%s\t%s", id, iid, pr.PoolType, cost, st, et)
+			fmt.Fprintf(w, "\t%s\t%s\t%s\t%s\t%s\t%s\t%s", id, iid, pr.PoolType, cost, st, et, end.Sub(start).Truncate(time.Minute))
 			if longListing {
 				fmt.Fprintf(w, "\t%s\t%s", pr.Resources, pr.URI)
 			}

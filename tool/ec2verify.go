@@ -35,9 +35,11 @@ Optionally, the -package will write out the verified results to a Go file verifi
 
 	var ec *ec2cluster.Cluster
 	var ok bool
-	cluster := c.Cluster(c.Status.Group("ec2verify"))
+	cluster := c.Cluster(nil)
 	if ec, ok = cluster.(*ec2cluster.Cluster); !ok {
 		c.Fatalf("not a ec2cluster! - %T", cluster)
+	} else {
+		ec.Status = c.Status.Group("ec2verify")
 	}
 	existing := instances.VerifiedByRegion[ec.Region]
 	verified, toverify := instancesToVerify(ec.InstanceTypes, existing, *retry)

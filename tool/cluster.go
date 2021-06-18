@@ -5,19 +5,13 @@
 package tool
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/infra/tls"
 	"github.com/grailbio/reflow"
-	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/ec2cluster"
-	"github.com/grailbio/reflow/log"
-	"github.com/grailbio/reflow/repository/blobrepo"
-	repositoryhttp "github.com/grailbio/reflow/repository/http"
 	"github.com/grailbio/reflow/runner"
 	"golang.org/x/net/http2"
 )
@@ -36,45 +30,17 @@ type needer interface {
 // such global registration altogether. The current way of doing this
 // also ties the binary to specific implementations (e.g., s3), which
 // should be avoided.
-func (c *Cmd) Cluster(status *status.Group) runner.Cluster {
-	var cluster runner.Cluster
-	err := c.Config.Instance(&cluster)
+func (c *Cmd) Cluster(status *status.Status) runner.Cluster {
+	cluster, err := clusterInstance(c.Config, status)
 	if err != nil {
-		c.Fatal(err)
+		c.Fatalf("Cluster: %v", err)
 	}
-	var ec *ec2cluster.Cluster
-	if err := c.Config.Instance(&ec); err == nil {
-		ec.Status = status
-		ec.Configuration = c.Config
-		if ierr := ec.VerifyAndInit(); ierr != nil {
-			c.Fatal(ierr)
+	if ec, ok := cluster.(*ec2cluster.Cluster); ok {
+		if err = ec.VerifyAndInit(); err != nil {
+			c.Fatal(fmt.Errorf("clusterInstance VerifyAndInit: %v", err))
 		}
 	} else {
-		log.Printf("not a ec2cluster! : %v", err)
-	}
-	var sess *session.Session
-	err = c.Config.Instance(&sess)
-	if err != nil {
-		c.Fatal(err)
-	}
-	blobrepo.Register("s3", s3blob.New(sess))
-	repositoryhttp.HTTPClient, err = c.httpClient()
-	if err != nil {
-		c.Fatal(err)
-	}
-	if n, ok := cluster.(needer); ok {
-		http.HandleFunc("/clusterneed", func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != "GET" {
-				http.Error(w, "bad method", http.StatusMethodNotAllowed)
-				return
-			}
-			need := n.Need()
-			enc := json.NewEncoder(w)
-			if err := enc.Encode(need); err != nil {
-				http.Error(w, fmt.Sprintf("internal error: %v", err), http.StatusInternalServerError)
-				return
-			}
-		})
+		c.Log.Printf("not a ec2cluster - %s %T", cluster.GetName(), cluster)
 	}
 	return cluster
 }

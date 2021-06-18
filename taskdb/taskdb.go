@@ -196,19 +196,29 @@ type TaskDB interface {
 	Scan(ctx context.Context, kind Kind, handler MappingHandler) error
 }
 
-// CommonFields are various common fields found in all taskdb row types.
-type CommonFields struct {
-	// Keepalive is the keepalive lease on the row.
-	Keepalive time.Time
+// TimeFields are various common fields found in all taskdb row types.
+type TimeFields struct {
 	// Start is the time the taskdb row was started.
 	Start time.Time
+	// Keepalive is the keepalive lease on the row.
+	Keepalive time.Time
 	// End is the time the taskdb row ended (if it has).
 	End time.Time
 }
 
+// StartEnd returns the start and end times.
+func (c TimeFields) StartEnd() (st, et time.Time) {
+	st = c.Start
+	et = c.Keepalive
+	if t := c.End; !t.IsZero() {
+		et = t
+	}
+	return
+}
+
 // Run is the run info stored in the taskdb.
 type Run struct {
-	CommonFields
+	TimeFields
 	// ID is the run id.
 	ID RunID
 	// Labels is the labels specified during the invocation.
@@ -233,7 +243,7 @@ func (r Run) String() string {
 
 // Task is the task info stored in the taskdb.
 type Task struct {
-	CommonFields
+	TimeFields
 	// ID is the task id.
 	ID TaskID
 	// RunID is the run id that created this task.
@@ -282,7 +292,7 @@ type ClusterID struct {
 
 // Pool is the initial pool info with which a pool is started in taskdb.
 type Pool struct {
-	CommonFields
+	TimeFields
 	ClusterID
 
 	// PoolID is the Pool identifier.

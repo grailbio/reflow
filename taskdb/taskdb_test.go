@@ -73,6 +73,31 @@ func TestImgCmdID(t *testing.T) {
 	}
 }
 
+func TestStartEnd(t *testing.T) {
+	var zero time.Time
+	now := time.Now()
+	now1m := time.Now().Add(time.Minute)
+	now10m := time.Now().Add(10 * time.Minute)
+	for _, tt := range []struct {
+		tf     TimeFields
+		st, et time.Time
+	}{
+		{TimeFields{Start: now, Keepalive: now1m, End: zero}, now, now1m},
+		{TimeFields{Start: now, Keepalive: now10m, End: now1m}, now, now1m},
+		{TimeFields{Start: now, Keepalive: now1m, End: now10m}, now, now10m},
+		{TimeFields{Start: now, Keepalive: zero, End: now10m}, now, now10m},
+		{TimeFields{Start: now, Keepalive: zero, End: zero}, now, zero},
+	} {
+		gotst, gotet := tt.tf.StartEnd()
+		if got, want := gotst, tt.st; got != want {
+			t.Errorf("got %s, want %s", got, want)
+		}
+		if got, want := gotet, tt.et; got != want {
+			t.Errorf("got %s, want %s", got, want)
+		}
+	}
+}
+
 type mockTaskDB struct {
 	TaskDB
 	kaErrs     []error

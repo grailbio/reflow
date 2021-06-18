@@ -11,10 +11,10 @@
 // buckets stored. "Date-Keepalive-index" index allows querying runs/tasks based on time
 // buckets. Dynamodbtask also uses a bunch of secondary indices to help with run/task querying.
 // Schema:
-// run:  {ID, ID4, Labels, Bundle, Args, Date, Keepalive, StartTime, EndTime, Type="run", User}
-// task: {ID, ID4, Labels, Date, Attempt, Keepalive, StartTime, EndTime, Type="task", FlowID, Inspect, Error, ResultID, RunID, RunID4, AllocID, ImgCmdID, Ident, Stderr, Stdout, URI}
-// alloc: {ID, ID4, PoolID, AllocID, Resources, Keepalive, StartTime, EndTime, Type="alloc"}
-// pool: {ID, ID4, PoolID, URI, PoolType, Resources, Keepalive, StartTime, EndTime, Type="pool"}
+// run:  {ID, ID4, Type="run", Labels, Bundle, Args, Date, Keepalive, StartTime, EndTime, User}
+// task: {ID, ID4, Type="task", Labels, Date, Attempt, Keepalive, StartTime, EndTime, FlowID, Inspect, Error, ResultID, RunID, RunID4, AllocID, ImgCmdID, Ident, Stderr, Stdout, URI}
+// alloc: {ID, ID4, Type="alloc", PoolID, AllocID, Resources, URI, Keepalive, StartTime, EndTime}
+// pool: {ID, ID4, Type="pool", PoolID, PoolType, ClusterID.*, Resources, URI, Keepalive, StartTime, EndTime}
 // Note:
 // PoolID: While rows of type "pool" are expected to store the implementation-specific identifier of a pool,
 // rows of type "alloc" will contain the digest of PoolID in this field (of the pool they belong to).
@@ -872,7 +872,7 @@ func (t *TaskDB) Tasks(ctx context.Context, taskQuery taskdb.TaskQuery) ([]taskd
 		if v := parseAttr(it, ResultID, parseDigestFunc, &errs); v != nil {
 			t.ResultID = v.(digest.Digest)
 		}
-		errs = append(errs, setCommonFields(it, &t.CommonFields)...)
+		errs = append(errs, setTimeFields(it, &t.TimeFields)...)
 
 		if v := parseAttr(it, Stdout, parseDigestFunc, &errs); v != nil {
 			t.Stdout = v.(digest.Digest)
@@ -939,7 +939,7 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 			}
 			r.Labels[vals[0]] = vals[1]
 		}
-		errs = append(errs, setCommonFields(it, &r.CommonFields)...)
+		errs = append(errs, setTimeFields(it, &r.TimeFields)...)
 
 		if v := parseAttr(it, ExecLog, parseDigestFunc, &errs); v != nil {
 			r.ExecLog = v.(digest.Digest)
@@ -1000,7 +1000,7 @@ func (t *TaskDB) Pools(ctx context.Context, poolQuery taskdb.PoolQuery) ([]taskd
 		if v := parseAttr(it, ID, parseDigestFunc, &errs); v != nil {
 			pr.ID = v.(digest.Digest)
 		}
-		errs = append(errs, setCommonFields(it, &pr.CommonFields)...)
+		errs = append(errs, setTimeFields(it, &pr.TimeFields)...)
 		pr.ClusterName = parseAttr(it, ClusterName, nil, &errs).(string)
 		pr.User = parseAttr(it, User, nil, &errs).(string)
 		pr.ReflowVersion = parseAttr(it, ReflowVersion, nil, &errs).(string)
@@ -1137,7 +1137,7 @@ var (
 	}
 )
 
-func setCommonFields(it map[string]*dynamodb.AttributeValue, dst *taskdb.CommonFields) (errs []error) {
+func setTimeFields(it map[string]*dynamodb.AttributeValue, dst *taskdb.TimeFields) (errs []error) {
 	if v := parseAttr(it, StartTime, parseTimeFunc, &errs); v != nil {
 		dst.Start = v.(time.Time)
 	}

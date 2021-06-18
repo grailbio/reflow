@@ -66,8 +66,9 @@ Abbreviated IDs are expanded where possible.`
 		switch n.Kind {
 		case idName:
 			switch {
-			case c.printRunInfo(ctx, &tw, n.ID):
-			case c.printTaskDBInfo(ctx, &tw, n.ID):
+			case c.printLocalRunInfo(ctx, &tw, n.ID):
+			case c.printTdbRunInfo(ctx, &tw, n.ID):
+			case c.printTdbTaskInfo(ctx, &tw, n.ID):
 			case c.printCacheInfo(ctx, &tw, n.ID):
 			case c.printFileInfo(ctx, &tw, n.ID):
 			default:
@@ -130,7 +131,8 @@ Abbreviated IDs are expanded where possible.`
 	}
 }
 
-func (c *Cmd) printRunInfo(ctx context.Context, w io.Writer, id digest.Digest) bool {
+// printLocalRunInfo prints run info from the local run dir for the given run id (if found)
+func (c *Cmd) printLocalRunInfo(ctx context.Context, w io.Writer, id digest.Digest) bool {
 	f, err := os.Open(c.rundir())
 	if os.IsNotExist(err) {
 		return false
@@ -211,28 +213,33 @@ func (c *Cmd) printRunInfo(ctx context.Context, w io.Writer, id digest.Digest) b
 	return true
 }
 
-func (c *Cmd) printTaskDBInfo(ctx context.Context, w io.Writer, id digest.Digest) bool {
-	rq := taskdb.RunQuery{ID: taskdb.RunID(id)}
-	ri, err := c.runInfo(ctx, rq, false /* liveOnly */)
+func (c *Cmd) printTdbRunInfo(ctx context.Context, w io.Writer, runId digest.Digest) bool {
+	q := taskdb.RunQuery{ID: taskdb.RunID(runId)}
+	infos, err := c.runInfo(ctx, q, false /* liveOnly */)
 	if err != nil {
-		log.Error(err)
+		c.Log.Debugf("RunQuery %v: %v", q, err)
 	}
-	if len(ri) > 0 {
-		c.writeRuns(ri, w, true)
-		return true
+	if len(infos) == 0 {
+		return false
 	}
-	tq := taskdb.TaskQuery{ID: taskdb.TaskID(id)}
-	ti, err := c.taskInfo(ctx, tq, false /* liveOnly */)
+	c.writeRuns(infos, w, true)
+	return true
+}
+
+func (c *Cmd) printTdbTaskInfo(ctx context.Context, w io.Writer, taskId digest.Digest) bool {
+	q := taskdb.TaskQuery{ID: taskdb.TaskID(taskId)}
+	infos, err := c.taskInfo(ctx, q, false /* liveOnly */)
 	if err != nil {
-		log.Error(err)
+		c.Log.Debugf("TaskQuery %v: %v", q, err)
 	}
-	if len(ti) > 0 {
-		for _, t := range ti {
-			c.writeTask(t, w, true)
-		}
-		return true
+	if len(infos) == 0 {
+		return false
 	}
-	return false
+	printTaskHeader(w, true)
+	for _, t := range infos {
+		c.writeTask(t, w, true)
+	}
+	return true
 }
 
 func (c *Cmd) printCacheInfo(ctx context.Context, w io.Writer, id digest.Digest) bool {
