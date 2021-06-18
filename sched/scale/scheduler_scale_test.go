@@ -152,8 +152,12 @@ func testSchedScale(t *testing.T, drainTimeout time.Duration, tasks []*taskNode,
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var submitter = newTaskSubmitter(scheduler, tasks)
+	allocator.start()
+	go func() {
+		<-ctx.Done()
+		allocator.m.Shutdown()
+	}()
 	go submitter.start()
-	go allocator.start(ctx)
 	submitter.wg.Wait()
 	pds := allocator.inspect()
 	var (
@@ -285,7 +289,7 @@ func (t *taskSubmitter) submit(nodes []*taskNode) {
 	var r reflow.Resources
 	for _, node := range nodes {
 		node := node
-		// add a goroutine to await completion of the task and then submit its childrem.
+		// add a goroutine to await completion of the task and then submit its children.
 		go func() {
 			defer t.wg.Done()
 			if err := node.task.Wait(context.TODO(), sched.TaskDone); err != nil {
@@ -337,13 +341,11 @@ func (a *allocator) inspect() []poolDetails {
 	return pds
 }
 
-func (a *allocator) start(ctx context.Context) {
+func (a *allocator) start() {
 	a.started = time.Now()
 	a.m = ec2cluster.NewManager(a, 50, 5, a.logger.Tee(nil, "manager: "))
 	a.m.SetTimeouts(10*time.Millisecond, 10*time.Millisecond, 5*time.Second)
 	a.m.Start()
-	<-ctx.Done()
-	a.m.Shutdown()
 }
 
 func (a *allocator) CanAllocate(r reflow.Resources) (bool, error) {
