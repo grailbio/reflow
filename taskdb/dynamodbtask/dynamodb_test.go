@@ -555,13 +555,13 @@ func (m *mockDynamodbQueryRuns) QueryWithContext(ctx aws.Context, input *dynamod
 	}
 	return &dynamodb.QueryOutput{
 		Items: []map[string]*dynamodb.AttributeValue{
-			map[string]*dynamodb.AttributeValue{
-				colID:        &dynamodb.AttributeValue{S: aws.String(id)},
-				colID4:       &dynamodb.AttributeValue{S: aws.String(id4)},
-				colUser:      &dynamodb.AttributeValue{S: aws.String(m.user)},
-				colLabels:    &dynamodb.AttributeValue{SS: []*string{aws.String("label=test")}},
-				colKeepalive: &dynamodb.AttributeValue{S: aws.String(m.keepalive.Format(timeLayout))},
-				colStartTime: &dynamodb.AttributeValue{S: aws.String(m.starttime.Format(timeLayout))},
+			{
+				colID:        {S: aws.String(id)},
+				colID4:       {S: aws.String(id4)},
+				colUser:      {S: aws.String(m.user)},
+				colLabels:    {SS: []*string{aws.String("label=test")}},
+				colKeepalive: {S: aws.String(m.keepalive.Format(timeLayout))},
+				colStartTime: {S: aws.String(m.starttime.Format(timeLayout))},
 			},
 		},
 	}, m.err
@@ -571,97 +571,69 @@ func getMockRunTaskDB() *mockDynamodbQueryRuns {
 	return &mockDynamodbQueryRuns{starttime: time.Now(), keepalive: time.Now(), user: colUser}
 }
 
-func TestRunsIDQuery(t *testing.T) {
-	var (
-		runID  = taskdb.NewRunID()
-		mockdb = getMockRunTaskDB()
-		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
-		query  = taskdb.RunQuery{ID: runID, User: colUser}
-	)
-	mockdb.id = digest.Digest(runID)
-	runs, err := taskb.Runs(context.Background(), query)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if actual, expected := len(runs), 1; actual != expected {
-		t.Fatalf("expected %v runs, got %v", expected, actual)
-	}
-	for _, test := range []struct {
-		actual   string
-		expected string
-	}{
-		{*mockdb.qinput.TableName, "mockdynamodb"},
-		{*mockdb.qinput.IndexName, idIndex},
-		{*mockdb.qinput.ExpressionAttributeValues[":type"].S, "run"},
-		{*mockdb.qinput.ExpressionAttributeValues[":keyval"].S, runID.ID()},
-		{*mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
-		{*mockdb.qinput.KeyConditionExpression, colID + " = :keyval"},
-		{*mockdb.qinput.FilterExpression, "#Type = :type"},
-		{runs[0].User, colUser},
-		{runs[0].ID.ID(), runID.ID()},
-		{runs[0].Labels["label"], "test"},
-	} {
-		if test.expected != test.actual {
-			t.Errorf("expected %s, got %v", test.expected, test.actual)
-		}
-	}
+func truncated(d digest.Digest) digest.Digest {
+	d.Truncate(4)
+	return d
 }
 
-func TestRunsIDShortQuery(t *testing.T) {
+func TestRunsIDQueries(t *testing.T) {
 	var (
-		id     = reflow.Digester.Rand(nil)
-		mockdb = getMockRunTaskDB()
-		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
+		id         = reflow.Digester.Rand(nil)
+		runID      = taskdb.RunID(id)
+		truncRunID = taskdb.RunID(truncated(id))
+		mockdb     = getMockRunTaskDB()
+		taskb      = &TaskDB{DB: mockdb, TableName: mockTableName}
 	)
 	mockdb.id = id
-
-	sid := id
-	sid.Truncate(4)
-
-	runID := taskdb.RunID(sid)
-	query := taskdb.RunQuery{ID: runID, User: colUser}
-	runs, err := taskb.Runs(context.Background(), query)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := len(runs), 1; got != want {
-		t.Fatalf("expected %v, got %v", want, got)
-	}
-	for _, test := range []struct {
-		actual   string
-		expected string
+	for _, tt := range []struct {
+		q                     taskdb.RunQuery
+		index, keycol, keyval string
 	}{
-		{*mockdb.qinput.TableName, "mockdynamodb"},
-		{*mockdb.qinput.IndexName, id4Index},
-		{*mockdb.qinput.ExpressionAttributeValues[":type"].S, "run"},
-		{*mockdb.qinput.ExpressionAttributeValues[":keyval"].S, runID.IDShort()},
-		{*mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
-		{*mockdb.qinput.KeyConditionExpression, colID4 + " = :keyval"},
-		{*mockdb.qinput.FilterExpression, "#Type = :type"},
-		{runs[0].User, colUser},
-		{runs[0].ID.ID(), mockdb.id.String()},
-		{runs[0].Labels["label"], "test"},
+		{taskdb.RunQuery{ID: runID, User: colUser}, idIndex, colID, runID.ID()},
+		{taskdb.RunQuery{ID: truncRunID, User: colUser}, id4Index, colID4, runID.IDShort()},
 	} {
-		if test.expected != test.actual {
-			t.Errorf("expected %s, got %v", test.expected, test.actual)
+		runs, err := taskb.Runs(context.Background(), tt.q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := len(runs), 1; got != want {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+		for _, test := range []struct {
+			actual   string
+			expected string
+		}{
+			{*mockdb.qinput.TableName, "mockdynamodb"},
+			{*mockdb.qinput.IndexName, tt.index},
+			{*mockdb.qinput.ExpressionAttributeValues[":type"].S, "run"},
+			{*mockdb.qinput.ExpressionAttributeValues[":keyval"].S, tt.keyval},
+			{*mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
+			{*mockdb.qinput.KeyConditionExpression, tt.keycol + " = :keyval"},
+			{*mockdb.qinput.FilterExpression, "#Type = :type"},
+			{runs[0].User, colUser},
+			{runs[0].ID.ID(), mockdb.id.String()},
+			{runs[0].Labels["label"], "test"},
+		} {
+			if test.expected != test.actual {
+				t.Errorf("expected %s, got %v", test.expected, test.actual)
+			}
 		}
 	}
 
 	// Abbrev id that does not match the full id.
 	str := id.ShortString(5)
 	str = str[:len(str)-2] + fmt.Sprintf("%1x", str[len(str)-1]+1)
-	id, err = reflow.Digester.Parse(str)
+	id, err := reflow.Digester.Parse(str)
 	if err != nil {
 		t.Fatal(err)
 	}
 	runID = taskdb.RunID(id)
-	query = taskdb.RunQuery{ID: runID, User: colUser}
-	runs, err = taskb.Runs(context.Background(), query)
+	runs, err := taskb.Runs(context.Background(), taskdb.RunQuery{ID: runID, User: colUser})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got, want := len(runs), 0; got != want {
-		t.Fatalf("expected %v, got %v", want, got)
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }
 
@@ -828,29 +800,29 @@ func (m *mockDynamodbQueryTasks) QueryWithContext(ctx aws.Context, input *dynamo
 	}
 	output := &dynamodb.QueryOutput{
 		Items: []map[string]*dynamodb.AttributeValue{
-			map[string]*dynamodb.AttributeValue{
-				colID:        &dynamodb.AttributeValue{S: aws.String(id)},
-				colID4:       &dynamodb.AttributeValue{S: aws.String(id4)},
-				colUser:      &dynamodb.AttributeValue{S: aws.String(m.user)},
-				colLabels:    &dynamodb.AttributeValue{SS: []*string{aws.String("label=test")}},
-				colKeepalive: &dynamodb.AttributeValue{S: aws.String(m.keepalive.Format(timeLayout))},
-				colStartTime: &dynamodb.AttributeValue{S: aws.String(m.starttime.Format(timeLayout))},
-				colFlowID:    &dynamodb.AttributeValue{S: aws.String(id)},
-				colResultID:  &dynamodb.AttributeValue{S: aws.String(id)},
-				colRunID:     &dynamodb.AttributeValue{S: aws.String(id)},
-				colStdout:    &dynamodb.AttributeValue{S: aws.String(id)},
-				colStderr:    &dynamodb.AttributeValue{S: aws.String(id)},
-				colInspect:   &dynamodb.AttributeValue{S: aws.String(id)},
-				colURI:       &dynamodb.AttributeValue{S: aws.String(m.uri)},
-				colImgCmdID:  &dynamodb.AttributeValue{S: aws.String(id)},
-				colIdent:     &dynamodb.AttributeValue{S: aws.String(m.ident)},
+			{
+				colID:        {S: aws.String(id)},
+				colID4:       {S: aws.String(id4)},
+				colUser:      {S: aws.String(m.user)},
+				colLabels:    {SS: []*string{aws.String("label=test")}},
+				colKeepalive: {S: aws.String(m.keepalive.Format(timeLayout))},
+				colStartTime: {S: aws.String(m.starttime.Format(timeLayout))},
+				colFlowID:    {S: aws.String(id)},
+				colResultID:  {S: aws.String(id)},
+				colRunID:     {S: aws.String(id)},
+				colStdout:    {S: aws.String(id)},
+				colStderr:    {S: aws.String(id)},
+				colInspect:   {S: aws.String(id)},
+				colURI:       {S: aws.String(m.uri)},
+				colImgCmdID:  {S: aws.String(id)},
+				colIdent:     {S: aws.String(m.ident)},
 			},
 		},
 	}
 
 	if m.multiOutput {
 		output.LastEvaluatedKey = map[string]*dynamodb.AttributeValue{
-			"key": &dynamodb.AttributeValue{S: aws.String("value")},
+			"key": {S: aws.String("value")},
 		}
 	}
 
@@ -870,93 +842,61 @@ func getmockquerytaskdb() *mockDynamodbQueryTasks {
 	}
 }
 
-func TestTasksIDQuery(t *testing.T) {
+func TestTasksIDQueries(t *testing.T) {
 	var (
-		taskID = taskdb.NewTaskID()
-		mockdb = getmocktaskstaskdb()
-		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
-		query  = taskdb.TaskQuery{ID: taskID}
-	)
-	mockdb.id = digest.Digest(taskID)
-	tasks, err := taskb.Tasks(context.Background(), query)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if actual, expected := len(tasks), 1; actual != expected {
-		t.Fatalf("expected %v runs, got %v", expected, actual)
-	}
-	for _, test := range []struct {
-		actual   string
-		expected string
-	}{
-		{*mockdb.qinput.TableName, "mockdynamodb"},
-		{*mockdb.qinput.IndexName, idIndex},
-		{*mockdb.qinput.ExpressionAttributeValues[":type"].S, "task"},
-		{*mockdb.qinput.ExpressionAttributeValues[":keyval"].S, taskID.ID()},
-		{*mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
-		{*mockdb.qinput.KeyConditionExpression, colID + " = :keyval"},
-		{*mockdb.qinput.FilterExpression, "#Type = :type"},
-		{tasks[0].ID.ID(), taskID.ID()},
-	} {
-		if test.expected != test.actual {
-			t.Errorf("expected %s, got %v", test.expected, test.actual)
-		}
-	}
-}
-
-func TestTasksIDShortQuery(t *testing.T) {
-	var (
-		id     = reflow.Digester.Rand(nil)
-		mockdb = getmocktaskstaskdb()
-		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
+		id          = reflow.Digester.Rand(nil)
+		taskID      = taskdb.TaskID(id)
+		truncTaskID = taskdb.TaskID(truncated(id))
+		mockdb      = getmocktaskstaskdb()
+		taskb       = &TaskDB{DB: mockdb, TableName: mockTableName}
 	)
 	mockdb.id = id
-
-	sid := id
-	sid.Truncate(4)
-
-	taskID := taskdb.TaskID(sid)
-	query := taskdb.TaskQuery{ID: taskID}
-	tasks, err := taskb.Tasks(context.Background(), query)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := len(tasks), 1; got != want {
-		t.Fatalf("expected %v, got %v", want, got)
-	}
-	for _, test := range []struct {
-		actual   string
-		expected string
+	for _, tt := range []struct {
+		q                     taskdb.TaskQuery
+		index, keycol, keyval string
 	}{
-		{*mockdb.qinput.TableName, "mockdynamodb"},
-		{*mockdb.qinput.IndexName, id4Index},
-		{*mockdb.qinput.ExpressionAttributeValues[":type"].S, "task"},
-		{*mockdb.qinput.ExpressionAttributeValues[":keyval"].S, taskID.IDShort()},
-		{*mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
-		{*mockdb.qinput.KeyConditionExpression, colID4 + " = :keyval"},
-		{*mockdb.qinput.FilterExpression, "#Type = :type"},
-		{tasks[0].ID.ID(), mockdb.id.String()},
+		{taskdb.TaskQuery{ID: taskID}, idIndex, colID, taskID.ID()},
+		{taskdb.TaskQuery{ID: truncTaskID}, id4Index, colID4, taskID.IDShort()},
 	} {
-		if test.expected != test.actual {
-			t.Errorf("expected %s, got %v", test.expected, test.actual)
+		tasks, err := taskb.Tasks(context.Background(), tt.q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := len(tasks), 1; got != want {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+		for _, test := range []struct {
+			actual   string
+			expected string
+		}{
+			{*mockdb.qinput.TableName, "mockdynamodb"},
+			{*mockdb.qinput.IndexName, tt.index},
+			{*mockdb.qinput.ExpressionAttributeValues[":type"].S, "task"},
+			{*mockdb.qinput.ExpressionAttributeValues[":keyval"].S, tt.keyval},
+			{*mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
+			{*mockdb.qinput.KeyConditionExpression, tt.keycol + " = :keyval"},
+			{*mockdb.qinput.FilterExpression, "#Type = :type"},
+			{tasks[0].ID.ID(), mockdb.id.String()},
+		} {
+			if test.expected != test.actual {
+				t.Errorf("expected %s, got %v", test.expected, test.actual)
+			}
 		}
 	}
-
 	// Abbrev id that does not match the full id.
 	str := id.ShortString(5)
 	str = str[:len(str)-2] + fmt.Sprintf("%1x", str[len(str)-1]+1)
-	id, err = reflow.Digester.Parse(str)
+	id, err := reflow.Digester.Parse(str)
 	if err != nil {
 		t.Fatal(err)
 	}
 	taskID = taskdb.TaskID(id)
-	query = taskdb.TaskQuery{ID: taskID}
-	tasks, err = taskb.Tasks(context.Background(), query)
+	tasks, err := taskb.Tasks(context.Background(), taskdb.TaskQuery{ID: taskID})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got, want := len(tasks), 0; got != want {
-		t.Fatalf("expected %v, got %v", want, got)
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }
 
