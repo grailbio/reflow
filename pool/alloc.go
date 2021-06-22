@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/retry"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
@@ -93,7 +94,7 @@ type AllocMeta struct {
 // AllocInspect contains Alloc metadata.
 type AllocInspect struct {
 	ID            string
-	TaskDBAllocID reflow.StringDigest
+	TaskDBAllocID digest.Digest
 	Resources     reflow.Resources
 	Meta          AllocMeta
 	Created       time.Time

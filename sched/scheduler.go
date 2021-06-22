@@ -500,9 +500,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 					Ident:     task.Config.Ident,
 					Attempt:   task.Attempt(),
 					Resources: task.Config.Resources,
-				}
-				if aid := alloc.taskdbAllocID; aid.IsValid() {
-					tdbtask.AllocID = aid.Digest()
+					AllocID:   alloc.taskdbAllocID,
 				}
 				if taskdbErr := s.TaskDB.CreateTask(tctx, tdbtask); taskdbErr != nil {
 					task.Log.Errorf("taskdb createtask: %v", taskdbErr)

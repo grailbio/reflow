@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
@@ -78,7 +79,7 @@ type alloc struct {
 	id string
 
 	// taskdbAllocID is the alloc's ID in taskdb.
-	taskdbAllocID reflow.StringDigest
+	taskdbAllocID digest.Digest
 }
 
 // Init is called to initialize the alloc from its underlying Reflow alloc.

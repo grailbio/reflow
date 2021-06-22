@@ -451,7 +451,7 @@ func (a *alloc) Inspect(ctx context.Context) (pool.AllocInspect, error) {
 	defer a.mu.Unlock()
 	i := pool.AllocInspect{
 		ID:            a.id,
-		TaskDBAllocID: a.taskDBAllocId,
+		TaskDBAllocID: a.taskDBAllocId.Digest(),
 		Resources:     a.meta.Want,
 		Meta:          a.meta,
 		Created:       a.created,

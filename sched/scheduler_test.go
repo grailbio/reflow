@@ -166,7 +166,7 @@ func TestSchedulerBasic(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	ai, _ := alloc.Inspect(ctx)
-	if got, want := tsk.AllocID, ai.TaskDBAllocID.Digest(); got != want {
+	if got, want := tsk.AllocID, ai.TaskDBAllocID; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
