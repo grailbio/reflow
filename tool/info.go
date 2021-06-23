@@ -64,8 +64,6 @@ If given a RunId or TaskId, the following info is shown:
 		if err != nil {
 			c.Fatalf("parse name %s: %v", arg, err)
 		}
-		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
 		var tw tabwriter.Writer
 		tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 		switch n.Kind {
@@ -137,7 +135,7 @@ If given a RunId or TaskId, the following info is shown:
 }
 
 // printLocalRunInfo prints run info from the local run dir for the given run id (if found)
-func (c *Cmd) printLocalRunInfo(ctx context.Context, w io.Writer, id digest.Digest) bool {
+func (c *Cmd) printLocalRunInfo(_ context.Context, w io.Writer, id digest.Digest) bool {
 	f, err := os.Open(c.rundir())
 	if os.IsNotExist(err) {
 		return false
@@ -248,6 +246,8 @@ func (c *Cmd) printTdbTaskInfo(ctx context.Context, w io.Writer, taskId digest.D
 }
 
 func (c *Cmd) printCacheInfo(ctx context.Context, w io.Writer, id digest.Digest) bool {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	var ass assoc.Assoc
 	err := c.Config.Instance(&ass)
 	if err != nil {
@@ -282,6 +282,8 @@ func (c *Cmd) printCacheInfo(ctx context.Context, w io.Writer, id digest.Digest)
 }
 
 func (c *Cmd) printFileInfo(ctx context.Context, w io.Writer, id digest.Digest) bool {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	var repo reflow.Repository
 	c.must(c.Config.Instance(&repo))
 	info, err := repo.Stat(ctx, id)
