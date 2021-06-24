@@ -43,6 +43,7 @@ import (
 	"github.com/grailbio/reflow/pool"
 	poolc "github.com/grailbio/reflow/pool/client"
 	"github.com/grailbio/reflow/taskdb"
+	"golang.org/x/time/rate"
 	"gopkg.in/yaml.v2"
 )
 
@@ -158,6 +159,7 @@ type instance struct {
 	SpotProber      *spotProber
 	DescInstLimiter *limiter.BatchLimiter
 	DescSpotLimiter *limiter.BatchLimiter
+	ReqSpotLimiter  *rate.Limiter
 
 	userData string
 	err      error
@@ -872,15 +874,16 @@ func (b *byteCounter) Write(p []byte) (n int, err error) {
 	return
 }
 
-const spotRequestTtl = 2 * time.Minute
+const (
+	spotReqTtl      = 2 * time.Minute
+	spotReqRetryLim = 5
+)
 
 func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 	i.Log.Debugf("generating ec2 spot instance request for instance type %v", i.Config.Type)
 	// First make a spot instance request.
 	params := &ec2.RequestSpotInstancesInput{
-		ValidUntil: aws.Time(time.Now().Add(spotRequestTtl)),
-		SpotPrice:  aws.String(fmt.Sprintf("%.3f", i.Price)),
-
+		SpotPrice: aws.String(fmt.Sprintf("%.3f", i.Price)),
 		LaunchSpecification: &ec2.RequestSpotLaunchSpecification{
 			ImageId:             aws.String(i.AMI),
 			EbsOptimized:        aws.Bool(i.Config.EBSOptimized),
@@ -896,10 +899,30 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 			SecurityGroupIds: []*string{aws.String(i.SecurityGroup)},
 		},
 	}
-	i.Task.Printf("requesting spot instances with bid of %s", *params.SpotPrice)
-	resp, err := i.EC2.RequestSpotInstances(params)
-	if err != nil {
-		return "", err
+	var (
+		policy = retry.MaxRetries(retry.Jitter(retry.Backoff(5*time.Second, 10*time.Second, 1.2), 0.2), spotReqRetryLim)
+		resp   *ec2.RequestSpotInstancesOutput
+		err    error
+	)
+	for retries := 0; ; retries++ {
+		if err = i.ReqSpotLimiter.Wait(ctx); err != nil {
+			return "", errors.E("ec2RunSpotInstance rate limiter wait", err)
+		}
+		i.Task.Printf("requesting spot instance with bid of %s (attempt %d/%d)", *params.SpotPrice, retries+1, spotReqRetryLim)
+		// ValidFrom needs to be a bit in the future, or else we get a "Client.InvalidTime" error.
+		params.ValidFrom = aws.Time(time.Now().Add(2 * time.Second))
+		params.ValidUntil = aws.Time(time.Now().Add(spotReqTtl))
+		if resp, err = i.EC2.RequestSpotInstances(params); err == nil {
+			break
+		}
+		if !request.IsErrorThrottle(err) {
+			return "", err
+		}
+		// Only upon throttling errors, we will retry.
+		i.Log.Debugf("throttled (attempt %d): %v", retries, err)
+		if err = retry.Wait(ctx, policy, retries); err != nil {
+			return "", errors.E("ec2RunSpotInstance", fmt.Sprintf("failed after %d retries", retries))
+		}
 	}
 	if n := len(resp.SpotInstanceRequests); n != 1 {
 		return "", errors.Errorf("ec2.requestspotinstances: got %v entries, want 1", n)
@@ -911,10 +934,7 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 	i.Task.Printf("awaiting fulfillment of spot request %s", spotID)
 	spotLogger := i.Log.Tee(nil, fmt.Sprintf("[%s, %s]: ", spotID, i.Config.Type))
 	spotLogger.Debugf("waiting for spot fullfillment")
-	// Also set a timeout context in case the AWS API is stuck.
-	toctx, cancel := context.WithTimeout(ctx, spotRequestTtl+10*time.Second)
-	sir, waitErr := waitUntilFulfilled(toctx, i.DescSpotLimiter, spotID, spotLogger)
-	cancel()
+	sir, waitErr := waitUntilFulfilled(ctx, i.DescSpotLimiter, spotID, spotLogger)
 	var id, state string
 	switch {
 	case waitErr == nil:

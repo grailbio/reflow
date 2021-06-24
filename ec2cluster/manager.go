@@ -26,7 +26,7 @@ const (
 
 	// instanceLaunchTimeout is the maximum duration allotted for an instance to be
 	// launched and recognized by the manager when refreshing the cluster's state.
-	instanceLaunchTimeout = 5 * time.Minute
+	instanceLaunchTimeout = 10 * time.Minute
 )
 
 // InstanceSpec is a specification representing an instance configuration.

@@ -179,6 +179,9 @@ type Cluster struct {
 	descInstLimiter *limiter.BatchLimiter
 	// descSpotLimiter limits batch calls of `DescribeSpotInstanceRequests`
 	descSpotLimiter *limiter.BatchLimiter
+	// reqSpotLimiter limits calls of 'RequestSpotInstances'.
+	reqSpotLimiter *rate.Limiter
+
 	// refreshLimiter limits the rate of cluster refresh.
 	refreshLimiter *rate.Limiter
 
@@ -350,6 +353,7 @@ func (c *Cluster) verifyAndInitialize() error {
 	c.descSpotLimiter = limiter.NewBatchLimiter(
 		&descSpotBatchApi{api: c.EC2, log: c.Log, maxPerBatch: 30},
 		/* 2 qps */ rate.NewLimiter(rate.Every(time.Second), 2))
+	c.reqSpotLimiter = rate.NewLimiter(rate.Every(time.Second), 5) // 5 qps
 	c.refreshLimiter = rate.NewLimiter(rate.Every(time.Second), 1) // 1 qps
 	c.SetCaching(true)
 	c.manager.Start()
@@ -503,6 +507,7 @@ func (c *Cluster) newInstance(config instanceConfig) *instance {
 		SpotProber:      c.spotProber,
 		DescInstLimiter: c.descInstLimiter,
 		DescSpotLimiter: c.descSpotLimiter,
+		ReqSpotLimiter:  c.reqSpotLimiter,
 		Immortal:        c.Immortal,
 		CloudConfig:     c.CloudConfig,
 		ReflowVersion:   c.ReflowVersion,
