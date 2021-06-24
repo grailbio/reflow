@@ -16,6 +16,8 @@ import (
 
 	"docker.io/go-docker"
 	"docker.io/go-docker/api/types"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
@@ -33,6 +35,8 @@ const (
 	statePath  = "state.json"
 	metaPath   = "meta.json"
 	allocsPath = "allocs"
+	// remoteStreamCWLogGroupName is the cloudwatch log group name for remote streams.
+	remoteStreamCWLogGroupName = "reflow"
 )
 
 var errAllocExpired = errors.New("alloc expired")
@@ -210,7 +214,7 @@ func (p *Pool) Start() error {
 		p.Log.Printf("orphaned alloc %s", id)
 	}
 	p.ResourcePool.Init(resources, allocs)
-	return nil
+	return p.createCwLogGroup()
 }
 
 func (p *Pool) Resources() reflow.Resources {
@@ -312,6 +316,35 @@ type alloc struct {
 	remoteStream
 }
 
+// createCwLogGroup creates the cloudwatch log group if it doesn't already exist.
+func (p *Pool) createCwLogGroup() error {
+	if p.Session == nil {
+		return nil
+	}
+	cwl := cloudwatchlogs.New(p.Session)
+	out, err := cwl.DescribeLogGroups(&cloudwatchlogs.DescribeLogGroupsInput{LogGroupNamePrefix: aws.String(remoteStreamCWLogGroupName)})
+	if err != nil {
+		p.Log.Debugf("DescribeLogGroups: %v", err)
+	} else {
+		var found bool
+		for _, g := range out.LogGroups {
+			if found = aws.StringValue(g.LogGroupName) == remoteStreamCWLogGroupName; found {
+				break
+			}
+		}
+		if found {
+			return nil
+		}
+	}
+	_, err = cwl.CreateLogGroup(&cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(remoteStreamCWLogGroupName)})
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == cloudwatchlogs.ErrCodeResourceAlreadyExistsException {
+			err = nil
+		}
+	}
+	return err
+}
+
 // NewAlloc creates a new alloc. The returned alloc is not started.
 // keepalive is the duration to keep this alloc alive at the start
 // (i.e. before any keepalive requests).
@@ -327,10 +360,9 @@ func (p *Pool) newAlloc(id string, keepalive time.Duration) *alloc {
 		Log:           p.Log.Tee(nil, id+": "),
 		HardMemLimit:  p.HardMemLimit,
 	}
-
 	if p.Session != nil {
 		cwlclient := cloudwatchlogs.New(p.Session)
-		remoteStream, err := newCloudWatchLogs(cwlclient, "reflow")
+		remoteStream, err := newCloudWatchLogs(cwlclient, remoteStreamCWLogGroupName)
 		if err != nil {
 			log.Errorf("create remote logger: %v", err)
 		}

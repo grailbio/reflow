@@ -53,18 +53,11 @@ type cloudWatchLogs struct {
 	buffer chan logEntry
 }
 
-// NewCloudWatchLogs creates a new remote logger client for Amazon
-// CloudWatchLogs. The remoteLogger client can be used to create a new stream
-// and log to them.
+// newCloudWatchLogs creates a new remote logger client for AWS CloudWatchLogs.
+// The remoteLogger client can be used to create a new stream and log to them.
+// newCloudWatchLogs expects that the given cloudwatch logs group name already exists.
 func newCloudWatchLogs(client cloudwatchlogsiface.CloudWatchLogsAPI, group string) (remoteStream, error) {
 	cwl := &cloudWatchLogs{client: client, group: group}
-	_, err := cwl.client.CreateLogGroup(&cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
-	if err != nil {
-		aerr, ok := err.(awserr.Error)
-		if !ok || ok && aerr.Code() != cloudwatchlogs.ErrCodeResourceAlreadyExistsException {
-			return nil, err
-		}
-	}
 	cwl.buffer = make(chan logEntry, 1024)
 	cwl.loop()
 	return cwl, nil
@@ -72,21 +65,33 @@ func newCloudWatchLogs(client cloudwatchlogsiface.CloudWatchLogsAPI, group strin
 
 // NewStream creates new stream with the given stream prefix and type.
 func (c *cloudWatchLogs) NewStream(prefix string, sType streamType) (remoteLogsOutputter, error) {
-	stream := &cloudWatchLogsStream{
-		client: c,
-		name:   prefix + "/" + string(sType),
+	stream := &cloudWatchLogsStream{client: c, name: prefix + "/" + string(sType)}
+
+	out, err := c.client.DescribeLogStreams(&cloudwatchlogs.DescribeLogStreamsInput{
+		LogGroupName:        aws.String(stream.client.group),
+		LogStreamNamePrefix: aws.String(stream.name),
+	})
+	if err == nil {
+		var found bool
+		for _, s := range out.LogStreams {
+			if found = aws.StringValue(s.LogStreamName) == stream.name; found {
+				break
+			}
+		}
+		if found {
+			return stream, nil
+		}
 	}
-	_, err := c.client.CreateLogStream(&cloudwatchlogs.CreateLogStreamInput{
+	_, err = c.client.CreateLogStream(&cloudwatchlogs.CreateLogStreamInput{
 		LogGroupName:  aws.String(stream.client.group),
 		LogStreamName: aws.String(stream.name),
 	})
 	if err != nil {
-		aerr, ok := err.(awserr.Error)
-		if ok && aerr.Code() != cloudwatchlogs.ErrCodeResourceAlreadyExistsException {
-			return nil, err
+		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == cloudwatchlogs.ErrCodeResourceAlreadyExistsException {
+			err = nil
 		}
 	}
-	return stream, nil
+	return stream, err
 }
 
 func (c *cloudWatchLogs) Close() error {
