@@ -15,7 +15,6 @@ import (
 	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
-	"github.com/grailbio/reflow/log"
 )
 
 type TestPool struct {
@@ -40,7 +39,7 @@ func NewTestPool(r reflow.Resources) *TestPool {
 
 func NewNamedTestPool(name string, r reflow.Resources) *TestPool {
 	p := &TestPool{name: name}
-	p.ResourcePool = NewResourcePool(p, log.Std)
+	p.ResourcePool = NewResourcePool(p, nil)
 	p.Init(r, nil)
 	return p
 }
@@ -61,7 +60,6 @@ func (p *TestPool) New(ctx context.Context, id string, meta AllocMeta, ka time.D
 }
 
 func (p *TestPool) Kill(a Alloc) error {
-	log.Printf("kill alloc %s, %s", a.ID(), a.Resources())
 	return nil
 }
 

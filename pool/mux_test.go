@@ -8,6 +8,7 @@ import (
 	"context"
 	"net/url"
 	"sort"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -152,26 +153,30 @@ func TestMuxScaleWithCaching(t *testing.T) {
 	pools = append(pools, createPools(nSmall, small, "small")...)
 	pools = append(pools, createPools(nMedium, medium, "medium")...)
 	pools = append(pools, createPools(nLarge, large, "large")...)
-	var mux Mux
+	var (
+		mux Mux
+		wg  sync.WaitGroup
+	)
 	mux.SetCaching(true)
 	mux.SetPools(pools)
 
-	allocLifetime := time.Second
 	nAllocs := nSmall + 2*nMedium + 4*nLarge
-	if got, want := allocateMux(t, mux, nAllocs, allocLifetime), 0; got != want {
+	if got, want := allocateMux(t, mux, nAllocs, 100*time.Millisecond, &wg), 0; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
+	wg.Wait()
 	verifyCallCounts(t, pools, 1, 1)
-	time.Sleep(allocLifetime + 100*time.Millisecond)
-	if got, want := allocateMux(t, mux, nAllocs, allocLifetime), 0; got != want {
+	if got, want := allocateMux(t, mux, nAllocs, 100*time.Millisecond, &wg), 0; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
+	wg.Wait()
 	verifyCallCounts(t, pools, 1, 2)
 }
 
-func allocateMux(t *testing.T, mux Mux, n int, allocLifetime time.Duration) int {
+func allocateMux(t *testing.T, mux Mux, n int, allocLifetime time.Duration, wg *sync.WaitGroup) int {
 	var nFails int32
 	ctx := context.Background()
+	wg.Add(n)
 	err := traverse.Each(n, func(i int) error {
 		a, err := Allocate(ctx, &mux, reflow.Requirements{Min: small}, nil)
 		if err != nil {
@@ -183,6 +188,7 @@ func allocateMux(t *testing.T, mux Mux, n int, allocLifetime time.Duration) int 
 		}
 		// Free the alloc later
 		time.AfterFunc(allocLifetime, func() {
+			defer wg.Done()
 			if err := a.Free(ctx); err != nil {
 				t.Fatal(err)
 			}
