@@ -454,11 +454,14 @@ func TestGroupByLevel(t *testing.T) {
 const nanosInSecs = float64(time.Second)
 
 func TestValuePercentile(t *testing.T) {
-	const numData = 100
+	const numData, numNegData = 100, 10
 	// testdata is a the sequence of Max "mem" profile values 1, 2, 3, ..., 20
-	testData := make([]reflow.Profile, numData)
+	testData := make([]reflow.Profile, numData+numNegData)
 	for i := 0; i < numData; i++ {
 		testData[i] = reflow.Profile{"mem": {Max: float64(i + 1), First: time.Unix(0, 0), Last: time.Unix(int64(i+1)*100, 0)}}
+	}
+	for i := numData; i < numData+numNegData; i++ {
+		testData[i] = reflow.Profile{"mem": {Max: -float64(i + 1)}}
 	}
 
 	// 0th percentile of testdata is 1.

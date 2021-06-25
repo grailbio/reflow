@@ -249,7 +249,7 @@ func (p *Predictor) getProfiles(ctx context.Context, group taskGroup) ([]reflow.
 var (
 	// memMaxGetter gets the max value of "mem" resource from the given profile.
 	memMaxGetter = func(rp reflow.Profile) (float64, bool) {
-		if v, ok := rp["mem"]; !ok {
+		if v, ok := rp["mem"]; !ok || v.Max < 0 {
 			return 0.0, false
 		} else {
 			return v.Max, true
