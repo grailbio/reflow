@@ -921,7 +921,8 @@ func (t *TaskDB) Tasks(ctx context.Context, q taskdb.TaskQuery) ([]taskdb.Task, 
 				log.Errorf("taskdb.Allocs for tasks: %v", aerr)
 			} else {
 				for _, a := range allocs {
-					allocsById[a.ID] = &a
+					alloc := a
+					allocsById[a.ID] = &alloc
 				}
 				b := tasks[:0]
 				for _, t := range tasks {
@@ -1059,7 +1060,8 @@ func (t *TaskDB) Allocs(ctx context.Context, q taskdb.AllocQuery) ([]taskdb.Allo
 			log.Errorf("taskdb.Pools for allocs: %v", perr)
 		} else {
 			for _, pr := range prs {
-				pools[pr.ID] = &pr
+				p := pr
+				pools[pr.ID] = &p
 			}
 			b := allocs[:0]
 			for _, a := range allocs {
