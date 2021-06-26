@@ -68,8 +68,11 @@ If given a RunId or TaskId, the following info is shown:
 		tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 		switch n.Kind {
 		case idName:
+			// Always print local run info if available.
+			if ok := c.printLocalRunInfo(&tw, n.ID); ok {
+				fmt.Fprintln(&tw, divider)
+			}
 			switch {
-			case c.printLocalRunInfo(ctx, &tw, n.ID):
 			case c.printTdbRunInfo(ctx, &tw, n.ID):
 			case c.printTdbTaskInfo(ctx, &tw, n.ID):
 			case c.printCacheInfo(ctx, &tw, n.ID):
@@ -135,7 +138,7 @@ If given a RunId or TaskId, the following info is shown:
 }
 
 // printLocalRunInfo prints run info from the local run dir for the given run id (if found)
-func (c *Cmd) printLocalRunInfo(_ context.Context, w io.Writer, id digest.Digest) bool {
+func (c *Cmd) printLocalRunInfo(w io.Writer, id digest.Digest) bool {
 	f, err := os.Open(c.rundir())
 	if os.IsNotExist(err) {
 		return false

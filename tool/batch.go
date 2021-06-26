@@ -240,7 +240,7 @@ See runbatch -help for information about Reflow's batching mechanism.`
 			continue
 		}
 		fmt.Fprintf(&tw, "run %s: %s\n", id, run.State.ID.IDShort())
-		c.printLocalRunInfo(ctx, &tw, digest.Digest(run.State.ID))
+		c.printLocalRunInfo(&tw, digest.Digest(run.State.ID))
 		fmt.Fprintf(&tw, "\tlog:\t%s\n", filepath.Join(b.Dir, "log."+id))
 	}
 }

@@ -30,10 +30,10 @@ import (
 const (
 	allFlagValue = "_all_"
 	costHelp     = `
-Cost: The cost displayed is an exact cost if it does not have an "<" sign.
-If it does have an "<" sign, then the cost is an upper-bound.
-The cost can be an upper-bound if the exact cost incurred for the underlying instance
-is not available and the computation was based on the on-demand price (of the relevant instance type),
+Cost: The cost displayed is the total (cumulative) cost (as of now, if the run/task/pool is still running).
+It is an exact cost if it does not have an "<" sign. and an upper-bound otherwise.
+The cost can be an upper-bound if the exact cost incurred for the underlying instance is not available,
+and the computation was based on the on-demand price (of the relevant underlying instance type),
 which is the maximum bid reflow uses in the spot market.
 If only the upper-bound cost is displayed, the actual cost incurred can be smaller.
 `
@@ -79,6 +79,7 @@ var (
 		{"instanceid", "ID of the pool's underlying EC2 instance"},
 		{"type", "type of the EC2 instance"},
 		{"cost", "cost of the EC2 instance based on the duration of use"},
+		{"status", "current status of the pool's underlying instance"},
 		{"start", "start time of the pool"},
 		{"end", "if ended, end time of the pool, or the last keepalive"},
 		{"dur", "the duration for which the pool was live"},
@@ -722,13 +723,17 @@ func (c *Cmd) writePools(w io.Writer, pis []poolInfo, longListing bool) {
 				cost    = pi.cost(pi.TimeFields)
 				st, et  = formatStartEnd(pi.TimeFields)
 				id, iid string
+				status  = "running"
 			)
+			if !pi.End.IsZero() {
+				status = "ended"
+			}
 			if pid := pi.PoolID; pid.IsValid() {
 				id = pid.Digest().Short()
 				iid = pid.String()
 			}
 			s, e := pi.StartEnd()
-			fmt.Fprintf(w, "\t%s\t%s\t%s\t%s\t%s\t%s\t%s", id, iid, pi.PoolType, cost, st, et, e.Sub(s).Truncate(time.Minute))
+			fmt.Fprintf(w, "\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s", id, iid, pi.PoolType, cost, status, st, et, e.Sub(s).Truncate(time.Minute))
 			if longListing {
 				fmt.Fprintf(w, "\t%s\t%s", pi.Resources, pi.URI)
 			}
