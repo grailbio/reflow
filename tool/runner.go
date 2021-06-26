@@ -248,14 +248,15 @@ func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger, sch
 
 	// Configure the Predictor.
 	if runConfig.RunFlags.Pred {
-		var tdb taskdb.TaskDB
-		if err = runConfig.Config.Instance(&tdb); err != nil {
-			logger.Error(err)
-		}
-		if cfg, cerr := getPredictorConfig(runConfig, repo, tdb); cerr != nil {
+		if cfg, cerr := getPredictorConfig(runConfig.Config, false); cerr != nil {
 			logger.Errorf("error while configuring predictor: %s", cerr)
 		} else {
-			pred = predictor.New(repo, tdb, logger.Tee(nil, "predictor: "), cfg.MinData, cfg.MaxInspect, cfg.MemPercentile)
+			var tdb taskdb.TaskDB
+			if err = runConfig.Config.Instance(&tdb); err != nil {
+				logger.Error(err)
+			} else {
+				pred = predictor.New(repo, tdb, logger.Tee(nil, "predictor: "), cfg.MinData, cfg.MaxInspect, cfg.MemPercentile)
+			}
 		}
 	}
 	var runID *taskdb.RunID
@@ -652,31 +653,38 @@ func Runbase(rundir string, runID taskdb.RunID) string {
 	return filepath.Join(rundir, runID.Hex())
 }
 
-// getPredictorConfig returns a PredictorConfig if the Predictor can be used by reflow. The Predictor can only
-// be used if the following conditions are true:
-// 1. A repo is present for retrieving cached ExecInspects.
-// 2. A taskdb is present for querying tasks.
+// getPredictorConfig returns a PredictorConfig if the Predictor can be used by reflow.
+// The Predictor can only be used if the following conditions are true:
+// 1. A repo is provided for retrieving cached ExecInspects.
+// 2. A taskdb is present in the provided config, for querying tasks.
 // 3. The reflow config specifies MinData > 0 and MaxInspect >= MinData because a prediction cannot be made
 //    with no data.
-// 4. Reflow is being run from an ec2 instance or the Predictor config gives reflow explicit permission to
-//    run the Predictor non-ec2-instance machines (NonEC2Ok == true). This is because the Predictor is
-//    network-intensive and its performance will be severely hampered by a poor network connection.
-func getPredictorConfig(runConfig RunConfig, repo reflow.Repository, tdb taskdb.TaskDB) (*infra2.PredictorConfig, error) {
-	if repo == nil {
-		return nil, errors.New("no repo available")
+// 4. Reflow is being run from an ec2 instance OR either the Predictor config (using NonEC2Ok)
+//    or the flag nonEC2ok gives explicit permission to run the Predictor non-ec2-instance machines.
+//    This is because the Predictor is network-intensive and its performance will be hampered by poor network.
+func getPredictorConfig(cfg infra.Config, nonEC2ok bool) (*infra2.PredictorConfig, error) {
+	var (
+		predConfig *infra2.PredictorConfig
+		repo       reflow.Repository
+		tdb        taskdb.TaskDB
+	)
+	if err := cfg.Instance(&tdb); err != nil || tdb == nil {
+		return nil, errors.E("predictor config: no taskdb", err)
 	}
-	if tdb == nil {
-		return nil, errors.New("no taskdb available")
+	if err := cfg.Instance(&repo); err != nil {
+		return nil, errors.E("predictor config: no repo", err)
 	}
-	var predConfig *infra2.PredictorConfig
-	if err := runConfig.Config.Instance(&predConfig); err != nil || predConfig == nil {
-		return nil, fmt.Errorf("no predconfig available: %s", err)
+	if err := cfg.Instance(&predConfig); err != nil || predConfig == nil {
+		return nil, errors.E("predictor config: no predconfig", err)
 	}
 	var sess *session.Session
-	if err := runConfig.Config.Instance(&sess); err != nil || sess == nil {
-		return nil, fmt.Errorf("no session available: %s", err)
-	} else if md := ec2metadata.New(sess, &aws2.Config{MaxRetries: aws2.Int(3)}); !md.Available() && !predConfig.NonEC2Ok {
-		return nil, fmt.Errorf("reflow controller not running on ec2 instance")
+	if err := cfg.Instance(&sess); err != nil || sess == nil {
+		return nil, errors.E("predictor config: no session", err)
+	}
+	if !predConfig.NonEC2Ok && !nonEC2ok {
+		if md := ec2metadata.New(sess, &aws2.Config{MaxRetries: aws2.Int(3)}); !md.Available() {
+			return nil, fmt.Errorf("not running on ec2 instance (and nonEc2Ok is not true)")
+		}
 	}
 	return predConfig, nil
 }

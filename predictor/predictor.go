@@ -26,6 +26,7 @@ import (
 	"math"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -110,6 +111,42 @@ func New(repo reflow.Repository, tdb taskdb.TaskDB, log *log.Logger, minData, ma
 		memPercentile:  memPercentile,
 		inspectLimiter: inspectLimiter,
 	}
+}
+
+// ProfileQuery is used to query profiles.  One of its fields has to be specified.
+type ProfileQuery struct {
+	ImgCmdId taskdb.ImgCmdID
+	Ident    string
+}
+
+// QueryProfiles returns a list of profiles matching the given ProfileQuery.
+func (p *Predictor) QueryProfiles(ctx context.Context, q ProfileQuery) ([]reflow.Profile, error) {
+	var tg taskGroup
+	switch {
+	case q.ImgCmdId.IsValid():
+		tg = imgCmdGroup{imgCmdID: q.ImgCmdId}
+	case q.Ident != "":
+		tg = identGroup{ident: q.Ident}
+	default:
+		return nil, fmt.Errorf("invalid ProfileQuery: %v", q)
+	}
+	return p.getProfiles(ctx, tg)
+}
+
+// QueryPercentile computes the 'p'th percentile for the statistic 'name' across the given profiles.
+// QueryPercentile also returns n, ie, the number of values used to compute the returned percentile
+// and an error (if any).
+func (p *Predictor) QueryPercentile(profiles []reflow.Profile, name string, pct float64) (float64, int, error) {
+	fn, ok := extractFuncs[name]
+	if !ok {
+		names := make([]string, 0, len(extractFuncs))
+		for n := range extractFuncs {
+			names = append(names, n)
+		}
+		return 0, 0, fmt.Errorf("invalid name: %s (must be one of: %s)", name, strings.Join(names, ","))
+	}
+	v, n := valuePercentile(profiles, pct, fn)
+	return v, n, nil
 }
 
 // Predict returns the predicted Resources of submitted tasks. If Predict fails
@@ -267,7 +304,10 @@ func (p *Predictor) getProfiles(ctx context.Context, group taskGroup) ([]reflow.
 	return profiles, nil
 }
 
+type extractFunc func(reflow.Profile) (float64, bool)
+
 var (
+	extractFuncs = map[string]extractFunc{"mem": memMaxGetter, "duration": maxDurationGetter}
 	// memMaxGetter gets the max value of "mem" resource from the given profile.
 	memMaxGetter = func(rp reflow.Profile) (float64, bool) {
 		if v, ok := rp["mem"]; !ok || v.Max < 0 || v.Max > float64(maxMemThreshold) {
@@ -332,15 +372,16 @@ func groupByLevel(tasks []*sched.Task, level int) map[taskGroup][]*sched.Task {
 }
 
 // valuePercentile computes the 'p'th percentile of the value extracted across all the given profiles
-// by the given extractFunc.  If the extractFunc returns false, the value is ignored.
+// using the given extractFunc fn.  Values for which extractFunc returns false, are ignored.
+// valuePercentile also returns n, ie, the number of values used to compute the returned percentile.
 // A valid percentile is in the range [0, 100].  Any percentile outside of this range will result in a panic.
-func valuePercentile(profiles []reflow.Profile, p float64, extractFunc func(reflow.Profile) (float64, bool)) (float64, int) {
+func valuePercentile(profiles []reflow.Profile, p float64, fn extractFunc) (float64, int) {
 	if p < 0 || p > 100 {
 		panic(fmt.Sprintf("percentile %v is outside of range [0, 100].", p))
 	}
 	maxVals := make([]float64, 0, len(profiles))
 	for _, profile := range profiles {
-		v, ok := extractFunc(profile)
+		v, ok := fn(profile)
 		if !ok {
 			continue
 		}
