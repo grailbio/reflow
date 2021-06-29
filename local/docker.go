@@ -482,7 +482,7 @@ func (e *dockerExec) profile(ctx context.Context) stats {
 					continue
 				}
 				mu.Lock()
-				stats.Observe(k, float64(n))
+				stats.Observe(time.Now(), k, float64(n))
 				gauges[k] = float64(n)
 				mu.Unlock()
 			}
@@ -534,14 +534,14 @@ func (e *dockerExec) profile(ctx context.Context) stats {
 				// and so needs to be multiplied by the number of CPUs to get a
 				// portable load number.
 				load := ncpu * deltaCPU / deltaSys
-				stats.Observe("cpu", load)
+				stats.Observe(v.Read, "cpu", load)
 				gauges["cpu"] = load
 			}
 			// We exclude page cache memory since this is not counted towards
 			// your limits.
 			mem := float64(v.MemoryStats.Usage - v.MemoryStats.Stats["cache"])
 
-			stats.Observe("mem", mem)
+			stats.Observe(v.Read, "mem", mem)
 			gauges["mem"] = mem
 			e.Manifest.Gauges = gauges.Snapshot()
 			mu.Unlock()

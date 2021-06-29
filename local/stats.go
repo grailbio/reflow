@@ -52,7 +52,7 @@ func (s stats) Last(stat string) time.Time {
 	return s[stat].Last
 }
 
-func (s stats) Observe(stat string, v float64) {
+func (s stats) Observe(t time.Time, stat string, v float64) {
 	e := s[stat]
 	e.N++
 	if v > e.Max {
@@ -60,10 +60,15 @@ func (s stats) Observe(stat string, v float64) {
 	}
 	e.Sum += v
 	e.SumOfSquares += v * v
-	if e.First.IsZero() {
-		e.First = time.Now()
+	if t.IsZero() {
+		t = time.Now()
 	}
-	e.Last = time.Now()
+	if e.First.IsZero() || e.First.After(t) {
+		e.First = t
+	}
+	if e.Last.IsZero() || e.Last.Before(t) {
+		e.Last = t
+	}
 	s[stat] = e
 }
 
