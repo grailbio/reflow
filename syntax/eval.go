@@ -493,6 +493,9 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 				case types.MapKind:
 					m := vs[0].(*values.Map)
 					return values.NewInt(int64(m.Len())), nil
+				case types.StringKind:
+					s := vs[0].(string)
+					return values.NewInt(int64(len(s))), nil
 				default:
 					panic("bug")
 				}

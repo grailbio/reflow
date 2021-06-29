@@ -350,7 +350,8 @@ Builtin `len` evaluates to the length of the underlying data structure:
 - `len` of a file evaluates to the size of the file in bytes;
 - `len` of a directory returns the number of entries in the directory;
 - `len` of a list returns the number of entries in the list;
-- `len` of a map returns the number of entries in the map.
+- `len` of a map returns the number of entries in the map;
+- `len` of a string returns the length of a string.
 
 ### Numeric coercion: `int`, `float`
 

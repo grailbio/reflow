@@ -43,6 +43,7 @@ func TestEvalSimple(t *testing.T) {
 		{`1`, types.Int, values.NewInt(1)},
 		{`-1`, types.Int, values.NewInt(-1)},
 		{`"hello, world"`, types.String, "hello, world"},
+		{`len("hello, world")`, types.Int, values.NewInt(12)},
 		{
 			`{a: 123, b: ([1,2], "ok")}`,
 			types.Struct(

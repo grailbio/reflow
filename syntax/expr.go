@@ -817,7 +817,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		case "len":
 			arg0 := e.Fields[0].Expr
 			switch arg0.Type.Kind {
-			case types.FileKind, types.DirKind, types.ListKind, types.MapKind:
+			case types.FileKind, types.DirKind, types.ListKind, types.MapKind, types.StringKind:
 				e.Type = types.Swizzle(types.Int, types.Const, arg0.Type)
 			default:
 				e.Type = types.Errorf("cannot apply len operator to value of type %s", arg0.Type)
