@@ -79,6 +79,11 @@ func newMockRepo() *mockrepo {
 	}
 }
 
+func (m *mockrepo) Stat(ctx context.Context, d digest.Digest) (reflow.File, error) {
+	_, err := m.Get(ctx, d)
+	return reflow.File{}, err
+}
+
 func (m *mockrepo) Get(_ context.Context, d digest.Digest) (io.ReadCloser, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -130,6 +135,7 @@ func generateTasks(image, cmd, ident string, usedResource float64) (taskdb.Task,
 		Ident:    config.Ident,
 		Inspect:  reflow.Digester.FromBytes(b),
 	}
+	taskTaskdb.End = time.Now().Add(-time.Duration(rand.Intn(10)) * time.Minute)
 	taskSched := sched.Task{
 		ID:     id,
 		Config: config,

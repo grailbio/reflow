@@ -24,7 +24,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"math/rand"
 	"runtime"
 	"sort"
 	"sync"
@@ -199,23 +198,40 @@ func (p *Predictor) getProfiles(ctx context.Context, group taskGroup) ([]reflow.
 	if len(tasks) < p.minData {
 		return nil, errors.E(group.Name(), fmt.Errorf("insufficient tasks (%d < %d)", len(tasks), p.minData))
 	}
-
-	var inspectDigests = make([]digest.Digest, len(tasks))
-	for i, task := range tasks {
-		inspectDigests[i] = task.Inspect
+	ended := tasks[:0]
+	for _, task := range tasks {
+		if task.End.IsZero() {
+			continue
+		}
+		ended = append(ended, task)
 	}
+	tasks = ended
 
-	// In the event that there are over maxInspect inspects,
-	// randomly select maxInspect inspects to download and
-	// unmarshal.
-	if len(inspectDigests) > p.maxInspect {
-		src := rand.NewSource(time.Now().UnixNano())
-		rand.New(src).Shuffle(len(inspectDigests), func(i, j int) {
-			inspectDigests[i], inspectDigests[j] = inspectDigests[j], inspectDigests[i]
-		})
-		inspectDigests = inspectDigests[:p.maxInspect]
+	// sort tasks in descending order of end time.
+	// TODO(swami): Fix dynamodb query instead.
+	// To do this correctly (ie, get the most recent inspects), we should use sorting order in the dynamodb query.
+	// At the same time, we can also filter out "unended" tasks, those with zero values for `task.Inspect`, etc.
+	// Currently, its possible that we only got older tasks, but we are still sorting here
+	// to get the most recent among the ones we got in the first place.
+	sort.Slice(tasks, func(i, j int) bool {
+		return tasks[i].End.After(tasks[j].End)
+	})
+	inspectDigests := make([]digest.Digest, 0, p.maxInspect)
+	for _, task := range tasks {
+		// Limit the number of inspects we will use to maxInspect.
+		if len(inspectDigests) == p.maxInspect {
+			break
+		}
+		ins := task.Inspect
+		if ins.IsZero() {
+			continue
+		}
+		// Check if the inspect's reference in the repository is valid.
+		if _, err := p.repository.Stat(ctx, ins); err != nil {
+			continue
+		}
+		inspectDigests = append(inspectDigests, ins)
 	}
-
 	// Get all profiles for all tasks in the taskGroup.
 	var (
 		mu       sync.Mutex
@@ -223,7 +239,7 @@ func (p *Predictor) getProfiles(ctx context.Context, group taskGroup) ([]reflow.
 	)
 	_ = traverse.Each(len(inspectDigests), func(i int) error {
 		if inspectDigests[i].IsZero() {
-			return nil
+			panic(fmt.Sprintf("unexpectedly got nil digest"))
 		}
 		rc, err := p.repository.Get(ctx, inspectDigests[i])
 		if err != nil {
@@ -240,13 +256,12 @@ func (p *Predictor) getProfiles(ctx context.Context, group taskGroup) ([]reflow.
 		}
 		p.inspectLimiter.Release(1)
 
-		// Only use profiles with memory data
-		// to make memory predictions.
-		mu.Lock()
+		// Only use profiles with memory data to make memory predictions.
 		if _, ok := si.Profile["mem"]; ok && si.Error == nil && si.ExecError == nil {
+			mu.Lock()
 			profiles = append(profiles, si.Profile)
+			mu.Unlock()
 		}
-		mu.Unlock()
 		return nil
 	})
 	return profiles, nil
