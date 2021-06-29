@@ -12,10 +12,10 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
 	"text/tabwriter"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
@@ -124,6 +124,7 @@ func (c *Cmd) ps(ctx context.Context, args ...string) {
 	poolsFlag := flags.Bool("p", false, "show pools instead of runs and tasks")
 	verFlag := flags.String("p_version", "", "show pools with this reflow version instead")
 	clustNameFlag := flags.String("p_name", "", "show pools with this cluster name instead")
+	exactCostFlag := flags.Bool("exact_cost", false, "show exact cost for pools (if available)")
 	help := `--- ps lists runs and tasks
 
 Tasks associated with a run are listed below the run.
@@ -170,14 +171,22 @@ be set to the special value "` + allFlagValue + `".
 
 For example, the following query will return all pools that were active in the last 12 hours:
 	> reflow ps -p -since 12h -p_version ` + allFlagValue + ` -p_name ` + allFlagValue + `
+
+To get the exact cost for pools, add -exact_cost.
+(Note that one may still get non-exact costs in this case, depending on availability of spot feed data)
+
 `
-	c.Parse(flags, args, help, "ps [-i] [-l] [-a | -u <user>] [-since <time>] [-p] [-p_version <reflow_version>] [-p_name <cluster_name>]")
+	c.Parse(flags, args, help, "ps [-i] [-l] [-a | -u <user>] [-since <time>] [-p] [-p_version <reflow_version>] [-p_name <cluster_name>] [-exact_cost]")
 	if flags.NArg() != 0 {
 		flags.Usage()
 	}
 
 	if *userFlag != "" && *allUsersFlag {
 		flags.Usage()
+	}
+
+	if !*poolsFlag && *exactCostFlag {
+		c.Fatalf("-exact_cost only works with -p")
 	}
 
 	var tdb taskdb.TaskDB
@@ -351,7 +360,7 @@ For example, the following query will return all pools that were active in the l
 		default:
 			q.Cluster.ClusterName = *clustNameFlag
 		}
-		prs, err := c.poolInfo(ctx, q)
+		prs, err := c.poolInfos(ctx, q, *exactCostFlag)
 		if err != nil {
 			c.Fatalf("poolInfo: %v", err)
 		}
@@ -463,6 +472,7 @@ func (c *Cmd) taskInfo(ctx context.Context, q taskdb.TaskQuery, liveOnly, cost b
 		})
 	}
 	err = g.Wait()
+	cc := c.costComputer(ctx, false, time.Now(), time.Now())
 	b := ti[:0]
 	for _, t := range ti {
 		if !t.Task.ID.IsValid() {
@@ -470,8 +480,7 @@ func (c *Cmd) taskInfo(ctx context.Context, q taskdb.TaskQuery, liveOnly, cost b
 		}
 		if cost && t.Alloc != nil && t.Alloc.Pool != nil {
 			a, p := t.Alloc, t.Alloc.Pool
-			// TODO(swami): Get appropriate region
-			pi := poolInfo{*p, "us-west-2"}
+			pi := poolInfo{*p, cc}
 			t.cost = pi.cost(t.TimeFields) // cost of the pool for the task's duration
 			// Scale the cost by the ratio of the task's resources to the alloc's resources.
 			t.cost.Mul(t.Resources.MaxRatio(a.Resources))
@@ -525,40 +534,47 @@ func (c *Cmd) runInfo(ctx context.Context, q taskdb.RunQuery, liveOnly, cost boo
 
 type poolInfo struct {
 	taskdb.PoolRow
-	region string
+	cc *costComputer
+}
+
+func diffTimes(a, b time.Time) time.Duration {
+	if a.Before(b) {
+		return b.Sub(a)
+	}
+	return a.Sub(b)
 }
 
 func (p poolInfo) cost(c taskdb.TimeFields) (cost Cost) {
 	start, end := c.StartEnd()
-	if typ := p.PoolType; typ != "" {
-		if hourlyPriceUsd := ec2cluster.OnDemandPrice(typ, p.region); hourlyPriceUsd > 0 {
-			cost = NewCostUB(hourlyPriceUsd * end.Sub(start).Hours())
-		}
-	}
-	return
+	return p.cc.compute(p.PoolID.String(), p.PoolType, p.End, start, end)
 }
 
-func (c *Cmd) poolInfo(ctx context.Context, q taskdb.PoolQuery) ([]poolInfo, error) {
-	var sess *session.Session
-	if err := c.Config.Instance(&sess); err != nil {
-		c.Fatal(err)
-	}
-	region := *sess.Config.Region
+func (c *Cmd) poolInfos(ctx context.Context, q taskdb.PoolQuery, exactCost bool) ([]poolInfo, error) {
 	var tdb taskdb.TaskDB
 	if err := c.Config.Instance(&tdb); err != nil {
 		c.Fatalf("taskdb: %v", err)
 	}
 	if tdb == nil {
-		return nil, fmt.Errorf("poolInfo: no taskdb")
+		return nil, fmt.Errorf("poolInfos: no taskdb")
 	}
+	var (
+		cc *costComputer
+		wg sync.WaitGroup
+	)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		cc = c.costComputer(ctx, exactCost, q.Since, time.Now())
+	}()
 	prs, err := tdb.Pools(ctx, q)
-	return poolInfos(prs, region), err
+	wg.Wait()
+	return poolInfos(prs, cc), err
 }
 
-func poolInfos(prs []taskdb.PoolRow, region string) []poolInfo {
+func poolInfos(prs []taskdb.PoolRow, cc *costComputer) []poolInfo {
 	pis := make([]poolInfo, len(prs))
 	for i, pr := range prs {
-		pis[i] = poolInfo{PoolRow: pr, region: region}
+		pis[i] = poolInfo{PoolRow: pr, cc: cc}
 	}
 	return pis
 }
