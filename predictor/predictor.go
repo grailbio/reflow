@@ -30,6 +30,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/base/traverse"
@@ -39,6 +40,11 @@ import (
 	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/taskdb"
 )
+
+// maxMemThreshold is the max memory threshold and any profile values above this threshold are ignored.
+// The value is based on the max memory (~3.8TiB) on an EC2 instance type (x1e.32xlarge) available to reflow.
+// TODO(swami): Determine why we get such large values and fix the underlying issue.
+const maxMemThreshold = 4 * data.TiB
 
 // Predictor predicts tasks' resource usage. All predictions
 // are performed online using cached profiling data.
@@ -249,7 +255,7 @@ func (p *Predictor) getProfiles(ctx context.Context, group taskGroup) ([]reflow.
 var (
 	// memMaxGetter gets the max value of "mem" resource from the given profile.
 	memMaxGetter = func(rp reflow.Profile) (float64, bool) {
-		if v, ok := rp["mem"]; !ok || v.Max < 0 {
+		if v, ok := rp["mem"]; !ok || v.Max < 0 || v.Max > float64(maxMemThreshold) {
 			return 0.0, false
 		} else {
 			return v.Max, true
