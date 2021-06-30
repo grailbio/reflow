@@ -3,10 +3,15 @@ package tool
 import "testing"
 
 func TestCost(t *testing.T) {
+	var nilCost Cost
 	for _, tt := range []struct {
 		a, b, want Cost
 		m          float64
 	}{
+		{NewCostExact(1.0), nilCost, NewCostExact(1.0), 1},
+		{nilCost, NewCostExact(1.0), NewCostExact(1.0), 1},
+		{NewCostExact(1.0), NewCostUB(0), NewCostUB(1.0), 1},
+		{NewCostUB(0.0), NewCostExact(1.0), NewCostUB(1.0), 1},
 		{NewCostExact(1.0), NewCostExact(2.5), NewCostExact(3.5), 1},
 		{NewCostUB(1.0), NewCostExact(2.5), NewCostUB(3.5), 1},
 		{NewCostExact(1.0), NewCostUB(2.5), NewCostUB(3.5), 1},
