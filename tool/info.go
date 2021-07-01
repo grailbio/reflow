@@ -32,6 +32,8 @@ import (
 
 func (c *Cmd) info(ctx context.Context, args ...string) {
 	flags := flag.NewFlagSet("info", flag.ExitOnError)
+	exactCostFlag := flags.Bool("exact_cost", false, "show exact cost for runs (if available)")
+
 	help := `Info displays general information about Reflow objects.
 
 Info displays information about:
@@ -49,8 +51,10 @@ Abbreviated IDs are expanded where possible.
 If given a RunId or TaskId, the following info is shown:
 ` + runTaskHelp + `
 ` + costHelp + `
+
+Exact costs are shown (if available) only for runs.
 `
-	c.Parse(flags, args, help, "info names...")
+	c.Parse(flags, args, help, "info [-exact_cost] names...")
 	if flags.NArg() == 0 {
 		flags.Usage()
 	}
@@ -73,7 +77,7 @@ If given a RunId or TaskId, the following info is shown:
 				fmt.Fprintln(&tw, divider)
 			}
 			switch {
-			case c.printTdbRunInfo(ctx, &tw, n.ID):
+			case c.printTdbRunInfo(ctx, &tw, n.ID, *exactCostFlag):
 			case c.printTdbTaskInfo(ctx, &tw, n.ID):
 			case c.printCacheInfo(ctx, &tw, n.ID):
 			case c.printFileInfo(ctx, &tw, n.ID):
@@ -219,9 +223,9 @@ func (c *Cmd) printLocalRunInfo(w io.Writer, id digest.Digest) bool {
 	return true
 }
 
-func (c *Cmd) printTdbRunInfo(ctx context.Context, w io.Writer, runId digest.Digest) bool {
+func (c *Cmd) printTdbRunInfo(ctx context.Context, w io.Writer, runId digest.Digest, exactCost bool) bool {
 	q := taskdb.RunQuery{ID: taskdb.RunID(runId)}
-	infos, err := c.runInfo(ctx, q, false /* liveOnly */, true /* cost */)
+	infos, err := c.runInfo(ctx, q, false /* liveOnly */, exactCost)
 	if err != nil {
 		c.Log.Debugf("RunQuery %v: %v", q, err)
 	}
@@ -234,7 +238,7 @@ func (c *Cmd) printTdbRunInfo(ctx context.Context, w io.Writer, runId digest.Dig
 
 func (c *Cmd) printTdbTaskInfo(ctx context.Context, w io.Writer, taskId digest.Digest) bool {
 	q := taskdb.TaskQuery{ID: taskdb.TaskID(taskId)}
-	infos, err := c.taskInfo(ctx, q, false /* liveOnly */, true /* cost */)
+	infos, err := c.taskInfo(ctx, q, false /* liveOnly */, true /* cost */, nil)
 	if err != nil {
 		c.Log.Debugf("TaskQuery %v: %v", q, err)
 	}

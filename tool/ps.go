@@ -420,7 +420,7 @@ type taskInfo struct {
 	reflow.ExecInspect
 }
 
-func (c *Cmd) taskInfo(ctx context.Context, q taskdb.TaskQuery, liveOnly, cost bool) ([]taskInfo, error) {
+func (c *Cmd) taskInfo(ctx context.Context, q taskdb.TaskQuery, liveOnly, cost bool, cc *costComputer) ([]taskInfo, error) {
 	var tdb taskdb.TaskDB
 	err := c.Config.Instance(&tdb)
 	if err != nil {
@@ -472,7 +472,6 @@ func (c *Cmd) taskInfo(ctx context.Context, q taskdb.TaskQuery, liveOnly, cost b
 		})
 	}
 	err = g.Wait()
-	cc := c.costComputer(ctx, false, time.Now(), time.Now())
 	b := ti[:0]
 	for _, t := range ti {
 		if !t.Task.ID.IsValid() {
@@ -501,7 +500,7 @@ type runInfo struct {
 	taskInfo []taskInfo
 }
 
-func (c *Cmd) runInfo(ctx context.Context, q taskdb.RunQuery, liveOnly, cost bool) ([]runInfo, error) {
+func (c *Cmd) runInfo(ctx context.Context, q taskdb.RunQuery, liveOnly, exactCost bool) ([]runInfo, error) {
 	var tdb taskdb.TaskDB
 	err := c.Config.Instance(&tdb)
 	if err != nil {
@@ -510,17 +509,28 @@ func (c *Cmd) runInfo(ctx context.Context, q taskdb.RunQuery, liveOnly, cost boo
 	if tdb == nil {
 		log.Fatal("nil taskdb")
 	}
-	r, err := tdb.Runs(ctx, q)
+	runs, err := tdb.Runs(ctx, q)
 	if err != nil {
 		log.Error(err)
 	}
-	ri := make([]runInfo, len(r))
+	var runsSt, runsEt time.Time
+	for _, run := range runs {
+		st, et := run.StartEnd()
+		if runsSt.IsZero() || st.Before(runsSt) {
+			runsSt = st
+		}
+		if runsEt.IsZero() || et.After(runsEt) {
+			runsEt = et
+		}
+	}
+	cc := c.costComputer(ctx, exactCost, runsSt, runsEt)
+	ri := make([]runInfo, len(runs))
 	g, gctx := errgroup.WithContext(ctx)
-	for i, run := range r {
+	for i, run := range runs {
 		i, run := i, run
 		g.Go(func() error {
 			qu := taskdb.TaskQuery{RunID: run.ID}
-			ti, terr := c.taskInfo(gctx, qu, liveOnly, cost)
+			ti, terr := c.taskInfo(gctx, qu, liveOnly, true, cc)
 			if terr != nil {
 				log.Debug(terr)
 			}
