@@ -1921,13 +1921,12 @@ func (e *Eval) taskWait(ctx context.Context, f *Flow, task *sched.Task) error {
 func (e *Eval) newTask(f *Flow) *sched.Task {
 	// TODO(swami): Consider encapsulating task fields (where applicable) and passing at construction.
 	t := sched.NewTask()
-	t.ID = taskdb.TaskID(reflow.Digester.Rand(nil))
 	t.RunID = e.RunID
 	t.FlowID = f.Digest()
 	t.Config = f.ExecConfig()
 	t.Repository = e.Repository
 	t.PostUseChecksum = e.PostUseChecksum
-	t.Log = e.Log.Tee(nil, fmt.Sprintf("scheduler task %s (flow %s): ", t.ID.IDShort(), t.FlowID.Short()))
+	t.Log = e.Log
 	return t
 }
 
@@ -1949,9 +1948,9 @@ func (e *Eval) reviseResources(ctx context.Context, tasks []*sched.Task, flows [
 			newReserved["mem"] = math.Max(newReserved["mem"], minExecMemory)
 			e.Mutate(f, SetReserved(newReserved))
 			task.Config = f.ExecConfig()
-			e.Log.Debugf("task %s (flow %s): modifying resources from %s to %s", task.ID.IDShort(), task.FlowID.Short(), oldResources, task.Config.Resources)
+			e.Log.Debugf("(flow %s): modifying resources from %s to %s", task.FlowID.Short(), oldResources, task.Config.Resources)
 			task.ExpectedDuration = predicted.Duration
-			e.Log.Debugf("task %s (flow %s): predicted duration %s", task.ID.IDShort(), task.FlowID.Short(), predicted.Duration.Round(time.Second))
+			e.Log.Debugf("(flow %s): predicted duration %s", task.FlowID.Short(), predicted.Duration.Round(time.Second))
 		}
 	}
 }
@@ -1963,7 +1962,7 @@ func (e *Eval) retryTask(ctx context.Context, f *Flow, resources reflow.Resource
 	f.ExecReset()
 	e.Mutate(f, SetReserved(resources), Execing)
 	task := e.newTask(f)
-	e.Log.Printf("flow %s: %s: re-submitting task %s with %s", f.Digest().Short(), retryType, task.ID.IDShort(), msg)
+	e.Log.Printf("flow %s: %s: re-submitting task with %s", f.Digest().Short(), retryType, msg)
 	e.Scheduler.Submit(task)
 	return task, e.taskWait(ctx, f, task)
 }

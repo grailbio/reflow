@@ -40,7 +40,7 @@ func (a *AllocStats) AssignTask(task *Task) {
 	a.Mutex.Lock()
 	defer a.Mutex.Unlock()
 	a.Resources.Sub(a.Resources, task.Config.Resources)
-	a.TaskIDs[task.ID.ID()] = 1
+	a.TaskIDs[GetTaskStatsId(task)] = 1
 }
 
 // RemoveTask removes the alloc<->task association.
@@ -48,7 +48,7 @@ func (a *AllocStats) RemoveTask(task *Task) {
 	a.Mutex.Lock()
 	defer a.Mutex.Unlock()
 	a.Resources.Add(a.Resources, task.Config.Resources)
-	delete(a.TaskIDs, task.ID.ID())
+	delete(a.TaskIDs, GetTaskStatsId(task))
 }
 
 // MarkDead marks an alloc dead.
@@ -84,6 +84,8 @@ type TaskStatsData struct {
 	Error error
 	// RunID is the run the task belongs to.
 	RunID string
+	// FlowID is the flow corresponding to this task.
+	FlowID string
 }
 
 // TaskStats is the per task info and stats used to update stats.
@@ -175,8 +177,8 @@ func (s *Stats) AddTasks(tasks []*Task) {
 	defer s.Mutex.Unlock()
 	s.TotalTasks += int64(len(tasks))
 	for _, t := range tasks {
-		s.Tasks[t.ID.ID()] = &TaskStats{TaskStatsData: TaskStatsData{Ident: t.Config.Ident, Type: t.Config.Type, RunID: t.RunID.ID()}}
-		t.stats = s.Tasks[t.ID.ID()]
+		s.Tasks[GetTaskStatsId(t)] = &TaskStats{TaskStatsData: TaskStatsData{Ident: t.Config.Ident, Type: t.Config.Type, RunID: t.RunID.ID(), FlowID: t.FlowID.String()}}
+		t.stats = s.Tasks[GetTaskStatsId(t)]
 	}
 }
 
@@ -184,7 +186,7 @@ func (s *Stats) AddTasks(tasks []*Task) {
 func (s *Stats) ReturnTask(task *Task, alloc *alloc) {
 	s.Mutex.Lock()
 	defer s.Mutex.Unlock()
-	t := s.Tasks[task.ID.ID()]
+	t := s.Tasks[GetTaskStatsId(task)]
 	t.Update(task)
 	a := s.Allocs[alloc.id]
 	a.RemoveTask(task)
@@ -194,7 +196,7 @@ func (s *Stats) ReturnTask(task *Task, alloc *alloc) {
 func (s *Stats) AssignTask(task *Task, alloc *alloc) {
 	s.Mutex.Lock()
 	defer s.Mutex.Unlock()
-	t := s.Tasks[task.ID.ID()]
+	t := s.Tasks[GetTaskStatsId(task)]
 	t.Update(task)
 	a := s.Allocs[alloc.id]
 	a.AssignTask(task)
@@ -232,4 +234,8 @@ func (s *Stats) GetStats() StatsData {
 	}
 	s.Mutex.Unlock()
 	return copy
+}
+
+func GetTaskStatsId(task *Task) string {
+	return task.FlowID.String()
 }

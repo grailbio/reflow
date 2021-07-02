@@ -33,6 +33,7 @@ import (
 func (c *Cmd) info(ctx context.Context, args ...string) {
 	flags := flag.NewFlagSet("info", flag.ExitOnError)
 	exactCostFlag := flags.Bool("exact_cost", false, "show exact cost for runs (if available)")
+	fullIdsFlag := flags.Bool("full_ids", false, "show full ids for runs/tasks (instead of the short form)")
 
 	help := `Info displays general information about Reflow objects.
 
@@ -77,7 +78,7 @@ Exact costs are shown (if available) only for runs.
 				fmt.Fprintln(&tw, divider)
 			}
 			switch {
-			case c.printTdbRunInfo(ctx, &tw, n.ID, *exactCostFlag):
+			case c.printTdbRunInfo(ctx, &tw, n.ID, *exactCostFlag, *fullIdsFlag):
 			case c.printTdbTaskInfo(ctx, &tw, n.ID):
 			case c.printCacheInfo(ctx, &tw, n.ID):
 			case c.printFileInfo(ctx, &tw, n.ID):
@@ -224,7 +225,7 @@ func (c *Cmd) printLocalRunInfo(w io.Writer, id digest.Digest) bool {
 	return true
 }
 
-func (c *Cmd) printTdbRunInfo(ctx context.Context, w io.Writer, runId digest.Digest, exactCost bool) bool {
+func (c *Cmd) printTdbRunInfo(ctx context.Context, w io.Writer, runId digest.Digest, exactCost, fullIds bool) bool {
 	q := taskdb.RunQuery{ID: taskdb.RunID(runId)}
 	infos, err := c.runInfo(ctx, q, false /* liveOnly */, exactCost)
 	if err != nil {
@@ -233,7 +234,7 @@ func (c *Cmd) printTdbRunInfo(ctx context.Context, w io.Writer, runId digest.Dig
 	if len(infos) == 0 {
 		return false
 	}
-	c.writeRuns(infos, w, true)
+	c.writeRuns(infos, w, true, fullIds)
 	return true
 }
 
@@ -248,7 +249,7 @@ func (c *Cmd) printTdbTaskInfo(ctx context.Context, w io.Writer, taskId digest.D
 	}
 	printTaskHeader(w, true)
 	for _, t := range infos {
-		c.writeTask(t, w, true)
+		c.writeTask(t, w, true, true)
 	}
 	return true
 }

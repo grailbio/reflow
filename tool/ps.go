@@ -379,7 +379,7 @@ To get the exact cost for pools, add -exact_cost.
 	var tw tabwriter.Writer
 	tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 	defer tw.Flush()
-	c.writeRuns(ri, &tw, *longFlag)
+	c.writeRuns(ri, &tw, *longFlag, false)
 }
 
 type execInfo struct {
@@ -598,7 +598,7 @@ func printTaskHeader(w io.Writer, longListing bool) {
 	fmt.Fprint(w, "\n")
 }
 
-func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing bool) {
+func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing, fullIds bool) {
 	for _, run := range ri {
 		if len(run.taskInfo) == 0 {
 			continue
@@ -612,8 +612,12 @@ func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing bool) {
 		sys := getShort(run.Run.SysLog)
 		graph := getShort(run.Run.EvalGraph)
 		trace := getShort(run.Run.Trace)
+		runId := run.Run.ID.IDShort()
+		if fullIds {
+			runId = run.Run.ID.ID()
+		}
 		fmt.Fprint(w, header(runCols), "\n")
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s", run.Run.ID.IDShort(), run.Run.User, st, et, cost)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s", runId, run.Run.User, st, et, cost)
 		fmt.Fprintf(w, "\t%s\t%s\t%s\t%s", exec, sys, graph, trace)
 		fmt.Fprintf(w, "\n\n")
 		printTaskHeader(w, longListing)
@@ -621,7 +625,7 @@ func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing bool) {
 			if !task.Task.ID.IsValid() {
 				continue
 			}
-			c.writeTask(task, w, longListing)
+			c.writeTask(task, w, longListing, fullIds)
 		}
 		fmt.Fprint(w, "\n")
 	}
@@ -653,7 +657,7 @@ func formatStartEnd(c taskdb.TimeFields) (st, et string) {
 	return
 }
 
-func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
+func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing, fullIds bool) {
 	var (
 		procs, ident, state string
 		info                = task.ExecInspect
@@ -710,7 +714,11 @@ func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
 	}
 	s, e := task.StartEnd()
 	dur := e.Sub(s).Truncate(time.Second)
-	fmt.Fprintf(w, "\t%s\t%s\t%d\t%s", task.ID.IDShort(), getShort(task.FlowID), 1+task.Attempt, ident)
+	tid := task.ID.IDShort()
+	if fullIds {
+		tid = task.ID.ID()
+	}
+	fmt.Fprintf(w, "\t%s\t%s\t%d\t%s", tid, getShort(task.FlowID), 1+task.Attempt, ident)
 	fmt.Fprintf(w, "\t%s\t%s\t%s\t%s", task.cost, st, et, dur)
 	fmt.Fprintf(w, "\t%s\t%s\t%s\t%.1f\t%s\t%s", runtime.Truncate(time.Second), state, data.Size(mem), cpu, data.Size(disk), procs)
 	if longListing {

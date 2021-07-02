@@ -293,7 +293,7 @@ func (t *taskSubmitter) submit(nodes []*taskNode) {
 		go func() {
 			defer t.wg.Done()
 			if err := node.task.Wait(context.TODO(), sched.TaskDone); err != nil {
-				log.Printf("wait %v: %v", node.task.ID, err)
+				log.Printf("wait %v: %v", node.task.ID(), err)
 			}
 			t.submit(node.children)
 		}()

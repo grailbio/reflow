@@ -28,7 +28,6 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/sched"
-	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/test/testutil"
 )
 
@@ -53,8 +52,7 @@ func NewTask(cpu, mem float64, priority int) *sched.Task {
 	task := sched.NewTask()
 	task.Priority = priority
 	task.Config.Resources = reflow.Resources{"cpu": cpu, "mem": mem}
-	task.ID = taskdb.NewTaskID()
-	task.FlowID = reflow.Digester.FromString("test-flow-id")
+	task.FlowID = reflow.Digester.Rand(nil)
 	task.PostUseChecksum = true
 	if *logTasks {
 		SetLogger(task)
@@ -63,7 +61,7 @@ func NewTask(cpu, mem float64, priority int) *sched.Task {
 }
 
 func SetLogger(task *sched.Task) {
-	out := golog.New(os.Stderr, fmt.Sprintf("task %s (%s): ", task.ID.IDShort(), task.Config.Resources), golog.LstdFlags)
+	out := golog.New(os.Stderr, "", golog.LstdFlags)
 	task.Log = log.New(out, log.DebugLevel)
 }
 

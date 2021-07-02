@@ -142,19 +142,16 @@ func generateTasks(image, cmd, ident string, usedResource float64) (taskdb.Task,
 			},
 		},
 	}
-	id := taskdb.NewTaskID()
 	b, _ := json.Marshal(execInspect)
+	taskSched := sched.Task{Config: config}
+	taskSched.Init()
 	taskTaskdb := taskdb.Task{
-		ID:       id,
+		ID:       taskSched.ID(),
 		ImgCmdID: taskdb.NewImgCmdID(config.Image, config.Cmd),
 		Ident:    config.Ident,
 		Inspect:  reflow.Digester.FromBytes(b),
 	}
 	taskTaskdb.End = time.Now().Add(-time.Duration(rand.Intn(10)) * time.Minute)
-	taskSched := sched.Task{
-		ID:     id,
-		Config: config,
-	}
 	return taskTaskdb, &taskSched, execInspect
 }
 
@@ -321,7 +318,6 @@ func TestPredictMultiGroup(t *testing.T) {
 	// Append a task whose resources cannot be predicted with the cached profiling data.
 	// The total number of tasks will now be numTasks + 1.
 	tasks = append(tasks, &sched.Task{
-		ID: taskdb.NewTaskID(),
 		Config: reflow.ExecConfig{
 			Ident: "badident",
 			Image: "badimage",

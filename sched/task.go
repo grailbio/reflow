@@ -6,6 +6,8 @@ package sched
 
 import (
 	"context"
+	"fmt"
+	"runtime"
 	"sync"
 	"time"
 
@@ -55,8 +57,6 @@ func (s TaskState) String() string {
 // a scheduler which in turn schedules them onto allocs. After
 // submission, all coordination is performed through the task struct.
 type Task struct {
-	// ID is a caller-assigned identifier for the task.
-	ID taskdb.TaskID
 	// Config is the task's exec config, which is passed on to the
 	// alloc after scheduling.
 	Config reflow.ExecConfig
@@ -109,6 +109,8 @@ type Task struct {
 	index int
 	stats *TaskStats
 
+	// id is a scheduler-assigned identifier for the task's attempt.
+	id taskdb.TaskID
 	// attempt stores the (zero-based) current attempt number for this task.
 	attempt int
 
@@ -131,6 +133,19 @@ func (t *Task) State() TaskState {
 	return t.state
 }
 
+// ID is the identifier for this task.
+// ID is only set when the scheduler attempts the task.
+// Attempts to read the ID before it is set will panic.
+func (t *Task) ID() taskdb.TaskID {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.id.IsValid() {
+		_, file, line, _ := runtime.Caller(1)
+		panic(fmt.Sprintf("must not call sched.Task.ID() before it is set: %s:%d", file, line))
+	}
+	return t.id
+}
+
 // Attempt returns the task's current attempt index (zero-based).
 func (t *Task) Attempt() int {
 	t.mu.Lock()
@@ -150,10 +165,25 @@ func (t *Task) Wait(ctx context.Context, state TaskState) error {
 	return err
 }
 
-// Reset resets the task's state to `TaskInit` and increases its attempt count.
+// Init initializes the task's ID.
+func (t *Task) Init() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.assignId()
+}
+
+func (t *Task) assignId() {
+	t.id = taskdb.TaskID(reflow.Digester.Rand(nil))
+}
+
+// Reset resets the task.  That is:
+// - it resets the task's state to `TaskInit`
+// - assigns a new id for the task
+// - increases its attempt count.
 func (t *Task) Reset() {
 	mutate(t, func(target *Task) {
 		target.state = TaskInit
+		target.assignId()
 		target.attempt++
 	})
 }
