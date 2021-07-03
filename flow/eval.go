@@ -10,7 +10,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -128,10 +127,6 @@ type EvalConfig struct {
 	// An (optional) logger to print evaluation trace.
 	Trace *log.Logger
 
-	// Transferer is used to arrange transfers between repositories,
-	// including nodes and caches.
-	Transferer reflow.Transferer
-
 	// Repository is the main, shared repository between evaluations.
 	Repository reflow.Repository
 
@@ -199,9 +194,6 @@ func (e EvalConfig) String() string {
 	}
 	if e.Snapshotter != nil {
 		fmt.Fprintf(&b, " snapshotter %T", e.Snapshotter)
-	}
-	if e.Transferer != nil {
-		fmt.Fprintf(&b, " transferer %T", e.Transferer)
 	}
 	if e.Repository != nil {
 		repo := fmt.Sprintf("%T", e.Repository)
@@ -287,9 +279,6 @@ type Eval struct {
 	// Informational channels for printing status.
 	needLog []*Flow
 
-	// Repo is the repository from which execs have object access.
-	repo reflow.Repository
-
 	// these maintain status printing state
 	begin           time.Time
 	prevStateCounts counters
@@ -322,7 +311,6 @@ func NewEval(root *Flow, config EvalConfig) *Eval {
 		returnch:   make(chan *Flow, 1024),
 		pending:    newWorkingset(),
 	}
-	e.repo = e.Repository
 
 	// We require a snapshotter for delayed loads when using a scheduler.
 	if e.Scheduler != nil && e.Snapshotter == nil {
@@ -688,7 +676,7 @@ func (e *Eval) LogSummary(log *log.Logger) {
 	fmt.Fprintf(&b, "total n=%d time=%s\n", n, round(e.totalTime))
 	var tw tabwriter.Writer
 	tw.Init(newPrefixWriter(&b, "\t"), 4, 4, 1, ' ', 0)
-	fmt.Fprintln(&tw, "ident\tn\tncache\ttransfer\truntime(m)\tcpu\tmem(GiB)\tdisk(GiB)\ttmp(GiB)\trequested")
+	fmt.Fprintln(&tw, "ident\tn\tncache\truntime(m)\tcpu\tmem(GiB)\tdisk(GiB)\ttmp(GiB)\trequested")
 	idents := make([]string, 0, len(stats))
 	for ident := range stats {
 		idents = append(idents, ident)
@@ -1079,7 +1067,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 		for i, dep := range f.Deps {
 			vs[i] = dep.Value
 		}
-		ff := f.Kctx(kCtx{ctx, e.repo}, vs)
+		ff := f.Kctx(kCtx{ctx, e.Repository}, vs)
 		e.Mutate(f, Fork(ff), Init)
 		e.Mutate(f.Parent, Done)
 	case Coerce:
@@ -1091,7 +1079,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 	case Requirements:
 		e.Mutate(f, Value{f.Deps[0].Value}, Done)
 	case Data:
-		if id, err := e.repo.Put(ctx, bytes.NewReader(f.Data)); err != nil {
+		if id, err := e.Repository.Put(ctx, bytes.NewReader(f.Data)); err != nil {
 			e.Mutate(f, err, Done)
 		} else {
 			e.Mutate(f, reflow.Fileset{
@@ -1121,7 +1109,7 @@ func (e *Eval) eval(ctx context.Context, f *Flow) (err error) {
 // CacheWrite writes the cache entry for flow f, with objects in the provided
 // source repository. CacheWrite returns nil on success, or else the first error
 // encountered.
-func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) error {
+func (e *Eval) CacheWrite(ctx context.Context, f *Flow) error {
 	var endTrace func()
 	ctx, endTrace = trace.Start(ctx, trace.Cache, f.Digest(), fmt.Sprintf("cache write %s", f.Digest().Short()))
 	defer endTrace()
@@ -1149,8 +1137,20 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) 
 	if len(keys) == 0 {
 		return nil
 	}
-	if err := e.Transferer.Transfer(ctx, e.Repository, repo, fs.Files()...); err != nil {
+	// We expect the fileset to contain only resolved files and to already exist
+	// in the shared repository (because the scheduler should've transferred them).
+	if missing, err := repository.Missing(ctx, e.Repository, fs.Files()...); err != nil {
 		return err
+	} else if n := len(missing); n > 0 {
+		b := new(bytes.Buffer)
+		fmt.Fprintf(b, "shared repo (%s) missing %d files: ", e.Repository.URL(), n)
+		for i, f := range missing {
+			if i > 0 {
+				fmt.Fprint(b, ", ")
+			}
+			fmt.Fprint(b, f.Short())
+		}
+		return errors.E("CacheWrite", f.Digest(), b.String())
 	}
 	id, err := marshal(ctx, e.Repository, &fs)
 	if err != nil {
@@ -1170,7 +1170,7 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow, repo reflow.Repository) 
 func (e *Eval) cacheWriteAsync(ctx context.Context, f *Flow) {
 	bgctx := Background(ctx)
 	go func() {
-		err := e.CacheWrite(bgctx, f, e.repo)
+		err := e.CacheWrite(bgctx, f)
 		if err != nil {
 			e.Log.Errorf("cache write %v: %v", f, err)
 		}
@@ -1193,17 +1193,13 @@ func (e *Eval) taskdbWrite(ctx context.Context, op Op, inspect reflow.ExecInspec
 	}
 	if exec != nil {
 		if loc, err := exec.RemoteLogs(ctx, true); err == nil {
-			if b, err := json.Marshal(loc); err != nil {
-				log.Errorf("eval: json.marshal %v: %v", loc, err)
-			} else {
-				stdout = repoPut(ctx, e.repo, bytes.NewReader(b), "stdout remote logs")
+			if stdout, err = repository.Marshal(ctx, e.Repository, loc); err != nil {
+				log.Errorf("repository put stdout: %v", err)
 			}
 		}
 		if loc, err := exec.RemoteLogs(ctx, false); err == nil {
-			if b, err := json.Marshal(loc); err != nil {
-				log.Errorf("eval: json.marshal %v: %v", loc, err)
-			} else {
-				stderr = repoPut(ctx, e.repo, bytes.NewReader(b), "stderr remote logs")
+			if stderr, err = repository.Marshal(ctx, e.Repository, loc); err != nil {
+				log.Errorf("repository put stderr: %v", err)
 			}
 		}
 	}
@@ -1217,14 +1213,6 @@ func (e *Eval) taskdbWrite(ctx context.Context, op Op, inspect reflow.ExecInspec
 		})
 	}
 	return g.Wait()
-}
-
-func repoPut(ctx context.Context, repo reflow.Repository, r io.Reader, msg string) (d digest.Digest) {
-	var err error
-	if d, err = repo.Put(ctx, r); err != nil {
-		log.Errorf("repository put %s: %v", msg, err)
-	}
-	return
 }
 
 // TODO(dnicolaou): Change to: taskdbWriteAsync(ctx context.Context, op Op, task *sched.Task) once nonscheduler mode is
@@ -1805,10 +1793,16 @@ var statusPrinters = [maxOp]struct {
 			}
 			fmt.Fprintln(w, "profile:")
 			profile := f.Inspect.Profile
-			fmt.Fprintf(w, "    cpu mean=%.1f max=%.1f\n", profile["cpu"].Mean, profile["cpu"].Max)
-			fmt.Fprintf(w, "    mem mean=%s max=%s\n", data.Size(profile["mem"].Mean), data.Size(profile["mem"].Max))
-			fmt.Fprintf(w, "    disk mean=%s max=%s\n", data.Size(profile["disk"].Mean), data.Size(profile["disk"].Max))
-			fmt.Fprintf(w, "    tmp mean=%s max=%s\n", data.Size(profile["tmp"].Mean), data.Size(profile["tmp"].Max))
+			for _, k := range []string{"cpu", "mem", "disk", "tmp"} {
+				prof := profile[k]
+				dur := prof.Last.Sub(prof.First).Round(time.Second)
+				switch k {
+				case "cpu":
+					fmt.Fprintf(w, "    cpu mean=%.1f max=%.1f (N=%d, duration=%s)\n", prof.Mean, prof.Max, prof.N, dur)
+				default:
+					fmt.Fprintf(w, "    %s mean=%s max=%s (N=%d, duration=%s)\n", k, data.Size(prof.Mean), data.Size(prof.Max), prof.N, dur)
+				}
+			}
 		},
 	},
 	Intern: {

@@ -1004,7 +1004,6 @@ func newTestScheduler() (alloc *testAlloc, config flow.EvalConfig, done func()) 
 		Snapshotter: snapshotter{},
 		Assoc:       testutil.NewInmemoryAssoc(),
 		Repository:  sharedRepo,
-		Transferer:  sched.Transferer,
 		Log:         logger(),
 		Trace:       logger(),
 	}
@@ -1218,7 +1217,6 @@ func TestSchedulerSubmit(t *testing.T) {
 	config.Assoc = wa
 	config.Repository = testutil.NewInmemoryRepository()
 	config.CacheMode = infra.CacheRead
-	config.Transferer = testutil.Transferer
 	config.BottomUp = true
 	config.Log = logger()
 	config.Trace = logger()

@@ -277,7 +277,6 @@ func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger, sch
 		wg:          &wg,
 		repo:        repo,
 		mux:         mux,
-		transferer:  transferer,
 	}
 	if err = r.initInfra(); err != nil {
 		return
@@ -432,7 +431,6 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 			Assoc:              r.assoc,
 			AssertionGenerator: r.assertionGenerator,
 			CacheMode:          r.cache.CacheMode,
-			Transferer:         r.transferer,
 			Status:             r.runConfig.Status.Group(r.RunID.IDShort()),
 			Scheduler:          r.scheduler,
 			Predictor:          r.predictor,

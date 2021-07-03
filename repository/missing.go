@@ -6,7 +6,6 @@ package repository
 
 import (
 	"context"
-	"time"
 
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
@@ -18,17 +17,19 @@ import (
 // call fails.
 func Missing(ctx context.Context, r reflow.Repository, files ...reflow.File) ([]reflow.File, error) {
 	exists := make([]bool, len(files))
-	g, gctx := errgroup.WithContext(ctx)
+	g, _ := errgroup.WithContext(ctx)
+	for _, file := range files {
+		if file.IsRef() {
+			return nil, errors.E("missing", errors.Invalid, errors.Errorf("unresolved file: %v", file))
+		}
+	}
 	for i, file := range files {
 		i, file := i, file
 		g.Go(func() (err error) {
-			ctx, cancel := context.WithTimeout(gctx, 10*time.Second)
-			_, err = r.Stat(ctx, file.ID)
-			cancel()
-			if err == nil {
+			if _, err = r.Stat(ctx, file.ID); err == nil {
 				exists[i] = true
 			} else if errors.Is(errors.NotExist, err) {
-				return nil
+				err = nil
 			}
 			return err
 		})

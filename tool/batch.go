@@ -164,7 +164,6 @@ The flag -parallelism controls the number of runs in the batch to run concurrent
 			Assoc:              assoc,
 			AssertionGenerator: assg,
 			CacheMode:          cache.CacheMode,
-			Transferer:         transferer,
 			TaskDB:             tdb,
 			Scheduler:          scheduler,
 		},
