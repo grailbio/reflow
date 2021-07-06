@@ -71,6 +71,7 @@ var (
 		{"disk", "the total amount of disk space used by the exec"},
 		{"procs", "the set of processes running in the exec"},
 	}
+	taskColsType    = headerDesc{"hosttype", "(long listing only) Type of the host on which the task was completed (if available)"}
 	taskColsUri     = headerDesc{"uri/resultid", "(long listing only) URI of a running task or (if taskdb exists) ID of the result of a completed task"}
 	taskColsInspect = headerDesc{"inspect", "(long listing and if taskdb exists) ID of the inspect of a completed task"}
 
@@ -94,7 +95,7 @@ The columns associated with a run are as follows:
 ` + description(runCols) + `
 
 The columns associated with a task are as follows:
-` + description(append(taskCols, taskColsUri, taskColsInspect)) + `
+` + description(append(taskCols, taskColsType, taskColsUri, taskColsInspect)) + `
 `
 )
 
@@ -592,7 +593,7 @@ func poolInfos(prs []taskdb.PoolRow, cc *costComputer) []poolInfo {
 func printTaskHeader(w io.Writer, longListing bool) {
 	fmt.Fprint(w, "\t", header(taskCols))
 	if longListing {
-		fmt.Fprint(w, "\t", header([]headerDesc{taskColsUri, taskColsInspect}))
+		fmt.Fprint(w, "\t", header([]headerDesc{taskColsType, taskColsUri, taskColsInspect}))
 	}
 	fmt.Fprint(w, "\n")
 }
@@ -642,10 +643,10 @@ func formatStartEnd(c taskdb.TimeFields) (st, et string) {
 	}
 	var layout = time.Kitchen
 	switch dur := time.Since(start); {
+	case dur > 6*24*time.Hour: // Older than 6 days
+		layout = time.RFC3339
 	case dur > 24*time.Hour: // Older than 24 hours
 		layout = "Mon3:04PM"
-	case dur > 6*24*time.Hour: // Older than 6 days
-		layout = time.RFC822
 	}
 	st = start.Local().Format(layout)
 	et = end.Local().Format(layout)
@@ -713,12 +714,16 @@ func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing bool) {
 	fmt.Fprintf(w, "\t%s\t%s\t%s\t%s", task.cost, st, et, dur)
 	fmt.Fprintf(w, "\t%s\t%s\t%s\t%.1f\t%s\t%s", runtime.Truncate(time.Second), state, data.Size(mem), cpu, data.Size(disk), procs)
 	if longListing {
+		hostType := "unknown"
+		if task.Alloc != nil && task.Alloc.Pool != nil {
+			hostType = task.Alloc.Pool.PoolType
+		}
 		result := getShort(task.Task.ResultID)
 		if result == "" {
 			result = task.Task.URI
 		}
 		inspect := getShort(task.Task.Inspect)
-		fmt.Fprintf(w, "\t%s\t%s", result, inspect)
+		fmt.Fprintf(w, "\t%s\t%s\t%s", hostType, result, inspect)
 	}
 	fmt.Fprint(w, "\n")
 }
