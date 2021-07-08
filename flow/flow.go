@@ -802,12 +802,12 @@ func (f *Flow) depAssertions() []*reflow.Assertions {
 			if earg.Out {
 				continue
 			}
-			if f.Deps[earg.Index].Value == nil {
-				continue
+			if v := f.Deps[earg.Index].Value; v != nil {
+				depAs = append(depAs, v.(reflow.Fileset).Assertions())
 			}
-			depAs = append(depAs, f.Deps[earg.Index].Value.(reflow.Fileset).Assertions())
 		}
 	}
+	depAs, _ = reflow.DistinctAssertions(depAs...)
 	return depAs
 }
 

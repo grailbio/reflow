@@ -77,7 +77,7 @@ func (f File) Digest() digest.Digest {
 	w.Write(b[:])
 	io.WriteString(w, f.Source)
 	io.WriteString(w, f.ETag)
-	f.Assertions.WriteDigest(w)
+	f.Assertions.writeDigest(w)
 	return w.Digest()
 }
 
@@ -232,13 +232,13 @@ func (v *Fileset) AddAssertions(a *Assertions) error {
 	for k := range v.Map {
 		f := v.Map[k]
 		if f.Assertions == nil {
-			f.Assertions = dedupFrom(m, a)
+			f.Assertions, _ = dedupFrom(m, a)
 		} else {
 			merged, err := MergeAssertions(f.Assertions, a)
 			if err != nil {
 				return err
 			}
-			f.Assertions = dedupFrom(m, merged)
+			f.Assertions, _ = dedupFrom(m, merged)
 		}
 		v.Map[k] = f
 	}
@@ -671,7 +671,7 @@ func (v *Fileset) unmarshal(dec *json.Decoder) error {
 						if err = a.unmarshal(dec); err != nil {
 							return err
 						}
-						f.Assertions = dedupFrom(m, a)
+						f.Assertions, _ = dedupFrom(m, a)
 						continue
 					default:
 						return errors.E(debugMsg, errors.Precondition, errors.Errorf("unexpected field for reflow.File: %v", t))

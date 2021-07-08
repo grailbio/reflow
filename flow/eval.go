@@ -1476,7 +1476,7 @@ func (e *Eval) refreshAssertions(ctx context.Context, list []*reflow.Assertions,
 		toGenerate = append(toGenerate, missing...)
 	}
 	if len(toGenerate) == 0 {
-		refreshed, _ = reflow.NonEmptyAssertions(refreshed...)
+		refreshed, _ = reflow.DistinctAssertions(refreshed...)
 		return refreshed, nil
 	}
 	genAs := make([]*reflow.Assertions, len(toGenerate))
@@ -1491,8 +1491,7 @@ func (e *Eval) refreshAssertions(ctx context.Context, list []*reflow.Assertions,
 	}); err != nil {
 		return nil, err
 	}
-	refreshed = append(refreshed, genAs...)
-	refreshed, _ = reflow.NonEmptyAssertions(refreshed...)
+	refreshed, _ = reflow.DistinctAssertions(append(refreshed, genAs...)...)
 	return refreshed, nil
 }
 

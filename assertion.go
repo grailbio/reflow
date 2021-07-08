@@ -120,6 +120,9 @@ func sortedKeys(m map[string]string) []string {
 //  MergeAssertions: merges a list of Assertions into a single Assertions.
 type Assertions struct {
 	m map[AssertionKey]*assertion
+
+	digestOnce sync.Once
+	digest     digest.Digest
 }
 
 // NewAssertions creates a new (empty) Assertions object.
@@ -146,9 +149,12 @@ func AssertionsFromEntry(k AssertionKey, v map[string]string) *Assertions {
 // MergeAssertions merges a list of Assertions into a single Assertions.
 // Returns an error if the same key maps to a conflicting value as a result of the merge.
 func MergeAssertions(list ...*Assertions) (*Assertions, error) {
-	toMerge, l := NonEmptyAssertions(list...)
+	toMerge, l := DistinctAssertions(list...)
+	if len(toMerge) == 1 {
+		// If there's only one, Avoid unnecessarily populating and returning a new Assertions object.
+		return toMerge[0], nil
+	}
 	merged := &Assertions{m: make(map[AssertionKey]*assertion, l)}
-	var err error
 	for _, a := range toMerge {
 		for k, v := range a.m {
 			av, ok := merged.m[k]
@@ -157,31 +163,29 @@ func MergeAssertions(list ...*Assertions) (*Assertions, error) {
 				continue
 			}
 			if !av.equal(v) {
-				err = fmt.Errorf("conflict for %s: %s", k, av.prettyDiff(v))
-				break
+				return nil, fmt.Errorf("conflict for %s: %s", k, av.prettyDiff(v))
 			}
 		}
-		if err != nil {
-			break
-		}
-	}
-	if err != nil {
-		return nil, err
 	}
 	return merged, nil
 }
 
-// NonEmptyAssertions returns the list of non-empty Assertions from the given list and a total size.
-func NonEmptyAssertions(list ...*Assertions) ([]*Assertions, int) {
-	nonEmpty, l := make([]*Assertions, 0, len(list)), 0
+// DistinctAssertions returns the distinct list of non-empty Assertions from the given list and a total size.
+func DistinctAssertions(list ...*Assertions) ([]*Assertions, int) {
+	// m maps the digest of an Assertions object to itself and is used to avoid duplicate in-memory objects.
+	m := make(map[digest.Digest]*Assertions)
+	deduped, l := list[:0], 0
 	for _, a := range list {
 		if a.IsEmpty() {
 			continue
 		}
-		l += a.size()
-		nonEmpty = append(nonEmpty, a)
+		if v, dup := dedupFrom(m, a); !dup {
+			l += v.size()
+			deduped = append(deduped, v)
+		}
 	}
-	return nonEmpty, l
+	deduped = deduped[:len(deduped):len(deduped)] // reduce capacity
+	return deduped, l
 }
 
 // PrettyDiff returns a pretty-printable string representing the differences between
@@ -191,12 +195,12 @@ func NonEmptyAssertions(list ...*Assertions) ([]*Assertions, int) {
 // - any entry (in any of the rights) with a mismatching assertion (in any of the lefts).
 // TODO(swami):  Add unit tests.
 func PrettyDiff(lefts, rights []*Assertions) string {
-	rights, rSz := NonEmptyAssertions(rights...)
+	rights, rSz := DistinctAssertions(rights...)
 	if rSz == 0 {
 		return ""
 	}
 	var diffs []string
-	lefts, lSz := NonEmptyAssertions(lefts...)
+	lefts, lSz := DistinctAssertions(lefts...)
 	if lSz == 0 {
 		a := NewAssertions()
 		for _, r := range rights {
@@ -317,15 +321,26 @@ func (s *Assertions) String() string {
 
 // Digest returns the assertions' digest.
 func (s *Assertions) Digest() digest.Digest {
+	if s != nil {
+		s.digestOnce.Do(func() {
+			s.digest = s.computeDigest()
+		})
+		return s.digest
+	}
+	return s.computeDigest()
+}
+
+// Digest returns the assertions' digest.
+func (s *Assertions) computeDigest() digest.Digest {
 	w := Digester.NewWriter()
-	s.WriteDigest(w)
+	s.writeDigest(w)
 	return w.Digest()
 }
 
 // WriteDigest writes the digestible material for a to w. The
 // io.Writer is assumed to be produced by a Digester, and hence
 // infallible. Errors are not checked.
-func (s *Assertions) WriteDigest(w io.Writer) {
+func (s *Assertions) writeDigest(w io.Writer) {
 	if s.IsEmpty() {
 		return
 	}
@@ -367,7 +382,7 @@ func NewRWAssertions(a *Assertions) *RWAssertions {
 // Returns an error if the same key maps to a conflicting value as a result of the adding.
 // AddFrom panics if s is nil.
 func (s *RWAssertions) AddFrom(list ...*Assertions) error {
-	toAdd, _ := NonEmptyAssertions(list...)
+	toAdd, _ := DistinctAssertions(list...)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var err error
@@ -411,13 +426,14 @@ func (s *RWAssertions) Filter(t *Assertions) (*Assertions, []AssertionKey) {
 
 // dedupFrom de-duplicates the given Assertions object by returning the reference
 // to an existing copy (if any) in the given map, or to itself.
-func dedupFrom(m map[digest.Digest]*Assertions, a *Assertions) *Assertions {
+// If the given assertion a is a duplicate, dedupFrom returns true.
+func dedupFrom(m map[digest.Digest]*Assertions, a *Assertions) (*Assertions, bool) {
 	d := a.Digest()
 	if v, ok := m[d]; ok {
-		return v
+		return v, true
 	}
 	m[d] = a
-	return a
+	return a, false
 }
 
 // assertionKey is the legacy representation of AssertionKey and exists for the purpose of
@@ -585,11 +601,11 @@ func AssertNever(_ context.Context, _, _ []*Assertions) bool {
 // That is, for each key in target, the value should match exactly what's in src
 // and target can't contain keys missing in src.
 func AssertExact(_ context.Context, source, target []*Assertions) bool {
-	tgts, tSz := NonEmptyAssertions(target...)
+	tgts, tSz := DistinctAssertions(target...)
 	if tSz == 0 {
 		return true
 	}
-	srcs, sSz := NonEmptyAssertions(source...)
+	srcs, sSz := DistinctAssertions(source...)
 	if sSz == 0 {
 		return false
 	}
