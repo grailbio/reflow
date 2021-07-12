@@ -99,6 +99,12 @@ func main() {
 	g.Printf("	VCPU uint\n")
 	g.Printf("	// Memory stores the number of (fractional) GiB of memory provided by this instance type.\n")
 	g.Printf("	Memory float64\n")
+	g.Printf("	// StorageDevices stores the number of instance storage devices available for this instance type.\n")
+	g.Printf("	StorageDevices int\n")
+	g.Printf("	// StorageSize stores the size of each instance storage device (GiB), so total storage is (StorageDevices*StorageSize).\n")
+	g.Printf("	StorageSize int\n")
+	g.Printf("	// StorageType stores the type of instance storage devices available for this instance type.\n")
+	g.Printf("	StorageType StorageType\n")
 	g.Printf("	// Price stores the on-demand price per region for this instance type.\n")
 	g.Printf("	Price map[string]float64\n")
 	g.Printf("	// Generation stores the generation name for this instance (\"current\" or \"previous\").\n")
@@ -110,6 +116,15 @@ func main() {
 	g.Printf("	// CPUFeatures defines the available CPU features on this instance type\n")
 	g.Printf("	CPUFeatures map[string]bool\n")
 	g.Printf("}\n")
+
+	g.Printf("// StorageType specifies the type of instance storage.\n")
+	g.Printf("type StorageType int\n")
+	g.Printf("const (\n")
+	g.Printf("	StorageTypeNone = iota\n")
+	g.Printf("	StorageTypeHDD\n")
+	g.Printf("	StorageTypeSSD\n")
+	g.Printf("	StorageTypeSSDNVMe\n")
+	g.Printf(")\n")
 
 	g.Printf("// Types stores known EC2 instance types.\n")
 	g.Printf("var Types = []Type{\n")
@@ -173,12 +188,29 @@ func main() {
 		// "For Current Generation Instance types, EBS-optimization is enabled by default at no additional cost."
 		// However, http://ec2instances.info/ seems to have EBSOptimized set to false for all instances.
 		ebsOptimized := e.EBSOptimized || e.Generation == "current"
+		storageType := "StorageTypeNone"
+		if e.Storage.Devices > 0 {
+			storageType = "StorageTypeHDD"
+			switch {
+			case e.Storage.SSD && e.Storage.NVMeSSD:
+				storageType = "StorageTypeSSDNVMe"
+			case e.Storage.SSD:
+				storageType = "StorageTypeSSD"
+			case e.Storage.NVMeSSD:
+				log.Fatal("inconsistent instance storage type; marked NVMe SSD but not SSD")
+			default:
+				storageType = "StorageTypeHDD"
+			}
+		}
 		g.Printf("{\n")
 		g.Printf("	Name: %q,\n", e.Type)
 		g.Printf("	EBSOptimized: %v,\n", ebsOptimized)
 		g.Printf("	EBSThroughput: %f,\n", e.EBSThroughput)
 		g.Printf("	VCPU: %v,\n", e.VCPU)
 		g.Printf("	Memory: %f,\n", e.Memory)
+		g.Printf("	StorageDevices: %d,\n", e.Storage.Devices)
+		g.Printf("	StorageSize: %d,\n", e.Storage.Size)
+		g.Printf("	StorageType: %s,\n", storageType)
 		g.Printf("	Price: map[string]float64{\n")
 		var regions []string
 		for region := range e.Pricing {
@@ -263,10 +295,18 @@ type entry struct {
 	VCPU          interface{}                       `json:"vCPU"`
 	Pricing       map[string]map[string]interface{} `json:"pricing"`
 	Network       string                            `json:"network_performance"`
+	Storage       storage                           `json:"storage"`
 	Generation    string                            `json:"generation"`
 	LinuxVirtType []string                          `json:"linux_virtualization_types"`
 	IntelAVX      bool                              `json:"intel_avx"`
 	IntelAVX2     bool                              `json:"intel_avx2"`
+}
+
+type storage struct {
+	Devices int  `json:"devices"`
+	Size    int  `json:"size"`
+	NVMeSSD bool `json:"nvme_ssd"`
+	SSD     bool `json:"ssd"`
 }
 
 type generator struct {
