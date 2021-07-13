@@ -404,7 +404,7 @@ func logStats(ctx context.Context, p *local.Pool, log *log.Logger, d time.Durati
 		for _, k := range []string{"cpu", "mem"} {
 			usedPcts = append(usedPcts, fmt.Sprintf("%s: %.1f%%", k, 100.0-math.Round(100*freeFrac[k])))
 		}
-		log.Printf("Used resources %s; total %s free %s", strings.Join(usedPcts, " "), tot, free)
+		log.Printf("Allocated resources %s; total %s free %s", strings.Join(usedPcts, " "), tot, free)
 
 		select {
 		case <-ctx.Done():
