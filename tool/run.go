@@ -63,7 +63,7 @@ code 10 indicates a transient runtime error. Exit codes greater than
 10 indicate errors during program evaluation, which are likely not
 retriable.`
 	var config RunFlags
-	config.Flags(flags)
+	config.flags(flags)
 
 	c.Parse(flags, args, help, "run [-local] [flags] path [args]")
 	if err := config.Err(); err != nil {
@@ -119,11 +119,11 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 	c.must(c.Config.Instance(&cache))
 
 	var ass assoc.Assoc
-	if err := c.Config.Instance(&ass); runFlags.needAss {
+	if err := c.Config.Instance(&ass); runFlags.needAssocAndRepo() {
 		c.must(err)
 	}
 	var repo reflow.Repository
-	if err := c.Config.Instance(&repo); runFlags.needRepo {
+	if err := c.Config.Instance(&repo); runFlags.needAssocAndRepo() {
 		c.must(err)
 	}
 

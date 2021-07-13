@@ -103,7 +103,7 @@ The flag -parallelism controls the number of runs in the batch to run concurrent
 	var bc batchConfig
 	bc.Flags(flags)
 	var config CommonRunFlags
-	config.Flags(flags)
+	config.flags(flags)
 	c.Parse(flags, args, help, "runbatch [-parallelism=10] [-retry] [-reset] [flags]")
 
 	if err := config.Err(); err != nil {

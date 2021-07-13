@@ -1,13 +1,12 @@
 package tool
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
-	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/runner"
@@ -15,44 +14,74 @@ import (
 
 const defaultFlowDir = "/tmp/flow"
 
+type FlagName string
+
+const (
+	Unknown FlagName = "unknown"
+	// CommonRunFlags flag names
+	FlagNameAssert          FlagName = "assert"
+	FlagNameEvalStrategy    FlagName = "eval"
+	FlagNameInvalidate      FlagName = "invalidate"
+	FlagNameNoCacheExtern   FlagName = "nocacheextern"
+	FlagNamePostUseChecksum FlagName = "postusechecksum"
+	FlagNameRecomputeEmpty  FlagName = "recomputeempty"
+	FlagNameSched           FlagName = "sched"
+	// RunFlags flag names
+	FlagNameBackgroundTimeout FlagName = "backgroundtimeout"
+	FlagNameDotGraph          FlagName = "dotgraph"
+	FlagNamePred              FlagName = "pred"
+	FlagNameTrace             FlagName = "traceflow"
+)
+
 // CommonRunFlags are the run flags that are common across various run modes (run, batch, etc)
 type CommonRunFlags struct {
-	// NoCacheExtern indicates if extern operations should be written to cache.
-	NoCacheExtern bool
-	// RecomputeEmpty indicates if cache results with empty filesets be automatically recomputed.
-	RecomputeEmpty bool
+	// Assert is the policy used to assert cached flow result compatibility. e.g. never, exact.
+	Assert string
 	// EvalStrategy is the evaluation strategy. Supported modes are "topdown" and "bottomup".
 	EvalStrategy string
 	// Invalidate is a regular expression for node identifiers that should be invalidated.
 	Invalidate string
-	// Assert is the policy used to assert cached flow result compatibility. e.g. never, exact.
-	Assert string
-	// Use scalable scheduler instead of the work stealer mode.
-	Sched bool
+	// NoCacheExtern indicates if extern operations should be written to cache.
+	NoCacheExtern bool
 	// PostUseChecksum indicates whether input filesets are checksummed after use.
 	PostUseChecksum bool
+	// RecomputeEmpty indicates if cache results with empty filesets be automatically recomputed.
+	RecomputeEmpty bool
+	// Use scalable scheduler instead of the work stealer mode.
+	Sched bool
 }
 
 // Flags adds the common run flags to the provided flagset.
-func (r *CommonRunFlags) Flags(flags *flag.FlagSet) {
+func (r *CommonRunFlags) flags(flags *flag.FlagSet) {
+	r.flagsLimited(flags, "", nil)
+}
+
+// flagsLimited adds flags to the provided flagset with the given prefix but,
+// limited by the set of flag names defined in names.
+func (r *CommonRunFlags) flagsLimited(flags *flag.FlagSet, prefix string, names map[FlagName]bool) {
 	var vacuum bool
-	flags.BoolVar(&vacuum, "gc", false, "(DEPRECATED) enable garbage collection during evaluation")
-	// TODO(pboyapalli): [SYSINFRA-554] modify extern caching so that we can drop the nocacheextern flag
-	flags.BoolVar(&r.NoCacheExtern, "nocacheextern", false, `don't cache extern ops
+	flags.BoolVar(&vacuum, prefix+"gc", false, "(DEPRECATED) enable garbage collection during evaluation")
+	if names == nil || names[FlagNameAssert] {
+		flags.StringVar(&r.Assert, prefix+string(FlagNameAssert), "never", `values: "never", "exact"
 
-For all extern operations, "nocacheextern=true" acts like "cache=off" and 
-"nocacheextern=false" acts like "cache=readwrite". With "nocacheextern=true", 
-extern operations that have a cache hit will result in the fileset being copied 
-to the extern URL again.`)
+This flag determines the policy used to assert the properties of inputs (mainly 
+S3 objects, if any) that were used to compute the currently cached result (if 
+any).
 
-	// TODO(pboyapalli): [SYSINFRA-553] determine if we can remove this flag
-	flags.BoolVar(&r.RecomputeEmpty, "recomputeempty", false, `recompute empty cache values
+With "never", the cached result is always accepted (even if any of the input S3 
+objects have changed since). 
 
-If this flag is set, reflow will recompute cache values when the result fileset 
-of an exec is empty or contains any empty values. This flag was added in D7592 
-to address a Docker related bug. Generally users should not need to set this 
-flag and it may be removed soon.`)
-	flags.StringVar(&r.EvalStrategy, "eval", "topdown", `values: "topdown", "bottomup"
+With "exact", it is asserted that the properties of inputs are exactly the same 
+as they were when the cached result was computed. If different, then the cached 
+result is not accepted and re-computation is triggered.
+
+Note: for S3 objects, "exact" includes modified time as well. If an S3 object 
+has the same content as it did before, but was "touched", then it is not "exact" 
+anymore (meaning, the cached result will not be accepted).`)
+	}
+
+	if names == nil || names[FlagNameEvalStrategy] {
+		flags.StringVar(&r.EvalStrategy, prefix+string(FlagNameEvalStrategy), "topdown", `values: "topdown", "bottomup"
 
 This flag determines the strategy used to traverse the computation graph 
 representing your program. Picture your program as a directed acyclic graph with 
@@ -76,29 +105,38 @@ nodes are explored.
 There are subtleties with caching and the evaluation strategy that could affect 
 performance in some specific cases, but we won't go into those details here. 
 Reach out to the reflow team for more information.`)
-	flags.StringVar(&r.Invalidate, "invalidate", "", "regular expression for node identifiers that should be invalidated")
-	flags.StringVar(&r.Assert, "assert", "never", `values: "never", "exact"
+	}
+	if names == nil || names[FlagNameInvalidate] {
+		flags.StringVar(&r.Invalidate, prefix+"invalidate", "", "regular expression for node identifiers that should be invalidated")
+	}
+	if names == nil || names[FlagNameNoCacheExtern] {
+		// TODO(pboyapalli): [SYSINFRA-554] modify extern caching so that we can drop the nocacheextern flag
+		flags.BoolVar(&r.NoCacheExtern, prefix+string(FlagNameNoCacheExtern), false, `don't cache extern ops
 
-This flag determines the policy used to assert the properties of inputs (mainly 
-S3 objects, if any) that were used to compute the currently cached result (if 
-any).
-
-With "never", the cached result is always accepted (even if any of the input S3 
-objects have changed since). 
-
-With "exact", it is asserted that the properties of inputs are exactly the same 
-as they were when the cached result was computed. If different, then the cached 
-result is not accepted and re-computation is triggered.
-
-Note: for S3 objects, "exact" includes modified time as well. If an S3 object 
-has the same content as it did before, but was "touched", then it is not "exact" 
-anymore (meaning, the cached result will not be accepted).`)
-	flags.BoolVar(&r.Sched, "sched", true, "use scalable scheduler instead of work stealing")
-	flags.BoolVar(&r.PostUseChecksum, "postusechecksum", false, `checksum exec input files after use
+For all extern operations, "nocacheextern=true" acts like "cache=off" and 
+"nocacheextern=false" acts like "cache=readwrite". With "nocacheextern=true", 
+extern operations that have a cache hit will result in the fileset being copied 
+to the extern URL again.`)
+	}
+	if names == nil || names[FlagNamePostUseChecksum] {
+		flags.BoolVar(&r.PostUseChecksum, prefix+string(FlagNamePostUseChecksum), false, `checksum exec input files after use
 
 If this flag is provided, Reflow verifies the input data for every exec upon 
 completion to ensure that it did not change or get corrupted thus invalidating 
 the result of that exec.`)
+	}
+	if names == nil || names[FlagNameRecomputeEmpty] {
+		// TODO(pboyapalli): [SYSINFRA-553] determine if we can remove this flag
+		flags.BoolVar(&r.RecomputeEmpty, prefix+string(FlagNameRecomputeEmpty), false, `recompute empty cache values
+
+If this flag is set, reflow will recompute cache values when the result fileset 
+of an exec is empty or contains any empty values. This flag was added in D7592 
+to address a Docker related bug. Generally users should not need to set this 
+flag and it may be removed soon.`)
+	}
+	if names == nil || names[FlagNameSched] {
+		flags.BoolVar(&r.Sched, prefix+string(FlagNameSched), true, "(DEPRECATED: cannot be set to false) use scalable scheduler instead of work stealing")
+	}
 }
 
 // Err checks if the flag values are consistent and valid.
@@ -150,10 +188,8 @@ type RunFlags struct {
 	Local bool
 	// Trace when set enable tracing flow evaluation.
 	Trace bool
-	// Resources overrides the resources reflow is permitted to use in local mode (instead of using up the entire machine).
-	Resources reflow.Resources
-	Cache     bool
-	Pred      bool
+	Cache bool
+	Pred  bool
 	// DotGraph enables computation of an evaluation graph.
 	DotGraph bool
 
@@ -163,21 +199,48 @@ type RunFlags struct {
 
 	// Cluster is the externally specified cluster provider. If non-nil, this cluster provider overrides the one specified in the reflow config.
 	Cluster runner.Cluster
-
-	resourcesFlag string
-	needAss       bool
-	needRepo      bool
 }
 
-// Flags adds run flags to the provided flagset.
-func (r *RunFlags) Flags(flags *flag.FlagSet) {
-	r.CommonRunFlags.Flags(flags)
+// flags adds all run flags to the provided flagset (including localflags).
+func (r *RunFlags) flags(flags *flag.FlagSet) {
+	r.flagsLimited(flags, "", nil)
+	r.localFlags(flags)
+}
+
+// localFlags adds local-only run flags to the provided flagset.
+func (r *RunFlags) localFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&r.Local, "local", false, "execute flow on the Local Docker instance")
 	flags.StringVar(&r.LocalDir, "localdir", defaultFlowDir, "directory where execution state is stored in Local mode")
 	flags.StringVar(&r.Dir, "dir", "", "directory where execution state is stored in Local mode (alias for Local Dir for backwards compatibility)")
-	flags.BoolVar(&r.Trace, "traceflow", false, "logs a trace of flow evaluation for debugging; not to be confused with -tracer (see \"reflow config -help\")")
-	flags.StringVar(&r.resourcesFlag, "resources", "", "override offered resources in local mode (JSON formatted reflow.Resources)")
-	flags.BoolVar(&r.Pred, "pred", false, `predict exec memory requirements to optimize resource usage
+}
+
+// FlagsNoLocal adds run flags to the provided flagset with the given prefix excluding flags pertaining to local runs.
+func (r *RunFlags) FlagsNoLocal(flags *flag.FlagSet, prefix string) {
+	r.flagsLimited(flags, prefix, nil)
+}
+
+// flagsLimited adds flags to the provided flagset with the given prefix but,
+// limited by the set of flag names defined in names.
+func (r *RunFlags) flagsLimited(flags *flag.FlagSet, prefix string, names map[FlagName]bool) {
+	r.CommonRunFlags.flagsLimited(flags, prefix, names)
+	if names == nil || names[FlagNameBackgroundTimeout] {
+		flags.DurationVar(&r.BackgroundTimeout, prefix+string(FlagNameBackgroundTimeout), 10*time.Minute, "timeout for background tasks")
+	}
+	if names == nil || names[FlagNameDotGraph] {
+		flags.BoolVar(&r.DotGraph, prefix+string(FlagNameDotGraph), true, `produce an evaluation graph for the run
+
+If this flag is provided, a Graphviz dot format file will be output to the runs 
+directory (usually ~/.reflow/runs). To visualize, install the tool (graphviz.org) 
+and run:
+	> dot ~/.reflow/runs/<runid>.gv > ~/some_file.svg"
+Other output file formats also are available.
+
+When running a large reflow module with lots of nodes, it is advisable to 
+disable dotgraph generation to avoid slowing down the overall execution time 
+of your run.`)
+	}
+	if names == nil || names[FlagNamePred] {
+		flags.BoolVar(&r.Pred, prefix+string(FlagNamePred), false, `predict exec memory requirements to optimize resource usage
 
 When enabled, memory requirements for each exec will be predicted based on 
 previous executions of that exec (if available). If a prediction is made, it 
@@ -191,41 +254,54 @@ error, using 50% more resources each time, upto 3 times, before giving up.
 
 Both "taskdb" and "predictorconfig" need to be configured for prediction to 
 work, see "reflow config -help"`)
-	flags.BoolVar(&r.DotGraph, "dotgraph", true, `produce an evaluation graph for the run
+	}
+	if names == nil || names[FlagNameTrace] {
+		flags.BoolVar(&r.Trace, prefix+string(FlagNameTrace), false, "logs a trace of flow evaluation for debugging; not to be confused with -tracer (see reflow config -help)")
+	}
+}
 
-If this flag is provided, a Graphviz dot format file will be output to the runs 
-directory (usually ~/.reflow/runs). To visualize, install the tool (graphviz.org) 
-and run:
-	> dot ~/.reflow/runs/<runid>.gv > ~/some_file.svg"
-Other output file formats also are available.
+// Override overrides the appropriate RunFlags fields based on the given map of flag names to values.
+// This is specifically used where overriding only a subset of flags is desired,
+// without inheriting the default values of the flags that aren't being overridden.
+func (r *RunFlags) Override(overrides map[string]string) (err error) {
+	defer func() {
+		if err != nil {
+			err = errors.E("runflags.override", err)
+		}
+	}()
+	var (
+		args  []string
+		names = make(map[FlagName]bool)
+	)
+	for k, v := range overrides {
+		args = append(args, fmt.Sprintf("--%s=%s", k, v))
+		names[FlagName(k)] = true
+	}
 
-When running a large reflow module with lots of nodes, it is advisable to 
-disable dotgraph generation to avoid slowing down the overall execution time 
-of your run.`)
-	flags.DurationVar(&r.BackgroundTimeout, "backgroundtimeout", 10*time.Minute, "timeout for background tasks")
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	r.flagsLimited(fs, "", names)
+
+	if err = fs.Parse(args); err != nil {
+		err = fmt.Errorf("parsing args [%s]: %v", strings.Join(args, ","), err)
+		return
+	}
+	err = r.Err()
+	return
 }
 
 // Err checks if the flag values are consistent and valid.
 func (r *RunFlags) Err() error {
-	if r.Local {
-		if r.resourcesFlag != "" {
-			if err := json.Unmarshal([]byte(r.resourcesFlag), &r.Resources); err != nil {
-				return fmt.Errorf("-resources: %s", err)
-			}
-		}
-		if r.Cache {
-			r.needAss = true
-			r.needRepo = true
-		}
-	} else {
-		if r.resourcesFlag != "" {
-			return errors.New("-resources can only be used in local mode")
-		}
-		r.needAss = true
-		r.needRepo = true
+	if err := r.CommonRunFlags.Err(); err != nil {
+		return err
 	}
 	if !r.Sched && r.Pred {
 		return errors.New("-pred cannot be used without -sched")
 	}
 	return nil
+}
+
+// needAssocAndRepo determines whether an assoc and repo is needed based on this run flags.
+// We need assoc and repo if either the run is non-local, or a local run with cache enabled.
+func (r *RunFlags) needAssocAndRepo() bool {
+	return !r.Local || r.Cache
 }
