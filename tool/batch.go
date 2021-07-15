@@ -154,6 +154,7 @@ The flag -parallelism controls the number of runs in the batch to run concurrent
 	if config.Sched {
 		scheduler, err = NewScheduler(schedCtx, c.Config, &wg, nil, nil, c.Status)
 		c.must(err)
+		scheduler.ExportStats()
 	}
 
 	b := &batch.Batch{

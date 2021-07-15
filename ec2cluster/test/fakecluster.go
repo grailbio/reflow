@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"flag"
 
 	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
@@ -37,3 +38,11 @@ func (c *Cluster) Shutdown() error { return nil }
 
 // GetName implements runner.Cluster
 func (c *Cluster) GetName() string { return "fakecluster" }
+
+// Flags implements infra.Provider
+func (r *Cluster) Flags(flags *flag.FlagSet) {
+	var ignoredString string
+	var ignoredBool bool
+	flags.StringVar(&ignoredString, "instancetypes", "", "(IGNORED) instance types")
+	flags.BoolVar(&ignoredBool, "usespot", false, "(IGNORED) use spot or ondemand")
+}

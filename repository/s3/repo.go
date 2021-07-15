@@ -2,7 +2,6 @@ package s3
 
 import (
 	"context"
-	"flag"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -11,6 +10,7 @@ import (
 	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/repository/blobrepo"
 )
 
@@ -22,8 +22,7 @@ func init() {
 type Repository struct {
 	// Repository is the underlying blob repository implementation for s3.
 	*blobrepo.Repository
-	// Bucket is the s3 bucket.
-	Bucket string
+	repository.RepoFlagsTrait
 }
 
 // Help implements infra.Provider
@@ -31,17 +30,12 @@ func (Repository) Help() string {
 	return "configure a repository using a S3 bucket"
 }
 
-// Flags implements infra.Provider
-func (r *Repository) Flags(flags *flag.FlagSet) {
-	flags.StringVar(&r.Bucket, "bucket", "", "bucket name")
-}
-
 // Init implements infra.Provider
 func (r *Repository) Init(sess *session.Session) error {
 	blob := s3blob.New(sess)
 	blobrepo.Register("s3", blob)
 	ctx := context.Background()
-	bucket, err := blob.Bucket(ctx, r.Bucket)
+	bucket, err := blob.Bucket(ctx, r.RepoFlagsTrait.BucketName)
 	if err != nil {
 		return err
 	}
@@ -51,9 +45,9 @@ func (r *Repository) Init(sess *session.Session) error {
 
 // Setup implements infra.Provider
 func (r *Repository) Setup(sess *session.Session, log *log.Logger) error {
-	log.Printf("creating s3 bucket %s", r.Bucket)
+	log.Printf("creating s3 bucket %s", r.RepoFlagsTrait.BucketName)
 	_, err := s3.New(sess).CreateBucket(&s3.CreateBucketInput{
-		Bucket: aws.String(r.Bucket),
+		Bucket: aws.String(r.RepoFlagsTrait.BucketName),
 		CreateBucketConfiguration: &s3.CreateBucketConfiguration{
 			LocationConstraint: aws.String(*sess.Config.Region),
 		},
@@ -62,10 +56,10 @@ func (r *Repository) Setup(sess *session.Session, log *log.Logger) error {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
 			case s3.ErrCodeBucketAlreadyExists:
-				log.Printf("s3 bucket %s is already owned by someone else", r.Bucket)
+				log.Printf("s3 bucket %s is already owned by someone else", r.RepoFlagsTrait.BucketName)
 				return nil
 			case s3.ErrCodeBucketAlreadyOwnedByYou:
-				log.Printf("s3 bucket %s already exists; not created", r.Bucket)
+				log.Printf("s3 bucket %s already exists; not created", r.RepoFlagsTrait.BucketName)
 				return nil
 			default:
 				return err
@@ -74,6 +68,6 @@ func (r *Repository) Setup(sess *session.Session, log *log.Logger) error {
 			return err
 		}
 	}
-	log.Printf("created s3 bucket %s", r.Bucket)
+	log.Printf("created s3 bucket %s", r.RepoFlagsTrait.BucketName)
 	return nil
 }

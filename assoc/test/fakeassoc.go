@@ -13,3 +13,8 @@ func init() {
 type Assoc struct {
 	assoc.Assoc
 }
+
+// Init implements infra.Provider
+func (r *Assoc) Init() error {
+	return nil
+}
