@@ -980,10 +980,8 @@ func newTestScheduler() (alloc *testAlloc, config flow.EvalConfig, done func()) 
 	alloc.Have.Scale(testutil.Resources, 2.0)
 	alloc.Init()
 
-	sharedRepo := testutil.NewInmemoryRepository("")
 	sched := sched.New()
 	sched.Transferer = testutil.Transferer
-	sched.Repository = sharedRepo
 	sched.Cluster = alloc
 	sched.MinAlloc = reflow.Resources{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1003,7 +1001,7 @@ func newTestScheduler() (alloc *testAlloc, config flow.EvalConfig, done func()) 
 		Scheduler:   sched,
 		Snapshotter: snapshotter{},
 		Assoc:       testutil.NewInmemoryAssoc(),
-		Repository:  sharedRepo,
+		Repository:  testutil.NewInmemoryRepository(""),
 		Log:         logger(),
 		Trace:       logger(),
 	}

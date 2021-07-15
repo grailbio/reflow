@@ -1950,11 +1950,13 @@ func (e *Eval) taskWait(ctx context.Context, f *Flow, task *sched.Task) error {
 }
 
 func (e *Eval) newTask(f *Flow) *sched.Task {
+	// TODO(swami): Consider encapsulating task fields (where applicable) and passing at construction.
 	t := sched.NewTask()
 	t.ID = taskdb.TaskID(reflow.Digester.Rand(nil))
 	t.RunID = e.RunID
 	t.FlowID = f.Digest()
 	t.Config = f.ExecConfig()
+	t.Repository = e.Repository
 	t.Log = e.Log.Tee(nil, fmt.Sprintf("scheduler task %s (flow %s): ", t.ID.IDShort(), t.FlowID.Short()))
 	return t
 }

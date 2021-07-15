@@ -170,7 +170,6 @@ func NewScheduler(ctx context.Context, config infra.Config, wg *wg.WaitGroup, cl
 	}
 	scheduler := sched.New()
 	scheduler.Cluster = cluster
-	scheduler.Repository = repo
 	scheduler.Transferer = transferer
 	scheduler.Log = logger.Tee(nil, "scheduler: ")
 	scheduler.TaskDB = tdb
@@ -240,7 +239,6 @@ func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger, sch
 			return //nolint: govet
 		}
 		scheduler.ExportStats()
-		scheduler.Repository = repo
 		scheduler.Transferer = transferer
 		scheduler.Mux = mux
 		scheduler.PostUseChecksum = runConfig.RunFlags.PostUseChecksum

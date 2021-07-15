@@ -35,7 +35,6 @@ func newTestScheduler(t *testing.T) (scheduler *sched.Scheduler, cluster *alloca
 	cluster = new(allocator)
 	scheduler = sched.New()
 	scheduler.Transferer = testutil.Transferer
-	scheduler.Repository = testutil.NewInmemoryRepository("")
 	scheduler.Cluster = cluster
 	scheduler.PostUseChecksum = true
 	scheduler.MinAlloc = reflow.Resources{}
@@ -258,6 +257,7 @@ func sizedTask(size taskSize, dur time.Duration) *sched.Task {
 		task = utiltest.NewTask(1, 2<<30, 0)
 	}
 	task.Config.Ident = fmt.Sprintf("%s", dur)
+	task.Repository = testutil.NewInmemoryRepository("")
 	return task
 }
 

@@ -76,9 +76,6 @@ type Scheduler struct {
 	Transferer reflow.Transferer
 	// Mux is used to manage direct data transfers between blob stores (if supported)
 	Mux blob.Mux
-	// Repository is the repository from which dependent objects are
-	// downloaded and to which result objects are uploaded.
-	Repository reflow.Repository
 	// Cluster provides dynamic allocation of allocs.
 	Cluster Cluster
 	// Log logs scheduler actions.
@@ -131,6 +128,9 @@ func New() *Scheduler {
 // manages a task until it reaches the TaskDone state.
 func (s *Scheduler) Submit(tasks ...*Task) {
 	for _, task := range tasks {
+		if task.Repository == nil {
+			panic(fmt.Sprintf("scheduler Submit task %s with no repository", task.ID.IDShort()))
+		}
 		task.Log.Debugf("submitted with %v", task.Config)
 	}
 	tasksCopy := append([]*Task{}, tasks...)
@@ -146,9 +146,6 @@ func (s *Scheduler) configString() string {
 	var b bytes.Buffer
 	if s.Transferer != nil {
 		_, _ = fmt.Fprintf(&b, "transferer %T", s.Transferer)
-	}
-	if s.Repository != nil {
-		_, _ = fmt.Fprintf(&b, " repository %T", s.Repository)
 	}
 	if s.Cluster != nil {
 		_, _ = fmt.Fprintf(&b, " cluster %T", s.Cluster)
@@ -523,7 +520,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 				arg := task.Config.Args[i]
 				g.Go(func() error {
 					task.Log.Debugf("loading %s", (*arg.Fileset).Short())
-					fs, lerr := alloc.Load(gctx, s.Repository.URL(), *arg.Fileset)
+					fs, lerr := alloc.Load(gctx, task.Repository.URL(), *arg.Fileset)
 					if lerr != nil {
 						return lerr
 					}
@@ -583,7 +580,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			}
 		case internal.StateTransferOut:
 			files := task.Result.Fileset.Files()
-			err = s.Transferer.Transfer(ctx, s.Repository, alloc.Repository(), files...)
+			err = s.Transferer.Transfer(ctx, task.Repository, alloc.Repository(), files...)
 		case internal.StateUnload:
 			err = unload(ctx, task, &loadedData, alloc, &resultUnloaded)
 		}
@@ -756,8 +753,8 @@ func (s *Scheduler) doDirectTransfer(ctx context.Context, task *Task) error {
 		return errors.E(errors.Precondition,
 			errors.Errorf("unexpected args (must be 1, but was %d): %v", len(task.Config.Args), task.Config.Args))
 	}
-	// Check if the scheduler's repository supports blobLocator.
-	fileLocator, ok := s.Repository.(blobLocator)
+	// Check if the task's repository supports blobLocator.
+	fileLocator, ok := task.Repository.(blobLocator)
 	if !ok {
 		return errors.E(errors.NotSupported, errors.New("scheduler repository does not support locating blobs"))
 	}

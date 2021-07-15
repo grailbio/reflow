@@ -30,19 +30,11 @@ import (
 	"github.com/grailbio/reflow/test/testutil"
 )
 
-func newTestScheduler(t *testing.T) (scheduler *sched.Scheduler, cluster *utiltest.TestCluster, repository *testutil.InmemoryRepository, shutdown func()) {
-	t.Helper()
-	repository = testutil.NewInmemoryRepository("")
-	scheduler, cluster, shutdown = newTestSchedulerWithRepo(t, repository)
-	return
-}
-
-func newTestSchedulerWithRepo(t *testing.T, repo reflow.Repository) (scheduler *sched.Scheduler, cluster *utiltest.TestCluster, shutdown func()) {
+func newTestScheduler(t *testing.T) (scheduler *sched.Scheduler, cluster *utiltest.TestCluster, shutdown func()) {
 	t.Helper()
 	cluster = utiltest.NewTestCluster()
 	scheduler = sched.New()
 	scheduler.Transferer = testutil.Transferer
-	scheduler.Repository = repo
 	scheduler.Cluster = cluster
 	scheduler.PostUseChecksum = true
 	scheduler.TaskDB = utiltest.NewMockTaskDB()
@@ -74,14 +66,27 @@ func expectExists(t *testing.T, repo reflow.Repository, fs reflow.Fileset) {
 	}
 }
 
+func expectNotExists(t *testing.T, repo reflow.Repository, fs reflow.Fileset) {
+	t.Helper()
+	missing, err := repository.Missing(context.TODO(), repo, fs.Files()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, m := len(fs.Files()), len(missing); n != m {
+		t.Errorf("repo %s not missing %d of %d files: %v", repo.URL(), n-m, m, fs.Short())
+	}
+}
+
 func TestSchedulerBasic(t *testing.T) {
-	scheduler, cluster, repo, shutdown := newTestScheduler(t)
+	scheduler, cluster, shutdown := newTestScheduler(t)
 	defer shutdown()
 	ctx := context.Background()
+
+	repo := testutil.NewInmemoryRepository("")
 	in := utiltest.RandomFileset(repo)
 	expectExists(t, repo, in)
 
-	task := utiltest.NewTask(10, 10<<30, 0)
+	task := utiltest.NewTask(10, 10<<30, 0).WithRepo(repo)
 	task.Config.Args = []reflow.Arg{{Fileset: &in}}
 
 	scheduler.Submit(task)
@@ -171,16 +176,109 @@ func TestSchedulerBasic(t *testing.T) {
 	}
 }
 
-func TestSchedulerAlloc(t *testing.T) {
-	scheduler, cluster, _, shutdown := newTestScheduler(t)
+func TestSchedulerDifferentTaskRepos(t *testing.T) {
+	scheduler, cluster, shutdown := newTestScheduler(t)
 	defer shutdown()
 	ctx := context.Background()
 
+	repo1, repo2 := testutil.NewInmemoryRepository(""), testutil.NewInmemoryRepository("")
+	in1 := utiltest.RandomFileset(repo1)
+	in2 := utiltest.RandomFileset(repo2)
+	expectExists(t, repo1, in1)
+	expectExists(t, repo2, in2)
+	expectNotExists(t, repo2, in1)
+	expectNotExists(t, repo1, in2)
+
+	task1 := utiltest.NewTask(10, 10<<30, 0).WithRepo(repo1)
+	task1.Config.Args = []reflow.Arg{{Fileset: &in1}}
+
+	task2 := utiltest.NewTask(10, 10<<30, 0).WithRepo(repo2)
+	task2.Config.Args = []reflow.Arg{{Fileset: &in2}}
+
+	tasks := []*sched.Task{task1, task2}
+	scheduler.Submit(tasks...)
+
+	req := <-cluster.Req()
+	if got, want := req.Requirements, utiltest.NewRequirements(10, 10<<30, 1); !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	alloc := utiltest.NewTestAllocWithId("basic", reflow.Resources{"cpu": 20, "mem": 20 << 30})
+
+	out1 := utiltest.RandomFileset(alloc.Repository())
+	out2 := utiltest.RandomFileset(alloc.Repository())
+	// Increment the refcount for the result files in the alloc repository, so that we can unload them later.
+	for _, f := range out1.Files() {
+		alloc.RefCountInc(f.ID)
+	}
+	for _, f := range out2.Files() {
+		alloc.RefCountInc(f.ID)
+	}
+	req.Reply <- utiltest.TestClusterAllocReply{Alloc: alloc, Err: nil}
+
+	// By the time the task is running, it should have all of the dependent objects in its repository.
+	for _, tsk := range tasks {
+		if err := tsk.Wait(ctx, sched.TaskRunning); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stats := scheduler.Stats.GetStats()
+	if got, want := len(stats.Tasks), len(tasks); got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for _, tsk := range tasks {
+		if got, want := stats.Tasks[tsk.ID.ID()].State, 2; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	}
+	expectExists(t, alloc.Repository(), in1)
+	expectExists(t, alloc.Repository(), in2)
+
+	// Complete the task and check that all of its output is placed back into it's repository.
+	exec1, exec2 := alloc.Exec(digest.Digest(task1.ID)), alloc.Exec(digest.Digest(task2.ID))
+	exec1.Complete(reflow.Result{Fileset: out1}, nil)
+	exec2.Complete(reflow.Result{Fileset: out2}, nil)
+	for _, tsk := range tasks {
+		if err := tsk.Wait(ctx, sched.TaskDone); err != nil {
+			t.Fatal(err)
+		}
+		if tsk.Err != nil {
+			t.Errorf("unexpected task error: %v", tsk.Err)
+		}
+	}
+
+	stats = scheduler.Stats.GetStats()
+	if got, want := len(stats.Tasks), len(tasks); got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	for _, tsk := range tasks {
+		if got, want := stats.Tasks[tsk.ID.ID()].State, 4; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	}
+	expectExists(t, repo1, out1)
+	expectExists(t, repo2, out2)
+
+	expectNotExists(t, repo2, out1)
+	expectNotExists(t, repo1, out2)
+
+	mtdb := scheduler.TaskDB.(*utiltest.MockTaskDB)
+	tdbTasks, _ := mtdb.Tasks(ctx, taskdb.TaskQuery{})
+	if got, want := len(tdbTasks), len(tasks); got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestSchedulerAlloc(t *testing.T) {
+	scheduler, cluster, shutdown := newTestScheduler(t)
+	defer shutdown()
+	ctx := context.Background()
+
+	repo := testutil.NewInmemoryRepository("")
 	tasks := []*sched.Task{
-		utiltest.NewTask(5, 10<<30, 1),
-		utiltest.NewTask(10, 10<<30, 1),
-		utiltest.NewTask(20, 10<<30, 0),
-		utiltest.NewTask(20, 10<<30, 1),
+		utiltest.NewTask(5, 10<<30, 1).WithRepo(repo),
+		utiltest.NewTask(10, 10<<30, 1).WithRepo(repo),
+		utiltest.NewTask(20, 10<<30, 0).WithRepo(repo),
+		utiltest.NewTask(20, 10<<30, 1).WithRepo(repo),
 	}
 	scheduler.Submit(tasks...)
 	req := <-cluster.Req()
@@ -246,10 +344,12 @@ func TestSchedulerAlloc(t *testing.T) {
 }
 
 func TestSchedulerTaskTooBig(t *testing.T) {
-	scheduler, _, _, shutdown := newTestScheduler(t)
+	scheduler, _, shutdown := newTestScheduler(t)
 	defer shutdown()
 	ctx := context.Background()
-	task := utiltest.NewTask(10, 512<<30, 0)
+
+	repo := testutil.NewInmemoryRepository("")
+	task := utiltest.NewTask(10, 512<<30, 0).WithRepo(repo)
 
 	scheduler.Submit(task)
 	// By the time the task is running, it should have all of the dependent objects
@@ -263,14 +363,15 @@ func TestSchedulerTaskTooBig(t *testing.T) {
 }
 
 func TestTaskLost(t *testing.T) {
-	scheduler, cluster, _, shutdown := newTestScheduler(t)
+	scheduler, cluster, shutdown := newTestScheduler(t)
 	defer shutdown()
 	ctx := context.Background()
 
+	repo := testutil.NewInmemoryRepository("")
 	tasks := []*sched.Task{
-		utiltest.NewTask(1, 1, 0),
-		utiltest.NewTask(1, 1, 0),
-		utiltest.NewTask(1, 1, 0),
+		utiltest.NewTask(1, 1, 0).WithRepo(repo),
+		utiltest.NewTask(1, 1, 0).WithRepo(repo),
+		utiltest.NewTask(1, 1, 0).WithRepo(repo),
 	}
 	scheduler.Submit(tasks...)
 	allocs := []*utiltest.TestAlloc{
@@ -341,14 +442,15 @@ func TestTaskLost(t *testing.T) {
 }
 
 func TestTaskNetError(t *testing.T) {
-	scheduler, cluster, _, shutdown := newTestScheduler(t)
+	scheduler, cluster, shutdown := newTestScheduler(t)
 	defer shutdown()
 	ctx := context.Background()
 
+	repo := testutil.NewInmemoryRepository("")
 	tasks := []*sched.Task{
-		utiltest.NewTask(1, 1, 0),
-		utiltest.NewTask(1, 1, 0),
-		utiltest.NewTask(3, 3, 0),
+		utiltest.NewTask(1, 1, 0).WithRepo(repo),
+		utiltest.NewTask(1, 1, 0).WithRepo(repo),
+		utiltest.NewTask(3, 3, 0).WithRepo(repo),
 	}
 	scheduler.Submit(tasks...)
 	allocs := []*utiltest.TestAlloc{
@@ -402,10 +504,12 @@ func TestTaskErrors(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			scheduler, cluster, repo, shutdown := newTestScheduler(t)
+			scheduler, cluster, shutdown := newTestScheduler(t)
 			defer shutdown()
 			ctx := context.Background()
-			task := utiltest.NewTask(1, 1, 0)
+
+			repo := testutil.NewInmemoryRepository("")
+			task := utiltest.NewTask(1, 1, 0).WithRepo(repo)
 
 			// create a random fileset which will be loaded onto the alloc
 			// later we will check that all the filesets are properly unloaded, even when tasks fail
@@ -488,11 +592,11 @@ func TestLostTasksSwitchAllocs(t *testing.T) {
 		{nil, taskCancel},
 	}
 	for _, tt := range tests {
-		scheduler, cluster, _, shutdown := newTestScheduler(t)
+		scheduler, cluster, shutdown := newTestScheduler(t)
 		defer shutdown()
-		tasks := []*sched.Task{
-			utiltest.NewTask(1, 1, 0),
-		}
+
+		repo := testutil.NewInmemoryRepository("")
+		tasks := []*sched.Task{utiltest.NewTask(1, 1, 0).WithRepo(repo)}
 		scheduler.Submit(tasks...)
 		allocs := []*utiltest.TestAlloc{
 			utiltest.NewTestAlloc(reflow.Resources{"cpu": 2, "mem": 2}),
@@ -532,12 +636,12 @@ func TestLostTasksSwitchAllocs(t *testing.T) {
 }
 
 func TestSchedulerDirectTransfer(t *testing.T) {
-	repo := testutil.NewInmemoryLocatorRepository()
-	scheduler, _, shutdown := newTestSchedulerWithRepo(t, repo)
+	scheduler, _, shutdown := newTestScheduler(t)
 	blb := testblob.New("test")
 	scheduler.Mux = blob.Mux{"test": blb}
 	defer shutdown()
 	ctx := context.Background()
+	repo := testutil.NewInmemoryLocatorRepository()
 	in := utiltest.RandomFileset(repo)
 	expectExists(t, repo, in)
 	for _, f := range in.Files() {
@@ -558,7 +662,7 @@ func TestSchedulerDirectTransfer(t *testing.T) {
 	file.ID = digest.Digest{}
 	in.Map[fn] = file
 
-	task := utiltest.NewTask(1, 10<<20, 0)
+	task := utiltest.NewTask(1, 10<<20, 0).WithRepo(repo)
 	task.Config.Args = []reflow.Arg{{Fileset: &in}}
 	task.Config.Type = "extern"
 	task.Config.URL = "test://bucketout/"
@@ -578,16 +682,17 @@ func TestSchedulerDirectTransfer(t *testing.T) {
 }
 
 func TestSchedulerDirectTransfer_noLocator(t *testing.T) {
-	scheduler, _, repo, shutdown := newTestScheduler(t)
+	scheduler, _, shutdown := newTestScheduler(t)
 	defer shutdown()
+	repo := testutil.NewInmemoryRepository("")
 	in := utiltest.RandomFileset(repo)
 	expectExists(t, repo, in)
-	assertNonDirectTransfer(t, scheduler, &in)
+	assertNonDirectTransfer(t, scheduler, &in, repo)
 }
 
 func TestSchedulerDirectTransfer_unresolvedFile(t *testing.T) {
 	repo := testutil.NewInmemoryLocatorRepository()
-	scheduler, _, shutdown := newTestSchedulerWithRepo(t, repo)
+	scheduler, _, shutdown := newTestScheduler(t)
 	blb1, blb2 := testblob.New("test"), testblob.New("test2")
 	scheduler.Mux = blob.Mux{"test": blb1, "test2": blb2}
 	defer shutdown()
@@ -611,13 +716,13 @@ func TestSchedulerDirectTransfer_unresolvedFile(t *testing.T) {
 	file.Source = "test2://unsupportedscheme"
 	file.ID = digest.Digest{}
 	in.Map[fn] = file
-	assertNonDirectTransfer(t, scheduler, &in)
+	assertNonDirectTransfer(t, scheduler, &in, repo)
 }
 
-func assertNonDirectTransfer(t *testing.T, scheduler *sched.Scheduler, in *reflow.Fileset) {
+func assertNonDirectTransfer(t *testing.T, scheduler *sched.Scheduler, in *reflow.Fileset, repo reflow.Repository) {
 	ctx := context.Background()
 
-	task := utiltest.NewTask(1, 10<<20, 0)
+	task := utiltest.NewTask(1, 10<<20, 0).WithRepo(repo)
 	task.Config.Args = []reflow.Arg{{Fileset: in}}
 	task.Config.Type = "extern"
 	task.Config.URL = "test://bucketout/"
@@ -632,13 +737,15 @@ func assertNonDirectTransfer(t *testing.T, scheduler *sched.Scheduler, in *reflo
 }
 
 func TestSchedulerLoadUnloadExtern(t *testing.T) {
-	scheduler, cluster, repo, shutdown := newTestScheduler(t)
+	scheduler, cluster, shutdown := newTestScheduler(t)
 	defer shutdown()
 	ctx := context.Background()
+
+	repo := testutil.NewInmemoryRepository("")
 	in := utiltest.RandomFileset(repo)
 	expectExists(t, repo, in)
 
-	task := utiltest.NewTask(10, 10<<30, 0)
+	task := utiltest.NewTask(10, 10<<30, 0).WithRepo(repo)
 	task.Config.Args = []reflow.Arg{{Fileset: &in}}
 	task.Config.Type = "extern"
 
@@ -729,9 +836,11 @@ func TestSchedulerLoadUnloadExtern(t *testing.T) {
 }
 
 func TestSchedulerLoadFailRetryTask(t *testing.T) {
-	scheduler, cluster, repo, shutdown := newTestScheduler(t)
+	scheduler, cluster, shutdown := newTestScheduler(t)
 	defer shutdown()
 	ctx := context.Background()
+
+	repo := testutil.NewInmemoryRepository("")
 	in := utiltest.RandomFileset(repo)
 	expectExists(t, repo, in)
 
@@ -743,7 +852,7 @@ func TestSchedulerLoadFailRetryTask(t *testing.T) {
 		refs.Map[k] = v
 	}
 
-	task := utiltest.NewTask(10, 10<<30, 0)
+	task := utiltest.NewTask(10, 10<<30, 0).WithRepo(repo)
 	task.Config.Args = []reflow.Arg{{Fileset: &in}, {Fileset: &refs}}
 
 	scheduler.Submit(task)
@@ -842,9 +951,10 @@ func TestSchedulerLoadFailRetryTask(t *testing.T) {
 }
 
 func TestSchedulerLoadUnloadFiles(t *testing.T) {
-	scheduler, cluster, repo, shutdown := newTestScheduler(t)
+	scheduler, cluster, shutdown := newTestScheduler(t)
 	defer shutdown()
 	ctx := context.Background()
+	repo := testutil.NewInmemoryRepository("")
 	in := utiltest.RandomFileset(repo)
 	expectExists(t, repo, in)
 
@@ -856,7 +966,7 @@ func TestSchedulerLoadUnloadFiles(t *testing.T) {
 		refs.Map[k] = v
 	}
 
-	task := utiltest.NewTask(10, 10<<30, 0)
+	task := utiltest.NewTask(10, 10<<30, 0).WithRepo(repo)
 	task.Config.Args = []reflow.Arg{{Fileset: &in}, {Fileset: &refs}}
 
 	scheduler.Submit(task)

@@ -13,3 +13,8 @@ func Requirements(tasks []*Task) reflow.Requirements {
 func (t *Task) NonDirectTransfer() bool {
 	return t.nonDirectTransfer
 }
+
+func (t *Task) WithRepo(repo reflow.Repository) *Task {
+	t.Repository = repo
+	return t
+}

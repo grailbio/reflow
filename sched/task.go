@@ -60,6 +60,10 @@ type Task struct {
 	// Config is the task's exec config, which is passed on to the
 	// alloc after scheduling.
 	Config reflow.ExecConfig
+	// Repository to use for this task.
+	// Repository is the repository from which dependent objects are
+	// downloaded and to which result objects are uploaded.
+	Repository reflow.Repository
 	// Log receives any status log messages during task scheduling
 	// and execution.
 	Log *log.Logger
