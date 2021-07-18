@@ -98,6 +98,9 @@ type Task struct {
 	// FlowID is the digest (flow.Digest) of the flow for which this task was created.
 	FlowID digest.Digest
 
+	// TaskDB is where the task row for this task is recorded and is set by the scheduler only after the task was attempted.
+	TaskDB taskdb.TaskDB
+
 	mu   sync.Mutex
 	cond *ctxsync.Cond
 

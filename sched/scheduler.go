@@ -80,7 +80,7 @@ type Scheduler struct {
 	Cluster Cluster
 	// Log logs scheduler actions.
 	Log *log.Logger
-	// TaskDB is  the task reporting db.
+	// TaskDB is the task reporting db.
 	TaskDB taskdb.TaskDB
 
 	// MaxPendingAllocs is the maximum number outstanding
@@ -457,6 +457,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		loadedData     sync.Map
 		resultUnloaded bool
 	)
+	task.TaskDB = s.TaskDB
 
 	metrics.GetTasksStartedCountCounter(ctx).Inc()
 	metrics.GetTasksStartedSizeCounter(ctx).Add(task.Config.ScaledDistance(nil))

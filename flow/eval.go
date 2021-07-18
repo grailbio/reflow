@@ -140,9 +140,6 @@ type EvalConfig struct {
 	// Assert is the policy to use for asserting cached Assertions.
 	Assert reflow.Assert
 
-	// TaskDB is the db to which run/tasks information and keepalives are maintained.
-	TaskDB taskdb.TaskDB
-
 	// RunID is a unique identifier for the run
 	RunID taskdb.RunID
 
@@ -204,9 +201,6 @@ func (e EvalConfig) String() string {
 	}
 	if e.Assoc != nil {
 		fmt.Fprintf(&b, " assoc %s", e.Assoc)
-	}
-	if e.TaskDB != nil {
-		fmt.Fprintf(&b, " taskdb %s", e.TaskDB)
 	}
 	if e.Predictor != nil {
 		fmt.Fprintf(&b, " predictor %T", e.Predictor)
@@ -1178,11 +1172,18 @@ func (e *Eval) cacheWriteAsync(ctx context.Context, f *Flow) {
 	}()
 }
 
-func (e *Eval) taskdbWrite(ctx context.Context, op Op, d digest.Digest, exec reflow.Exec, id taskdb.TaskID) error {
+func (e *Eval) taskdbWrite(ctx context.Context, op Op, task *sched.Task) error {
 	if !op.External() {
 		return nil
 	}
-	var stdout, stderr digest.Digest
+
+	var (
+		exec = task.Exec
+		tdb  = task.TaskDB
+		id   = task.ID
+
+		stdout, stderr digest.Digest
+	)
 	g, ctx := errgroup.WithContext(ctx)
 	if exec != nil {
 		if loc, err := exec.RemoteLogs(ctx, true); err == nil {
@@ -1196,9 +1197,9 @@ func (e *Eval) taskdbWrite(ctx context.Context, op Op, d digest.Digest, exec ref
 			}
 		}
 	}
-	if e.TaskDB != nil {
+	if tdb != nil {
 		g.Go(func() error {
-			err := e.TaskDB.SetTaskAttrs(ctx, id, stdout, stderr, d)
+			err := tdb.SetTaskAttrs(ctx, id, stdout, stderr, task.InspectDigest)
 			if err != nil {
 				e.Log.Debugf("taskdb settaskattrs: %v", err)
 			}
@@ -1208,14 +1209,12 @@ func (e *Eval) taskdbWrite(ctx context.Context, op Op, d digest.Digest, exec ref
 	return g.Wait()
 }
 
-// TODO(dnicolaou): Change to: taskdbWriteAsync(ctx context.Context, op Op, task *sched.Task) once nonscheduler mode is
-// removed.
-func (e *Eval) taskdbWriteAsync(ctx context.Context, op Op, d digest.Digest, exec reflow.Exec, id taskdb.TaskID) {
+func (e *Eval) taskdbWriteAsync(ctx context.Context, op Op, task *sched.Task) {
 	bgctx := Background(ctx)
 	go func() {
-		err := e.taskdbWrite(bgctx, op, d, exec, id)
+		err := e.taskdbWrite(bgctx, op, task)
 		if err != nil {
-			e.Log.Errorf("taskdb write %v: %v", id, err)
+			e.Log.Errorf("taskdb write %v: %v", task.ID, err)
 		}
 		bgctx.Complete()
 	}()
@@ -1936,8 +1935,8 @@ func (e *Eval) taskWait(ctx context.Context, f *Flow, task *sched.Task) error {
 	} else {
 		e.Mutate(f, task.Result.Err, task.Result.Fileset, Propagate, Done)
 	}
-	if e.TaskDB != nil {
-		e.taskdbWriteAsync(ctx, f.Op, task.InspectDigest, task.Exec, task.ID)
+	if task.TaskDB != nil {
+		e.taskdbWriteAsync(ctx, f.Op, task)
 	}
 	return nil
 }

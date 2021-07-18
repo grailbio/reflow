@@ -34,7 +34,6 @@ import (
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/syntax"
-	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/wg"
 )
@@ -131,19 +130,9 @@ The flag -parallelism controls the number of runs in the batch to run concurrent
 	}
 	var cache *infra.CacheProvider
 	c.must(c.Config.Instance(&cache))
-	assg, err := assertionGenerator(c.Config)
-	if err != nil {
-		c.Fatal(err)
-	}
 	blobMux, err := blobMux(c.Config)
 	if err != nil {
 		c.Fatal(err)
-	}
-
-	var tdb taskdb.TaskDB
-	err = c.Config.Instance(&tdb)
-	if err != nil {
-		c.Log.Debugf("taskdb: %v", err)
 	}
 
 	var (
@@ -163,9 +152,8 @@ The flag -parallelism controls the number of runs in the batch to run concurrent
 			Snapshotter:        blobMux,
 			Repository:         repo,
 			Assoc:              assoc,
-			AssertionGenerator: assg,
+			AssertionGenerator: assertionGenerator(blobMux),
 			CacheMode:          cache.CacheMode,
-			TaskDB:             tdb,
 			Scheduler:          scheduler,
 		},
 		Args:    flags.Args(),

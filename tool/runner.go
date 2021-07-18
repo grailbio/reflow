@@ -195,6 +195,8 @@ func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger, sch
 	var (
 		mux         blob.Mux
 		repo        reflow.Repository
+		assoc       assoc.Assoc
+		cache       *infra2.CacheProvider
 		schedCancel context.CancelFunc
 		wg          wg.WaitGroup
 		limit       int
@@ -209,6 +211,13 @@ func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger, sch
 	if err = runConfig.Config.Instance(&repo); err != nil {
 		return
 	}
+	if err = runConfig.Config.Instance(&assoc); err != nil {
+		return
+	}
+	if err = runConfig.Config.Instance(&cache); err != nil {
+		return
+	}
+
 	if limit, err = transferLimit(runConfig.Config); err != nil {
 		return
 	}
@@ -265,6 +274,10 @@ func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger, sch
 	if err != nil {
 		return
 	}
+	var user *infra2.User
+	if err = runConfig.Config.Instance(&user); err != nil {
+		return
+	}
 	r = &Runner{
 		runConfig:   runConfig,
 		RunID:       *runID,
@@ -274,10 +287,10 @@ func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger, sch
 		Log:         logger,
 		wg:          &wg,
 		repo:        repo,
+		assoc:       assoc,
+		cache:       cache,
 		mux:         mux,
-	}
-	if err = r.initInfra(); err != nil {
-		return
+		user:        user.User(),
 	}
 	return
 }
@@ -317,37 +330,10 @@ type Runner struct {
 	repo  reflow.Repository
 	assoc assoc.Assoc
 	cache *infra2.CacheProvider
-	tdb   taskdb.TaskDB
 
-	mux                blob.Mux
-	transferer         reflow.Transferer
-	assertionGenerator reflow.AssertionGenerator
-}
-
-func (r *Runner) initInfra() error {
-	var (
-		err    error
-		config = r.runConfig.Config
-	)
-	if err = config.Instance(&r.assoc); err != nil {
-		return err
-	}
-	if err = config.Instance(&r.cache); err != nil {
-		return err
-	}
-	r.assertionGenerator, err = assertionGenerator(config)
-	if err != nil {
-		return err
-	}
-	err = r.runConfig.Config.Instance(&r.tdb)
-	if err != nil {
-		if strings.HasPrefix(err.Error(), "no providers for type taskdb.TaskDB") {
-			r.Log.Debug(err)
-		} else {
-			return err
-		}
-	}
-	return nil
+	mux        blob.Mux
+	transferer reflow.Transferer
+	user       string
 }
 
 // Go runs the reflow program. It returns a non nil error if did not succeed.
@@ -406,18 +392,16 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 
 	tctx, tcancel := context.WithCancel(ctx)
 	defer tcancel()
-	if r.tdb != nil {
-		var user *infra2.User
-		errTDB := r.runConfig.Config.Instance(&user)
-		if errTDB != nil {
-			r.Log.Debug(errTDB)
-		}
-		errTDB = r.tdb.CreateRun(tctx, r.RunID, string(*user))
-		if errTDB != nil {
-			r.Log.Debugf("error writing run to taskdb: %v", errTDB)
+	if r.scheduler == nil {
+		panic("unexpectedly scheduler is nil")
+	}
+	tdb := r.scheduler.TaskDB
+	if tdb != nil {
+		if rerr := tdb.CreateRun(tctx, r.RunID, r.user); rerr != nil {
+			r.Log.Debugf("error writing run to taskdb: %v", rerr)
 		} else {
-			go func() { _ = taskdb.KeepRunAlive(tctx, r.tdb, r.RunID) }()
-			go func() { _ = r.uploadBundle(tctx, r.repo, r.tdb, r.RunID, e, r.runConfig.Program, r.runConfig.Args) }()
+			go func() { _ = taskdb.KeepRunAlive(tctx, tdb, r.RunID) }()
+			go func() { _ = r.uploadBundle(tctx, r.repo, tdb, r.RunID, e, r.runConfig.Program, r.runConfig.Args) }()
 		}
 	}
 	run := runner.Runner{
@@ -427,13 +411,12 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 			Repository:         r.repo,
 			Snapshotter:        r.mux,
 			Assoc:              r.assoc,
-			AssertionGenerator: r.assertionGenerator,
+			AssertionGenerator: assertionGenerator(r.mux),
 			CacheMode:          r.cache.CacheMode,
 			Status:             r.runConfig.Status.Group(r.RunID.IDShort()),
 			Scheduler:          r.scheduler,
 			Predictor:          r.predictor,
 			ImageMap:           e.ImageMap,
-			TaskDB:             r.tdb,
 			RunID:              r.RunID,
 			DotWriter:          r.DotWriter,
 		},
@@ -478,8 +461,8 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
-		if r.tdb != nil {
-			if errTDB := r.setRunComplete(tctx, run.State.Completion); errTDB != nil {
+		if tdb != nil {
+			if errTDB := r.setRunComplete(tctx, tdb, run.State.Completion); errTDB != nil {
 				r.Log.Debugf("error writing run result to taskdb: %v", errTDB)
 			}
 		}
@@ -503,7 +486,7 @@ func (r *Runner) GetRunID() taskdb.RunID {
 	return r.RunID
 }
 
-func (r *Runner) setRunComplete(ctx context.Context, endTime time.Time) error {
+func (r *Runner) setRunComplete(ctx context.Context, tdb taskdb.TaskDB, endTime time.Time) error {
 	var (
 		execLog, sysLog, dotFile, trace digest.Digest
 		rc                              io.ReadCloser
@@ -546,7 +529,7 @@ func (r *Runner) setRunComplete(ctx context.Context, endTime time.Time) error {
 	} else {
 		r.Log.Debugf("unable to determine runbase: %v", err)
 	}
-	err = r.tdb.SetRunComplete(ctx, r.RunID, execLog, sysLog, dotFile, trace, endTime)
+	err = tdb.SetRunComplete(ctx, r.RunID, execLog, sysLog, dotFile, trace, endTime)
 	if err == nil {
 		var ds []string
 		if !execLog.IsZero() {

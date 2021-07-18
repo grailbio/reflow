@@ -11,14 +11,11 @@ import (
 	"io"
 	"io/ioutil"
 	golog "log"
-	"math"
 	"os"
 	"path/filepath"
 	"time"
 
-	"docker.io/go-docker"
 	"github.com/grailbio/base/digest"
-	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/blob"
@@ -258,11 +255,11 @@ func (c Cmd) WaitForBackgroundTasks(wg *wg.WaitGroup, timeout time.Duration) {
 }
 
 // AssertionGenerator returns the configured AssertionGenerator mux.
-func assertionGenerator(config infra.Config) (reflow.AssertionGeneratorMux, error) {
-	mux := make(reflow.AssertionGeneratorMux)
-	var err error
-	mux[blob.AssertionsNamespace], err = blobMux(config)
-	return mux, err
+func assertionGenerator(bmux blob.Mux) reflow.AssertionGeneratorMux {
+	if bmux == nil {
+		panic(fmt.Sprintf("assertionGenerator got nil blob.Mux"))
+	}
+	return reflow.AssertionGeneratorMux{blob.AssertionsNamespace: bmux}
 }
 
 // asserter returns a reflow.Assert based on the given name.
@@ -275,29 +272,6 @@ func asserter(name string) (reflow.Assert, error) {
 	default:
 		return nil, fmt.Errorf("unknown Assert policy %s", name)
 	}
-}
-
-func dockerClient() (*docker.Client, reflow.Resources, error) {
-	addr := os.Getenv("DOCKER_HOST")
-	if addr == "" {
-		addr = "unix:///var/run/docker.sock"
-	}
-	client, err := docker.NewClient(
-		addr, "1.22", /*client.DefaultVersion*/
-		nil, map[string]string{"user-agent": "reflow"})
-	if err != nil {
-		return nil, nil, err
-	}
-	info, err := client.Info(context.Background())
-	if err != nil {
-		return nil, nil, err
-	}
-	resources := reflow.Resources{
-		"mem":  math.Floor(float64(info.MemTotal) * 0.95),
-		"cpu":  float64(info.NCPU),
-		"disk": 1e13, // Assume 10TB. TODO(marius): real disk management
-	}
-	return client, resources, nil
 }
 
 func getBundle(file string) (io.ReadCloser, digest.Digest, error) {
