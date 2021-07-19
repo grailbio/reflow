@@ -89,6 +89,9 @@ type Task struct {
 	// Higher priority tasks will get scheduler before any lower priority tasks.
 	Priority int
 
+	// PostUseChecksum indicates whether input filesets are checksummed after use.
+	PostUseChecksum bool
+
 	// ExpectedDuration is the duration the task is expected to take used only as a hint
 	// by the scheduler for better scheduling.
 	ExpectedDuration time.Duration

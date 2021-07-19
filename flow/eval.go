@@ -1949,6 +1949,7 @@ func (e *Eval) newTask(f *Flow) *sched.Task {
 	t.FlowID = f.Digest()
 	t.Config = f.ExecConfig()
 	t.Repository = e.Repository
+	t.PostUseChecksum = e.PostUseChecksum
 	t.Log = e.Log.Tee(nil, fmt.Sprintf("scheduler task %s (flow %s): ", t.ID.IDShort(), t.FlowID.Short()))
 	return t
 }

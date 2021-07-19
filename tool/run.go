@@ -26,6 +26,7 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/metrics"
 	"github.com/grailbio/reflow/runner"
+	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/trace"
@@ -126,8 +127,10 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 
 	defer cancel()
 	var (
-		result runner.State
-		err    error
+		result    runner.State
+		scheduler *sched.Scheduler
+		cluster   runner.Cluster
+		err       error
 	)
 	runConfig := RunConfig{
 		Config:   c.Config,
@@ -136,10 +139,19 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 		Status:   c.Status,
 		RunFlags: runFlags,
 	}
-	runConfig.RunFlags.Cluster, err = clusterInstance(c.Config, c.Status)
+	cluster, err = clusterInstance(c.Config, c.Status)
 	c.must(err)
 
-	r, err := NewRunner(ctx, runConfig, c.Log, nil)
+	scheduler, err = NewScheduler(c.Config, cluster, c.Log, runConfig.Status)
+	if err != nil {
+		c.Fatal(fmt.Errorf("can't initialize scheduler: %s", err))
+	}
+	scheduler.ExportStats()
+	schedCtx, schedCancel := context.WithCancel(ctx)
+	go func() { _ = scheduler.Do(schedCtx) }()
+	defer schedCancel()
+
+	r, err := NewRunner(runConfig, c.Log, scheduler)
 	c.must(err)
 
 	// Set up run transcript and log files.
@@ -189,7 +201,7 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 			}()
 		}
 		c.onexit(func() {
-			if err = runConfig.RunFlags.Cluster.Shutdown(); err != nil {
+			if err = cluster.Shutdown(); err != nil {
 				r.Log.Errorf("cluster shutdown: %v", err)
 			}
 		})

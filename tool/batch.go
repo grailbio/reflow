@@ -32,7 +32,6 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/runner"
-	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/wg"
@@ -135,16 +134,13 @@ The flag -parallelism controls the number of runs in the batch to run concurrent
 		c.Fatal(err)
 	}
 
-	var (
-		scheduler             *sched.Scheduler
-		wg                    wg.WaitGroup
-		schedCtx, schedCancel = context.WithCancel(ctx)
-	)
-	if config.Sched {
-		scheduler, err = NewScheduler(schedCtx, c.Config, &wg, nil, nil, c.Status)
-		c.must(err)
-		scheduler.ExportStats()
-	}
+	scheduler, err := NewScheduler(c.Config, nil, nil, c.Status)
+	c.must(err)
+	scheduler.ExportStats()
+
+	schedCtx, schedCancel := context.WithCancel(ctx)
+	go func() { _ = scheduler.Do(schedCtx) }()
+	defer schedCancel()
 
 	b := &batch.Batch{
 		EvalConfig: flow.EvalConfig{
@@ -180,13 +176,11 @@ The flag -parallelism controls the number of runs in the batch to run concurrent
 			}
 		}
 	}
+	var wg wg.WaitGroup
 	ctx, bgcancel := flow.WithBackground(ctx, &wg)
 	err = b.Run(ctx)
 	if err != nil {
 		c.Log.Errorf("batch failed with error %v", err)
-	}
-	if schedCancel != nil {
-		schedCancel()
 	}
 	c.WaitForBackgroundTasks(&wg, 20*time.Minute)
 	bgcancel()

@@ -98,9 +98,6 @@ type Scheduler struct {
 	// the scheduler.
 	MinAlloc reflow.Resources
 
-	// PostUseChecksum indicates whether input filesets are checksummed after use.
-	PostUseChecksum bool
-
 	// Labels is the set of labels applied to newly created allocs.
 	Labels pool.Labels
 
@@ -589,7 +586,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		case internal.StateUnload:
 			err = unload(ctx, task, &loadedData, alloc, &resultUnloaded)
 		}
-		next, nextIsRetry, msg := state.Next(ctx, err, s.PostUseChecksum)
+		next, nextIsRetry, msg := state.Next(ctx, err, task.PostUseChecksum)
 		task.Log.Debugf("%s (try %d): %s, next state: %s", state, attempt, msg, next)
 		if nextIsRetry {
 			attempt++
