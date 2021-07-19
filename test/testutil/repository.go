@@ -41,12 +41,14 @@ var (
 
 // NewInmemoryRepository returns a new repository that stores objects
 // in memory.
-func NewInmemoryRepository() *InmemoryRepository {
+func NewInmemoryRepository(name string) *InmemoryRepository {
 	inmemoryReposMapOnce.Do(func() {
 		inmemoryReposMap = make(map[string]*InmemoryRepository)
 	})
-	host := fmt.Sprintf("%d", rand.Int63())
-	url, err := url.Parse(fmt.Sprint("inmemory://", host))
+	if name == "" {
+		name = fmt.Sprintf("%d", rand.Int63())
+	}
+	url, err := url.Parse(fmt.Sprint("inmemory://", name))
 	if err != nil {
 		log.Printf("url parse: %v", err)
 		return nil
@@ -56,7 +58,7 @@ func NewInmemoryRepository() *InmemoryRepository {
 		url:   url,
 	}
 	inmemoryReposMu.Lock()
-	inmemoryReposMap[host] = repo
+	inmemoryReposMap[name] = repo
 	inmemoryReposMu.Unlock()
 	return repo
 }
@@ -150,6 +152,10 @@ func (r *InmemoryRepository) URL() *url.URL {
 	return r.url
 }
 
+func (r *InmemoryRepository) RawFiles() map[digest.Digest][]byte {
+	return r.files
+}
+
 // InmemoryRepository is an in-memory repository used for testing which also implements scheduler.blobLocator.
 type InmemoryLocatorRepository struct {
 	*InmemoryRepository
@@ -160,7 +166,7 @@ type InmemoryLocatorRepository struct {
 // in memory.
 func NewInmemoryLocatorRepository() *InmemoryLocatorRepository {
 	return &InmemoryLocatorRepository{
-		InmemoryRepository: NewInmemoryRepository(),
+		InmemoryRepository: NewInmemoryRepository(""),
 		locations:          map[digest.Digest]string{},
 	}
 }

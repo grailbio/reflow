@@ -35,7 +35,7 @@ func newTestScheduler(t *testing.T) (scheduler *sched.Scheduler, cluster *alloca
 	cluster = new(allocator)
 	scheduler = sched.New()
 	scheduler.Transferer = testutil.Transferer
-	scheduler.Repository = testutil.NewInmemoryRepository()
+	scheduler.Repository = testutil.NewInmemoryRepository("")
 	scheduler.Cluster = cluster
 	scheduler.PostUseChecksum = true
 	scheduler.MinAlloc = reflow.Resources{}

@@ -12,9 +12,5 @@ func init() {
 // Assoc is a fake assoc infra provider and should be used only in tests.
 type Assoc struct {
 	assoc.Assoc
-}
-
-// Init implements infra.Provider
-func (r *Assoc) Init() error {
-	return nil
+	assoc.AssocFlagsTrait
 }

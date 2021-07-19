@@ -167,7 +167,7 @@ func (e *Executor) Init() {
 	e.cond = ctxsync.NewCond(&e.mu)
 	e.execs = map[digest.Digest]*Exec{}
 	e.execIdByIdentDigest = map[digest.Digest]digest.Digest{}
-	e.Repo = NewInmemoryRepository()
+	e.Repo = NewInmemoryRepository("")
 }
 
 // Put defines a new exec (idempotently).

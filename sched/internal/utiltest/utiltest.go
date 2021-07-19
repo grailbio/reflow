@@ -291,7 +291,7 @@ func NewTestAlloc(resources reflow.Resources) *TestAlloc {
 
 func NewTestAllocWithId(id string, resources reflow.Resources) *TestAlloc {
 	alloc := &TestAlloc{
-		repository: testutil.NewInmemoryRepository(),
+		repository: testutil.NewInmemoryRepository(""),
 		execs:      make(map[digest.Digest]*testExec),
 		resources:  resources,
 		created:    time.Now(),

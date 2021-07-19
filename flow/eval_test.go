@@ -980,7 +980,7 @@ func newTestScheduler() (alloc *testAlloc, config flow.EvalConfig, done func()) 
 	alloc.Have.Scale(testutil.Resources, 2.0)
 	alloc.Init()
 
-	sharedRepo := testutil.NewInmemoryRepository()
+	sharedRepo := testutil.NewInmemoryRepository("")
 	sched := sched.New()
 	sched.Transferer = testutil.Transferer
 	sched.Repository = sharedRepo
@@ -1215,7 +1215,7 @@ func TestSchedulerSubmit(t *testing.T) {
 
 	wa := newWaitAssoc()
 	config.Assoc = wa
-	config.Repository = testutil.NewInmemoryRepository()
+	config.Repository = testutil.NewInmemoryRepository("")
 	config.CacheMode = infra.CacheRead
 	config.BottomUp = true
 	config.Log = logger()

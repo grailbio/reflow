@@ -8,7 +8,6 @@ package dydbassoc
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"strconv"
 	"sync"
@@ -69,6 +68,7 @@ var (
 // TODO(marius): support batch querying in this interface; it will be
 // more efficient than relying on call concurrency.
 type Assoc struct {
+	assoc.AssocFlagsTrait
 	DB        dynamodbiface.DynamoDBAPI `yaml:"-"`
 	Limiter   *limiter.Limiter          `yaml:"-"`
 	TableName string                    `yaml:"-"`
@@ -198,11 +198,6 @@ func (a *Assoc) Setup(sess *session.Session, logger *log.Logger) error {
 		log.Printf("created secondary index %s", indexName)
 	}
 	return nil
-}
-
-// Flags implements infra.Provider.
-func (a *Assoc) Flags(flags *flag.FlagSet) {
-	flags.StringVar(&a.TableName, "table", "", "name of the dynamodb table")
 }
 
 // Version implements infra.Provider.

@@ -50,7 +50,7 @@ Prog:
 				// We have to evaluate the flow (isn't expected to contain external flow nodes,
 				// so we don't need an executor or scheduler).
 				// We do provide an in-memory repository so that local interns work.
-				eval := flow.NewEval(v, flow.EvalConfig{Repository: NewInmemoryRepository()})
+				eval := flow.NewEval(v, flow.EvalConfig{Repository: NewInmemoryRepository("")})
 				if err := eval.Do(context.Background()); err != nil {
 					t.Errorf("%s.%s: %v", prog, test, err)
 					continue tests

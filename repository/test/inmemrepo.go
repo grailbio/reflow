@@ -41,7 +41,13 @@ func (r *InMemoryRepository) Init() error {
 	})
 	mu.Lock()
 	defer mu.Unlock()
-	r.InmemoryRepository = testutil.NewInmemoryRepository()
+	r.InmemoryRepository = testutil.NewInmemoryRepository(r.RepoFlagsTrait.BucketName)
 	repos[r.InmemoryRepository.URL().Host] = r
 	return nil
+}
+
+func GetInMemoryRepo(bucketName string) *InMemoryRepository {
+	mu.Lock()
+	defer mu.Unlock()
+	return repos[bucketName]
 }

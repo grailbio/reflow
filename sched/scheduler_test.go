@@ -32,7 +32,7 @@ import (
 
 func newTestScheduler(t *testing.T) (scheduler *sched.Scheduler, cluster *utiltest.TestCluster, repository *testutil.InmemoryRepository, shutdown func()) {
 	t.Helper()
-	repository = testutil.NewInmemoryRepository()
+	repository = testutil.NewInmemoryRepository("")
 	scheduler, cluster, shutdown = newTestSchedulerWithRepo(t, repository)
 	return
 }
@@ -735,7 +735,7 @@ func TestSchedulerLoadFailRetryTask(t *testing.T) {
 	in := utiltest.RandomFileset(repo)
 	expectExists(t, repo, in)
 
-	remote := testutil.NewInmemoryRepository()
+	remote := testutil.NewInmemoryRepository("")
 	remotes := utiltest.RandomRepoFileset(remote)
 	refs := reflow.Fileset{Map: make(map[string]reflow.File)}
 	for k := range remotes.Map {
@@ -848,7 +848,7 @@ func TestSchedulerLoadUnloadFiles(t *testing.T) {
 	in := utiltest.RandomFileset(repo)
 	expectExists(t, repo, in)
 
-	remote := testutil.NewInmemoryRepository()
+	remote := testutil.NewInmemoryRepository("")
 	remotes := utiltest.RandomRepoFileset(remote)
 	refs := reflow.Fileset{Map: make(map[string]reflow.File)}
 	for k := range remotes.Map {
