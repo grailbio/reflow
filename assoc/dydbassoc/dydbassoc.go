@@ -69,9 +69,8 @@ var (
 // more efficient than relying on call concurrency.
 type Assoc struct {
 	assoc.AssocFlagsTrait
-	DB        dynamodbiface.DynamoDBAPI `yaml:"-"`
-	Limiter   *limiter.Limiter          `yaml:"-"`
-	TableName string                    `yaml:"-"`
+	DB      dynamodbiface.DynamoDBAPI `yaml:"-"`
+	Limiter *limiter.Limiter          `yaml:"-"`
 	// Labels to assign to cache entries.
 	Labels pool.Labels `yaml:"-"`
 
@@ -90,6 +89,9 @@ func (a *Assoc) Help() string {
 
 // Init implements infra.Provider.
 func (a *Assoc) Init(sess *session.Session, labels pool.Labels) error {
+	if a.TableName == "" {
+		return fmt.Errorf("Assoc table name cannot be empty")
+	}
 	lim := limiter.New()
 	lim.Release(32)
 	a.DB = dynamodb.New(sess)

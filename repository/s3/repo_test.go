@@ -36,7 +36,7 @@ func TestS3RepositoryInfra(t *testing.T) {
 	if got, want := s3repos.BucketName, bucket; got != want {
 		t.Errorf("got %v, want %v", s3repos.BucketName, bucket)
 	}
-	if got, want := repo.URL().String(), "s3://reflow-unittest//"; got != want {
-		t.Errorf("got %v, want %v", repo.URL(), "s3://reflow-unittest//")
+	if got, want := repo.URL().String(), "s3://reflow-unittest/"; got != want {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }

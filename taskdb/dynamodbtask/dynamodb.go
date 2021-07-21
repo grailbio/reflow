@@ -227,6 +227,10 @@ func (TaskDB) Help() string {
 
 // Init implements infra.Provider.
 func (t *TaskDB) Init(sess *session.Session, assoc *dydbassoc.Assoc, user *infra2.User, labels pool.Labels) error {
+	t.TableName = assoc.TableName
+	if t.TableName == "" {
+		return fmt.Errorf("TaskDB table name cannot be empty")
+	}
 	t.limiter = limiter.New()
 	t.limiter.Release(32)
 	t.DB = dynamodb.New(sess)
@@ -235,7 +239,6 @@ func (t *TaskDB) Init(sess *session.Session, assoc *dydbassoc.Assoc, user *infra
 		t.Labels = append(t.Labels, fmt.Sprintf("%s=%s", k, v))
 	}
 	t.User = string(*user)
-	t.TableName = assoc.TableName
 	return nil
 }
 

@@ -160,7 +160,8 @@ func TestDelete(t *testing.T) {
 	db := &mockdb{
 		mockStore: map[*mockEntry]bool{&dummyEntry: true},
 	}
-	ass := &Assoc{DB: db, TableName: mockTable}
+	ass := &Assoc{DB: db}
+	ass.TableName = mockTable
 
 	badkey := reflow.Digester.Rand(nil)
 	if err := ass.Delete(ctx, badkey); err == nil {
@@ -182,7 +183,8 @@ func TestEmptyKeys(t *testing.T) {
 	var wg sync.WaitGroup
 	ctx, _ := flow.WithBackground(context.Background(), &wg)
 	db := &mockdb{}
-	ass := &Assoc{DB: db, TableName: mockTable}
+	ass := &Assoc{DB: db}
+	ass.TableName = mockTable
 	keys := make(assoc.Batch)
 	err := ass.BatchGet(ctx, keys)
 	if err != nil {
@@ -201,7 +203,8 @@ func TestSimpleBatchGetItem(t *testing.T) {
 	var wg sync.WaitGroup
 	ctx, _ := flow.WithBackground(context.Background(), &wg)
 	db := &mockdb{}
-	ass := &Assoc{DB: db, TableName: mockTable}
+	ass := &Assoc{DB: db}
+	ass.TableName = mockTable
 	k := reflow.Digester.Rand(nil)
 	key := assoc.Key{Kind: assoc.Fileset, Digest: k}
 	batch := assoc.Batch{key: assoc.Result{}}
@@ -225,7 +228,8 @@ func TestMultiKindBatchGetItem(t *testing.T) {
 	var wg sync.WaitGroup
 	ctx, _ := flow.WithBackground(context.Background(), &wg)
 	db := &mockdb{}
-	ass := &Assoc{DB: db, TableName: mockTable}
+	ass := &Assoc{DB: db}
+	ass.TableName = mockTable
 	k := reflow.Digester.Rand(nil)
 	keys := []assoc.Key{{assoc.Fileset, k}, {assoc.ExecInspect, k}}
 	batch := make(assoc.Batch)
@@ -332,7 +336,8 @@ func TestParallelBatchGetItem(t *testing.T) {
 	ctx, _ := flow.WithBackground(context.Background(), &wg)
 	count := 10 * 1024
 	db := &mockdbunprocessed{maxRetries: 10}
-	ass := &Assoc{DB: db, TableName: mockTable}
+	ass := &Assoc{DB: db}
+	ass.TableName = mockTable
 	digests := make([]assoc.Key, count)
 
 	for i := 0; i < count; i++ {
@@ -468,7 +473,8 @@ func TestInvalidDigest(t *testing.T) {
 	}
 	for _, kind := range kinds {
 		db := &mockdbInvalidDigest{invalidDigestCol: colmap[kind]}
-		ass := &Assoc{DB: db, TableName: mockTable}
+		ass := &Assoc{DB: db}
+		ass.TableName = mockTable
 		var wg sync.WaitGroup
 		ctx, cancel := flow.WithBackground(context.Background(), &wg)
 		err := ass.BatchGet(ctx, batch)
@@ -534,8 +540,9 @@ func TestAssocScanValidEntries(t *testing.T) {
 	var (
 		ctx = context.Background()
 		db  = &mockdb{mockStore: make(map[*mockEntry]bool)}
-		ass = &Assoc{DB: db, TableName: mockTable}
+		ass = &Assoc{DB: db}
 	)
+	ass.TableName = mockTable
 	for _, tt := range []struct {
 		kind               assoc.Kind
 		key                digest.Digest
@@ -650,8 +657,9 @@ func TestAssocScanInvalidEntries(t *testing.T) {
 	var (
 		ctx = context.Background()
 		db  = &mockdb{mockStore: make(map[*mockEntry]bool)}
-		ass = &Assoc{DB: db, TableName: mockTable}
+		ass = &Assoc{DB: db}
 	)
+	ass.TableName = mockTable
 	for _, tt := range []struct {
 		key                digest.Digest
 		val                digest.Digest
@@ -702,12 +710,13 @@ func TestCollectWithThreshold(t *testing.T) {
 	var (
 		ctx              = context.Background()
 		db               = &mockdb{mockStore: make(map[*mockEntry]bool)}
-		ass              = &Assoc{DB: db, TableName: mockTable}
+		ass              = &Assoc{DB: db}
 		threshold        = time.Unix(1000000, 0)
 		liveset, deadset = make(testSet), make(testSet)
 		keepKeys         = []digest.Digest{reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), reflow.Digester.Rand(nil)}
 		ignoreKey        = reflow.Digester.Rand(nil)
 	)
+	ass.TableName = mockTable
 
 	for _, tt := range []struct {
 		name               string
