@@ -236,7 +236,7 @@ type CacheProviderOff struct {
 
 // Help implements infra.Provider
 func (CacheProviderOff) Help() string {
-	return "turn caching off"
+	return "turn caching off; previously cached values are not used and values computed during this run are not saved to the cache"
 }
 
 // Init implements infra.Provider
@@ -258,7 +258,7 @@ func (c *CacheProviderRead) Init() error {
 
 // Help implements infra.Provider
 func (CacheProviderRead) Help() string {
-	return "read-only cache"
+	return "use a read-only cache; previously cached values are used but new values computed during this run are not saved to the cache"
 }
 
 // CacheProviderWrite is the provider to only write to cache.
@@ -274,7 +274,7 @@ func (c *CacheProviderWrite) Init() error {
 
 // Help implements infra.Provider
 func (CacheProviderWrite) Help() string {
-	return "write-only cache"
+	return "use a write-only cache; previously cached values are not used but values computed during this run are saved to the cache"
 }
 
 // CacheProviderReadWrite is the provider to read and write to cache.
@@ -284,7 +284,7 @@ type CacheProviderReadWrite struct {
 
 // Help implements infra.Provider
 func (CacheProviderReadWrite) Help() string {
-	return "read write cache"
+	return "use a read write cache (default); previously cached values are used and new values computed during this run are saved to the cache"
 }
 
 // Init implements infra.Provider

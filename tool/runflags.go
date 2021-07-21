@@ -37,13 +37,68 @@ type CommonRunFlags struct {
 func (r *CommonRunFlags) Flags(flags *flag.FlagSet) {
 	var vacuum bool
 	flags.BoolVar(&vacuum, "gc", false, "(DEPRECATED) enable garbage collection during evaluation")
-	flags.BoolVar(&r.NoCacheExtern, "nocacheextern", false, "don't cache extern ops")
-	flags.BoolVar(&r.RecomputeEmpty, "recomputeempty", false, "recompute empty cache values")
-	flags.StringVar(&r.EvalStrategy, "eval", "topdown", "evaluation strategy")
+	// TODO(pboyapalli): [SYSINFRA-554] modify extern caching so that we can drop the nocacheextern flag
+	flags.BoolVar(&r.NoCacheExtern, "nocacheextern", false, `don't cache extern ops
+
+For all extern operations, "nocacheextern=true" acts like "cache=off" and 
+"nocacheextern=false" acts like "cache=readwrite". With "nocacheextern=true", 
+extern operations that have a cache hit will result in the fileset being copied 
+to the extern URL again.`)
+
+	// TODO(pboyapalli): [SYSINFRA-553] determine if we can remove this flag
+	flags.BoolVar(&r.RecomputeEmpty, "recomputeempty", false, `recompute empty cache values
+
+If this flag is set, reflow will recompute cache values when the result fileset 
+of an exec is empty or contains any empty values. This flag was added in D7592 
+to address a Docker related bug. Generally users should not need to set this 
+flag and it may be removed soon.`)
+	flags.StringVar(&r.EvalStrategy, "eval", "topdown", `values: "topdown", "bottomup"
+
+This flag determines the strategy used to traverse the computation graph 
+representing your program. Picture your program as a directed acyclic graph with 
+the result indicated by a root node at the top and dependent nodes branching 
+down from it. 
+
+In "topdown" mode, we start at the top of the graph (root node/Main value) and
+explore dependent nodes to build up the tree. If an encountered node is cached, 
+we stop there and don't traverse the subtree below that node.
+
+In "bottomup" mode, we start at the top of the graph (root node/Main value) and
+work our way down the tree, just like "topdown". However, we don't look up nodes 
+in the cache and instead explore all of the dependencies recursively. This 
+provides visibility into all the nodes in the graph and they will appear in the 
+logs and dotgraph.
+
+Note that "bottomup" mode doesn't mean we re-compute all the nodes, we still 
+make use of cached values when evaluating nodes. The main difference is the way
+nodes are explored.
+
+There are subtleties with caching and the evaluation strategy that could affect 
+performance in some specific cases, but we won't go into those details here. 
+Reach out to the reflow team for more information.`)
 	flags.StringVar(&r.Invalidate, "invalidate", "", "regular expression for node identifiers that should be invalidated")
-	flags.StringVar(&r.Assert, "assert", "never", "policy used to Assert cached flow result compatibility (eg: never, exact)")
+	flags.StringVar(&r.Assert, "assert", "never", `values: "never", "exact"
+
+This flag determines the policy used to assert the properties of inputs (mainly 
+S3 objects, if any) that were used to compute the currently cached result (if 
+any).
+
+With "never", the cached result is always accepted (even if any of the input S3 
+objects have changed since). 
+
+With "exact", it is asserted that the properties of inputs are exactly the same 
+as they were when the cached result was computed. If different, then the cached 
+result is not accepted and re-computation is triggered.
+
+Note: for S3 objects, "exact" includes modified time as well. If an S3 object 
+has the same content as it did before, but was "touched", then it is not "exact" 
+anymore (meaning, the cached result will not be accepted).`)
 	flags.BoolVar(&r.Sched, "sched", true, "use scalable scheduler instead of work stealing")
-	flags.BoolVar(&r.PostUseChecksum, "postusechecksum", false, "checksum files after use")
+	flags.BoolVar(&r.PostUseChecksum, "postusechecksum", false, `checksum exec input files after use
+
+If this flag is provided, Reflow verifies the input data for every exec upon 
+completion to ensure that it did not change or get corrupted thus invalidating 
+the result of that exec.`)
 }
 
 // Err checks if the flag values are consistent and valid.
@@ -120,10 +175,33 @@ func (r *RunFlags) Flags(flags *flag.FlagSet) {
 	flags.BoolVar(&r.Local, "local", false, "execute flow on the Local Docker instance")
 	flags.StringVar(&r.LocalDir, "localdir", defaultFlowDir, "directory where execution state is stored in Local mode")
 	flags.StringVar(&r.Dir, "dir", "", "directory where execution state is stored in Local mode (alias for Local Dir for backwards compatibility)")
-	flags.BoolVar(&r.Trace, "traceflow", false, "logs a trace of flow evaluation for debugging; not to be confused with -tracer (see reflow config -help)")
+	flags.BoolVar(&r.Trace, "traceflow", false, "logs a trace of flow evaluation for debugging; not to be confused with -tracer (see \"reflow config -help\")")
 	flags.StringVar(&r.resourcesFlag, "resources", "", "override offered resources in local mode (JSON formatted reflow.Resources)")
-	flags.BoolVar(&r.Pred, "pred", false, "use predictor to optimize resource usage. sched must also be true for the predictor to be used")
-	flags.BoolVar(&r.DotGraph, "dotgraph", true, "produce an evaluation graph for the run")
+	flags.BoolVar(&r.Pred, "pred", false, `predict exec memory requirements to optimize resource usage
+
+When enabled, memory requirements for each exec will be predicted based on 
+previous executions of that exec (if available). If a prediction is made, it 
+will override the specified memory.
+
+If the exec fails for any reason, with predicted resources, reflow will 
+always retry the exec with the resources specified.
+
+Additionally, reflow always retries execs that fail due to a detectable OOM 
+error, using 50% more resources each time, upto 3 times, before giving up.
+
+Both "taskdb" and "predictorconfig" need to be configured for prediction to 
+work, see "reflow config -help"`)
+	flags.BoolVar(&r.DotGraph, "dotgraph", true, `produce an evaluation graph for the run
+
+If this flag is provided, a Graphviz dot format file will be output to the runs 
+directory (usually ~/.reflow/runs). To visualize, install the tool (graphviz.org) 
+and run:
+	> dot ~/.reflow/runs/<runid>.gv > ~/some_file.svg"
+Other output file formats also are available.
+
+When running a large reflow module with lots of nodes, it is advisable to 
+disable dotgraph generation to avoid slowing down the overall execution time 
+of your run.`)
 	flags.DurationVar(&r.BackgroundTimeout, "backgroundtimeout", 10*time.Minute, "timeout for background tasks")
 }
 
