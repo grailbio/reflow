@@ -8,6 +8,7 @@ import (
 )
 
 // SkipIfNoCreds allows a test to be skipped if no credentials are found.
+// Caution: Renaming/removing this will prevent execution of tests (with credentials) which call this.
 func SkipIfNoCreds(t *testing.T) {
 	t.Helper()
 	provider := &credentials.ChainProvider{

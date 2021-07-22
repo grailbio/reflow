@@ -7,13 +7,9 @@ package syntax
 import (
 	"bytes"
 	"fmt"
-	"os"
-
-	"path/filepath"
 	"reflect"
 	"testing"
 
-	"github.com/grailbio/reflow/internal/walker"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
 )
@@ -436,27 +432,5 @@ func TestParseSwitch(t *testing.T) {
 	expect := `switch(list(<string>const("a"), <string>const("b")), cases(case([a, b], block(assign(aa, ident("a")), assign(bb, ident("b")) in tuple(ident("aa"), ident("bb")))), case([a], block(assign(aa, ident("a")) in tuple(ident("aa"), ident("aa"))))))`
 	if got, want := p.Expr.String(), expect; got != want {
 		t.Errorf("got %s, want %s", got, want)
-	}
-}
-
-// TestSyntax tests if the current reflow syntax is backwards compatible with older .rf files
-func TestSyntax(t *testing.T) {
-	grail := os.Getenv("GRAIL")
-	if grail == "" {
-		t.Skip("$GRAIL is not defined")
-	}
-	var w walker.Walker
-	w.Init(filepath.Join(grail, "analysis"))
-	for w.Scan() {
-		path := w.Path()
-		info, _ := os.Stat(path)
-		if info.Mode().IsRegular() && filepath.Ext(path) == ".rf" {
-			file, _ := os.Open(path)
-			p := Parser{Mode: ParseModule, Body: file}
-			err := p.Parse()
-			if err != nil {
-				t.Errorf("%s is not parsable", path)
-			}
-		}
 	}
 }
