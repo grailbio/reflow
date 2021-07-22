@@ -207,7 +207,7 @@ func (s *switcher) evalPath(p *idPath, v values.T, t *types.T, env *values.Env, 
 func (s *switcher) evalK(e *Expr, env *values.Env, dw io.Writer) {
 	e.digest1(dw)
 	// The rest of the switch may inspect other parts of the original value.
-	values.WriteDigest(dw, s.v, s.e.Type)
+	values.WriteDigest(dw, s.v, s.t)
 	s.p.path.digest(dw)
 	for _, c := range s.cs {
 		c.digest(dw, env)

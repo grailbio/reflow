@@ -45,7 +45,24 @@ val TestDigestCaseExpr = {
 // Verify that equivalent switch expressions with different values on which to
 // switch are evaluated distinctly.
 val TestDigestSwitchValue = {
-	tupled := func(i int, j int) => delay((delay(i),delay(j)))
+	tupled := func(i int, j int) => delay((delay(i), delay(j)))
+	f := func(x (int, int)) =>
+		switch x {
+		case (a, b):
+			b
+		}
+	g := func(x (int, int)) =>
+		switch x {
+		case (a, b):
+			b
+		}
+	f(tupled(3, 4)) == 4 && g(tupled(3, 5)) == 5
+}
+
+// Verify that equivalent switch expressions with different values on which to
+// switch (with internal deferred evaluation) are evaluated distinctly.
+val TestDigestSwitchValueDeferredInternal = {
+	tupled := func(i int, j int) => (delay(i), delay(j))
 	f := func(x (int, int)) =>
 		switch x {
 		case (a, b):
