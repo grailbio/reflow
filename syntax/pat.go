@@ -37,6 +37,7 @@ const (
 	PatVariant
 	// PatIgnore is an ignore pattern.
 	PatIgnore
+	patMax
 )
 
 // A PatField stores a field entry in a pattern.
@@ -658,7 +659,7 @@ func (p Path) digest(w io.Writer) {
 		writeN(w, int(m.Kind))
 		switch m.Kind {
 		default:
-			panic("bad matcher")
+			panic(fmt.Sprintf("bad matcher: %#v", m))
 		case MatchValue:
 		case MatchTuple:
 			writeN(w, m.Index)
@@ -675,6 +676,8 @@ func (p Path) digest(w io.Writer) {
 			writeN(w, m.Length)
 		case MatchStruct:
 			io.WriteString(w, m.Field)
+		case MatchVariant:
+			io.WriteString(w, m.Tag)
 		}
 	}
 }

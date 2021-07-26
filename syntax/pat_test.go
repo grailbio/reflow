@@ -6,6 +6,7 @@ package syntax
 
 import (
 	"fmt"
+	"math/rand"
 	"reflect"
 	"sort"
 	"testing"
@@ -265,4 +266,80 @@ func TestMatchers(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestPatDigest verifies that digests can be computed for any pattern.
+func TestPatDigest(t *testing.T) {
+	const (
+		N        = 1000
+		MaxDepth = 4
+	)
+	var (
+		pats = make(map[string]struct{})
+		r    = rand.New(rand.NewSource(0))
+	)
+	for i := 0; i < N; i++ {
+		var p *Pat
+		for {
+			// Generate random patterns until we get a new one.
+			p = randPat(r, MaxDepth)
+			pStr := p.String()
+			if _, ok := pats[pStr]; !ok {
+				pats[pStr] = struct{}{}
+				break
+			}
+		}
+		// Just make sure that a digest can be successfully computed.
+		_ = p.Digest()
+	}
+}
+
+// randPat returns a random *Pat with maxDepth of subpatterns.
+func randPat(r *rand.Rand, maxDepth int) *Pat {
+	if maxDepth == 1 {
+		if r.Intn(2) == 0 {
+			return &Pat{Kind: PatIgnore}
+		}
+		return &Pat{Kind: PatIdent, Ident: "x"}
+	}
+	k := PatKind(r.Intn(int(patMax)-1) + 1)
+	switch k {
+	case PatIdent:
+		return &Pat{Kind: PatIdent, Ident: "x"}
+	case PatTuple:
+		var list []*Pat
+		for i := 0; i < r.Intn(4)+1; i++ {
+			list = append(list, randPat(r, maxDepth-1))
+		}
+		return &Pat{Kind: PatList, List: list}
+	case PatList:
+		var list []*Pat
+		for i := 0; i < r.Intn(4)+1; i++ {
+			list = append(list, randPat(r, maxDepth-1))
+		}
+		var tail *Pat
+		if r.Intn(2) == 0 {
+			tail = randPat(r, maxDepth-1)
+		}
+		return &Pat{Kind: PatTuple, List: list, Tail: tail}
+	case PatStruct:
+		var fields []PatField
+		for i := 0; i < r.Intn(4)+1; i++ {
+			fields = append(fields, PatField{
+				Name: fmt.Sprintf("%c", 'a'+i),
+				Pat:  randPat(r, maxDepth-1),
+			})
+		}
+		return &Pat{Kind: PatStruct, Fields: fields}
+	case PatVariant:
+		tag := "A"
+		var elem *Pat
+		if r.Intn(2) == 0 {
+			elem = randPat(r, maxDepth-1)
+		}
+		return &Pat{Kind: PatVariant, Tag: tag, Elem: elem}
+	case PatIgnore:
+		return &Pat{Kind: PatIgnore}
+	}
+	panic(fmt.Sprintf("unhandled PatKind: %v", k))
 }
