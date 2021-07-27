@@ -42,6 +42,8 @@ import (
 	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/internal/ecrauth"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/metrics"
+	"github.com/grailbio/reflow/metrics/prometrics"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/pool/client"
 	"github.com/grailbio/reflow/taskdb"
@@ -150,6 +152,16 @@ type Cluster struct {
 	KeyName string `yaml:"keyname"`
 	// Immortal determines whether instances should be made immortal.
 	Immortal bool `yaml:"immortal,omitempty"`
+	// NodeExporterMetricsPort determines whether to run a prometheus node_exporter daemon
+	// on each Reflowlet. Setting a value runs the node_exporter daemon and configures it to
+	// output prometheus metrics on the given port. Passing a non-zero value also adds an
+	// additional route to the general Reflowlet server, such that metrics are made available
+	// via proxy over the existing HTTPS connection and the following Reflow command:
+	// $ reflow http https://${EC2_INST_PUBLIC_DNS}:9000/v1/node/metrics
+	// If the user wishes to use other scrapers to fetch metrics from the Reflowlet over HTTP,
+	// they may additionally choose to expose the port via the AWS settings for their Reflow
+	// cluster.
+	NodeExporterMetricsPort int `yaml:"nodeexportermetricsport,omitempty"`
 	// CloudConfig is merged into the instance's cloudConfig before launching.
 	CloudConfig cloudConfig `yaml:"cloudconfig"`
 	// SpotProbeDepth is the probing depth for spot instance capacity checks.
@@ -226,7 +238,9 @@ func (c *Cluster) Config() interface{} {
 }
 
 // Init implements infra.Provider
-func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels, bootstrapimage *infra2.BootstrapImage, reflowVersion *infra2.ReflowVersion, id *infra2.User, logger *log.Logger, ssh infra2.Ssh) error {
+func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
+	bootstrapimage *infra2.BootstrapImage, reflowVersion *infra2.ReflowVersion, id *infra2.User, logger *log.Logger,
+	ssh infra2.Ssh, mclient metrics.Client) error {
 	// If InstanceTypes are not defined, include built-in verified instance types.
 	if len(c.InstanceTypes) == 0 {
 		verified := instances.VerifiedByRegion[c.Region]
@@ -259,6 +273,9 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	c.BootstrapImage = bootstrapimage.Value()
 	c.ReflowVersion = string(*reflowVersion)
 	c.SshKeys = ssh.Keys()
+	if pclient, ok := mclient.(*prometrics.Client); ok {
+		c.NodeExporterMetricsPort = pclient.NodeExporterPort
+	}
 	c.Session = sess
 
 	if c.MaxPendingInstances == 0 {
@@ -482,35 +499,36 @@ probe:
 
 func (c *Cluster) newInstance(config instanceConfig) *instance {
 	return &instance{
-		HTTPClient:      c.HTTPClient,
-		ReflowConfig:    c.Configuration,
-		Config:          config,
-		Log:             c.Log,
-		Authenticator:   c.Authenticator,
-		EC2:             c.EC2,
-		TaskDB:          c.TaskDB,
-		InstanceTags:    c.InstanceTags,
-		Labels:          c.Labels,
-		Spot:            c.Spot,
-		Subnet:          c.Subnet,
-		InstanceProfile: c.InstanceProfile,
-		SecurityGroup:   c.SecurityGroup,
-		BootstrapImage:  c.BootstrapImage,
-		BootstrapExpiry: c.BootstrapExpiry,
-		Price:           config.Price[c.Region],
-		EBSType:         c.DiskType,
-		EBSSize:         uint64(config.Resources["disk"]) >> 30,
-		NEBS:            c.DiskSlices,
-		AMI:             c.AMI,
-		SshKeys:         c.SshKeys,
-		KeyName:         c.KeyName,
-		SpotProber:      c.spotProber,
-		DescInstLimiter: c.descInstLimiter,
-		DescSpotLimiter: c.descSpotLimiter,
-		ReqSpotLimiter:  c.reqSpotLimiter,
-		Immortal:        c.Immortal,
-		CloudConfig:     c.CloudConfig,
-		ReflowVersion:   c.ReflowVersion,
+		HTTPClient:              c.HTTPClient,
+		ReflowConfig:            c.Configuration,
+		Config:                  config,
+		Log:                     c.Log,
+		Authenticator:           c.Authenticator,
+		EC2:                     c.EC2,
+		TaskDB:                  c.TaskDB,
+		InstanceTags:            c.InstanceTags,
+		Labels:                  c.Labels,
+		Spot:                    c.Spot,
+		Subnet:                  c.Subnet,
+		InstanceProfile:         c.InstanceProfile,
+		SecurityGroup:           c.SecurityGroup,
+		BootstrapImage:          c.BootstrapImage,
+		BootstrapExpiry:         c.BootstrapExpiry,
+		Price:                   config.Price[c.Region],
+		EBSType:                 c.DiskType,
+		EBSSize:                 uint64(config.Resources["disk"]) >> 30,
+		NEBS:                    c.DiskSlices,
+		AMI:                     c.AMI,
+		SshKeys:                 c.SshKeys,
+		KeyName:                 c.KeyName,
+		SpotProber:              c.spotProber,
+		DescInstLimiter:         c.descInstLimiter,
+		DescSpotLimiter:         c.descSpotLimiter,
+		ReqSpotLimiter:          c.reqSpotLimiter,
+		Immortal:                c.Immortal,
+		NodeExporterMetricsPort: c.NodeExporterMetricsPort,
+		CloudConfig:             c.CloudConfig,
+		ReflowVersion:           c.ReflowVersion,
 	}
 }
 

@@ -129,37 +129,38 @@ var (
 // instance represents a concrete instance; it is launched from an instanceConfig
 // and additional parameters.
 type instance struct {
-	HTTPClient      *http.Client
-	Config          instanceConfig
-	ReflowConfig    infra.Config
-	Log             *log.Logger
-	Authenticator   ecrauth.Interface
-	EC2             ec2iface.EC2API
-	TaskDB          taskdb.TaskDB
-	InstanceTags    map[string]string
-	Labels          pool.Labels
-	Spot            bool
-	Subnet          string
-	InstanceProfile string
-	SecurityGroup   string
-	Region          string
-	BootstrapImage  string
-	BootstrapExpiry time.Duration
-	Price           float64
-	EBSType         string
-	EBSSize         uint64
-	NEBS            int
-	AMI             string
-	KeyName         string
-	SshKeys         []string
-	Immortal        bool
-	CloudConfig     cloudConfig
-	ReflowVersion   string
-	Task            *status.Task
-	SpotProber      *spotProber
-	DescInstLimiter *limiter.BatchLimiter
-	DescSpotLimiter *limiter.BatchLimiter
-	ReqSpotLimiter  *rate.Limiter
+	HTTPClient              *http.Client
+	Config                  instanceConfig
+	ReflowConfig            infra.Config
+	Log                     *log.Logger
+	Authenticator           ecrauth.Interface
+	EC2                     ec2iface.EC2API
+	TaskDB                  taskdb.TaskDB
+	InstanceTags            map[string]string
+	Labels                  pool.Labels
+	Spot                    bool
+	Subnet                  string
+	InstanceProfile         string
+	SecurityGroup           string
+	Region                  string
+	BootstrapImage          string
+	BootstrapExpiry         time.Duration
+	Price                   float64
+	EBSType                 string
+	EBSSize                 uint64
+	NEBS                    int
+	AMI                     string
+	KeyName                 string
+	SshKeys                 []string
+	Immortal                bool
+	NodeExporterMetricsPort int
+	CloudConfig             cloudConfig
+	ReflowVersion           string
+	Task                    *status.Task
+	SpotProber              *spotProber
+	DescInstLimiter         *limiter.BatchLimiter
+	DescSpotLimiter         *limiter.BatchLimiter
+	ReqSpotLimiter          *rate.Limiter
 
 	userData string
 	err      error
@@ -804,6 +805,33 @@ field_length = 1024
 			ExecStartPre=/usr/bin/wget https://s3.dualstack.us-east-2.amazonaws.com/aws-xray-assets.us-east-2/xray-daemon/aws-xray-daemon-linux-2.x.zip
 			ExecStartPre=/usr/bin/unzip aws-xray-daemon-linux-2.x.zip -d /tmp
 			ExecStart=/tmp/xray {{.profile}} -l debug`, args{"profile": profile, "aws_access_key_id": akey, "aws_secret_access_key": secret, "aws_session_token": token})})
+	}
+
+	if i.NodeExporterMetricsPort != 0 {
+		c.AppendFile(CloudFile{
+			Permissions: "0755",
+			Path:        "/opt/bin/setup_node_exporter",
+			Owner:       "root",
+			Content: tmpl(`
+		#!/bin/bash
+		cd /tmp
+		/usr/bin/curl -L https://github.com/prometheus/node_exporter/releases/download/v1.0.1/node_exporter-1.0.1.linux-amd64.tar.gz | tar -xvzf - && mv /tmp/node_exporter-1.0.1.linux-amd64/node_exporter /opt/bin/
+		rm -rf /tmp/node_exporter-1.0.1.linux-amd64
+		`, args{})})
+
+		c.AppendUnit(CloudUnit{
+			Name:    "node_exporter.service",
+			Enable:  true,
+			Command: "start",
+			Content: tmpl(`[Unit]
+		Description=node_exporter
+		[Service]
+		Restart=always
+		ExecStart=/opt/bin/node_exporter --web.listen-address=":{{.port}}"
+		ExecStartPre=/opt/bin/setup_node_exporter
+		[Install]
+		WantedBy=multi-user.target`, args{"port": i.NodeExporterMetricsPort}),
+		})
 	}
 
 	// We merge the user's cloud config before appending the bootstrap unit

@@ -23,6 +23,7 @@ import (
 	"github.com/grailbio/reflow"
 	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/metrics"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/runner"
 	"golang.org/x/time/rate"
@@ -180,6 +181,7 @@ func TestClusterInfra(t *testing.T) {
             region: bar
             securitygroup: blah
         sshkey: key
+        metrics: nopmetrics
         `,
 			"default", "abcdef", false},
 	} {
@@ -249,6 +251,7 @@ func getInfraSchema() infra.Schema {
 		"bootstrap": new(infra2.BootstrapImage),
 		"reflow":    new(infra2.ReflowVersion),
 		"sshkey":    new(infra2.Ssh),
+		"metrics":   new(metrics.Client),
 	}
 }
 
@@ -279,6 +282,7 @@ func getEC2ClusterWithRestrictedInstanceTypes() (*Cluster, error) {
             - c5.4xlarge
             - r3.8xlarge
         sshkey: key
+        metrics: nopmetrics
     `
 	if config, err = schema.Unmarshal([]byte(configYaml)); err != nil {
 		return nil, err

@@ -21,8 +21,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/grailbio/reflow/taskdb"
-
 	"docker.io/go-docker"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -41,10 +39,13 @@ import (
 	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/metrics"
+	"github.com/grailbio/reflow/metrics/prometrics"
 	"github.com/grailbio/reflow/pool/server"
 	"github.com/grailbio/reflow/repository/blobrepo"
 	repositoryhttp "github.com/grailbio/reflow/repository/http"
 	"github.com/grailbio/reflow/rest"
+	"github.com/grailbio/reflow/taskdb"
 	"golang.org/x/net/http2"
 )
 
@@ -73,6 +74,17 @@ type Server struct {
 
 	// HTTPDebug determines whether HTTP debug logging is turned on.
 	HTTPDebug bool
+
+	// NodeExporterMetricsPort determines whether to run a prometheus node_exporter daemon
+	// on each Reflowlet. Setting a value runs the node_exporter daemon and configures it to
+	// output prometheus metrics on the given port. Passing a non-zero value also adds an
+	// additional route to the general Reflowlet server, such that metrics are made available
+	// via proxy over the existing HTTPS connection and the following Reflow command:
+	// $ reflow http https://${EC2_INST_PUBLIC_DNS}:9000/v1/node/metrics
+	// If the user wishes to use other scrapers to fetch metrics from the Reflowlet over HTTP,
+	// they may additionally choose to expose the port via the AWS settings for their Reflow
+	// cluster.
+	NodeExporterMetricsPort int
 
 	// server is the underlying HTTP server
 	server *http.Server
@@ -217,6 +229,16 @@ func (s *Server) ListenAndServe() error {
 	if err != nil {
 		return err
 	}
+
+	var mclient metrics.Client
+	err = s.Config.Instance(&mclient)
+	if err != nil {
+		return err
+	}
+	if pclient, ok := mclient.(*prometrics.Client); ok {
+		s.NodeExporterMetricsPort = pclient.NodeExporterPort
+	}
+
 	var (
 		dockerconfig *infra2.DockerConfig
 		hardMemLimit bool
@@ -339,6 +361,10 @@ func (s *Server) ListenAndServe() error {
 		return fmt.Errorf("read config: %v", err)
 	}
 	http.Handle("/v1/config", rest.DoFuncHandler(cfgNode, httpLog))
+	if s.NodeExporterMetricsPort != 0 {
+		http.Handle("/v1/node/metrics", rest.DoProxyHandler(fmt.Sprintf("http://localhost:%d/metrics",
+			s.NodeExporterMetricsPort), httpLog))
+	}
 	var repo reflow.Repository
 	err = s.Config.Instance(&repo)
 	if err != nil {

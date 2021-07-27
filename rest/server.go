@@ -308,6 +308,35 @@ func (h *doFuncHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.node.Do(ctx, call)
 }
 
+type doProxyHandler struct {
+	url string
+	log *log.Logger
+}
+
+// DoProxyHandler creates an http.Handler from a url. The returned
+// handler serves requests by returning the result of a GET request
+// to this URL.
+func DoProxyHandler(url string, log *log.Logger) http.Handler {
+	return &doProxyHandler{url, log}
+}
+
+func (h *doProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h.log.At(log.DebugLevel) {
+		b, err := httputil.DumpRequest(r, true)
+		if err != nil {
+			panic(err)
+		}
+		h.log.Debugf("request %s", string(b))
+	}
+	resp, getErr := http.Get(h.url)
+	if getErr != nil {
+		panic(getErr)
+	}
+	if _, copyErr := io.Copy(w, resp.Body); copyErr != nil {
+		panic(copyErr)
+	}
+}
+
 func errorToHTTP(err error) (code int, reply interface{}) {
 	e := errors.Recover(err)
 	return e.HTTPStatus(), e
