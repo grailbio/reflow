@@ -39,8 +39,9 @@ func TestClientServer(t *testing.T) {
 }
 
 var (
-	testFile   = reflow.File{Size: 123, Source: "test://test/test", ETag: "xyz"}
-	testDigest = reflow.Digester.Rand(rand.New(rand.NewSource(0)))
+	testFile    = reflow.File{Size: 123, Source: "test://test/test", ETag: "xyz"}
+	testDigest  = reflow.Digester.Rand(rand.New(rand.NewSource(0)))
+	testInspect = reflow.ExecInspect{State: "complete", Status: "testInspect"}
 )
 
 type testAlloc struct {
@@ -104,7 +105,7 @@ func (t *testPool) Alloc(ctx context.Context, id string) (pool.Alloc, error) {
 		testalloc.executor.Init()
 		t.testalloc = testalloc
 		exec, err := t.testalloc.Put(ctx, reflow.Digester.FromString("testexec"), reflow.ExecConfig{})
-		exec.(*rtestutil.Exec).Ok(reflow.Result{})
+		exec.(*rtestutil.Exec).OkInspect(reflow.Result{}, testInspect)
 		if err != nil {
 			return nil, err
 		}
@@ -146,6 +147,89 @@ func TestClientServerLoad(t *testing.T) {
 	if expected := errors.New(fmt.Sprintf("%v not loaded", testDigest)); err.Error() != expected.Error() {
 		t.Fatal("expected: ", expected, " got:", err)
 	}
+}
+
+func TestInspect(t *testing.T) {
+	srv := httptest.NewServer(rest.Handler(NewNode(&testPool{}), nil))
+	defer srv.Close()
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	client := rest.NewClient(nil, u, nil)
+	testRepository := rtestutil.NewInmemoryRepository("testinspect")
+	repo := testRepository.URL()
+
+	for _, test := range []struct {
+		repo        *url.URL
+		method      string
+		validDigest bool
+		statusCode  int
+	}{
+		{
+			nil,
+			"HEAD",
+			false,
+			http.StatusOK,
+		},
+		{
+			nil,
+			"GET",
+			false,
+			http.StatusOK,
+		},
+		{
+			repo,
+			"POST",
+			true,
+			http.StatusOK,
+		},
+		{
+			nil,
+			"POST",
+			false,
+			http.StatusBadRequest,
+		},
+	} {
+		call := client.Call(test.method, "/v1/allocs/testalloc/execs/%s", reflow.Digester.FromString("testexec"))
+		var code int
+		var err error
+		if test.method == "POST" {
+			code, err = call.DoJSON(ctx, test.repo)
+		} else {
+			code, err = call.Do(ctx, nil)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if got, want := code, test.statusCode; got != want {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+
+		if test.statusCode == http.StatusOK && test.method != "HEAD" {
+			var m struct {
+				Inspect       reflow.ExecInspect
+				InspectDigest digest.Digest
+			}
+			if err := call.Unmarshal(&m); err != nil {
+				t.Fatal(err)
+			}
+			if got, want := m.Inspect.Status, testInspect.Status; got != want {
+				t.Errorf("got %v, want %v", got, want)
+			}
+			if got, want := m.Inspect.State, testInspect.State; got != want {
+				t.Errorf("got %v, want %v", got, want)
+			}
+			if got, want := !m.InspectDigest.IsZero(), test.validDigest; got != want {
+				t.Errorf("got %v, want %v", got, want)
+			}
+		}
+		call.Close()
+	}
+
 }
 
 func TestEndToEnd(t *testing.T) {

@@ -569,7 +569,11 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		case internal.StatePromote:
 			err = x.Promote(ctx)
 		case internal.StateInspect:
-			task.Inspect, err = x.Inspect(ctx)
+			task.Log.Debugf("retrieving inspect (and saving to repo %s)", task.Repository.URL())
+			task.Inspect, task.InspectDigest, err = x.Inspect(ctx, task.Repository.URL())
+			if d := task.InspectDigest; err == nil && !d.IsZero() {
+				task.Log.Debugf("saved inspect to repo %s: %s", task.Repository.URL(), d.Short())
+			}
 		case internal.StateResult:
 			task.Result, err = x.Result(ctx)
 			if err == nil && task.Config.Type == "extern" {

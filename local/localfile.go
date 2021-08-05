@@ -167,8 +167,8 @@ func (e *localfileExec) Promote(ctx context.Context) error {
 	return err
 }
 
-func (e *localfileExec) Inspect(ctx context.Context) (reflow.ExecInspect, error) {
-	inspect := reflow.ExecInspect{Config: e.cfg}
+func (e *localfileExec) Inspect(ctx context.Context, repo *url.URL) (inspect reflow.ExecInspect, d digest.Digest, err error) {
+	inspect = reflow.ExecInspect{Config: e.cfg}
 	state, err := e.getState()
 	if err != nil {
 		inspect.Error = errors.Recover(err)
@@ -179,8 +179,11 @@ func (e *localfileExec) Inspect(ctx context.Context) (reflow.ExecInspect, error)
 	} else {
 		inspect.State = "complete"
 		inspect.Status = "file linking is complete"
+		if repo != nil {
+			d, err = saveInspect(ctx, state, inspect, repo)
+		}
 	}
-	return inspect, nil
+	return
 }
 
 func (e *localfileExec) Wait(ctx context.Context) error {

@@ -13,6 +13,7 @@ import (
 	"io"
 	"io/ioutil"
 	golog "log"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -518,8 +519,8 @@ func (e *blobExec) Promote(ctx context.Context) error {
 }
 
 // Inspect returns exec metadata.
-func (e *blobExec) Inspect(ctx context.Context) (reflow.ExecInspect, error) {
-	inspect := reflow.ExecInspect{
+func (e *blobExec) Inspect(ctx context.Context, repo *url.URL) (inspect reflow.ExecInspect, d digest.Digest, err error) {
+	inspect = reflow.ExecInspect{
 		Config:  e.Config,
 		Created: e.Manifest.Created,
 	}
@@ -550,8 +551,11 @@ func (e *blobExec) Inspect(ctx context.Context) (reflow.ExecInspect, error) {
 	case execComplete:
 		inspect.State = "complete"
 		inspect.Status = fmt.Sprintf("%s complete", e.transferTypeStr())
+		if repo != nil {
+			d, err = saveInspect(ctx, state, inspect, repo)
+		}
 	}
-	return inspect, nil
+	return
 }
 
 // Wait returns when the exec is complete.

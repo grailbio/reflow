@@ -27,6 +27,7 @@ import (
 	"github.com/grailbio/reflow/internal/walker"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository"
+	"github.com/grailbio/reflow/repository/blobrepo"
 	"github.com/grailbio/reflow/repository/filerepo"
 	"github.com/grailbio/testutil"
 )
@@ -93,7 +94,7 @@ func TestExec(t *testing.T) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	// Get gauges and profile
-	i, err := exec.Inspect(ctx)
+	i, _, err := exec.Inspect(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +170,7 @@ func TestProfileContextTimeOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	i, err := execslow.Inspect(ctx)
+	i, _, err := execslow.Inspect(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -635,4 +636,50 @@ func TestExecLoadUnloadDeadObjectRace(t *testing.T) {
 			log.Errorf("file %v has %v refcount. expected 0", k.Short(), v.count)
 		}
 	}
+}
+
+func TestInspect(t *testing.T) {
+	x, cleanup := newTestExecutorOrSkip(t, nil)
+	defer cleanup()
+	ctx := context.Background()
+	blobScheme, blobBucket := "testscheme", "testbucket"
+	repoUrl := url.URL{Scheme: "testscheme", Path: "testbucket/inspect"}
+	store, _, err := randomBlobStore(blobScheme, blobBucket, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blobrepo.Register("testscheme", store)
+	testDigest := reflow.Digester.Rand(rand.New(rand.NewSource(0)))
+	// Sleep to ensure the task does not complete until after exec.Wait()
+	exec, err := x.Put(ctx, testDigest, reflow.ExecConfig{
+		Type:  "exec",
+		Image: bashImage,
+		Cmd:   "sleep 5; echo foobar > $tmp/x; cat $tmp/x > $out",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = exec.Inspect(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, d, err := exec.Inspect(ctx, &repoUrl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.IsZero() {
+		t.Error("Returned digest must be empty before completion")
+	}
+	err = exec.Wait(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, d, err = exec.Inspect(ctx, &repoUrl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.IsZero() {
+		t.Error("Returned digest must be non-empty after completion")
+	}
+
 }

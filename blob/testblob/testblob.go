@@ -21,7 +21,7 @@ import (
 	"github.com/grailbio/reflow/errors"
 )
 
-type store struct {
+type Store struct {
 	scheme  string
 	mu      sync.Mutex
 	buckets map[string]*bucket
@@ -33,13 +33,13 @@ type store struct {
 // for large numbers of keys. The provided scheme is used to construct
 // object locations in the returned store.
 func New(scheme string) blob.Store {
-	return &store{
+	return &Store{
 		scheme:  scheme,
 		buckets: make(map[string]*bucket),
 	}
 }
 
-func (s *store) Bucket(ctx context.Context, name string) (blob.Bucket, error) {
+func (s *Store) Bucket(ctx context.Context, name string) (blob.Bucket, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	b, ok := s.buckets[name]

@@ -361,21 +361,32 @@ func (o *clientExec) ID() digest.Digest {
 }
 
 // Inspect returns the exec's metadata.
-func (o *clientExec) Inspect(ctx context.Context) (reflow.ExecInspect, error) {
-	call := o.Call("GET", "allocs/%s/execs/%s", o.allocID, o.id)
+func (o *clientExec) Inspect(ctx context.Context, repo *url.URL) (inspect reflow.ExecInspect, d digest.Digest, err error) {
+	var call *rest.ClientCall
+	var code int
+	if repo != nil {
+		call = o.Call("POST", "allocs/%s/execs/%s", o.allocID, o.id)
+		code, err = call.DoJSON(ctx, repo)
+	} else {
+		call = o.Call("GET", "allocs/%s/execs/%s", o.allocID, o.id)
+		code, err = call.Do(ctx, nil)
+	}
 	defer call.Close()
-	code, err := call.Do(ctx, nil)
+
 	if err != nil {
-		return reflow.ExecInspect{}, errors.E("inspect", o.URI(), err)
+		err = errors.E("inspect", o.URI(), err)
+		return
 	}
 	if code != http.StatusOK {
-		return reflow.ExecInspect{}, call.Error()
+		err = call.Error()
+		return
 	}
-	var inspect reflow.ExecInspect
-	if err := call.Unmarshal(&inspect); err != nil {
-		return reflow.ExecInspect{}, errors.E("inspect", o.URI(), err)
-	}
-	return inspect, err
+	reply := struct {
+		Inspect       reflow.ExecInspect
+		InspectDigest digest.Digest
+	}{}
+	err = call.Unmarshal(&reply)
+	return reply.Inspect, reply.InspectDigest, err
 }
 
 // Logs returns this exec's logs.

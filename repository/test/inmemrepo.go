@@ -1,53 +1,58 @@
 package test
 
 import (
-	"fmt"
-	"net/url"
+	"context"
 	"sync"
 
 	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/blob"
+	"github.com/grailbio/reflow/blob/testblob"
 	"github.com/grailbio/reflow/repository"
-	"github.com/grailbio/reflow/test/testutil"
+	"github.com/grailbio/reflow/repository/blobrepo"
 )
 
 func init() {
-	infra.Register("inmemrepo", new(InMemoryRepository))
+	infra.Register("inmemrepo", new(InMemoryBlobRepository))
 }
 
-// Repository is a fake repos infra provider and should be used only in tests.
-type InMemoryRepository struct {
-	*testutil.InmemoryRepository
+const scheme = "inmemory"
+
+// InMemoryBlobRepository is a blob backed repository which stores values in memory
+type InMemoryBlobRepository struct {
+	*blobrepo.Repository
 	repository.RepoFlagsTrait
 }
 
 var (
+	store        blob.Store
 	registerOnce sync.Once
-	mu           sync.Mutex
-	repos        map[string]*InMemoryRepository
 )
 
 // Init implements infra.Provider
-func (r *InMemoryRepository) Init() error {
+func (r *InMemoryBlobRepository) Init() error {
 	registerOnce.Do(func() {
-		repos = make(map[string]*InMemoryRepository)
-		repository.RegisterScheme("inmemory", func(u *url.URL) (reflow.Repository, error) {
-			if repo, ok := repos[u.Host]; ok {
-				return repo, nil
-			} else {
-				panic(fmt.Sprintf("trying to get in-memory repo %s which we never registered", u.Host))
-			}
-		})
+		store = testblob.New(scheme)
+		blobrepo.Register(scheme, store)
 	})
-	mu.Lock()
-	defer mu.Unlock()
-	r.InmemoryRepository = testutil.NewInmemoryRepository(r.RepoFlagsTrait.BucketName)
-	repos[r.InmemoryRepository.URL().Host] = r
+	bucket, err := store.Bucket(context.Background(), r.RepoFlagsTrait.BucketName)
+	if err != nil {
+		return err
+	}
+	r.Repository = &blobrepo.Repository{Bucket: bucket}
 	return nil
 }
 
-func GetInMemoryRepo(bucketName string) *InMemoryRepository {
-	mu.Lock()
-	defer mu.Unlock()
-	return repos[bucketName]
+func GetFiles(ctx context.Context, bucketName string) ([]reflow.File, error) {
+	bucket, err := store.Bucket(ctx, bucketName)
+	if err != nil {
+		return nil, err
+	}
+	scan := bucket.Scan("")
+	var files []reflow.File
+	for scan.Scan(ctx) {
+		_, file := scan.Key(), scan.File()
+		files = append(files, file)
+	}
+	return files, nil
 }

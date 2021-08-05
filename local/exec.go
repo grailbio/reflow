@@ -6,6 +6,12 @@ package local
 
 import (
 	"context"
+	"net/url"
+
+	"github.com/grailbio/base/digest"
+	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/repository"
+	"github.com/grailbio/reflow/repository/blobrepo"
 
 	"github.com/grailbio/reflow"
 )
@@ -28,4 +34,17 @@ type exec interface {
 	Go(context.Context)
 	WaitUntil(execState) error
 	Kill(context.Context) error
+}
+
+func saveInspect(ctx context.Context, state execState, insp reflow.ExecInspect, repo *url.URL) (d digest.Digest, err error) {
+	if state != execComplete {
+		err = errors.Errorf("cannot marshal, exec not complete: %s", insp.State)
+		return
+	}
+	brepo, rerr := blobrepo.Dial(repo)
+	if rerr != nil {
+		err = errors.E("blobrepo.Dial", rerr)
+		return
+	}
+	return repository.Marshal(ctx, brepo, insp)
 }

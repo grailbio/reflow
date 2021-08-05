@@ -409,13 +409,29 @@ func (n execNode) Walk(ctx context.Context, call *rest.Call, path string) rest.N
 }
 
 func (n execNode) Do(ctx context.Context, call *rest.Call) {
-	if !call.Allow("GET", "HEAD") {
+	if !call.Allow("GET", "HEAD", "POST") {
 		return
 	}
-	inspect, err := n.e.Inspect(ctx)
+	var repo *url.URL
+	if call.Method() == "POST" {
+		err := call.Unmarshal(&repo)
+		if err != nil {
+			call.Error(err)
+			return
+		}
+		if repo == nil {
+			call.Reply(http.StatusBadRequest, errors.E("POST must include repo url in body"))
+			return
+		}
+	}
+	inspect, d, err := n.e.Inspect(ctx, repo)
 	if err != nil {
 		call.Error(err)
 		return
 	}
-	call.Reply(http.StatusOK, inspect)
+	reply := struct {
+		Inspect       reflow.ExecInspect
+		InspectDigest digest.Digest
+	}{inspect, d}
+	call.Reply(http.StatusOK, reply)
 }

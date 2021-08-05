@@ -143,12 +143,13 @@ func (z *zombieExec) ID() digest.Digest { return z.id }
 
 func (z *zombieExec) URI() string { return z.zombie.URI() + "/" + z.id.Hex() }
 
-func (z *zombieExec) Inspect(ctx context.Context) (reflow.ExecInspect, error) {
+func (z *zombieExec) Inspect(ctx context.Context, _ *url.URL) (inspect reflow.ExecInspect, d digest.Digest, err error) {
 	manifest, err := z.manifest(z.id)
 	if err != nil {
-		return reflow.ExecInspect{}, errors.E("inspect", z.URI(), err)
+		err = errors.E("inspect", z.URI(), err)
+		return
 	}
-	inspect := reflow.ExecInspect{
+	inspect = reflow.ExecInspect{
 		Config:  manifest.Config,
 		Docker:  manifest.Docker,
 		State:   "zombie",
@@ -157,12 +158,12 @@ func (z *zombieExec) Inspect(ctx context.Context) (reflow.ExecInspect, error) {
 	}
 	// Blob execs don't have Docker manifests.
 	if manifest.Docker.ContainerJSONBase == nil {
-		return inspect, nil
+		return
 	}
 	if state := manifest.Docker.State; state != nil && state.ExitCode != 0 {
 		inspect.Error = errors.Recover(errors.E("exec", z.URI(), errors.Errorf("process exited with status %d", state.ExitCode)))
 	}
-	return inspect, nil
+	return
 }
 
 func (z *zombieExec) Logs(ctx context.Context, stdout, stderr, follow bool) (io.ReadCloser, error) {

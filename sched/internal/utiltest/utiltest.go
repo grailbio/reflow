@@ -205,9 +205,9 @@ func (e *testExec) Result(ctx context.Context) (reflow.Result, error) {
 	return e.result, e.err
 }
 
-func (e *testExec) Inspect(ctx context.Context) (reflow.ExecInspect, error) {
-	_, err := e.Result(ctx)
-	return reflow.ExecInspect{}, err
+func (e *testExec) Inspect(ctx context.Context, repo *url.URL) (inspect reflow.ExecInspect, d digest.Digest, err error) {
+	_, err = e.Result(ctx)
+	return reflow.ExecInspect{}, d, err
 }
 
 func (e *testExec) Promote(ctx context.Context) error {

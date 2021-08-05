@@ -394,7 +394,7 @@ func (c *Cmd) execInfos(ctx context.Context, execs []reflow.Exec) []execInfo {
 	for i := range execs {
 		i, exec := i, execs[i]
 		g.Go(func() error {
-			inspect, err := exec.Inspect(ctx)
+			inspect, _, err := exec.Inspect(ctx, nil)
 			if err != nil {
 				c.Log.Errorf("inspect %s: %v", exec.ID(), err)
 			} else {

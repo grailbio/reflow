@@ -78,6 +78,9 @@ type Task struct {
 	// execution.
 	Inspect reflow.ExecInspect
 
+	// InspectDigest Stores the digest returned from the exec when it is instructed to write its inspect data to the repo.
+	InspectDigest digest.Digest
+
 	// Exec is the exec which is running (or ran) the task. Exec is
 	// set by the scheduler before the task enters TaskRunning state.
 	Exec reflow.Exec

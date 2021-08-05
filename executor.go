@@ -247,7 +247,9 @@ type Exec interface {
 	Result(ctx context.Context) (Result, error)
 
 	// Inspect inspects the exec. It can be called at any point in the Exec's lifetime.
-	Inspect(ctx context.Context) (ExecInspect, error)
+	// If a repo is provided, Inspect will also marshal this exec's inspect (but only if the exec is complete),
+	// into the given repo and returns the digest of the marshaled contents.
+	Inspect(ctx context.Context, repo *url.URL) (ExecInspect, digest.Digest, error)
 
 	// Wait awaits completion of the Exec.
 	Wait(ctx context.Context) error

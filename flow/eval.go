@@ -1178,19 +1178,12 @@ func (e *Eval) cacheWriteAsync(ctx context.Context, f *Flow) {
 	}()
 }
 
-func (e *Eval) taskdbWrite(ctx context.Context, op Op, inspect reflow.ExecInspect, exec reflow.Exec, id taskdb.TaskID) error {
+func (e *Eval) taskdbWrite(ctx context.Context, op Op, d digest.Digest, exec reflow.Exec, id taskdb.TaskID) error {
 	if !op.External() {
 		return nil
 	}
-	var (
-		err            error
-		stdout, stderr digest.Digest
-		pid            digest.Digest
-	)
+	var stdout, stderr digest.Digest
 	g, ctx := errgroup.WithContext(ctx)
-	if pid, err = repository.Marshal(ctx, e.Repository, inspect); err != nil {
-		log.Errorf("repository put profile: %v", err)
-	}
 	if exec != nil {
 		if loc, err := exec.RemoteLogs(ctx, true); err == nil {
 			if stdout, err = repository.Marshal(ctx, e.Repository, loc); err != nil {
@@ -1205,7 +1198,7 @@ func (e *Eval) taskdbWrite(ctx context.Context, op Op, inspect reflow.ExecInspec
 	}
 	if e.TaskDB != nil {
 		g.Go(func() error {
-			err := e.TaskDB.SetTaskAttrs(ctx, id, stdout, stderr, pid)
+			err := e.TaskDB.SetTaskAttrs(ctx, id, stdout, stderr, d)
 			if err != nil {
 				e.Log.Debugf("taskdb settaskattrs: %v", err)
 			}
@@ -1217,10 +1210,10 @@ func (e *Eval) taskdbWrite(ctx context.Context, op Op, inspect reflow.ExecInspec
 
 // TODO(dnicolaou): Change to: taskdbWriteAsync(ctx context.Context, op Op, task *sched.Task) once nonscheduler mode is
 // removed.
-func (e *Eval) taskdbWriteAsync(ctx context.Context, op Op, inspect reflow.ExecInspect, exec reflow.Exec, id taskdb.TaskID) {
+func (e *Eval) taskdbWriteAsync(ctx context.Context, op Op, d digest.Digest, exec reflow.Exec, id taskdb.TaskID) {
 	bgctx := Background(ctx)
 	go func() {
-		err := e.taskdbWrite(bgctx, op, inspect, exec, id)
+		err := e.taskdbWrite(bgctx, op, d, exec, id)
 		if err != nil {
 			e.Log.Errorf("taskdb write %v: %v", id, err)
 		}
@@ -1944,7 +1937,7 @@ func (e *Eval) taskWait(ctx context.Context, f *Flow, task *sched.Task) error {
 		e.Mutate(f, task.Result.Err, task.Result.Fileset, Propagate, Done)
 	}
 	if e.TaskDB != nil {
-		e.taskdbWriteAsync(ctx, f.Op, task.Inspect, task.Exec, task.ID)
+		e.taskdbWriteAsync(ctx, f.Op, task.InspectDigest, task.Exec, task.ID)
 	}
 	return nil
 }

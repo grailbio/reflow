@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
+	"net/url"
 	"sync"
 
 	"github.com/grailbio/base/digest"
@@ -69,9 +71,12 @@ func (e *Exec) Promote(ctx context.Context) error {
 }
 
 // Inspect rendezvous the result of this exec and returns the inspection output.
-func (e *Exec) Inspect(ctx context.Context) (reflow.ExecInspect, error) {
+func (e *Exec) Inspect(ctx context.Context, repo *url.URL) (inspect reflow.ExecInspect, d digest.Digest, err error) {
 	r, err := e.result(ctx)
-	return r.Inspect, err
+	if repo != nil {
+		d = reflow.Digester.Rand(rand.New(rand.NewSource(0)))
+	}
+	return r.Inspect, d, err
 }
 
 // Wait rendezvous this exec.
@@ -119,6 +124,20 @@ func (e *Exec) Ok(res reflow.Result) {
 	case e.resultc <- ExecResult{Result: res}:
 	default:
 		panic("result already set")
+	}
+}
+
+func (e *Exec) OkInspect(res reflow.Result, inspect reflow.ExecInspect) {
+	select {
+	case <-e.err:
+		panic("error defined")
+	default:
+	}
+
+	select {
+	case e.resultc <- ExecResult{Result: res, Inspect: inspect}:
+	default:
+		panic("result/inspect already set")
 	}
 }
 
