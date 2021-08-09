@@ -60,16 +60,18 @@ func transferLimit(config infra.Config) (int, error) {
 	return v, nil
 }
 
+func awsSession(config infra.Config) (sess *session.Session, err error) {
+	err = config.Instance(&sess)
+	return
+}
+
 // blobMux returns the configured blob muxer.
 func blobMux(config infra.Config) (blob.Mux, error) {
-	var sess *session.Session
-	err := config.Instance(&sess)
-	if err != nil {
+	if sess, err := awsSession(config); err != nil {
 		return nil, errors.E(errors.Fatal, err)
+	} else {
+		return blob.Mux{"s3": s3blob.New(sess)}, nil
 	}
-	return blob.Mux{
-		"s3": s3blob.New(sess),
-	}, nil
 }
 
 func httpClient(config infra.Config) (*http.Client, error) {
@@ -130,7 +132,10 @@ func clusterInstance(config infra.Config, status *status.Status) (runner.Cluster
 
 // NewScheduler returns a new scheduler with the specified configuration.
 // Cancelling the returned context.CancelFunc stops the scheduler.
-func NewScheduler(config infra.Config, cluster runner.Cluster, logger *log.Logger, status *status.Status) (*sched.Scheduler, error) {
+func NewScheduler(config infra.Config, cluster runner.Cluster, logger *log.Logger) (*sched.Scheduler, error) {
+	if cluster == nil {
+		panic(fmt.Sprintf("NewScheduler must have cluster"))
+	}
 	var (
 		err   error
 		tdb   taskdb.TaskDB
@@ -148,11 +153,6 @@ func NewScheduler(config infra.Config, cluster runner.Cluster, logger *log.Logge
 		}
 		logger.Debug(err)
 	}
-	if cluster == nil {
-		if cluster, err = clusterInstance(config, status); err != nil {
-			return nil, err
-		}
-	}
 	if err = config.Instance(&repo); err != nil {
 		return nil, err
 	}
@@ -160,7 +160,7 @@ func NewScheduler(config infra.Config, cluster runner.Cluster, logger *log.Logge
 		return nil, err
 	}
 	transferer := &repository.Manager{
-		Status:           status.Group("transfers"),
+		Status:           new(status.Status).Group("transfers"),
 		PendingTransfers: repository.NewLimits(limit),
 		Stat:             repository.NewLimits(statLimit),
 		Log:              logger,
@@ -183,74 +183,55 @@ func NewScheduler(config infra.Config, cluster runner.Cluster, logger *log.Logge
 
 // NewRunner returns a new runner that can run the given run config. If scheduler is non nil,
 // it will be used for scheduling tasks.
-func NewRunner(runConfig RunConfig, logger *log.Logger, scheduler *sched.Scheduler) (r *Runner, err error) {
+func NewRunner(infraRunConfig infra.Config, runConfig RunConfig, logger *log.Logger, scheduler *sched.Scheduler) (r *Runner, err error) {
 	if scheduler == nil {
 		panic(fmt.Sprintf("NewRunner must have scheduler"))
 	}
-	var (
-		mux   blob.Mux
-		repo  reflow.Repository
-		assoc assoc.Assoc
-		cache *infra2.CacheProvider
-		limit int
-	)
-	if err = runConfig.Config.Instance(&repo); err != nil {
+	var repo reflow.Repository
+	if err = infraRunConfig.Instance(&repo); err != nil {
 		return
 	}
-	if err = runConfig.Config.Instance(&assoc); err != nil {
-		return
-	}
-	if err = runConfig.Config.Instance(&cache); err != nil {
-		return
-	}
-
-	if limit, err = transferLimit(runConfig.Config); err != nil {
-		return
-	}
-	manager := &repository.Manager{
-		Status:           runConfig.Status.Group("transfers"),
-		PendingTransfers: repository.NewLimits(limit),
-		Stat:             repository.NewLimits(statLimit),
-		Log:              logger,
-	}
-	var transferer reflow.Transferer = manager
-	if repo != nil {
-		manager.PendingTransfers.Set(repo.URL().String(), int(^uint(0)>>1))
-	}
-	mux, err = blobMux(runConfig.Config)
-	if err != nil {
-		return
-	}
-
 	// Configure the Predictor.
 	var pred *predictor.Predictor
 	if runConfig.RunFlags.Pred {
-		if cfg, cerr := getPredictorConfig(runConfig.Config, false); cerr != nil {
+		if cfg, cerr := getPredictorConfig(infraRunConfig, false); cerr != nil {
 			logger.Errorf("error while configuring predictor: %s", cerr)
 		} else {
 			pred = predictor.New(repo, scheduler.TaskDB, logger.Tee(nil, "predictor: "), cfg.MinData, cfg.MaxInspect, cfg.MemPercentile)
 		}
 	}
 	var runID *taskdb.RunID
-	if err = runConfig.Config.Instance(&runID); err != nil {
+	if err = infraRunConfig.Instance(&runID); err != nil {
 		return
 	}
 	var user *infra2.User
-	if err = runConfig.Config.Instance(&user); err != nil {
+	if err = infraRunConfig.Instance(&user); err != nil {
 		return
 	}
 	r = &Runner{
-		runConfig:  runConfig,
-		RunID:      *runID,
-		scheduler:  scheduler,
-		predictor:  pred,
-		Log:        logger,
-		repo:       repo,
-		assoc:      assoc,
-		cache:      cache,
-		mux:        mux,
-		transferer: transferer,
-		user:       user.User(),
+		runConfig: runConfig,
+		RunID:     *runID,
+		scheduler: scheduler,
+		predictor: pred,
+		Log:       logger,
+		repo:      repo,
+		user:      user.User(),
+		status:    new(status.Status),
+	}
+	if r.sess, err = awsSession(infraRunConfig); err != nil {
+		return
+	}
+	if err = infraRunConfig.Instance(&r.assoc); err != nil {
+		return
+	}
+	if err = infraRunConfig.Instance(&r.cache); err != nil {
+		return
+	}
+	if r.mux, err = blobMux(infraRunConfig); err != nil {
+		return
+	}
+	if err = infraRunConfig.Instance(&r.labels); err != nil {
+		return
 	}
 	return
 }
@@ -261,10 +242,6 @@ type RunConfig struct {
 	Program string
 	// Args is the arguments to be passed to the reflow program in the form of "--<argname>=<value>"
 	Args []string
-	// Config is the infrastructure configuration to use for this run.
-	Config infra.Config
-	// Status is the status printer for this run.
-	Status *status.Status
 	// RunFlags is the run flags for this run.
 	RunFlags RunFlags
 }
@@ -286,13 +263,15 @@ type Runner struct {
 	wg        *wg.WaitGroup
 
 	// infra
-	repo  reflow.Repository
-	assoc assoc.Assoc
-	cache *infra2.CacheProvider
+	sess   *session.Session
+	repo   reflow.Repository
+	assoc  assoc.Assoc
+	cache  *infra2.CacheProvider
+	labels pool.Labels
 
-	mux        blob.Mux
-	transferer reflow.Transferer
-	user       string
+	mux    blob.Mux
+	status *status.Status
+	user   string
 }
 
 // Go runs the reflow program. It returns a non nil error if did not succeed.
@@ -300,10 +279,6 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 	var err error
 	if err = r.runConfig.RunFlags.Err(); err != nil {
 		return runner.State{}, err
-	}
-	var labels pool.Labels
-	if err = r.runConfig.Config.Instance(&labels); err != nil {
-		r.Log.Error(err)
 	}
 	r.Log.Printf("run ID: %s", r.RunID.IDShort())
 	e := Eval{
@@ -313,7 +288,7 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 	if err = e.Run(); err != nil {
 		return runner.State{}, err
 	}
-	if err = e.ResolveImages(r.runConfig.Config); err != nil {
+	if err = e.ResolveImages(r.sess); err != nil {
 		return runner.State{}, err
 	}
 	path, err := filepath.Abs(e.Program)
@@ -372,7 +347,7 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 			Assoc:              r.assoc,
 			AssertionGenerator: assertionGenerator(r.mux),
 			CacheMode:          r.cache.CacheMode,
-			Status:             r.runConfig.Status.Group(r.RunID.IDShort()),
+			Status:             r.status.Group(r.RunID.IDShort()),
 			Scheduler:          r.scheduler,
 			Predictor:          r.predictor,
 			ImageMap:           e.ImageMap,
@@ -380,7 +355,7 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 			DotWriter:          r.DotWriter,
 		},
 		Type:    e.MainType(),
-		Labels:  labels,
+		Labels:  r.labels,
 		Cmdline: r.cmdline,
 	}
 
@@ -635,4 +610,10 @@ func validatePredictorConfig(sess *session.Session, repo reflow.Repository, tdb 
 		}
 	}
 	return nil
+}
+
+func setTransfererStatus(t reflow.Transferer, s *status.Status) {
+	if m, ok := t.(*repository.Manager); ok {
+		m.Status = s.Group("transfers")
+	}
 }

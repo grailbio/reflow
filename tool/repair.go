@@ -45,6 +45,8 @@ supplied via a CSV batch file as in "reflow runbatch".`
 	default:
 		flags.Usage()
 	}
+	sess, err := awsSession(c.Config)
+	c.must(err)
 	var assoc assoc.Assoc
 	c.must(c.Config.Instance(&assoc))
 	var repo reflow.Repository
@@ -89,7 +91,7 @@ supplied via a CSV batch file as in "reflow runbatch".`
 				if err := e.Run(); err != nil {
 					return err
 				}
-				if err := e.ResolveImages(c.Config); err != nil {
+				if err := e.ResolveImages(sess); err != nil {
 					return err
 				}
 				c.Log.Printf("repair: %s", strings.Join(args, " "))
@@ -105,7 +107,7 @@ supplied via a CSV batch file as in "reflow runbatch".`
 			InputArgs: flags.Args(),
 		}
 		c.must(e.Run())
-		c.must(e.ResolveImages(c.Config))
+		c.must(e.ResolveImages(sess))
 		repair.ImageMap = e.ImageMap
 		repair.Do(ctx, e.Main())
 

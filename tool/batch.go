@@ -30,7 +30,6 @@ import (
 	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
-	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/types"
@@ -114,15 +113,6 @@ The flag -parallelism controls the number of runs in the batch to run concurrent
 	c.must(c.Config.Instance(&repo))
 	var assoc assoc.Assoc
 	c.must(c.Config.Instance(&assoc))
-	transferer := &repository.Manager{
-		Status:           c.Status.Group("transfers"),
-		PendingTransfers: repository.NewLimits(c.TransferLimit()),
-		Stat:             repository.NewLimits(statLimit),
-		Log:              c.Log,
-	}
-	if repo != nil {
-		transferer.PendingTransfers.Set(repo.URL().String(), int(^uint(0)>>1))
-	}
 	wd, err := os.Getwd()
 	if err != nil {
 		c.Log.Error(err)
@@ -130,12 +120,12 @@ The flag -parallelism controls the number of runs in the batch to run concurrent
 	var cache *infra.CacheProvider
 	c.must(c.Config.Instance(&cache))
 	blobMux, err := blobMux(c.Config)
-	if err != nil {
-		c.Fatal(err)
-	}
-
-	scheduler, err := NewScheduler(c.Config, nil, nil, c.Status)
 	c.must(err)
+	cluster, err := clusterInstance(c.Config, c.Status)
+	c.must(err)
+	scheduler, err := NewScheduler(c.Config, cluster, c.Log)
+	c.must(err)
+	setTransfererStatus(scheduler.Transferer, c.Status)
 	scheduler.ExportStats()
 
 	schedCtx, schedCancel := context.WithCancel(ctx)

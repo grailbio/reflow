@@ -76,7 +76,9 @@ retriable.`
 		InputArgs: flags.Args(),
 	}
 	c.must(e.Run())
-	c.must(e.ResolveImages(c.Config))
+	sess, err := awsSession(c.Config)
+	c.must(err)
+	c.must(e.ResolveImages(sess))
 
 	if e.Main() == nil {
 		c.Fatal("module has no Main")
@@ -133,26 +135,26 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 		err       error
 	)
 	runConfig := RunConfig{
-		Config:   c.Config,
 		Program:  file,
 		Args:     args,
-		Status:   c.Status,
 		RunFlags: runFlags,
 	}
 	cluster, err = clusterInstance(c.Config, c.Status)
 	c.must(err)
 
-	scheduler, err = NewScheduler(c.Config, cluster, c.Log, runConfig.Status)
+	scheduler, err = NewScheduler(c.Config, cluster, c.Log)
 	if err != nil {
 		c.Fatal(fmt.Errorf("can't initialize scheduler: %s", err))
 	}
+	setTransfererStatus(scheduler.Transferer, c.Status)
 	scheduler.ExportStats()
 	schedCtx, schedCancel := context.WithCancel(ctx)
 	go func() { _ = scheduler.Do(schedCtx) }()
 	defer schedCancel()
 
-	r, err := NewRunner(runConfig, c.Log, scheduler)
+	r, err := NewRunner(c.Config, runConfig, c.Log, scheduler)
 	c.must(err)
+	r.status = c.Status
 
 	// Set up run transcript and log files.
 	base := c.Runbase(r.RunID)

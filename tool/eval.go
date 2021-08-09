@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow/ec2authenticator"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
@@ -200,23 +199,14 @@ func (e *Eval) evalV1(sess *syntax.Session) error {
 }
 
 // Resolve images resolves the images in an evaluated program.
-func (e *Eval) ResolveImages(config infra.Config) error {
+func (e *Eval) ResolveImages(sess *session.Session) (err error) {
 	// resolve images is only supported for v1 flows as of this writing.
 	if !e.V1 {
-		return nil
+		return
 	}
-	var (
-		awsSession *session.Session
-		err        error
-	)
-	if err = config.Instance(&awsSession); err != nil {
-		return err
-	}
-	r := ImageResolver{
-		Authenticator: ec2authenticator.New(awsSession),
-	}
+	r := ImageResolver{Authenticator: ec2authenticator.New(sess)}
 	e.ImageMap, err = r.ResolveImages(context.Background(), e.Images)
-	return err
+	return
 }
 
 func sprintval(v values.T, t *types.T) string {
