@@ -130,7 +130,7 @@ func clusterInstance(config infra.Config, status *status.Status) (runner.Cluster
 
 // NewScheduler returns a new scheduler with the specified configuration.
 // Cancelling the returned context.CancelFunc stops the scheduler.
-func NewScheduler(config infra.Config, cluster runner.Cluster, logger *log.Logger, status *status.Status) (*sched.Scheduler, error) {
+func NewScheduler(ctx context.Context, config infra.Config, wg *wg.WaitGroup, cluster runner.Cluster, logger *log.Logger, status *status.Status) (*sched.Scheduler, error) {
 	var (
 		err   error
 		tdb   taskdb.TaskDB
@@ -178,32 +178,37 @@ func NewScheduler(config infra.Config, cluster runner.Cluster, logger *log.Logge
 		return nil, err
 	}
 	scheduler.Mux = mux
+	wg.Add(1)
+	go func() {
+		err := scheduler.Do(ctx)
+		if err != nil && err != ctx.Err() {
+			logger.Printf("scheduler: %v,", err)
+		}
+		wg.Done()
+	}()
 	return scheduler, nil
 }
 
 // NewRunner returns a new runner that can run the given run config. If scheduler is non nil,
 // it will be used for scheduling tasks.
-func NewRunner(runConfig RunConfig, logger *log.Logger, scheduler *sched.Scheduler) (r *Runner, err error) {
-	if scheduler == nil {
-		panic(fmt.Sprintf("NewRunner must have scheduler"))
-	}
+func NewRunner(ctx context.Context, runConfig RunConfig, logger *log.Logger, scheduler *sched.Scheduler) (r *Runner, err error) {
 	var (
-		mux   blob.Mux
-		repo  reflow.Repository
-		assoc assoc.Assoc
-		cache *infra2.CacheProvider
-		limit int
+		mux         blob.Mux
+		repo        reflow.Repository
+		schedCancel context.CancelFunc
+		wg          wg.WaitGroup
+		limit       int
 	)
+	defer func() {
+		// Cancel scheduler (if applicable) in case of an error
+		if err != nil && schedCancel != nil {
+			schedCancel()
+		}
+	}()
+
 	if err = runConfig.Config.Instance(&repo); err != nil {
 		return
 	}
-	if err = runConfig.Config.Instance(&assoc); err != nil {
-		return
-	}
-	if err = runConfig.Config.Instance(&cache); err != nil {
-		return
-	}
-
 	if limit, err = transferLimit(runConfig.Config); err != nil {
 		return
 	}
@@ -222,35 +227,57 @@ func NewRunner(runConfig RunConfig, logger *log.Logger, scheduler *sched.Schedul
 		return
 	}
 
-	// Configure the Predictor.
 	var pred *predictor.Predictor
+	startSched := runConfig.RunFlags.Sched && scheduler == nil
+	if startSched {
+		var schedCtx context.Context
+		// disable govet check due to https://github.com/golang/go/issues/29587
+		// schedCancel is called, if appropriate, in a defer above.
+		schedCtx, schedCancel = context.WithCancel(ctx) //nolint: govet
+		scheduler, err = NewScheduler(schedCtx, runConfig.Config, &wg, runConfig.RunFlags.Cluster, logger, runConfig.Status)
+		if err != nil {
+			return //nolint: govet
+		}
+		scheduler.ExportStats()
+		scheduler.Transferer = transferer
+		scheduler.Mux = mux
+		scheduler.PostUseChecksum = runConfig.RunFlags.PostUseChecksum
+	}
+
+	// Configure the Predictor.
 	if runConfig.RunFlags.Pred {
 		if cfg, cerr := getPredictorConfig(runConfig.Config, false); cerr != nil {
 			logger.Errorf("error while configuring predictor: %s", cerr)
 		} else {
-			pred = predictor.New(repo, scheduler.TaskDB, logger.Tee(nil, "predictor: "), cfg.MinData, cfg.MaxInspect, cfg.MemPercentile)
+			var tdb taskdb.TaskDB
+			if err = runConfig.Config.Instance(&tdb); err != nil {
+				logger.Error(err)
+			} else {
+				pred = predictor.New(repo, tdb, logger.Tee(nil, "predictor: "), cfg.MinData, cfg.MaxInspect, cfg.MemPercentile)
+			}
 		}
 	}
 	var runID *taskdb.RunID
-	if err = runConfig.Config.Instance(&runID); err != nil {
-		return
+	err = runConfig.Config.Instance(&runID)
+	if startSched {
+		logger.Debugf("Setting up new scheduler for runID: %s", runID.ID())
 	}
-	var user *infra2.User
-	if err = runConfig.Config.Instance(&user); err != nil {
+	if err != nil {
 		return
 	}
 	r = &Runner{
-		runConfig:  runConfig,
-		RunID:      *runID,
-		scheduler:  scheduler,
-		predictor:  pred,
-		Log:        logger,
-		repo:       repo,
-		assoc:      assoc,
-		cache:      cache,
-		mux:        mux,
-		transferer: transferer,
-		user:       user.User(),
+		runConfig:   runConfig,
+		RunID:       *runID,
+		scheduler:   scheduler,
+		predictor:   pred,
+		schedCancel: schedCancel,
+		Log:         logger,
+		wg:          &wg,
+		repo:        repo,
+		mux:         mux,
+	}
+	if err = r.initInfra(); err != nil {
+		return
 	}
 	return
 }
@@ -279,20 +306,48 @@ type Runner struct {
 	// DotWriter is the writer to write the flow evaluation graph to write to, in dot format.
 	DotWriter io.Writer
 
-	runConfig RunConfig
-	scheduler *sched.Scheduler
-	predictor *predictor.Predictor
-	cmdline   string
-	wg        *wg.WaitGroup
+	runConfig   RunConfig
+	scheduler   *sched.Scheduler
+	predictor   *predictor.Predictor
+	schedCancel context.CancelFunc
+	cmdline     string
+	wg          *wg.WaitGroup
 
 	// infra
 	repo  reflow.Repository
 	assoc assoc.Assoc
 	cache *infra2.CacheProvider
+	tdb   taskdb.TaskDB
 
-	mux        blob.Mux
-	transferer reflow.Transferer
-	user       string
+	mux                blob.Mux
+	transferer         reflow.Transferer
+	assertionGenerator reflow.AssertionGenerator
+}
+
+func (r *Runner) initInfra() error {
+	var (
+		err    error
+		config = r.runConfig.Config
+	)
+	if err = config.Instance(&r.assoc); err != nil {
+		return err
+	}
+	if err = config.Instance(&r.cache); err != nil {
+		return err
+	}
+	r.assertionGenerator, err = assertionGenerator(config)
+	if err != nil {
+		return err
+	}
+	err = r.runConfig.Config.Instance(&r.tdb)
+	if err != nil {
+		if strings.HasPrefix(err.Error(), "no providers for type taskdb.TaskDB") {
+			r.Log.Debug(err)
+		} else {
+			return err
+		}
+	}
+	return nil
 }
 
 // Go runs the reflow program. It returns a non nil error if did not succeed.
@@ -351,16 +406,18 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 
 	tctx, tcancel := context.WithCancel(ctx)
 	defer tcancel()
-	if r.scheduler == nil {
-		panic("unexpectedly scheduler is nil")
-	}
-	tdb := r.scheduler.TaskDB
-	if tdb != nil {
-		if rerr := tdb.CreateRun(tctx, r.RunID, r.user); rerr != nil {
-			r.Log.Debugf("error writing run to taskdb: %v", rerr)
+	if r.tdb != nil {
+		var user *infra2.User
+		errTDB := r.runConfig.Config.Instance(&user)
+		if errTDB != nil {
+			r.Log.Debug(errTDB)
+		}
+		errTDB = r.tdb.CreateRun(tctx, r.RunID, string(*user))
+		if errTDB != nil {
+			r.Log.Debugf("error writing run to taskdb: %v", errTDB)
 		} else {
-			go func() { _ = taskdb.KeepRunAlive(tctx, tdb, r.RunID) }()
-			go func() { _ = r.uploadBundle(tctx, r.repo, tdb, r.RunID, e, r.runConfig.Program, r.runConfig.Args) }()
+			go func() { _ = taskdb.KeepRunAlive(tctx, r.tdb, r.RunID) }()
+			go func() { _ = r.uploadBundle(tctx, r.repo, r.tdb, r.RunID, e, r.runConfig.Program, r.runConfig.Args) }()
 		}
 	}
 	run := runner.Runner{
@@ -370,12 +427,13 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 			Repository:         r.repo,
 			Snapshotter:        r.mux,
 			Assoc:              r.assoc,
-			AssertionGenerator: assertionGenerator(r.mux),
+			AssertionGenerator: r.assertionGenerator,
 			CacheMode:          r.cache.CacheMode,
 			Status:             r.runConfig.Status.Group(r.RunID.IDShort()),
 			Scheduler:          r.scheduler,
 			Predictor:          r.predictor,
 			ImageMap:           e.ImageMap,
+			TaskDB:             r.tdb,
 			RunID:              r.RunID,
 			DotWriter:          r.DotWriter,
 		},
@@ -405,7 +463,6 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 	if err = stateFile.Marshal(run.State); err != nil {
 		return runner.State{}, errors.E("failed to marshal state: %v", err)
 	}
-	r.wg = new(wg.WaitGroup)
 	ctx, bgcancel := flow.WithBackground(ctx, r.wg)
 
 	for ok := true; ok; {
@@ -421,8 +478,8 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
-		if tdb != nil {
-			if errTDB := r.setRunComplete(tctx, tdb, run.State.Completion); errTDB != nil {
+		if r.tdb != nil {
+			if errTDB := r.setRunComplete(tctx, run.State.Completion); errTDB != nil {
 				r.Log.Debugf("error writing run result to taskdb: %v", errTDB)
 			}
 		}
@@ -432,6 +489,9 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 		r.Log.Error(run.Err)
 	} else {
 		r.Log.Printf("result: %s", run.Result)
+	}
+	if r.schedCancel != nil {
+		r.schedCancel()
 	}
 	r.waitForBackgroundTasks(r.runConfig.RunFlags.BackgroundTimeout)
 	bgcancel()
@@ -443,7 +503,7 @@ func (r *Runner) GetRunID() taskdb.RunID {
 	return r.RunID
 }
 
-func (r *Runner) setRunComplete(ctx context.Context, tdb taskdb.TaskDB, endTime time.Time) error {
+func (r *Runner) setRunComplete(ctx context.Context, endTime time.Time) error {
 	var (
 		execLog, sysLog, dotFile, trace digest.Digest
 		rc                              io.ReadCloser
@@ -486,7 +546,7 @@ func (r *Runner) setRunComplete(ctx context.Context, tdb taskdb.TaskDB, endTime 
 	} else {
 		r.Log.Debugf("unable to determine runbase: %v", err)
 	}
-	err = tdb.SetRunComplete(ctx, r.RunID, execLog, sysLog, dotFile, trace, endTime)
+	err = r.tdb.SetRunComplete(ctx, r.RunID, execLog, sysLog, dotFile, trace, endTime)
 	if err == nil {
 		var ds []string
 		if !execLog.IsZero() {
@@ -589,50 +649,38 @@ func Runbase(rundir string, runID taskdb.RunID) string {
 	return filepath.Join(rundir, runID.Hex())
 }
 
-// getPredictorConfig gets a PredictorConfig and/or an error (if any).
+// getPredictorConfig returns a PredictorConfig if the Predictor can be used by reflow.
+// The Predictor can only be used if the following conditions are true:
+// 1. A repo is provided for retrieving cached ExecInspects.
+// 2. A taskdb is present in the provided config, for querying tasks.
+// 3. The reflow config specifies MinData > 0 and MaxInspect >= MinData because a prediction cannot be made
+//    with no data.
+// 4. Reflow is being run from an ec2 instance OR either the Predictor config (using NonEC2Ok)
+//    or the flag nonEC2ok gives explicit permission to run the Predictor non-ec2-instance machines.
+//    This is because the Predictor is network-intensive and its performance will be hampered by poor network.
 func getPredictorConfig(cfg infra.Config, nonEC2ok bool) (*infra2.PredictorConfig, error) {
 	var (
 		predConfig *infra2.PredictorConfig
 		repo       reflow.Repository
-		sess       *session.Session
 		tdb        taskdb.TaskDB
 	)
-	if err := cfg.Instance(&tdb); err != nil {
+	if err := cfg.Instance(&tdb); err != nil || tdb == nil {
 		return nil, errors.E("predictor config: no taskdb", err)
 	}
 	if err := cfg.Instance(&repo); err != nil {
 		return nil, errors.E("predictor config: no repo", err)
 	}
-	if err := cfg.Instance(&predConfig); err != nil {
+	if err := cfg.Instance(&predConfig); err != nil || predConfig == nil {
 		return nil, errors.E("predictor config: no predconfig", err)
 	}
+	var sess *session.Session
 	if err := cfg.Instance(&sess); err != nil || sess == nil {
 		return nil, errors.E("predictor config: no session", err)
 	}
-	return predConfig, validatePredictorConfig(sess, repo, tdb, predConfig, nonEC2ok)
-}
-
-// validatePredictorConfig validates if the Predictor can be used by reflow.
-// The Predictor can only be used if the following conditions are true:
-// 1. A repo is provided for retrieving cached ExecInspects.
-// 2. A taskdb is present in the provided config, for querying tasks.
-// 3. Reflow is being run from an ec2 instance OR either the Predictor config (using NonEC2Ok)
-//    or the flag nonEC2ok gives explicit permission to run the Predictor non-ec2-instance machines.
-//    This is because the Predictor is network-intensive and its performance will be hampered by poor network.
-func validatePredictorConfig(sess *session.Session, repo reflow.Repository, tdb taskdb.TaskDB, predConfig *infra2.PredictorConfig, nonEC2ok bool) error {
-	if tdb == nil {
-		return fmt.Errorf("validatePredictorConfig: no taskdb")
-	}
-	if repo == nil {
-		return fmt.Errorf("validatePredictorConfig: no repo")
-	}
-	if predConfig == nil {
-		return fmt.Errorf("validatePredictorConfig: no predconfig")
-	}
 	if !predConfig.NonEC2Ok && !nonEC2ok {
 		if md := ec2metadata.New(sess, &aws2.Config{MaxRetries: aws2.Int(3)}); !md.Available() {
-			return fmt.Errorf("not running on ec2 instance (and nonEc2Ok is not true)")
+			return nil, fmt.Errorf("not running on ec2 instance (and nonEc2Ok is not true)")
 		}
 	}
-	return nil
+	return predConfig, nil
 }

@@ -55,7 +55,6 @@ func NewTask(cpu, mem float64, priority int) *sched.Task {
 	task.Config.Resources = reflow.Resources{"cpu": cpu, "mem": mem}
 	task.ID = taskdb.NewTaskID()
 	task.FlowID = reflow.Digester.FromString("test-flow-id")
-	task.PostUseChecksum = true
 	if *logTasks {
 		SetLogger(task)
 	}

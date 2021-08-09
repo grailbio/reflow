@@ -33,6 +33,7 @@ import (
 )
 
 const (
+	dockerSocket = "/var/run/docker.sock"
 	bashImage    = "yikaus/alpine-bash" // the default alpine image doesn't have Bash.
 	// We put this in /tmp because it's one of the default locations
 	// that are bindable from Docker for Mac.
@@ -55,6 +56,7 @@ func newTestExecutorOrSkip(t *testing.T, creds *credentials.Credentials) (*Execu
 		cleanup()
 		t.Fatal(err)
 	}
+	cleanup = func() {}
 	return x, cleanup
 }
 

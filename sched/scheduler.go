@@ -80,7 +80,7 @@ type Scheduler struct {
 	Cluster Cluster
 	// Log logs scheduler actions.
 	Log *log.Logger
-	// TaskDB is the task reporting db.
+	// TaskDB is  the task reporting db.
 	TaskDB taskdb.TaskDB
 
 	// MaxPendingAllocs is the maximum number outstanding
@@ -97,6 +97,9 @@ type Scheduler struct {
 	// MinAlloc is the smallest resource allocation that is made by
 	// the scheduler.
 	MinAlloc reflow.Resources
+
+	// PostUseChecksum indicates whether input filesets are checksummed after use.
+	PostUseChecksum bool
 
 	// Labels is the set of labels applied to newly created allocs.
 	Labels pool.Labels
@@ -454,7 +457,6 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		loadedData     sync.Map
 		resultUnloaded bool
 	)
-	task.TaskDB = s.TaskDB
 
 	metrics.GetTasksStartedCountCounter(ctx).Inc()
 	metrics.GetTasksStartedSizeCounter(ctx).Add(task.Config.ScaledDistance(nil))
@@ -586,7 +588,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		case internal.StateUnload:
 			err = unload(ctx, task, &loadedData, alloc, &resultUnloaded)
 		}
-		next, nextIsRetry, msg := state.Next(ctx, err, task.PostUseChecksum)
+		next, nextIsRetry, msg := state.Next(ctx, err, s.PostUseChecksum)
 		task.Log.Debugf("%s (try %d): %s, next state: %s", state, attempt, msg, next)
 		if nextIsRetry {
 			attempt++

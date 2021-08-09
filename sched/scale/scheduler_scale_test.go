@@ -36,6 +36,7 @@ func newTestScheduler(t *testing.T) (scheduler *sched.Scheduler, cluster *alloca
 	scheduler = sched.New()
 	scheduler.Transferer = testutil.Transferer
 	scheduler.Cluster = cluster
+	scheduler.PostUseChecksum = true
 	scheduler.MinAlloc = reflow.Resources{}
 	scheduler.MaxAllocIdleTime = 30 * time.Second
 	logger := log.New(golog.New(os.Stderr, "", golog.LstdFlags), log.DebugLevel)

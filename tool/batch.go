@@ -32,7 +32,9 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/runner"
+	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/syntax"
+	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/wg"
 )
@@ -129,18 +131,31 @@ The flag -parallelism controls the number of runs in the batch to run concurrent
 	}
 	var cache *infra.CacheProvider
 	c.must(c.Config.Instance(&cache))
+	assg, err := assertionGenerator(c.Config)
+	if err != nil {
+		c.Fatal(err)
+	}
 	blobMux, err := blobMux(c.Config)
 	if err != nil {
 		c.Fatal(err)
 	}
 
-	scheduler, err := NewScheduler(c.Config, nil, nil, c.Status)
-	c.must(err)
-	scheduler.ExportStats()
+	var tdb taskdb.TaskDB
+	err = c.Config.Instance(&tdb)
+	if err != nil {
+		c.Log.Debugf("taskdb: %v", err)
+	}
 
-	schedCtx, schedCancel := context.WithCancel(ctx)
-	go func() { _ = scheduler.Do(schedCtx) }()
-	defer schedCancel()
+	var (
+		scheduler             *sched.Scheduler
+		wg                    wg.WaitGroup
+		schedCtx, schedCancel = context.WithCancel(ctx)
+	)
+	if config.Sched {
+		scheduler, err = NewScheduler(schedCtx, c.Config, &wg, nil, nil, c.Status)
+		c.must(err)
+		scheduler.ExportStats()
+	}
 
 	b := &batch.Batch{
 		EvalConfig: flow.EvalConfig{
@@ -148,8 +163,9 @@ The flag -parallelism controls the number of runs in the batch to run concurrent
 			Snapshotter:        blobMux,
 			Repository:         repo,
 			Assoc:              assoc,
-			AssertionGenerator: assertionGenerator(blobMux),
+			AssertionGenerator: assg,
 			CacheMode:          cache.CacheMode,
+			TaskDB:             tdb,
 			Scheduler:          scheduler,
 		},
 		Args:    flags.Args(),
@@ -176,11 +192,13 @@ The flag -parallelism controls the number of runs in the batch to run concurrent
 			}
 		}
 	}
-	var wg wg.WaitGroup
 	ctx, bgcancel := flow.WithBackground(ctx, &wg)
 	err = b.Run(ctx)
 	if err != nil {
 		c.Log.Errorf("batch failed with error %v", err)
+	}
+	if schedCancel != nil {
+		schedCancel()
 	}
 	c.WaitForBackgroundTasks(&wg, 20*time.Minute)
 	bgcancel()

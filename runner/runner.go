@@ -124,6 +124,10 @@ type Runner struct {
 	// transfers.
 	Transferer reflow.Transferer
 
+	// Retain is the amount of time the primary alloc should be retained
+	// after failure.
+	Retain time.Duration
+
 	// Labels are the set of labels affiliated with this run.
 	Labels pool.Labels
 
@@ -193,7 +197,9 @@ func (r *Runner) Do(ctx context.Context) bool {
 	return r.Phase != Done
 }
 
-// Eval evaluates the flow, returning the resulting Value.
+// Eval evaluates the flow, returning the resulting Value. In the
+// case of failure, r.Alloc is kept-alive for an additional r.Retain
+// duration.
 func (r *Runner) Eval(ctx context.Context) (string, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup

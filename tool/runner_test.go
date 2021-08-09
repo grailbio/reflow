@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -9,11 +10,14 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/test/infra"
+	wg2 "github.com/grailbio/reflow/wg"
 )
 
 func TestSchedulerDefaultPendingTransferLimit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	config := infra.GetTestReflowConfig()
-	scheduler, err := NewScheduler(config, nil, log.Std, new(status.Status))
+	scheduler, err := NewScheduler(ctx, config, &wg2.WaitGroup{}, nil, log.Std, new(status.Status))
 	if err != nil {
 		t.Fatal(err)
 	}
