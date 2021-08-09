@@ -111,7 +111,6 @@ var commands = map[string]Func{
 	"serve":        (*Cmd).serveCmd,
 	"shell":        (*Cmd).shell,
 	"sync":         (*Cmd).sync,
-	"test":         (*Cmd).test,
 	"upgrade":      (*Cmd).upgrade,
 	"version":      (*Cmd).versionCmd,
 }

@@ -36,7 +36,6 @@ func newTestScheduler(t *testing.T) (scheduler *sched.Scheduler, cluster *utilte
 	scheduler = sched.New()
 	scheduler.Transferer = testutil.Transferer
 	scheduler.Cluster = cluster
-	scheduler.PostUseChecksum = true
 	scheduler.TaskDB = utiltest.NewMockTaskDB()
 	scheduler.MinAlloc = reflow.Resources{}
 	out := golog.New(os.Stderr, "scheduler: ", golog.LstdFlags)
