@@ -15,7 +15,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -28,7 +27,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/grailbio/base/cloud/ec2util"
-	"github.com/grailbio/base/data"
 	"github.com/grailbio/infra"
 	infratls "github.com/grailbio/infra/tls"
 	"github.com/grailbio/reflow"
@@ -86,10 +84,18 @@ type Server struct {
 	// cluster.
 	NodeExporterMetricsPort int
 
+	// MetricsPort is the port where (if set to non-zero) prometheus metrics are being served.
+	// If set to a non-zero value, an additional handler is always enabled (in the reflowlet server) such that,
+	// metrics are available via proxy from the client side, accessible via the following Reflow command:
+	// $ reflow http https://${EC2_INST_PUBLIC_DNS}:9000/v1/metrics
+	MetricsPort int
+
 	// server is the underlying HTTP server
 	server *http.Server
 
 	configFlag string
+
+	nodeMetricsUrl, reflowletMetricsUrl string
 
 	// version of the reflowlet instance.
 	version string
@@ -206,51 +212,46 @@ func (s *Server) ListenAndServe() error {
 		return err
 	}
 	var rc *infra2.ReflowletConfig
-	err = s.Config.Instance(&rc)
-	if err != nil {
+	if err = s.Config.Instance(&rc); err != nil {
 		return err
 	}
 	var sess *session.Session
-	err = s.Config.Instance(&sess)
-	if err != nil {
+	if err = s.Config.Instance(&sess); err != nil {
 		return err
 	}
 	var tlsa infratls.Certs
-	err = s.Config.Instance(&tlsa)
-	if err != nil {
+	if err = s.Config.Instance(&tlsa); err != nil {
 		return err
 	}
-	clientConfig, serverConfig, err := tlsa.HTTPS()
-	if err != nil {
-		return err
+	clientConfig, serverConfig, terr := tlsa.HTTPS()
+	if terr != nil {
+		return terr
 	}
 	var creds *credentials.Credentials
-	err = s.Config.Instance(&creds)
-	if err != nil {
+	if err = s.Config.Instance(&creds); err != nil {
 		return err
 	}
 
 	var mclient metrics.Client
-	err = s.Config.Instance(&mclient)
-	if err != nil {
+	if err = s.Config.Instance(&mclient); err != nil {
 		return err
 	}
 	if pclient, ok := mclient.(*prometrics.Client); ok {
 		s.NodeExporterMetricsPort = pclient.NodeExporterPort
+		s.MetricsPort = pclient.Port
 	}
 
 	var (
 		dockerconfig *infra2.DockerConfig
 		hardMemLimit bool
 	)
-	err = s.Config.Instance(&dockerconfig)
-	if err != nil {
+	if err = s.Config.Instance(&dockerconfig); err != nil {
 		return err
 	} else if dockerconfig.Value() == "hard" {
 		hardMemLimit = true
 	}
 
-	if err := s.setTags(sess); err != nil {
+	if err = s.setTags(sess); err != nil {
 		return fmt.Errorf("set tags: %v", err)
 	}
 
@@ -270,9 +271,10 @@ func (s *Server) ListenAndServe() error {
 	// avoiding global registration altogether.
 	blobrepo.Register("s3", s3blob.New(sess))
 	transport := &http.Transport{TLSClientConfig: clientConfig}
-	http2.ConfigureTransport(transport)
+	if err = http2.ConfigureTransport(transport); err != nil {
+		return err
+	}
 	repositoryhttp.HTTPClient = &http.Client{Transport: transport}
-
 	p := &local.Pool{
 		Client:        client,
 		Dir:           s.Dir,
@@ -286,7 +288,7 @@ func (s *Server) ListenAndServe() error {
 		Log:           log.Std.Tee(nil, "executor: "),
 		HardMemLimit:  hardMemLimit,
 	}
-	if err := p.Start(); err != nil {
+	if err = p.Start(); err != nil {
 		return err
 	}
 
@@ -330,13 +332,6 @@ func (s *Server) ListenAndServe() error {
 		}()
 	}
 
-	// Start periodic stats logging
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		logStats(ctx, p, logger.Tee(nil, "stats: "), rc.LogMemStatsDuration)
-	}()
-
 	// Start the loop to exit reflowlet if idle.
 	go func() {
 		s.loopUntilIdle(p, rc, logger)
@@ -356,34 +351,46 @@ func (s *Server) ListenAndServe() error {
 
 	http.Handle("/", rest.Handler(server.NewNode(p), httpLog))
 	// Create a servlet node for this reflowlet's config.
-	cfgNode, err := newConfigNode(s.Config)
-	if err != nil {
+	var cfgNode rest.DoFunc
+	if cfgNode, err = newConfigNode(s.Config); err != nil {
 		return fmt.Errorf("read config: %v", err)
 	}
 	http.Handle("/v1/config", rest.DoFuncHandler(cfgNode, httpLog))
 	if s.NodeExporterMetricsPort != 0 {
-		http.Handle("/v1/node/metrics", rest.DoProxyHandler(fmt.Sprintf("http://localhost:%d/metrics",
-			s.NodeExporterMetricsPort), httpLog))
+		s.nodeMetricsUrl = fmt.Sprintf("http://localhost:%d/metrics", s.NodeExporterMetricsPort)
+		p := "/v1/node/metrics"
+		http.Handle(p, rest.DoProxyHandler(s.nodeMetricsUrl, httpLog))
+		logger.Printf("proxying node metrics %s -> %s", p, s.nodeMetricsUrl)
 	}
-	var repo reflow.Repository
-	err = s.Config.Instance(&repo)
-	if err != nil {
-		return fmt.Errorf("repo: %v", err)
+	if s.MetricsPort != 0 {
+		s.reflowletMetricsUrl = fmt.Sprintf("http://localhost:%d", s.MetricsPort)
+		p := "/v1/metrics"
+		http.Handle(p, rest.DoProxyHandler(s.reflowletMetricsUrl, httpLog))
+		logger.Printf("proxying node metrics %s -> %s", p, s.reflowletMetricsUrl)
 	}
+	// Start periodic stats logging
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.logStats(ctx, p, logger.Tee(nil, "stats: "), rc.LogMemStatsDuration)
+	}()
+
 	s.server = &http.Server{Addr: s.Addr}
 	if s.Insecure {
 		return s.server.ListenAndServe()
 	}
 	serverConfig.ClientAuth = tls.RequireAndVerifyClientCert
 	s.server.TLSConfig = serverConfig
-	http2.ConfigureServer(s.server, &http2.Server{
+	if err = http2.ConfigureServer(s.server, &http2.Server{
 		MaxConcurrentStreams: maxConcurrentStreams,
-	})
+	}); err != nil {
+		return err
+	}
 	return s.server.ListenAndServeTLS("", "")
 }
 
 func (s *Server) Shutdown() {
-	s.server.Shutdown(context.Background())
+	_ = s.server.Shutdown(context.Background())
 }
 
 // IgnoreSigpipe consumes (and ignores) SIGPIPE signals. As of Go
@@ -417,13 +424,9 @@ func newConfigNode(cfg infra.Config) (rest.DoFunc, error) {
 }
 
 // logStats logs various stats to the given logger every d duration.
-func logStats(ctx context.Context, p *local.Pool, log *log.Logger, d time.Duration) {
+func (s *Server) logStats(ctx context.Context, p *local.Pool, log *log.Logger, d time.Duration) {
 	iter := time.NewTicker(d)
 	for {
-		memStats := new(runtime.MemStats)
-		runtime.ReadMemStats(memStats)
-		log.Printf("Heap %s, Sys %s", data.Size(memStats.HeapAlloc), data.Size(memStats.Sys))
-
 		tot, free := p.Resources(), p.Available()
 		freeFrac := free.Div(tot)
 		var usedPcts []string
@@ -431,6 +434,16 @@ func logStats(ctx context.Context, p *local.Pool, log *log.Logger, d time.Durati
 			usedPcts = append(usedPcts, fmt.Sprintf("%s: %.1f%%", k, 100.0-math.Round(100*freeFrac[k])))
 		}
 		log.Printf("Allocated resources %s; total %s free %s", strings.Join(usedPcts, " "), tot, free)
+
+		// Dump node_exporter based metrics
+		nctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+		DumpMetrics(nctx, s.nodeMetricsUrl, log, NodeMetricsNames)
+		cancel()
+
+		// Dump reflowlet metrics
+		nctx, cancel = context.WithTimeout(ctx, 200*time.Millisecond)
+		DumpMetrics(nctx, s.reflowletMetricsUrl, log, nil)
+		cancel()
 
 		select {
 		case <-ctx.Done():

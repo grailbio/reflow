@@ -634,13 +634,28 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// The remote side does not need a cluster implementation.
 	keys := make(infra.Keys)
 	err = yaml.Unmarshal(b, &keys)
 	if err != nil {
 		return "", err
 	}
+	// The remote side does not need a cluster implementation.
 	delete(keys, infra2.Cluster)
+	// If prometheus metrics are enabled, but a port for metrics is not set,
+	// then set a default port for reflowlet metrics.
+	if p := keys[infra2.Metrics]; p != nil {
+		if m := p.(string); strings.HasPrefix(m, "prometrics") {
+			var hasPort bool
+			for _, v := range strings.Split(m, ",") {
+				if hasPort = strings.HasPrefix(v, "port="); hasPort {
+					break
+				}
+			}
+			if !hasPort {
+				keys[infra2.Metrics] = fmt.Sprintf("%s,port=9100", m)
+			}
+		}
+	}
 	b, err = yaml.Marshal(keys)
 	if err != nil {
 		return "", err

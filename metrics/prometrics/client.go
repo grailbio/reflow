@@ -59,10 +59,8 @@ func (r *Client) Init() error {
 	reg := prometheus.NewRegistry()
 	r.reg = reg
 	r.gath = reg
-	r.gauges = make(map[string]*prometheus.GaugeVec)
-	r.counters = make(map[string]*prometheus.CounterVec)
-	r.histograms = make(map[string]*prometheus.HistogramVec)
-	r.initCollectors()
+	r.init()
+
 	if r.Port != 0 {
 		go func() {
 			log.Printf("hosting prometheus at %d", r.Port)
@@ -75,16 +73,20 @@ func (r *Client) Init() error {
 
 // Flags implements infra.Provider.
 func (r *Client) Flags(flags *flag.FlagSet) {
-	flags.IntVar(&r.Port, "port", 9100, "port to serve metrics (http server disabled if zero passed)")
+	flags.IntVar(&r.Port, "port", 0, "port to serve metrics (http server disabled if zero passed)")
 	flags.IntVar(&r.NodeExporterPort, "nodeexporterport", 9101, "port to serve node_exporter metrics "+
 		"(node_exporter disabled if zero passed)")
 	flags.StringVar(&r.Namespace, "namespace", "reflow", "namespace to prepend to metrics")
 }
 
-// initCollectors inspects the counters/gauges/histograms defined on the root metrics implementation
+// init inspects the counters/gauges/histograms defined on the root metrics implementation
 // and initializes their backing stores in the prometheus registry on the new Client. It should only
 // be called once.
-func (r *Client) initCollectors() {
+func (r *Client) init() {
+	r.gauges = make(map[string]*prometheus.GaugeVec)
+	r.counters = make(map[string]*prometheus.CounterVec)
+	r.histograms = make(map[string]*prometheus.HistogramVec)
+
 	for name, opts := range metrics.Gauges {
 		gv := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: r.Namespace,
@@ -121,6 +123,10 @@ func (r *Client) initCollectors() {
 			log.Fatal(err)
 		}
 	}
+	r.reg.MustRegister(
+		prometheus.NewGoCollector(),
+		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{Namespace: r.Namespace}),
+	)
 }
 
 func (r *Client) GetGauge(name string, labels map[string]string) metrics.Gauge {
@@ -151,16 +157,13 @@ func (r *Client) GetHistogram(name string, labels map[string]string) metrics.His
 }
 
 // NewClient returns a prometheus metrics Client that wraps the existing registry.
-func NewClient(reg prometheus.Registerer, gath prometheus.Gatherer) metrics.Client {
+func NewClient(reg prometheus.Registerer, gath prometheus.Gatherer, nodeExporterPort int) metrics.Client {
 	r := &Client{
 		reg:              reg,
 		gath:             gath,
 		Namespace:        "reflow",
-		NodeExporterPort: 9101,
-		gauges:           make(map[string]*prometheus.GaugeVec),
-		counters:         make(map[string]*prometheus.CounterVec),
-		histograms:       make(map[string]*prometheus.HistogramVec),
+		NodeExporterPort: nodeExporterPort,
 	}
-	r.initCollectors()
+	r.init()
 	return r
 }
