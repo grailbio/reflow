@@ -374,6 +374,13 @@ func (s *Server) ListenAndServe() error {
 			defer wg.Done()
 			m.Go(ctx)
 		}()
+		d := monitoring.NewNodeOomDetector(url, log.Std.Tee(nil, "node oom detector: "))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			d.Go(ctx)
+		}()
+		p.NodeOomDetector = d
 	}
 	if s.MetricsPort != 0 {
 		url, proxyPath := fmt.Sprintf("http://localhost:%d", s.MetricsPort), "/v1/metrics"

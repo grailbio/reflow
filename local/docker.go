@@ -40,12 +40,9 @@ import (
 //	<exec>/out
 //	<exec>/manifest.json	--	contains final output, only after things are done.
 const (
-	inspectPath  = "inspect.json"
 	manifestPath = "manifest.json"
-	objectPath   = "obj"
 	// hardLimitSwapMem is the amount of memory swap allowed
-	// on top of a docker container's hard memory
-	// limit.
+	// on top of a docker container's hard memory limit.
 	hardLimitSwapMem = 100 * data.MiB
 )
 
@@ -393,9 +390,15 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 		return execInit, errors.E(errors.Invalid, errors.Errorf("parsing docker time %s: %v", e.Docker.State.FinishedAt, err))
 	}
 
+	var startedAt time.Time
+	if t, err := time.Parse(time.RFC3339Nano, e.Docker.State.StartedAt); err == nil {
+		startedAt = t
+	}
+
 	// Note: /dev/kmsg only exists on linux. If the container is running on a non-linux machine isOOMSystem will
 	// always return false.
-	oomSys, oomSysReason := e.isOOMSystem()
+	oomSys, oomSysReason := e.isOOMSystem(startedAt, finishedAt)
+	oomNode, oomNodeReason := e.isOOMNode(startedAt, finishedAt)
 
 	// The Docker daemon does not reliably report the container's exit
 	// status correctly, and, what's worse, ContainerWait can return
@@ -433,6 +436,8 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.OOM, errors.Errorf("killed by OOM killer: %s", oomSysReason)))
 	case e.isOOMGolang(ctx):
 		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.OOM, errors.New("detected golang OOM error")))
+	case oomNode:
+		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.OOM, oomNodeReason))
 	default:
 		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.Errorf("exited with code %d", code)))
 	}
@@ -896,19 +901,12 @@ func kind(err error) errors.Kind {
 	}
 }
 
-// isOOMSystem checks to see if the docker exec was killed by the
-// OOM Killer.
-func (e *dockerExec) isOOMSystem() (ok bool, s string) {
-	const dockerFmt = "2006-01-02T15:04:05.999999999Z"
+// isOOMSystem checks to see if the docker exec was killed by the OOM Killer.
+func (e *dockerExec) isOOMSystem(start, end time.Time) (ok bool, s string) {
 	if bootTime.IsZero() {
 		return
 	}
-	start, err := time.Parse(dockerFmt, e.Docker.State.StartedAt)
-	if err != nil {
-		return
-	}
-	end, err := time.Parse(dockerFmt, e.Docker.State.FinishedAt)
-	if err != nil {
+	if start.IsZero() || end.IsZero() {
 		return
 	}
 	// TODO(dnicolaou): find another method to track OOMs that does not have a race condition
@@ -940,4 +938,16 @@ func (e *dockerExec) isOOMGolang(ctx context.Context) bool {
 		}
 	}
 	return false
+}
+
+// isOOMNode checks to see if the docker exec was possibly OOMed based on node oom detector.
+func (e *dockerExec) isOOMNode(start, end time.Time) (ok bool, s string) {
+	e.Log.Printf("checking for Node OOM: (%s, %s)", start.Format(time.RFC3339), end.Format(time.RFC3339))
+	if start.IsZero() || end.IsZero() {
+		return
+	}
+	if d := e.Executor.NodeOomDetector; d != nil {
+		ok, s = d.Oom(-1, start, end)
+	}
+	return
 }

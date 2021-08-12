@@ -542,7 +542,8 @@ func (e *Eval) Do(ctx context.Context) error {
 					// Retry OOMs if needed.
 					for retries := 0; retries < maxOOMRetries && task.Result.Err != nil && errors.Is(errors.OOM, task.Result.Err); retries++ {
 						resources := oomAdjust(f.Resources, task.Config.Resources)
-						msg := fmt.Sprintf("%v of memory (%v/%v)", data.Size(resources["mem"]), retries+1, maxOOMRetries)
+						msg := fmt.Sprintf("%v of memory (%v/%v) due to OOM error: %s",
+							data.Size(resources["mem"]), retries+1, maxOOMRetries, task.Result.Err)
 						var err error
 						if task, err = e.retryTask(ctx, f, resources, "OOM", msg); err != nil {
 							return err

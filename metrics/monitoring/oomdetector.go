@@ -48,6 +48,7 @@ func (m *oomDetector) setupConsumerFn() {
 				continue
 			}
 			v = memAvailableBytesPrecision * float64(1+int64(v/memAvailableBytesPrecision))
+			// memAvailableBytes is of type Gauge.
 			metric.Gauge.Value = &v
 		}
 		consumerFn(t, mfs)

@@ -92,6 +92,9 @@ type Executor struct {
 
 	Blob blob.Mux
 
+	// NodeOomDetector is an oom detector based node metrics
+	NodeOomDetector OomDetector
+
 	// remoteStream is the client used to write logs to a remote cloud
 	// stream.
 	remoteStream remoteStream

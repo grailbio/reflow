@@ -46,6 +46,7 @@ func (m *monitor) Go(ctx context.Context) {
 	if m.consumerFn == nil {
 		panic("monitor.consumerFn must be set")
 	}
+	m.log.Printf("monitor.Go started")
 	iter := time.NewTicker(m.p)
 	for {
 		nctx, cancel := context.WithTimeout(ctx, time.Second)

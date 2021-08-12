@@ -88,6 +88,9 @@ type Pool struct {
 
 	HardMemLimit bool
 
+	// NodeOomDetector is an oom detector based node metrics
+	NodeOomDetector OomDetector
+
 	mu sync.Mutex
 }
 
@@ -350,15 +353,16 @@ func (p *Pool) createCwLogGroup() error {
 // (i.e. before any keepalive requests).
 func (p *Pool) newAlloc(id string, keepalive time.Duration) *alloc {
 	e := &Executor{
-		ID:            id,
-		Client:        p.Client,
-		Dir:           filepath.Join(p.Dir, allocsPath, id),
-		Prefix:        p.Prefix,
-		Authenticator: p.Authenticator,
-		AWSCreds:      p.AWSCreds,
-		Blob:          p.Blob,
-		Log:           p.Log.Tee(nil, id+": "),
-		HardMemLimit:  p.HardMemLimit,
+		ID:              id,
+		Client:          p.Client,
+		Dir:             filepath.Join(p.Dir, allocsPath, id),
+		Prefix:          p.Prefix,
+		Authenticator:   p.Authenticator,
+		AWSCreds:        p.AWSCreds,
+		Blob:            p.Blob,
+		Log:             p.Log.Tee(nil, id+": "),
+		HardMemLimit:    p.HardMemLimit,
+		NodeOomDetector: p.NodeOomDetector,
 	}
 	if p.Session != nil {
 		cwlclient := cloudwatchlogs.New(p.Session)
