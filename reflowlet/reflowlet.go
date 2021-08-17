@@ -38,6 +38,7 @@ import (
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/metrics"
+	"github.com/grailbio/reflow/metrics/monitoring"
 	"github.com/grailbio/reflow/metrics/prometrics"
 	"github.com/grailbio/reflow/pool/server"
 	"github.com/grailbio/reflow/repository/blobrepo"
@@ -94,8 +95,6 @@ type Server struct {
 	server *http.Server
 
 	configFlag string
-
-	nodeMetricsUrl, reflowletMetricsUrl string
 
 	// version of the reflowlet instance.
 	version string
@@ -305,8 +304,8 @@ func (s *Server) ListenAndServe() error {
 		}
 	}
 
-	logger := log.Std.Tee(nil, fmt.Sprintf("reflowlet (%s) ", logType))
-	logger.Printf("started (version %s)", s.version)
+	reflowletLog := log.Std.Tee(nil, fmt.Sprintf("reflowlet (%s) ", logType))
+	reflowletLog.Printf("started (version %s)", s.version)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	if s.EC2Cluster {
@@ -332,9 +331,16 @@ func (s *Server) ListenAndServe() error {
 		}()
 	}
 
+	// Start periodic stats logging
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		logStats(ctx, p, reflowletLog.Tee(nil, "stats: "), rc.LogStatsDuration)
+	}()
+
 	// Start the loop to exit reflowlet if idle.
 	go func() {
-		s.loopUntilIdle(p, rc, logger)
+		s.loopUntilIdle(p, rc, reflowletLog)
 		// Cancel and wait for other goroutines
 		cancel()
 		wg.Wait()
@@ -344,7 +350,7 @@ func (s *Server) ListenAndServe() error {
 
 	var httpLog *log.Logger
 	if s.HTTPDebug {
-		httpLog = logger.Tee(nil, "http: ")
+		httpLog = reflowletLog.Tee(nil, "http: ")
 		httpLog.Level = log.DebugLevel
 		log.Std.Level = log.DebugLevel
 	}
@@ -357,23 +363,30 @@ func (s *Server) ListenAndServe() error {
 	}
 	http.Handle("/v1/config", rest.DoFuncHandler(cfgNode, httpLog))
 	if s.NodeExporterMetricsPort != 0 {
-		s.nodeMetricsUrl = fmt.Sprintf("http://localhost:%d/metrics", s.NodeExporterMetricsPort)
-		p := "/v1/node/metrics"
-		http.Handle(p, rest.DoProxyHandler(s.nodeMetricsUrl, httpLog))
-		logger.Printf("proxying node metrics %s -> %s", p, s.nodeMetricsUrl)
+		url, proxyPath := fmt.Sprintf("http://localhost:%d/metrics", s.NodeExporterMetricsPort), "/v1/node/metrics"
+		http.Handle(proxyPath, rest.DoProxyHandler(url, httpLog))
+		reflowletLog.Printf("proxying node metrics %s -> %s", proxyPath, url)
+
+		// Start node exporter metrics logging
+		m := monitoring.NewMetricsLogger(url, rc.LogStatsDuration, monitoring.NodeMetricsNames, log.Std.Tee(nil, "node_exporter metric: "))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			m.Go(ctx)
+		}()
 	}
 	if s.MetricsPort != 0 {
-		s.reflowletMetricsUrl = fmt.Sprintf("http://localhost:%d", s.MetricsPort)
-		p := "/v1/metrics"
-		http.Handle(p, rest.DoProxyHandler(s.reflowletMetricsUrl, httpLog))
-		logger.Printf("proxying node metrics %s -> %s", p, s.reflowletMetricsUrl)
+		url, proxyPath := fmt.Sprintf("http://localhost:%d", s.MetricsPort), "/v1/metrics"
+		http.Handle(proxyPath, rest.DoProxyHandler(url, httpLog))
+		reflowletLog.Printf("proxying node metrics %s -> %s", proxyPath, url)
+		// Start reflowlet process metrics logging
+		m := monitoring.NewMetricsLogger(url, rc.LogStatsDuration, nil, reflowletLog.Tee(nil, "metric: "))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			m.Go(ctx)
+		}()
 	}
-	// Start periodic stats logging
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		s.logStats(ctx, p, logger.Tee(nil, "stats: "), rc.LogMemStatsDuration)
-	}()
 
 	s.server = &http.Server{Addr: s.Addr}
 	if s.Insecure {
@@ -424,7 +437,7 @@ func newConfigNode(cfg infra.Config) (rest.DoFunc, error) {
 }
 
 // logStats logs various stats to the given logger every d duration.
-func (s *Server) logStats(ctx context.Context, p *local.Pool, log *log.Logger, d time.Duration) {
+func logStats(ctx context.Context, p *local.Pool, log *log.Logger, d time.Duration) {
 	iter := time.NewTicker(d)
 	for {
 		tot, free := p.Resources(), p.Available()
@@ -434,16 +447,6 @@ func (s *Server) logStats(ctx context.Context, p *local.Pool, log *log.Logger, d
 			usedPcts = append(usedPcts, fmt.Sprintf("%s: %.1f%%", k, 100.0-math.Round(100*freeFrac[k])))
 		}
 		log.Printf("Allocated resources %s; total %s free %s", strings.Join(usedPcts, " "), tot, free)
-
-		// Dump node_exporter based metrics
-		nctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
-		DumpMetrics(nctx, s.nodeMetricsUrl, log, NodeMetricsNames)
-		cancel()
-
-		// Dump reflowlet metrics
-		nctx, cancel = context.WithTimeout(ctx, 200*time.Millisecond)
-		DumpMetrics(nctx, s.reflowletMetricsUrl, log, nil)
-		cancel()
 
 		select {
 		case <-ctx.Done():
