@@ -13,6 +13,7 @@ type testFetcher struct {
 	start  time.Time
 	p      time.Duration
 	values []map[string]float64
+	mType  dto.MetricType
 
 	i int
 }
@@ -23,14 +24,19 @@ func (t *testFetcher) fetch(_ context.Context) (ts time.Time, mfs []dto.MetricFa
 		return
 	}
 	ts = t.start.Add(time.Duration(t.i) * t.p)
-	counterType := dto.MetricType_COUNTER
 	for name, v := range t.values[t.i] {
 		name, v := name, v
-		mfs = append(mfs, dto.MetricFamily{
-			Name:   &name,
-			Type:   &counterType,
-			Metric: []*dto.Metric{{Counter: &dto.Counter{Value: &v}}},
-		})
+		mf := dto.MetricFamily{
+			Name: &name,
+			Type: &t.mType,
+		}
+		switch t.mType {
+		case dto.MetricType_COUNTER:
+			mf.Metric = []*dto.Metric{{Counter: &dto.Counter{Value: &v}}}
+		case dto.MetricType_GAUGE:
+			mf.Metric = []*dto.Metric{{Gauge: &dto.Gauge{Value: &v}}}
+		}
+		mfs = append(mfs, mf)
 	}
 	t.i++
 	return
@@ -40,7 +46,7 @@ func TestTimeSeries(t *testing.T) {
 	const nameA, nameB, nameC = "name_a", "name_b", "untracked"
 	m := newTimeSeries("", time.Millisecond, []string{nameA, nameB}, nil)
 	start := time.Now()
-	f := &testFetcher{start: start, p: 10 * time.Second,
+	f := &testFetcher{start: start, p: 10 * time.Second, mType: dto.MetricType_COUNTER,
 		values: []map[string]float64{
 			{nameA: 0.0, nameB: 0.0, nameC: 0.0},
 			{nameA: 4.0, nameB: 0.0},

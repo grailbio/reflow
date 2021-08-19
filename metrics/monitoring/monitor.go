@@ -283,3 +283,16 @@ func diff(vs []float64) (diff float64) {
 	}
 	return
 }
+
+func min(vs []float64, defaultMin float64) (min float64) {
+	min = defaultMin
+	if len(vs) == 0 {
+		return
+	}
+	for _, v := range vs {
+		if v < min {
+			min = v
+		}
+	}
+	return
+}

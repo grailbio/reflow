@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"strconv"
@@ -15,7 +16,17 @@ import (
 	"github.com/grailbio/reflow/log"
 )
 
+const devKmsgPath = "/dev/kmsg"
+
 var bootTime = getLastBootTime()
+
+// OomDetector detects if an OOM has occurred.
+type OomDetector interface {
+	// Oom returns whether an OOM occurred for the given process ID within the given time range,
+	// and a string with an explanation of why (if true) an OOM occurrence determination was made.
+	// If pid is unspecified (ie, -1), then implementations can make a "possible OOM" determination.
+	Oom(pid int, start, end time.Time) (bool, string)
+}
 
 type oomTracker struct {
 	mu      sync.Mutex
@@ -33,16 +44,18 @@ func newOOMTracker() *oomTracker {
 // It has the option of passing a Logger to log non-os.ErrClosed
 // errors that occured while monitoring.
 func (o *oomTracker) Monitor(ctx context.Context, log *log.Logger) {
-	o.monitor(ctx, log, "/dev/kmsg", bootTime)
+	o.monitor(ctx, log, devKmsgPath, bootTime)
 }
 
-// LastOOMKill returns the most recent timestamp at which the provided pid was OOM killed.
-// A zero-valued time indicates that the pid was never OOM Killed.
-func (o *oomTracker) LastOOMKill(pid int) (time.Time, bool) {
+// Oom implements OomDetector.
+func (o *oomTracker) Oom(pid int, start, end time.Time) (bool, string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	t, ok := o.lastOOM[pid]
-	return t, ok
+	if t, ok := o.lastOOM[pid]; ok && t.After(start) && !end.Before(t) {
+		return true, fmt.Sprintf("pid %d OOM killed (based on %s logs) at %s, within (%s, %s]",
+			pid, devKmsgPath, t.Format(time.RFC3339), start.Format(time.RFC3339), end.Format(time.RFC3339))
+	}
+	return false, ""
 }
 
 func (o *oomTracker) monitor(ctx context.Context, log *log.Logger, logPath string, bootTime time.Time) {

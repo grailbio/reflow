@@ -392,6 +392,11 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 	if err != nil {
 		return execInit, errors.E(errors.Invalid, errors.Errorf("parsing docker time %s: %v", e.Docker.State.FinishedAt, err))
 	}
+
+	// Note: /dev/kmsg only exists on linux. If the container is running on a non-linux machine isOOMSystem will
+	// always return false.
+	oomSys, oomSysReason := e.isOOMSystem()
+
 	// The Docker daemon does not reliably report the container's exit
 	// status correctly, and, what's worse, ContainerWait can return
 	// successfully while the container is still running. This appears
@@ -422,10 +427,10 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 		if err := e.install(ctx); err != nil {
 			return execInit, err
 		}
-	// Note: /dev/kmsg only exists on linux. If the container is running on a non-linux machine isOOMSystem will
-	// always return false.
-	case e.Docker.State.OOMKilled || e.isOOMSystem():
-		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.OOM, errors.New("killed by the OOM killer")))
+	case e.Docker.State.OOMKilled:
+		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.OOM, errors.New("killed by OOM killer (docker)")))
+	case oomSys:
+		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.OOM, errors.Errorf("killed by OOM killer: %s", oomSysReason)))
 	case e.isOOMGolang(ctx):
 		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.OOM, errors.New("detected golang OOM error")))
 	default:
@@ -893,18 +898,18 @@ func kind(err error) errors.Kind {
 
 // isOOMSystem checks to see if the docker exec was killed by the
 // OOM Killer.
-func (e *dockerExec) isOOMSystem() bool {
+func (e *dockerExec) isOOMSystem() (ok bool, s string) {
 	const dockerFmt = "2006-01-02T15:04:05.999999999Z"
 	if bootTime.IsZero() {
-		return false
+		return
 	}
 	start, err := time.Parse(dockerFmt, e.Docker.State.StartedAt)
 	if err != nil {
-		return false
+		return
 	}
 	end, err := time.Parse(dockerFmt, e.Docker.State.FinishedAt)
 	if err != nil {
-		return false
+		return
 	}
 	// TODO(dnicolaou): find another method to track OOMs that does not have a race condition
 	// between monitoring and checking.
@@ -913,11 +918,8 @@ func (e *dockerExec) isOOMSystem() bool {
 	// until a better solution can be found for tracking OOMs that does not have a race
 	// condition.
 	time.Sleep(100 * time.Millisecond)
-	oomTime, ok := e.Executor.oomTracker.LastOOMKill(e.Manifest.PID)
-	if !ok {
-		return false
-	}
-	return oomTime.After(start) && !end.Before(oomTime)
+	ok, s = e.Executor.oomTracker.Oom(e.Manifest.PID, start, end)
+	return
 }
 
 // isOOMGolang checks to see if the exec's stdout/stderr logs indicate

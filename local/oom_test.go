@@ -9,11 +9,7 @@ import (
 
 const dockerFmt = "2006-01-02T15:04:05.999999999Z"
 
-func isValidOOM(oomTime, start, end time.Time) bool {
-	return oomTime.After(start) && oomTime.Before(end)
-}
-
-func TestLastOOMKill(t *testing.T) {
+func TestOomTracker(t *testing.T) {
 	testBootTime, err := time.Parse(dockerFmt, "2019-05-30T22:08:34.945074271Z")
 	if err != nil {
 		t.Fatal(err)
@@ -56,8 +52,8 @@ func TestLastOOMKill(t *testing.T) {
 		{3, true},  // PID OOMKilled after start but before end.
 		{4, true},  // PID cgroup memory limit exceeded after start but before end.
 	} {
-		oomTime, ok := oomTracker.LastOOMKill(tt.pid)
-		if got, want := isValidOOM(oomTime, start, end) && ok, tt.want; got != want {
+		ok, _ := oomTracker.Oom(tt.pid, start, end)
+		if got, want := ok, tt.want; got != want {
 			t.Fatalf("got %v, want %v", got, want)
 		}
 	}
