@@ -44,6 +44,8 @@ const (
 	// hardLimitSwapMem is the amount of memory swap allowed
 	// on top of a docker container's hard memory limit.
 	hardLimitSwapMem = 100 * data.MiB
+	// possibleOOMExitCode is the exit code returned by docker which indicates a possible OOM.
+	possibleOOMExitCode = 137
 )
 
 var dockerUser = fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
@@ -436,6 +438,9 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.OOM, errors.Errorf("killed by OOM killer: %s", oomSysReason)))
 	case e.isOOMGolang(ctx):
 		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.OOM, errors.New("detected golang OOM error")))
+	case code == possibleOOMExitCode:
+		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.OOM,
+			errors.Errorf("docker returned possible OOM exit code %d", possibleOOMExitCode)))
 	case oomNode:
 		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.OOM, oomNodeReason))
 	default:
