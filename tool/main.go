@@ -21,10 +21,10 @@ import (
 	"sort"
 	"syscall"
 
-	"github.com/grailbio/reflow"
-
+	"github.com/grailbio/base/must"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/infra"
+	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/flow"
 	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
@@ -246,6 +246,15 @@ func (c *Cmd) Main() {
 	// as the one that's threaded through Cmd.
 	log.Std = log.New(golog.New(c.Stderr, logprefix, logflags), level)
 	c.Log = log.Std
+
+	// Set a custom must.Func which logs a message to the command's logger and then fatally exits.
+	// Note: this can result in duplicate messages in command-line output, but the first is more
+	// useful because it will include the call location, while it may not be visible depending
+	// on the log level used.
+	must.Func = func(depth int, v ...interface{}) {
+		_ = c.Log.Output(depth+1, fmt.Sprint(v...))
+		c.Fatal(fmt.Sprint(v...))
+	}
 
 	reflow.SetFilesetOpConcurrencyLimit(c.filesetOpLim)
 

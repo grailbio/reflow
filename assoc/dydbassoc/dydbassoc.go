@@ -856,7 +856,7 @@ func (a *Assoc) Scan(ctx context.Context, kind assoc.Kind, mappingHandler assoc.
 						continue
 					}
 				}
-				mappingHandler.HandleMapping(k, v, kind, time.Unix(itemAccessTime, 0), labels)
+				mappingHandler.HandleMapping(ctx, k, v, kind, time.Unix(itemAccessTime, 0), labels)
 			}
 		}
 		return nil

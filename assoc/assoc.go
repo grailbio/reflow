@@ -34,7 +34,7 @@ const (
 // MappingHandler is an interface for handling a mapping while scanning.
 type MappingHandler interface {
 	// HandleMapping handles a scanned association.
-	HandleMapping(k digest.Digest, v []digest.Digest, kind Kind, lastAccessTime time.Time, labels []string)
+	HandleMapping(ctx context.Context, k digest.Digest, v []digest.Digest, kind Kind, lastAccessTime time.Time, labels []string)
 }
 
 // MappingHandlerFunc is a convenience type to avoid having to declare a struct
@@ -42,7 +42,7 @@ type MappingHandler interface {
 type MappingHandlerFunc func(k digest.Digest, v []digest.Digest, kind Kind, lastAccessTime time.Time, labels []string)
 
 // HandleMapping implements the MappingHandler interface.
-func (h MappingHandlerFunc) HandleMapping(k digest.Digest, v []digest.Digest, kind Kind, lastAccessTime time.Time, labels []string) {
+func (h MappingHandlerFunc) HandleMapping(_ context.Context, k digest.Digest, v []digest.Digest, kind Kind, lastAccessTime time.Time, labels []string) {
 	h(k, v, kind, lastAccessTime, labels)
 }
 

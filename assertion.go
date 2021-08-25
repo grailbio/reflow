@@ -255,6 +255,11 @@ func (s *Assertions) IsEmpty() bool {
 	return s.size() == 0
 }
 
+// Size returns the size of this assertions.
+func (s *Assertions) Size() int {
+	return s.size()
+}
+
 // size returns the size of this assertions.
 func (s *Assertions) size() int {
 	if s == nil || s.m == nil {
