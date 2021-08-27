@@ -90,3 +90,7 @@ func (a *InmemoryAssoc) Scan(ctx context.Context, kind assoc.Kind, handler assoc
 func (a *InmemoryAssoc) Delete(ctx context.Context, k digest.Digest) error {
 	return errors.E("delete", errors.NotSupported)
 }
+
+func (a *InmemoryAssoc) RawAssocs() map[assocKey]digest.Digest {
+	return a.assocs
+}
