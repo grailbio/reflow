@@ -12,8 +12,11 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/grailbio/base/cloud/spotadvisor"
 	"github.com/grailbio/reflow/ec2cluster/instances"
 )
+
+var sa *spotadvisor.SpotAdvisor
 
 func (c *Cmd) ec2instances(ctx context.Context, args ...string) {
 	flags := flag.NewFlagSet("ec2instances", flag.ExitOnError)
@@ -24,13 +27,15 @@ The columns displayed by the instance listing are:
 	type    the name of the instance type
 	mem     the amount of instance memory (GiB)
 	cpu     the number of instance VCPUs
-    ebs_max the max EBS throughput available for an EBS instance	
+    ebs_max	the max EBS throughput available for an EBS instance	
 	price   the hourly on-demand price of the instance in the selected region
 	cpu features
-			a set of CPU features supported by this instance type
+		a set of CPU features supported by this instance type
 	flags   a set of flags:
 	            ebs    when the instance supports EBS optimization
-	            old    when the instance is not of the current generation`
+	            old    when the instance is not of the current generation
+	 interrupt prob
+		the probability that a spot instance of this type will be interrupted`
 	regionFlag := flags.String("region", "us-west-2", "region for which to show prices")
 	sortFlag := flags.String("sort", "type", "sorting field (type, cpu, mem, price)")
 	minCpuFlag := flags.Int("mincpu", 0, "mininum CPU (will filter out smaller instance types)")
@@ -63,9 +68,12 @@ The columns displayed by the instance listing are:
 			panic("notreached")
 		}
 	})
+	// best effort to include spot advisor data; if error, "N/A" will be shown in printed output
+	sa, _ = spotadvisor.NewSpotAdvisor(nil, ctx.Done())
 	var tw tabwriter.Writer
 	tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 	defer tw.Flush()
+	fmt.Fprint(&tw, "type\t\tmem\tcpu\tebs_max\tprice\tinterrupt prob\tcpu features\tflags\n")
 	for _, typ := range types {
 		var flags []string
 		if typ.EBSOptimized {
@@ -82,10 +90,20 @@ The columns displayed by the instance listing are:
 			features = append(features, feature)
 		}
 		sort.Strings(features)
-		fmt.Fprintf(&tw, "%s\t\t%.2f\t%d\t%.2f\t%.2f\t{%s}\t{%s}\n",
+		fmt.Fprintf(&tw, "%s\t\t%.2f\t%d\t%.2f\t%.2f\t%s\t{%s}\t{%s}\n",
 			typ.Name, typ.Memory,
 			typ.VCPU, typ.EBSThroughput, typ.Price[*regionFlag],
+			getSpotInterruptRange(*regionFlag, typ.Name),
 			strings.Join(features, ","),
 			strings.Join(flags, ","))
 	}
+}
+
+func getSpotInterruptRange(region string, name string) string {
+	if sa != nil {
+		if ir, err := sa.GetInterruptRange(spotadvisor.Linux, spotadvisor.AwsRegion(region), spotadvisor.InstanceType(name)); err == nil {
+			return ir.String()
+		}
+	}
+	return "N/A"
 }
