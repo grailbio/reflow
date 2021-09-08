@@ -1424,13 +1424,10 @@ func TestParseAttr(t *testing.T) {
 		{it: map[string]*dynamodb.AttributeValue{colStartTime: {S: aws.String(ts.Format(timeLayout))}}, k: StartTime, f: parseTimeFunc, want: tsParsed},
 		{it: map[string]*dynamodb.AttributeValue{colStartTime: {S: aws.String("hello")}}, k: StartTime, f: parseTimeFunc, wantE: fmt.Errorf("parse StartTime hello: parsing time \"hello\" as \"2006-01-02T15:04:05Z07:00\": cannot parse \"hello\" as \"2006\"")},
 	} {
-		var errs []error
-		v := parseAttr(tt.it, tt.k, tt.f, &errs)
-		if got, want := len(errs) == 1, tt.wantE != nil; got != want {
-			t.Errorf("got %d errors, want 1", len(errs))
-		}
+		var m errors.Multi
+		v := parseAttr(tt.it, tt.k, tt.f, &m)
 		if tt.wantE != nil {
-			if got, want := errs[0], tt.wantE; got.Error() != want.Error() {
+			if got, want := m.Combined(), tt.wantE; got == nil || got.Error() != want.Error() {
 				t.Errorf("got %v, want %v", got, want)
 			}
 			continue

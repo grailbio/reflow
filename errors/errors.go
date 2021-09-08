@@ -25,6 +25,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
+	"sync"
 
 	"github.com/grailbio/base/digest"
 )
@@ -551,4 +554,42 @@ func getKeys(m map[Kind]bool) (out []Kind) {
 		out = append(out, k)
 	}
 	return out
+}
+
+// Multi represents a composite error which combines multiple (non-nil) errors.
+// Multi is useful in cases where there is a need to (concurrently) combine multiple (non-critical) errors into one.
+type Multi struct {
+	mu     sync.Mutex
+	errors []error
+}
+
+// Add adds the given set of errors (ignoring nil errors).
+// Add can be called concurrently.
+func (e *Multi) Add(errs ...error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, err := range errs {
+		if err == nil {
+			continue
+		}
+		e.errors = append(e.errors, err)
+	}
+}
+
+// Combined returns an error which combines all the underlying errors.
+func (e *Multi) Combined() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	switch len(e.errors) {
+	case 0:
+		return nil
+	case 1:
+		return e.errors[0]
+	}
+	errStrs := make([]string, len(e.errors))
+	for i, err := range e.errors {
+		errStrs[i] = fmt.Sprintf("[%s]", err.Error())
+	}
+	sort.Strings(errStrs)
+	return fmt.Errorf("[%d errs]: %s", len(e.errors), strings.Join(errStrs, ", "))
 }

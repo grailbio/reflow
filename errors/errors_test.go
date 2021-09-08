@@ -7,7 +7,9 @@ package errors
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"sync"
 	"testing"
 )
 
@@ -94,7 +96,7 @@ func TestError(t *testing.T) {
 
 func TestErrorUnsupportedArg(t *testing.T) {
 	e := E("open", "x://google.com", 10, New(`scheme "x" not recognized`))
-	if got, want := e.Error(), `open x://google.com illegal (int 10 from errors_test.go:96): scheme "x" not recognized`; got != want {
+	if got, want := e.Error(), `open x://google.com illegal (int 10 from errors_test.go:98): scheme "x" not recognized`; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
@@ -182,5 +184,44 @@ func TestWithRetryableKinds(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestMulti(t *testing.T) {
+	for _, tc := range []struct {
+		errs []error
+		want error
+	}{
+		{nil, nil},
+		{[]error{nil, nil}, nil},
+		{[]error{nil, fmt.Errorf("only one error")}, fmt.Errorf("only one error")},
+		{
+			[]error{fmt.Errorf("first error"), nil, E("second", "error", fmt.Errorf("another"))},
+			fmt.Errorf("[2 errs]: [first error], [second error: another]"),
+		},
+	} {
+		var (
+			m  Multi
+			wg sync.WaitGroup
+		)
+		for _, err := range tc.errs {
+			err := err
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				m.Add(err)
+			}()
+		}
+		wg.Wait()
+		if want := tc.want; want == nil {
+			if got := m.Combined(); got != want {
+				t.Errorf("got %s, want %s", got, want)
+			}
+			continue
+		} else {
+			if got, want := m.Combined().Error(), tc.want.Error(); got != want {
+				t.Errorf("got %s, want %s", got, want)
+			}
+		}
 	}
 }

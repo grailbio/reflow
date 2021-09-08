@@ -857,7 +857,7 @@ func (t *TaskDB) Tasks(ctx context.Context, q taskdb.TaskQuery) ([]taskdb.Task, 
 	}
 	var (
 		tasks = make([]taskdb.Task, 0, len(items))
-		errs  []error
+		errs  errors.Multi
 	)
 	for _, it := range items {
 		var t taskdb.Task
@@ -881,7 +881,7 @@ func (t *TaskDB) Tasks(ctx context.Context, q taskdb.TaskQuery) ([]taskdb.Task, 
 		if v := parseAttr(it, ResultID, parseDigestFunc, &errs); v != nil {
 			t.ResultID = v.(digest.Digest)
 		}
-		errs = append(errs, setTimeFields(it, &t.TimeFields)...)
+		setTimeFields(it, &t.TimeFields, &errs)
 
 		if v := parseAttr(it, Stdout, parseDigestFunc, &errs); v != nil {
 			t.Stdout = v.(digest.Digest)
@@ -903,7 +903,7 @@ func (t *TaskDB) Tasks(ctx context.Context, q taskdb.TaskQuery) ([]taskdb.Task, 
 		if v, ok := it[colAttempt]; ok {
 			t.Attempt, err = strconv.Atoi(*v.N)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("parse attempt %v: %v", *v.N, err))
+				errs.Add(fmt.Errorf("parse attempt %v: %v", *v.N, err))
 			}
 		}
 		tasks = append(tasks, t)
@@ -938,7 +938,7 @@ func (t *TaskDB) Tasks(ctx context.Context, q taskdb.TaskQuery) ([]taskdb.Task, 
 			}
 		}
 	}
-	if err = getError(errs); err != nil && len(tasks) > 0 {
+	if err = errs.Combined(); err != nil && len(tasks) > 0 {
 		log.Errorf("taskdb.Tasks: %v", err)
 		err = nil
 	}
@@ -964,7 +964,7 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 	}
 	var (
 		runs = make([]taskdb.Run, 0, len(items))
-		errs []error
+		errs errors.Multi
 	)
 	for _, it := range items {
 		var r taskdb.Run
@@ -980,12 +980,12 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 		for _, va := range it[colLabels].SS {
 			vals := strings.Split(*va, "=")
 			if len(vals) != 2 {
-				errs = append(errs, fmt.Errorf("label not well formed: %v", *va))
+				errs.Add(fmt.Errorf("label not well formed: %v", *va))
 				continue
 			}
 			r.Labels[vals[0]] = vals[1]
 		}
-		errs = append(errs, setTimeFields(it, &r.TimeFields)...)
+		setTimeFields(it, &r.TimeFields, &errs)
 
 		if v := parseAttr(it, ExecLog, parseDigestFunc, &errs); v != nil {
 			r.ExecLog = v.(digest.Digest)
@@ -1002,7 +1002,7 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 		r.User = parseAttr(it, User, nil, &errs).(string)
 		runs = append(runs, r)
 	}
-	if err = getError(errs); err != nil && len(runs) > 0 {
+	if err = errs.Combined(); err != nil && len(runs) > 0 {
 		log.Errorf("taskdb.Runs: %v", err)
 		err = nil
 	}
@@ -1032,14 +1032,14 @@ func (t *TaskDB) Allocs(ctx context.Context, q taskdb.AllocQuery) ([]taskdb.Allo
 	}
 	var (
 		allocs = make([]taskdb.Alloc, 0, len(items))
-		errs   []error
+		errs   errors.Multi
 	)
 	for _, it := range items {
 		var a taskdb.Alloc
 		if v := parseAttr(it, ID, parseDigestFunc, &errs); v != nil {
 			a.ID = v.(digest.Digest)
 		}
-		errs = append(errs, setTimeFields(it, &a.TimeFields)...)
+		setTimeFields(it, &a.TimeFields, &errs)
 		if v := parseAttr(it, Resources, parseResourcesFunc, &errs); v != nil {
 			a.Resources = v.(reflow.Resources)
 		}
@@ -1076,7 +1076,7 @@ func (t *TaskDB) Allocs(ctx context.Context, q taskdb.AllocQuery) ([]taskdb.Allo
 			allocs = b
 		}
 	}
-	if err = getError(errs); err != nil && len(allocs) > 0 {
+	if err = errs.Combined(); err != nil && len(allocs) > 0 {
 		log.Errorf("taskdb.Allocs: %v", err)
 		err = nil
 	}
@@ -1118,14 +1118,14 @@ func (t *TaskDB) Pools(ctx context.Context, q taskdb.PoolQuery) ([]taskdb.PoolRo
 	}
 	var (
 		pools = make([]taskdb.PoolRow, 0, len(items))
-		errs  []error
+		errs  errors.Multi
 	)
 	for _, it := range items {
 		var pr taskdb.PoolRow
 		if v := parseAttr(it, ID, parseDigestFunc, &errs); v != nil {
 			pr.ID = v.(digest.Digest)
 		}
-		errs = append(errs, setTimeFields(it, &pr.TimeFields)...)
+		setTimeFields(it, &pr.TimeFields, &errs)
 		pr.ClusterName = parseAttr(it, ClusterName, nil, &errs).(string)
 		pr.User = parseAttr(it, User, nil, &errs).(string)
 		pr.ReflowVersion = parseAttr(it, ReflowVersion, nil, &errs).(string)
@@ -1139,7 +1139,7 @@ func (t *TaskDB) Pools(ctx context.Context, q taskdb.PoolQuery) ([]taskdb.PoolRo
 		pr.URI = parseAttr(it, URI, nil, &errs).(string)
 		pools = append(pools, pr)
 	}
-	if err = getError(errs); err != nil && len(pools) > 0 {
+	if err = errs.Combined(); err != nil && len(pools) > 0 {
 		log.Errorf("taskdb.Pools: %v", err)
 		err = nil
 	}
@@ -1233,7 +1233,7 @@ func (t *TaskDB) getItems(ctx context.Context, queries []*dynamodb.QueryInput, l
 
 // parseAttr gets the AttributeValue corresponding to the given taskdb.Kind from map 'it'
 // and parses the 'S' field of the AttributeValue using the given func 'f' (nil f acts as identity)
-func parseAttr(it map[string]*dynamodb.AttributeValue, k taskdb.Kind, f func(s string) (interface{}, error), errs *[]error) interface{} {
+func parseAttr(it map[string]*dynamodb.AttributeValue, k taskdb.Kind, f func(s string) (interface{}, error), errs *errors.Multi) interface{} {
 	key, ok := colmap[k]
 	if !ok {
 		panic(fmt.Sprintf("invalid kind %v", k))
@@ -1249,7 +1249,7 @@ func parseAttr(it map[string]*dynamodb.AttributeValue, k taskdb.Kind, f func(s s
 	}
 	v, err := f(*av.S)
 	if err != nil {
-		*errs = append(*errs, fmt.Errorf("parse %s %v: %v", key, *av.S, err))
+		errs.Add(fmt.Errorf("parse %s %v: %v", key, *av.S, err))
 	}
 	return v
 }
@@ -1267,29 +1267,14 @@ var (
 	}
 )
 
-func setTimeFields(it map[string]*dynamodb.AttributeValue, dst *taskdb.TimeFields) (errs []error) {
-	if v := parseAttr(it, StartTime, parseTimeFunc, &errs); v != nil {
+func setTimeFields(it map[string]*dynamodb.AttributeValue, dst *taskdb.TimeFields, errs *errors.Multi) {
+	if v := parseAttr(it, StartTime, parseTimeFunc, errs); v != nil {
 		dst.Start = v.(time.Time)
 	}
-	if v := parseAttr(it, KeepAlive, parseTimeFunc, &errs); v != nil {
+	if v := parseAttr(it, KeepAlive, parseTimeFunc, errs); v != nil {
 		dst.Keepalive = v.(time.Time)
 	}
-	if v := parseAttr(it, EndTime, parseTimeFunc, &errs); v != nil {
+	if v := parseAttr(it, EndTime, parseTimeFunc, errs); v != nil {
 		dst.End = v.(time.Time)
 	}
-	return
-}
-
-func getError(errs []error) (err error) {
-	var b strings.Builder
-	for i, e := range errs {
-		b.WriteString(e.Error())
-		if i != len(errs)-1 {
-			b.WriteString(", ")
-		}
-	}
-	if b.Len() > 0 {
-		err = fmt.Errorf("%s", b.String())
-	}
-	return
 }
