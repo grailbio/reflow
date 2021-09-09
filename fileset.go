@@ -293,20 +293,6 @@ func (v Fileset) Size() int64 {
 	return s
 }
 
-// Replace replaces each file in this Fileset as per function f.
-func (v *Fileset) Replace(f func(file File) File) {
-	if v.List != nil {
-		for i := range v.List {
-			v.List[i].Replace(f)
-		}
-	}
-	if v.Map != nil {
-		for path, file := range v.Map {
-			v.Map[path] = f(file)
-		}
-	}
-}
-
 // MapAssertionsByFile maps the assertions from the given set of files
 // to the corresponding same file (based on file.Digest()), if any, in this fileset.
 func (v *Fileset) MapAssertionsByFile(files []File) {
@@ -314,12 +300,23 @@ func (v *Fileset) MapAssertionsByFile(files []File) {
 	for _, f := range files {
 		byDigest[f.Digest()] = f.Assertions
 	}
-	v.Replace(func(f File) File {
-		if a, ok := byDigest[f.Digest()]; ok {
-			f.Assertions = a
+	v.mapAssertionsByFileDigest(byDigest)
+}
+
+func (v *Fileset) mapAssertionsByFileDigest(byDigest map[digest.Digest]*Assertions) {
+	if v.List != nil {
+		for i := range v.List {
+			v.List[i].mapAssertionsByFileDigest(byDigest)
 		}
-		return f
-	})
+	}
+	if v.Map != nil {
+		for path, file := range v.Map {
+			if a, ok := byDigest[file.Digest()]; ok {
+				file.Assertions = a
+				v.Map[path] = file
+			}
+		}
+	}
 }
 
 // Subst the files in fileset using the provided mapping of File object digests to Files.

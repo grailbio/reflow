@@ -204,22 +204,6 @@ func TestJson(t *testing.T) {
 	}
 }
 
-func TestReplace(t *testing.T) {
-	fuzz := testutil.NewFuzz(nil)
-	for i := 0; i < 100; i++ {
-		fs := fuzz.FilesetDeep(fuzz.Intn(5)+1, fuzz.Intn(2)+1, fuzz.Intn(10)%2 == 0, fuzz.Intn(10)%2 == 0)
-		fs.Replace(func(f reflow.File) reflow.File {
-			f.Source = f.Source + "_replaced"
-			return f
-		})
-		for _, file := range fs.Files() {
-			if !strings.HasSuffix(file.Source, "_replaced") {
-				t.Errorf("unreplaced file %v", file)
-			}
-		}
-	}
-}
-
 func TestMapAssertionsByFile(t *testing.T) {
 	fuzz := testutil.NewFuzz(nil)
 	for i := 0; i < 100; i++ {
