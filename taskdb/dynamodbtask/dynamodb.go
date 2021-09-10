@@ -709,8 +709,13 @@ func (t *TaskDB) KeepIDAlive(ctx context.Context, id digest.Digest, keepalive ti
 	return err
 }
 
-// buildIndexQuery returns a dynamodb QueryInput for the specified key on the specified index.
-func (t *TaskDB) buildIndexQuery(kind taskdb.Kind, indexName, partKey string, typ objType) []*dynamodb.QueryInput {
+// buildIndexQuery returns a dynamodb QueryInput for the specified key on the specified index where:
+// - indexName is the name of the index
+// - kind is the index column name
+// - partKey is the value of the index column to lookup
+// - typ is the type of objects to return (used as a filter)
+// - cols (if set) is the column/attribute values to return (if unset, all columns are returned)
+func (t *TaskDB) buildIndexQuery(kind taskdb.Kind, indexName, partKey string, typ objType, cols ...taskdb.Kind) []*dynamodb.QueryInput {
 	colname, colnameOk := colmap[kind]
 	if !colnameOk {
 		panic("invalid kind")
@@ -729,6 +734,17 @@ func (t *TaskDB) buildIndexQuery(kind taskdb.Kind, indexName, partKey string, ty
 		ExpressionAttributeNames: map[string]*string{
 			"#Type": aws.String(colType),
 		},
+	}
+	if len(cols) > 0 {
+		projCols := make([]string, len(cols))
+		for i, col := range cols {
+			colname, colnameOk := colmap[col]
+			if !colnameOk {
+				panic("invalid kind")
+			}
+			projCols[i] = colname
+		}
+		input.ProjectionExpression = aws.String(strings.Join(projCols, ", "))
 	}
 	return []*dynamodb.QueryInput{input}
 }
@@ -845,9 +861,15 @@ func (t *TaskDB) Tasks(ctx context.Context, q taskdb.TaskQuery) ([]taskdb.Task, 
 		withAlloc = q.WithAlloc
 		queries = t.buildIndexQuery(RunID, runIDIndex, q.RunID.ID(), taskObj)
 	case q.ImgCmdID.IsValid():
-		queries = t.buildIndexQuery(ImgCmdID, imgCmdIDIndex, q.ImgCmdID.ID(), taskObj)
+		// ImgCmdID is set only for the predictor use-case, so we limit the columns to only the ones we know it needs.
+		// Ideally, the columns should also be set in the query, but they are an implementation detail
+		// and not exposed through the TaskDB interface.
+		queries = t.buildIndexQuery(ImgCmdID, imgCmdIDIndex, q.ImgCmdID.ID(), taskObj, ID, EndTime, ExecInspect)
 	case q.Ident != "":
-		queries = t.buildIndexQuery(Ident, identIndex, q.Ident, taskObj)
+		// Ident is set only for the predictor use-case, so we limit the columns to only the ones we know it needs.
+		// Ideally, the columns should also be set in the query, but they are an implementation detail
+		// and not exposed through the TaskDB interface.
+		queries = t.buildIndexQuery(Ident, identIndex, q.Ident, taskObj, ID, EndTime, ExecInspect)
 	default:
 		queries = t.buildSinceQueries(taskObj, q.Since, nil)
 	}

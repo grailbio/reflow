@@ -341,6 +341,7 @@ type Alloc struct {
 // TaskQuery is the task-querying struct for TaskDB.Tasks. There are two ways to query tasks:
 //
 // 1. Only ID/RunID/ImgCmdID/Ident specified: Query tasks with the corresponding ID.
+//    When ImgCmdID/Ident is specified, the returned TaskDB.Tasks have only some of the fields set.
 //
 // 2. Since specified: Query tasks whose keepalive is within that time frame.
 //
