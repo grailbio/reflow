@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	sa "github.com/grailbio/base/cloud/spotadvisor"
 	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/ec2cluster/instances"
@@ -56,11 +57,17 @@ func init() {
 		if len(configs) == 0 {
 			return fmt.Errorf("no configured instance types")
 		}
-		allInstancesState = newInstanceState(configs, time.Millisecond, "us-west-2")
+		allInstancesState = newInstanceState(configs, time.Millisecond, "us-west-2", nil)
 		return nil
 	}); err != nil {
 		panic(err)
 	}
+}
+
+// advisor is an interface for interacting with EC2 instance data. Currently, it
+// is only implemented by spotadvisor.SpotAdvisor.
+type advisor interface {
+	GetMaxInterruptProbability(sa.OsType, sa.AwsRegion, sa.InstanceType) (sa.InterruptProbability, error)
 }
 
 // instanceState stores everything we know about EC2 instances,
@@ -72,17 +79,20 @@ type instanceState struct {
 	region    string
 	// cheapestIndex points to the index in 'configs' of the cheapest instance config.
 	cheapestIndex int
+	// advisor is optional, if provided it will be used to help determine available instances.
+	advisor advisor
 
 	mu          sync.Mutex
 	unavailable map[string]time.Time
 }
 
-func newInstanceState(configs []instanceConfig, sleep time.Duration, region string) *instanceState {
+func newInstanceState(configs []instanceConfig, sleep time.Duration, region string, adv advisor) *instanceState {
 	s := &instanceState{
 		configs:     make([]instanceConfig, len(configs)),
 		unavailable: make(map[string]time.Time),
 		sleepTime:   sleep,
 		region:      region,
+		advisor:     adv,
 	}
 	copy(s.configs, configs)
 	sort.Slice(s.configs, func(i, j int) bool {
@@ -125,37 +135,59 @@ func (s *instanceState) Cheapest() instanceConfig {
 	return s.configs[s.cheapestIndex]
 }
 
-// MaxAvailable returns the "largest" instance type that has at least
-// the required resources and is also believed to be currently
-// available. Spot restricts instances to those that may be launched
-// via EC2 spot market. MaxAvailable uses (Resources).ScoredDistance
-// to determine the largest instance type.
+// By default, we try to select spot instances with < 10% probability of being
+// interrupted, but we will resort to a higher threshold if necessary. An
+// analysis of the cost to fulfill various resource requirements at different
+// interrupt probability thresholds showed a clear pattern of diminishing returns
+// for thresholds higher than 10%. There are very few cases where we can get a
+// better price by having a higher threshold, and in those cases we would have to
+// go to a significantly higher threshold to see the cost benefit. If we were to
+// use a 5% threshold, we would be paying about 20% more than at the 10%
+// thresold, but would only see a marginal improvement in interrupt probability.
+// So, 10% was chosen as the default. More details can be found in SYSINFRA-621.
+const desiredInterruptProb = sa.LessThanTenPct
+
+// MaxAvailable returns the "largest" instance type that has at least the
+// required resources and is also believed to be currently available. Spot
+// restricts instances to those that may be launched via EC2 spot market and
+// tries to minimize interrupt probability. MaxAvailable uses
+// (Resources).ScoredDistance to determine the largest instance type.
 func (s *instanceState) MaxAvailable(need reflow.Resources, spot bool) (instanceConfig, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var (
 		best     instanceConfig
 		distance = -math.MaxFloat64
+		found    bool
 	)
-	for _, config := range s.configs {
-		if time.Since(s.unavailable[config.Type]) < s.sleepTime || (spot && !config.SpotOk) {
-			continue
+	for prob := desiredInterruptProb; prob <= sa.Any; prob++ {
+		for _, config := range s.configs {
+			if time.Since(s.unavailable[config.Type]) < s.sleepTime || (spot && !config.SpotOk) {
+				continue
+			}
+			if !config.Resources.Available(need) {
+				continue
+			}
+			if spot && !s.withinThreshold(config, prob) {
+				continue
+			}
+			if d := config.Resources.ScaledDistance(need); d > distance {
+				distance = d
+				best = config
+				found = true
+			}
 		}
-		if !config.Resources.Available(need) {
-			continue
-		}
-		if d := config.Resources.ScaledDistance(need); d > distance {
-			distance = d
-			best = config
+		if found {
+			break
 		}
 	}
 	return best, best.Resources.Available(need)
 }
 
-// MinAvailable returns the cheapest instance type that has at least
-// the required resources, is believed to be currently available and
-// is less expensive than maxPrice. Spot restricts instances to those
-// that may be launched via EC2 spot market.
+// MinAvailable returns the cheapest instance type that has at least the required
+// resources, is believed to be currently available and is less expensive than
+// maxPrice. Spot restricts instances to those that may be launched via EC2 spot
+// market and tries to minimize interrupt probability.
 func (s *instanceState) MinAvailable(need reflow.Resources, spot bool, maxPrice float64) (instanceConfig, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -166,25 +198,35 @@ func (s *instanceState) MinAvailable(need reflow.Resources, spot bool, maxPrice 
 		found, ok bool
 		viable    []instanceConfig
 	)
-	for _, config := range s.configs {
-		if time.Since(s.unavailable[config.Type]) < s.sleepTime || (spot && !config.SpotOk) {
-			continue
+	for prob := desiredInterruptProb; prob <= sa.Any; prob++ {
+		viable = []instanceConfig{}
+		for _, config := range s.configs {
+			if time.Since(s.unavailable[config.Type]) < s.sleepTime || (spot && !config.SpotOk) {
+				continue
+			}
+			if !config.Resources.Available(need) {
+				continue
+			}
+			if price, ok = config.Price[s.region]; !ok {
+				continue
+			}
+			if price > maxPrice {
+				continue
+			}
+			if spot && !s.withinThreshold(config, prob) {
+				continue
+			}
+			viable = append(viable, config)
+			if price < bestPrice {
+				bestPrice = price
+				best = config
+			}
 		}
-		if !config.Resources.Available(need) {
-			continue
-		}
-		if price, ok = config.Price[s.region]; !ok {
-			continue
-		}
-		if price > maxPrice {
-			continue
-		}
-		viable = append(viable, config)
-		if price < bestPrice {
-			bestPrice = price
-			best = config
+		if len(viable) > 0 {
+			break
 		}
 	}
+
 	// Choose a higher cost but better EBS throughput instance type if applicable.
 	for _, config := range viable {
 		price = config.Price[s.region]
@@ -218,6 +260,16 @@ func (s *instanceState) Type(typ string) (instanceConfig, bool) {
 		}
 	}
 	return instanceConfig{}, false
+}
+
+func (s *instanceState) withinThreshold(config instanceConfig, desiredProb sa.InterruptProbability) bool {
+	if s.advisor != nil {
+		prob, err := s.advisor.GetMaxInterruptProbability(sa.Linux, sa.AwsRegion(s.region), sa.InstanceType(config.Type))
+		if err == nil && prob > desiredProb {
+			return false
+		}
+	}
+	return true
 }
 
 // InstanceType returns the instance type (and the amount of resources it provides)

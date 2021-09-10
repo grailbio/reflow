@@ -69,7 +69,7 @@ The columns displayed by the instance listing are:
 		}
 	})
 	// best effort to include spot advisor data; if error, "N/A" will be shown in printed output
-	sa, _ = spotadvisor.NewSpotAdvisor(nil, ctx.Done())
+	sa, _ = spotadvisor.NewSpotAdvisor(c.Log, ctx.Done())
 	var tw tabwriter.Writer
 	tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 	defer tw.Flush()

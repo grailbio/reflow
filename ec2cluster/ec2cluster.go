@@ -30,6 +30,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
+	sa "github.com/grailbio/base/cloud/spotadvisor"
 	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/base/sync/once"
@@ -170,7 +171,7 @@ type Cluster struct {
 	// Status is used to report cluster and instance status.
 	Status *status.Group `yaml:"-"`
 
-	// InstanceTypesMap defines the set of allowable EC2 instance types for
+	// InstanceTypes defines the set of allowable EC2 instance types for
 	// this cluster. If empty, all instance types are permitted.
 	InstanceTypes []string `yaml:"instancetypes,omitempty"`
 	// Name is the name of the cluster config, which defaults to defaultClusterName.
@@ -331,7 +332,8 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	if len(configs) == 0 {
 		return errors.New("no configured instance types")
 	}
-	c.instanceState = newInstanceState(configs, 5*time.Minute, c.Region)
+	adv, _ := sa.NewSpotAdvisor(c.Log, context.Background().Done())
+	c.instanceState = newInstanceState(configs, 5*time.Minute, c.Region, adv)
 	c.manager = NewManager(c, c.MaxHourlyCostUSD, c.MaxPendingInstances, c.Log)
 	c.spotProber = NewSpotProber(
 		func(ctx context.Context, instanceType string, depth int) (bool, error) {

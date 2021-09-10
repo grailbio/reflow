@@ -163,7 +163,7 @@ func TestManagerStart(t *testing.T) {
 		EC2:            &mockEC2Client{output: dio},
 		stats:          newStats(),
 		pools:          make(map[string]reflowletPool),
-		instanceState:  newInstanceState(configs, time.Minute, "us-west-2"),
+		instanceState:  newInstanceState(configs, time.Minute, "us-west-2", nil),
 		refreshLimiter: rate.NewLimiter(rate.Every(time.Millisecond), 1),
 	}
 	m := &Manager{cluster: c, refreshInterval: time.Millisecond}
