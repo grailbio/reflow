@@ -1171,7 +1171,7 @@ func TestTasksAwsErrMissingIndex(t *testing.T) {
 	)
 	mockdb.err = expectederr
 	tasks, err := taskb.Tasks(context.Background(), query)
-	awserr, ok := err.(*errors.Error).Err.(awserr.Error)
+	awserr, ok := err.(*errors.Error).Err.(*errors.Error).Err.(awserr.Error)
 	if !ok {
 		t.Fatal("expected awserr.Error")
 	}
@@ -1193,6 +1193,10 @@ func TestTasksUnknownError(t *testing.T) {
 	)
 	mockdb.err = expectederr
 	tasks, err := taskb.Tasks(context.Background(), query)
+	if err == nil {
+		t.Fatal("expected err, got nil")
+	}
+	err = err.(*errors.Error).Err
 	if got, want := err, expectederr; got != want {
 		t.Errorf("expected %v, got %v", want, got)
 	}
@@ -1211,7 +1215,7 @@ func TestTasksRunIDQueryAwsErrMissingIndex(t *testing.T) {
 	)
 	mockdb.err = expectederr
 	tasks, err := taskb.Tasks(context.Background(), query)
-	awserr, ok := err.(*errors.Error).Err.(awserr.Error)
+	awserr, ok := err.(*errors.Error).Err.(*errors.Error).Err.(awserr.Error)
 	if !ok {
 		t.Fatal("expected awserror.Err")
 	}
@@ -1233,7 +1237,7 @@ func TestTasksRunIDQueryOtherError(t *testing.T) {
 	)
 	mockdb.err = expectederr
 	tasks, err := taskb.Tasks(context.Background(), query)
-	awserr, ok := err.(awserr.Error)
+	awserr, ok := err.(*errors.Error).Err.(awserr.Error)
 	if !ok {
 		t.Fatal("expected awserror.Err")
 	}

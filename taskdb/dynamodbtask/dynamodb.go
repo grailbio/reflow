@@ -110,9 +110,8 @@ const (
 	// DateLayout is the layout used to serialize date.
 	dateLayout = "2006-01-02"
 
-	// Default provisioned capacities for DynamoDB.
-	writecap = 10
-	readcap  = 20
+	// perQueryItemsLimit is the number of items to retrieve per dynamodb query.
+	perQueryItemsLimit = 100
 )
 
 // Column names used in dynamodb table.
@@ -873,16 +872,24 @@ func (t *TaskDB) Tasks(ctx context.Context, q taskdb.TaskQuery) ([]taskdb.Task, 
 	default:
 		queries = t.buildSinceQueries(taskObj, q.Since, nil)
 	}
-	items, err := t.getItems(ctx, queries, q.Limit)
-	if err != nil {
-		return nil, err
-	}
+	stream := t.streamItems(ctx, queries, q.Limit)
 	var (
-		tasks = make([]taskdb.Task, 0, len(items))
+		tasks = make([]taskdb.Task, 0, q.Limit)
 		errs  errors.Multi
+		err   error
 	)
-	for _, it := range items {
-		var t taskdb.Task
+	for si := range stream {
+		if q.Limit > 0 && len(tasks) == int(q.Limit) {
+			break
+		}
+		if si.err != nil {
+			errs.Add(errors.E("query", si.query.GoString(), si.err))
+			continue
+		}
+		var (
+			it = si.item
+			t  taskdb.Task
+		)
 		if v := parseAttr(it, ID, parseDigestFunc, &errs); v != nil {
 			t.ID = taskdb.TaskID(v.(digest.Digest))
 		}
@@ -980,16 +987,20 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 	default:
 		queries = t.buildSinceQueries(runObj, runQuery.Since, nil)
 	}
-	items, err := t.getItems(ctx, queries, 0)
-	if err != nil {
-		return nil, err
-	}
+	stream := t.streamItems(ctx, queries, 0)
 	var (
-		runs = make([]taskdb.Run, 0, len(items))
+		runs []taskdb.Run
 		errs errors.Multi
 	)
-	for _, it := range items {
-		var r taskdb.Run
+	for si := range stream {
+		if si.err != nil {
+			errs.Add(errors.E("query", si.query.GoString(), si.err))
+			continue
+		}
+		var (
+			it = si.item
+			r  taskdb.Run
+		)
 		if v := parseAttr(it, ID, parseDigestFunc, &errs); v != nil {
 			r.ID = taskdb.RunID(v.(digest.Digest))
 		}
@@ -1024,11 +1035,10 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 		r.User = parseAttr(it, User, nil, &errs).(string)
 		runs = append(runs, r)
 	}
-	if err = errs.Combined(); err != nil && len(runs) > 0 {
+	if err := errs.Combined(); err != nil && len(runs) > 0 {
 		log.Errorf("taskdb.Runs: %v", err)
-		err = nil
 	}
-	return runs, err
+	return runs, nil
 }
 
 // Allocs returns allocs (with their pools) that matches the query.
@@ -1048,16 +1058,20 @@ func (t *TaskDB) Allocs(ctx context.Context, q taskdb.AllocQuery) ([]taskdb.Allo
 			}
 		}
 	}
-	items, err := t.getItems(ctx, queries, 0)
-	if err != nil {
-		return nil, err
-	}
+	stream := t.streamItems(ctx, queries, 0)
 	var (
-		allocs = make([]taskdb.Alloc, 0, len(items))
+		allocs []taskdb.Alloc
 		errs   errors.Multi
 	)
-	for _, it := range items {
-		var a taskdb.Alloc
+	for si := range stream {
+		if si.err != nil {
+			errs.Add(errors.E("query", si.query.GoString(), si.err))
+			continue
+		}
+		var (
+			it = si.item
+			a  taskdb.Alloc
+		)
 		if v := parseAttr(it, ID, parseDigestFunc, &errs); v != nil {
 			a.ID = v.(digest.Digest)
 		}
@@ -1098,11 +1112,10 @@ func (t *TaskDB) Allocs(ctx context.Context, q taskdb.AllocQuery) ([]taskdb.Allo
 			allocs = b
 		}
 	}
-	if err = errs.Combined(); err != nil && len(allocs) > 0 {
+	if err := errs.Combined(); err != nil && len(allocs) > 0 {
 		log.Errorf("taskdb.Allocs: %v", err)
-		err = nil
 	}
-	return allocs, err
+	return allocs, nil
 }
 
 // Pools returns pools that matches the query.
@@ -1134,16 +1147,20 @@ func (t *TaskDB) Pools(ctx context.Context, q taskdb.PoolQuery) ([]taskdb.PoolRo
 		}
 		queries = t.buildSinceQueries(poolObj, q.Since, filters)
 	}
-	items, err := t.getItems(ctx, queries, 0)
-	if err != nil {
-		return nil, err
-	}
+	stream := t.streamItems(ctx, queries, 0)
 	var (
-		pools = make([]taskdb.PoolRow, 0, len(items))
+		pools []taskdb.PoolRow
 		errs  errors.Multi
 	)
-	for _, it := range items {
-		var pr taskdb.PoolRow
+	for si := range stream {
+		if si.err != nil {
+			errs.Add(errors.E("query", si.query.GoString(), si.err))
+			continue
+		}
+		var (
+			it = si.item
+			pr taskdb.PoolRow
+		)
 		if v := parseAttr(it, ID, parseDigestFunc, &errs); v != nil {
 			pr.ID = v.(digest.Digest)
 		}
@@ -1161,11 +1178,10 @@ func (t *TaskDB) Pools(ctx context.Context, q taskdb.PoolQuery) ([]taskdb.PoolRo
 		pr.URI = parseAttr(it, URI, nil, &errs).(string)
 		pools = append(pools, pr)
 	}
-	if err = errs.Combined(); err != nil && len(pools) > 0 {
+	if err := errs.Combined(); err != nil && len(pools) > 0 {
 		log.Errorf("taskdb.Pools: %v", err)
-		err = nil
 	}
-	return pools, err
+	return pools, nil
 }
 
 // Scan calls the handler function for every association in the mapping.
@@ -1210,47 +1226,56 @@ func (t *TaskDB) Scan(ctx context.Context, kind taskdb.Kind, mappingHandler task
 	}))
 }
 
-// getItems gets the items (QueryOutput.Items) for all the given queries.
-// getItems makes best-effort attempt to limit the results to limit (if it is > 0).
-func (t *TaskDB) getItems(ctx context.Context, queries []*dynamodb.QueryInput, limit int64) (items []map[string]*dynamodb.AttributeValue, err error) {
-	var responses = make([][]map[string]*dynamodb.AttributeValue, len(queries))
-	err = traverse.Each(len(queries), func(i int) error {
-		var (
-			query   = queries[i]
-			lastKey map[string]*dynamodb.AttributeValue
-			total   int64
-		)
-		for {
-			query.ExclusiveStartKey = lastKey
-			resp, qerr := t.DB.QueryWithContext(ctx, query)
-			if qerr != nil {
-				if aerr, ok := qerr.(awserr.Error); ok {
-					switch aerr.Code() {
-					case "ValidationException":
-						if strings.Contains(aerr.Message(),
-							"The table does not have the specified index") {
-							return errors.E(`index missing: run "reflow migrate"`, qerr)
+type streamedItem struct {
+	query *dynamodb.QueryInput
+	item  map[string]*dynamodb.AttributeValue
+	err   error
+}
+
+// streamItems streams the items (QueryOutput.Items) for all the given queries.
+// streamItems makes best-effort attempt to limit the results to limit (if it is > 0).
+func (t *TaskDB) streamItems(ctx context.Context, queries []*dynamodb.QueryInput, limit int64) <-chan streamedItem {
+	s := make(chan streamedItem)
+	go func() {
+		defer close(s)
+		var total int64
+		_ = traverse.Each(len(queries), func(i int) error {
+			var (
+				query   = queries[i]
+				lastKey map[string]*dynamodb.AttributeValue
+				done    bool
+			)
+			query.Limit = aws.Int64(perQueryItemsLimit)
+			for !done {
+				query.ExclusiveStartKey = lastKey
+				if resp, qerr := t.DB.QueryWithContext(ctx, query); qerr != nil {
+					done = true
+					if aerr, ok := qerr.(awserr.Error); ok {
+						switch aerr.Code() {
+						case "ValidationException":
+							if strings.Contains(aerr.Message(),
+								"The table does not have the specified index") {
+								qerr = errors.E(`index missing: run "reflow migrate"`, qerr)
+							}
 						}
 					}
+					s <- streamedItem{query: query, err: qerr}
+				} else {
+					for _, item := range resp.Items {
+						s <- streamedItem{query: query, item: item}
+						atomic.AddInt64(&total, 1)
+						if done = limit > 0 && atomic.LoadInt64(&total) >= limit; done {
+							break
+						}
+					}
+					lastKey = resp.LastEvaluatedKey
+					done = done || lastKey == nil
 				}
-				return qerr
 			}
-			atomic.AddInt64(&total, int64(len(resp.Items)))
-			responses[i] = append(responses[i], resp.Items...)
-			lastKey = resp.LastEvaluatedKey
-			if lastKey == nil || (limit > 0 && atomic.LoadInt64(&total) >= limit) {
-				break
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return
-	}
-	for i := range responses {
-		items = append(items, responses[i]...)
-	}
-	return
+			return nil
+		})
+	}()
+	return s
 }
 
 // parseAttr gets the AttributeValue corresponding to the given taskdb.Kind from map 'it'
