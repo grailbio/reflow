@@ -197,9 +197,16 @@ const (
 	idIndex            = "ID-index"
 	id4Index           = "ID4-ID-index"
 	runIDIndex         = "RunID-index"
-	imgCmdIDIndex      = "ImgCmdID-index"
-	identIndex         = "Ident-index"
 	dateKeepaliveIndex = "Date-Keepalive-index"
+
+	// The following indices are applicable for the Predictor use-case.
+	// The *SortEndIndex are the (newer) versions which support sorting by "EndTime" column.
+	imgCmdIDSortEndIndex = "ImgCmdID-SortEnd-index"
+	identSortEndIndex    = "Ident-SortEnd-index"
+	// TODO(swami): Remove the following indices once we've fully migrated to the newer ones.
+	// Note: No external reflow versions were released with support for TaskDB using these older indices.
+	imgCmdIDIndex        = "ImgCmdID-index"
+	identIndex           = "Ident-index"
 )
 
 // TaskDB implements the dynamodb backed taskdb.TaskDB interface to
@@ -221,6 +228,9 @@ type TaskDB struct {
 
 	// Repo is the repository to store large objects referenced from this TaskDB.
 	Repo *blobrepo.Repository
+
+	// The currently active index names for ImgCmdId and Ident columns.
+	activeImgCmdIDIndexName, activeIdentIndexName string
 }
 
 func (t *TaskDB) String() string {
@@ -265,7 +275,50 @@ func (t *TaskDB) Flags(flags *flag.FlagSet) {
 
 // Version implements infra.Provider.
 func (t *TaskDB) Version() int {
-	return 3
+	return 2
+}
+
+// determineIndices determines which indices are available for querying `ImgCmdID` and `Ident` columns,
+// and sets those as the "active" ones, preferring the (newer) sorted indices over the older ones.
+func (t *TaskDB) determineIndices() error {
+	// Skip if already determined.
+	if t.activeIdentIndexName != "" && t.activeImgCmdIDIndexName != "" {
+		return nil
+	}
+	describe, err := waitForActiveTable(t.DB, t.TableName, nil)
+	if err != nil {
+		return errors.E("determineIndices", err)
+	}
+	activeIndices := make(map[string]bool)
+	for _, index := range describe.Table.GlobalSecondaryIndexes {
+		if *index.IndexStatus != dynamodb.IndexStatusActive {
+			continue
+		}
+		activeIndices[*index.IndexName] = true
+	}
+	if _, ok := activeIndices[imgCmdIDSortEndIndex]; ok {
+		t.activeImgCmdIDIndexName = imgCmdIDSortEndIndex
+	} else if _, ok = activeIndices[imgCmdIDIndex]; ok {
+		t.activeImgCmdIDIndexName = imgCmdIDIndex
+	} else {
+		indexNames := make([]string, 0, len(activeIndices))
+		for k := range activeIndices {
+			indexNames = append(indexNames, k)
+		}
+		return fmt.Errorf("no usable index found for activeImgCmdIDIndexName (available indices: %s)", strings.Join(indexNames, ","))
+	}
+	if _, ok := activeIndices[identSortEndIndex]; ok {
+		t.activeIdentIndexName = identSortEndIndex
+	} else if _, ok = activeIndices[identIndex]; ok {
+		t.activeIdentIndexName = identIndex
+	} else {
+		indexNames := make([]string, 0, len(activeIndices))
+		for k := range activeIndices {
+			indexNames = append(indexNames, k)
+		}
+		return fmt.Errorf("no usable index found for activeIdentIndexName (available indices: %s)", strings.Join(indexNames, ","))
+	}
+	return nil
 }
 
 // CreateRun sets a new run in the taskdb with the given id, labels and user.
@@ -736,7 +789,7 @@ func (t *TaskDB) KeepIDAlive(ctx context.Context, id digest.Digest, keepalive ti
 // - partKey is the value of the index column to lookup
 // - typ is the type of objects to return (used as a filter)
 // - cols (if set) is the column/attribute values to return (if unset, all columns are returned)
-func (t *TaskDB) buildIndexQuery(kind taskdb.Kind, indexName, partKey string, typ objType, cols ...taskdb.Kind) []*dynamodb.QueryInput {
+func (t *TaskDB) buildIndexQuery(kind taskdb.Kind, indexName, partKey string, typ objType, cols ...taskdb.Kind) *dynamodb.QueryInput {
 	colname, colnameOk := colmap[kind]
 	if !colnameOk {
 		panic("invalid kind")
@@ -773,7 +826,34 @@ func (t *TaskDB) buildIndexQuery(kind taskdb.Kind, indexName, partKey string, ty
 	if len(projCols) > 0 {
 		input.ProjectionExpression = aws.String(strings.Join(projCols, ", "))
 	}
-	return []*dynamodb.QueryInput{input}
+	return input
+}
+
+
+// buildSortEndIndexQuery returns a dynamodb QueryInput for the specified key on the specified index where:
+// - indexName is the name of the index and must be one of the "SortEnd" indices.
+// - kind is the index column name
+// - partKey is the value of the index column to lookup
+func (t *TaskDB) buildSortEndIndexQuery(kind taskdb.Kind, indexName, partKey string) *dynamodb.QueryInput {
+	colname, colnameOk := colmap[kind]
+	if !colnameOk {
+		panic("invalid kind")
+	}
+	if indexName != imgCmdIDSortEndIndex && indexName != identSortEndIndex {
+		panic(fmt.Sprintf("unrecognized 'SortEnd' index: %s", indexName))
+	}
+	keyExpression := fmt.Sprintf("%s = :keyval", colname)
+	attributeValues := map[string]*dynamodb.AttributeValue{
+		":keyval": {S: aws.String(partKey)},
+	}
+	input := &dynamodb.QueryInput{
+		TableName:                 aws.String(t.TableName),
+		IndexName:                 aws.String(indexName),
+		KeyConditionExpression:    aws.String(keyExpression),
+		ExpressionAttributeValues: attributeValues,
+		ScanIndexForward:          aws.Bool(false),
+	}
+	return input
 }
 
 // buildSinceQueries builds queries that return taskdb rows with Type set to `typ`,
@@ -880,23 +960,59 @@ func (t *TaskDB) Tasks(ctx context.Context, q taskdb.TaskQuery) ([]taskdb.Task, 
 	switch {
 	case q.ID.IsValid() && digest.Digest(q.ID).IsAbbrev():
 		withAlloc = q.WithAlloc
-		queries = t.buildIndexQuery(ID4, id4Index, q.ID.IDShort(), taskObj)
+		queries = append(queries, t.buildIndexQuery(ID4, id4Index, q.ID.IDShort(), taskObj))
 	case q.ID.IsValid():
 		withAlloc = q.WithAlloc
-		queries = t.buildIndexQuery(ID, idIndex, q.ID.ID(), taskObj)
+		queries = append(queries, t.buildIndexQuery(ID, idIndex, q.ID.ID(), taskObj))
 	case q.RunID.IsValid():
 		withAlloc = q.WithAlloc
-		queries = t.buildIndexQuery(RunID, runIDIndex, q.RunID.ID(), taskObj)
+		queries = append(queries, t.buildIndexQuery(RunID, runIDIndex, q.RunID.ID(), taskObj))
 	case q.ImgCmdID.IsValid():
-		// ImgCmdID is set only for the predictor use-case, so we limit the columns to only the ones we know it needs.
-		// Ideally, the columns should also be set in the query, but they are an implementation detail
-		// and not exposed through the TaskDB interface.
-		queries = t.buildIndexQuery(ImgCmdID, imgCmdIDIndex, q.ImgCmdID.ID(), taskObj, ID, EndTime, ExecInspect)
+		// Determine which index to use for `ImgCmdId` column.
+		if err := t.determineIndices(); err != nil {
+			return nil, err
+		}
+		var query *dynamodb.QueryInput
+		switch t.activeImgCmdIDIndexName {
+		case imgCmdIDSortEndIndex:
+			query = t.buildSortEndIndexQuery(ImgCmdID, imgCmdIDSortEndIndex, q.ImgCmdID.ID())
+			// Since this is the predictor use-case, we know that by default the limit is 1000.
+			// (See `queryLimit` in `predictor/taskgroup.go`)
+			// Reduce the total number of rows fetched, when using the sorted index.
+			// TODO(swami): Remove this adjustment once we've fully migrated to the new indices.
+			q.Limit /= 4
+		case imgCmdIDIndex:
+			// ImgCmdID is set only for the predictor use-case, so we limit the columns to only the ones we know it needs.
+			// Ideally, the columns should also be set in the query, but they are an implementation detail
+			// and not exposed through the TaskDB interface.
+			query = t.buildIndexQuery(ImgCmdID, imgCmdIDIndex, q.ImgCmdID.ID(), taskObj, ID, EndTime, ExecInspect)
+		}
+		if query != nil {
+			queries = append(queries, query)
+		}
 	case q.Ident != "":
-		// Ident is set only for the predictor use-case, so we limit the columns to only the ones we know it needs.
-		// Ideally, the columns should also be set in the query, but they are an implementation detail
-		// and not exposed through the TaskDB interface.
-		queries = t.buildIndexQuery(Ident, identIndex, q.Ident, taskObj, ID, EndTime, ExecInspect)
+		// Determine which index to use for `Ident` column.
+		if err := t.determineIndices(); err != nil {
+			return nil, err
+		}
+		var query *dynamodb.QueryInput
+		switch t.activeIdentIndexName {
+		case identSortEndIndex:
+			query = t.buildSortEndIndexQuery(Ident, identSortEndIndex, q.Ident)
+			// Since this is the predictor use-case, we know that by default the limit is 1000.
+			// (See `queryLimit` in `predictor/taskgroup.go`)
+			// Reduce the total number of rows fetched, when using the sorted index.
+			// TODO(swami): Remove this adjustment once we've fully migrated to the new indices.
+			q.Limit /= 4
+		case identIndex:
+			// ImgCmdID is set only for the predictor use-case, so we limit the columns to only the ones we know it needs.
+			// Ideally, the columns should also be set in the query, but they are an implementation detail
+			// and not exposed through the TaskDB interface.
+			query = t.buildIndexQuery(Ident, identIndex, q.Ident, taskObj, ID, EndTime, ExecInspect)
+		}
+		if query != nil {
+			queries = append(queries, query)
+		}
 	default:
 		queries = t.buildSinceQueries(taskObj, q.Since, nil)
 	}
@@ -1007,9 +1123,9 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 	var queries []*dynamodb.QueryInput
 	switch {
 	case runQuery.ID.IsValid() && digest.Digest(runQuery.ID).IsAbbrev():
-		queries = t.buildIndexQuery(ID4, id4Index, runQuery.ID.IDShort(), runObj)
+		queries = append(queries, t.buildIndexQuery(ID4, id4Index, runQuery.ID.IDShort(), runObj))
 	case runQuery.ID.IsValid():
-		queries = t.buildIndexQuery(ID, idIndex, runQuery.ID.ID(), runObj)
+		queries = append(queries, t.buildIndexQuery(ID, idIndex, runQuery.ID.ID(), runObj))
 	case runQuery.User != "":
 		queries = t.buildSinceQueries(runObj, runQuery.Since, map[taskdb.Kind]string{User: runQuery.User})
 	default:
@@ -1080,9 +1196,9 @@ func (t *TaskDB) Allocs(ctx context.Context, q taskdb.AllocQuery) ([]taskdb.Allo
 			switch {
 			case id.IsZero(): // Skip
 			case id.IsAbbrev():
-				queries = append(queries, t.buildIndexQuery(ID4, id4Index, id.Short(), allocObj)...)
+				queries = append(queries, t.buildIndexQuery(ID4, id4Index, id.Short(), allocObj))
 			default:
-				queries = append(queries, t.buildIndexQuery(ID, idIndex, id.String(), allocObj)...)
+				queries = append(queries, t.buildIndexQuery(ID, idIndex, id.String(), allocObj))
 			}
 		}
 	}
@@ -1155,9 +1271,9 @@ func (t *TaskDB) Pools(ctx context.Context, q taskdb.PoolQuery) ([]taskdb.PoolRo
 			switch {
 			case id.IsZero(): // Skip
 			case id.IsAbbrev():
-				queries = append(queries, t.buildIndexQuery(ID4, id4Index, id.Short(), poolObj)...)
+				queries = append(queries, t.buildIndexQuery(ID4, id4Index, id.Short(), poolObj))
 			default:
-				queries = append(queries, t.buildIndexQuery(ID, idIndex, id.String(), poolObj)...)
+				queries = append(queries, t.buildIndexQuery(ID, idIndex, id.String(), poolObj))
 			}
 		}
 	case q.Since.IsZero():

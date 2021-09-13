@@ -151,6 +151,7 @@ Valid values for -name are "mem" and "duration".
 			default:
 				fmt.Fprintf(w, "predicted %s value for arg %s = %f (from %d samples)\n", *nameFlag, arg, v, n)
 			}
+			fmt.Fprintln(w, "")
 		}
 	}
 }

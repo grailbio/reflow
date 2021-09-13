@@ -977,7 +977,7 @@ func TestTasksImgCmdIDQuery(t *testing.T) {
 		cmd      = "cmd"
 		imgCmdID = taskdb.NewImgCmdID(image, cmd)
 		mockdb   = getmockquerytaskdb()
-		taskb    = &TaskDB{DB: mockdb}
+		taskb    = &TaskDB{DB: mockdb, activeImgCmdIDIndexName: imgCmdIDIndex, activeIdentIndexName: identIndex}
 		query    = taskdb.TaskQuery{ImgCmdID: imgCmdID}
 	)
 	taskb.TableName = mockTableName
@@ -1029,7 +1029,7 @@ func TestTasksIdentQuery(t *testing.T) {
 		ident  = "testident"
 		id     = reflow.Digester.Rand(nil)
 		mockdb = getmockquerytaskdb()
-		taskb  = &TaskDB{DB: mockdb}
+		taskb  = &TaskDB{DB: mockdb, activeImgCmdIDIndexName: imgCmdIDIndex, activeIdentIndexName: identIndex}
 		query  = taskdb.TaskQuery{Ident: ident}
 	)
 	taskb.TableName = mockTableName
@@ -1177,7 +1177,7 @@ func TestTasksLimitQuery(t *testing.T) {
 		ident        = "testident"
 		id           = reflow.Digester.Rand(nil)
 		mockdb       = getmockquerytaskdb()
-		taskb        = &TaskDB{DB: mockdb}
+		taskb        = &TaskDB{DB: mockdb, activeImgCmdIDIndexName: imgCmdIDIndex, activeIdentIndexName: identIndex}
 		limit  int64 = 5
 		query        = taskdb.TaskQuery{Ident: ident, Limit: limit}
 	)

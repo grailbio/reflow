@@ -22,7 +22,15 @@ import (
 type indexdefs struct {
 	attrdefs  []*dynamodb.AttributeDefinition
 	keyschema []*dynamodb.KeySchemaElement
+	projection *dynamodb.Projection
 }
+
+// TODO(swami): Remove older indices once we've migrated fully to the new indices.
+// This will be a two-step process:
+// - First we release code which can create and use the new indices.
+// - Once we've released and migrated all the indices, we'll have to uncomment the following
+//   so that in a subsequent release, we can remove the older indices.
+var indexesToRemove []string // []string{imgCmdIDIndex, identIndex}
 
 var indexes = map[string]*indexdefs{
 	idIndex: {
@@ -38,6 +46,7 @@ var indexes = map[string]*indexdefs{
 				AttributeName: aws.String(colID),
 			},
 		},
+		projection: &dynamodb.Projection{ProjectionType: aws.String("ALL")},
 	},
 	id4Index: {
 		attrdefs: []*dynamodb.AttributeDefinition{
@@ -61,70 +70,80 @@ var indexes = map[string]*indexdefs{
 				AttributeName: aws.String(colID),
 			},
 		},
+		projection: &dynamodb.Projection{ProjectionType: aws.String("ALL")},
 	},
 	dateKeepaliveIndex: {
 		attrdefs: []*dynamodb.AttributeDefinition{
-			{
-				AttributeName: aws.String(colDate),
-				AttributeType: aws.String("S"),
-			},
+			{AttributeName: aws.String(colDate), AttributeType: aws.String("S")},
 			// DynamoDB has to know about the attribute type to index it
-			{
-				AttributeName: aws.String(colKeepalive),
-				AttributeType: aws.String("S"),
-			},
+			{AttributeName: aws.String(colKeepalive), AttributeType: aws.String("S")},
 		},
 		keyschema: []*dynamodb.KeySchemaElement{
-			{
-				KeyType:       aws.String("HASH"),
-				AttributeName: aws.String(colDate),
-			},
-			{
-				KeyType:       aws.String("RANGE"),
-				AttributeName: aws.String(colKeepalive),
-			},
+			{KeyType: aws.String("HASH"), AttributeName: aws.String(colDate)},
+			{KeyType: aws.String("RANGE"), AttributeName: aws.String(colKeepalive)},
 		},
+		projection: &dynamodb.Projection{ProjectionType: aws.String("ALL")},
 	},
 	runIDIndex: {
 		attrdefs: []*dynamodb.AttributeDefinition{
-			{
-				AttributeName: aws.String(colRunID),
-				AttributeType: aws.String("S"),
-			},
+			{AttributeName: aws.String(colRunID), AttributeType: aws.String("S")},
 		},
 		keyschema: []*dynamodb.KeySchemaElement{
-			{
-				KeyType:       aws.String("HASH"),
-				AttributeName: aws.String(colRunID),
-			},
+			{KeyType: aws.String("HASH"), AttributeName: aws.String(colRunID)},
+		},
+		projection: &dynamodb.Projection{ProjectionType: aws.String("ALL")},
+	},
+	// Deprecated:  The following indices are deprecated and no longer added to new tables.
+	// But they remain here as a reference to their definitions.
+	// TODO(swami): Remove these after migration is complete.
+	//imgCmdIDIndex: {
+	//	attrdefs: []*dynamodb.AttributeDefinition{
+	//		{ AttributeName: aws.String(colImgCmdID), AttributeType: aws.String("S") },
+	//	},
+	//	keyschema: []*dynamodb.KeySchemaElement{
+	//		{ KeyType:       aws.String("HASH"), AttributeName: aws.String(colImgCmdID) },
+	//	},
+	//},
+	//identIndex: {
+	//	attrdefs: []*dynamodb.AttributeDefinition{
+	//		{ AttributeName: aws.String(colIdent), AttributeType: aws.String("S") },
+	//	},
+	//	keyschema: []*dynamodb.KeySchemaElement{
+	//		{ KeyType:       aws.String("HASH"), AttributeName: aws.String(colIdent) },
+	//	},
+	//},
+	imgCmdIDSortEndIndex: {
+		attrdefs: []*dynamodb.AttributeDefinition{
+			{AttributeName: aws.String(colImgCmdID), AttributeType: aws.String("S")},
+			// DynamoDB has to know about the attribute type to index it
+			{AttributeName: aws.String(colEndTime), AttributeType: aws.String("S")},
+		},
+		keyschema: []*dynamodb.KeySchemaElement{
+			{KeyType: aws.String("HASH"), AttributeName: aws.String(colImgCmdID)},
+			{KeyType: aws.String("RANGE"), AttributeName: aws.String(colEndTime)},
+		},
+		projection: &dynamodb.Projection{
+			// We need these columns: "ID", "EndTime", "Inspect". Since "ID" is the partition key of the table,
+			// it is automatically projected, so we specify the other fields we need to be projected.
+			NonKeyAttributes: aws.StringSlice([]string{"EndTime", "Inspect"}),
+			ProjectionType: aws.String("INCLUDE"),
 		},
 	},
-	imgCmdIDIndex: {
+	identSortEndIndex: {
 		attrdefs: []*dynamodb.AttributeDefinition{
-			{
-				AttributeName: aws.String(colImgCmdID),
-				AttributeType: aws.String("S"),
-			},
+			{AttributeName: aws.String(colIdent), AttributeType: aws.String("S")},
+			// DynamoDB has to know about the attribute type to index it
+			{AttributeName: aws.String(colEndTime), AttributeType: aws.String("S")},
 		},
 		keyschema: []*dynamodb.KeySchemaElement{
-			{
-				KeyType:       aws.String("HASH"),
-				AttributeName: aws.String(colImgCmdID),
-			},
+			{KeyType: aws.String("HASH"), AttributeName: aws.String(colIdent)},
+			{KeyType: aws.String("RANGE"), AttributeName: aws.String(colEndTime)},
 		},
-	},
-	identIndex: {
-		attrdefs: []*dynamodb.AttributeDefinition{
-			{
-				AttributeName: aws.String(colIdent),
-				AttributeType: aws.String("S"),
-			},
-		},
-		keyschema: []*dynamodb.KeySchemaElement{
-			{
-				KeyType:       aws.String("HASH"),
-				AttributeName: aws.String(colIdent),
-			},
+		projection: &dynamodb.Projection{
+			// We need these columns: "ID", "EndTime", "Inspect". Since "ID" is the partition key of the table,
+			// it is automatically projected, so we specify the other fields we need to be projected.
+			NonKeyAttributes: aws.StringSlice([]string{"EndTime", "Inspect"}),
+			ProjectionType: aws.String("INCLUDE"),
 		},
 	},
 }
@@ -173,22 +192,38 @@ func (t *TaskDB) Setup(sess *session.Session, log *log.Logger) error {
 					Create: &dynamodb.CreateGlobalSecondaryIndexAction{
 						IndexName: aws.String(index),
 						KeySchema: config.keyschema,
-						Projection: &dynamodb.Projection{
-							ProjectionType: aws.String("ALL"),
-						},
+						Projection: config.projection,
 					},
 				},
 			},
 		}
-		_, err = db.UpdateTable(input)
-		if err != nil {
-			return errors.E("error creating secondary index: %v", err)
+		if _, err = db.UpdateTable(input); err != nil {
+			return errors.E("error creating secondary index %s: %v", index, err)
 		}
 		log.Printf("created secondary index %s", index)
-		// dynamodb allows only one index creation at a time. We have to wait until the
-		// table becomes active before we can create the next index.
-		_, err := waitForActiveTable(db, tableName, log)
-		if err != nil {
+		// dynamodb allows only one index update at a time. We have to wait until the
+		// table becomes active before we can update the next index.
+		if _, err = waitForActiveTable(db, tableName, log); err != nil {
+			return err
+		}
+	}
+	for _, index := range indexesToRemove {
+		if !indexExists[index] {
+			continue
+		}
+		input := &dynamodb.UpdateTableInput{
+			TableName:            aws.String(tableName),
+			GlobalSecondaryIndexUpdates: []*dynamodb.GlobalSecondaryIndexUpdate{{
+				Delete: &dynamodb.DeleteGlobalSecondaryIndexAction{IndexName: aws.String(index)}},
+			},
+		}
+		if _, err = db.UpdateTable(input); err != nil {
+			return errors.E("error deleting secondary index %s: %v", index, err)
+		}
+		log.Printf("deleted secondary index %s", index)
+		// dynamodb allows only one index update at a time. We have to wait until the
+		// table becomes active before we can update the next index.
+		if _, err = waitForActiveTable(db, tableName, log); err != nil {
 			return err
 		}
 	}

@@ -285,12 +285,8 @@ func (p *Predictor) getProfiles(ctx context.Context, group taskGroup) ([]reflow.
 	}
 	tasks = ended
 
-	// sort tasks in descending order of end time.
-	// TODO(swami): Fix dynamodb query instead.
-	// To do this correctly (ie, get the most recent inspects), we should use sorting order in the dynamodb query.
-	// At the same time, we can also filter out "unended" tasks, those with zero values for `task.Inspect`, etc.
-	// Currently, its possible that we only got older tasks, but we are still sorting here
-	// to get the most recent among the ones we got in the first place.
+	// sort tasks in descending order of end time (ie, reverse chronological order)
+	// TODO(swami): Remove sorting once we've fully migrated to indices which already do the sorting.
 	sort.Slice(tasks, func(i, j int) bool {
 		return tasks[i].End.After(tasks[j].End)
 	})

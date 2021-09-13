@@ -9,8 +9,7 @@ import (
 	"github.com/grailbio/reflow/taskdb"
 )
 
-// queryLimit is a soft limit on the number of tasks
-// that a taskdb query can return.
+// queryLimit is a hard limit on the number of tasks that a taskdb query can return.
 const queryLimit int64 = 1000
 
 // taskGroup defines a group of tasks.
