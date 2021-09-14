@@ -15,10 +15,12 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
@@ -31,12 +33,16 @@ const (
 	defaultMaxInspect    = 50
 	defaultMemPercentile = 95
 	numTasks             = 20
+	nPredictCalls        = 10
 )
 
 type mockdb struct {
 	taskdb.TaskDB
-	tasks map[string][]taskdb.Task
+	nImgCmdIdCalls int32
+	nIdentCalls    int32
+
 	mu    sync.Mutex
+	tasks map[string][]taskdb.Task
 }
 
 func (m *mockdb) Add(key string, task taskdb.Task) {
@@ -49,11 +55,13 @@ func (m *mockdb) Tasks(_ context.Context, taskQuery taskdb.TaskQuery) ([]taskdb.
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if taskQuery.ImgCmdID.IsValid() {
+		atomic.AddInt32(&m.nImgCmdIdCalls, 1)
 		if tasks, ok := m.tasks[taskQuery.ImgCmdID.ID()]; ok {
 			return tasks, nil
 		}
 	}
 	if taskQuery.Ident != "" {
+		atomic.AddInt32(&m.nIdentCalls, 1)
 		if tasks, ok := m.tasks[taskQuery.Ident]; ok {
 			return tasks, nil
 		}
@@ -218,13 +226,15 @@ func TestNewPred(t *testing.T) {
 
 func TestPredictImgCmdID(t *testing.T) {
 	var (
-		repo = newMockRepo()
-		tdb  = newMockdb()
-		ctx  = context.Background()
+		repo     = newMockRepo()
+		tdb      = newMockdb()
+		ctx      = context.Background()
+		cacheTtl = time.Second
 	)
 	tasks, _ := generateData(t, ctx, repo, tdb, 0)
 
 	pred := New(repo, tdb, nil, defaultMinData, defaultMaxInspect, defaultMemPercentile)
+	pred.cacheTtl = cacheTtl
 
 	for i := 0; i < numTasks; i++ {
 		if got, want := tasks[i].Config.Resources["mem"], float64(20); got != want {
@@ -232,15 +242,27 @@ func TestPredictImgCmdID(t *testing.T) {
 		}
 	}
 
-	predictions := pred.Predict(ctx, tasks...)
-	if len(predictions) != numTasks {
-		t.Fatalf("predict did not return 1 Resource per predicted task")
-	}
-	// 95th percentile of 1, 2, 3, ..., 20 is 19.
-	for _, p := range predictions {
-		if got, want := p.Resources["mem"], float64(19); got != want {
-			t.Errorf("mem: got %v, want %v", got, want)
+	_ = traverse.Each(nPredictCalls, func(i int) error {
+		if i == 0 {
+			time.Sleep(cacheTtl + 50*time.Millisecond)
 		}
+		predictions := pred.Predict(ctx, tasks...)
+		if len(predictions) != numTasks {
+			t.Fatalf("predict did not return 1 Resource per predicted task")
+		}
+		// 95th percentile of 1, 2, 3, ..., 20 is 19.
+		for _, p := range predictions {
+			if got, want := p.Resources["mem"], float64(19); got != want {
+				t.Errorf("mem: got %v, want %v", got, want)
+			}
+		}
+		return nil
+	})
+	if got, want := int(atomic.LoadInt32(&tdb.nImgCmdIdCalls)), 2; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := int(atomic.LoadInt32(&tdb.nIdentCalls)), 0; got != want {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
 
@@ -260,15 +282,24 @@ func TestPredictIdent(t *testing.T) {
 		}
 	}
 
-	predictions := pred.Predict(ctx, tasks...)
-	if len(predictions) != numTasks {
-		t.Fatalf("predict did not return 1 Resource per predicted task")
-	}
-	// 95th percentile of 1, 2, 3, ..., 20 is 19.
-	for _, p := range predictions {
-		if got, want := p.Resources["mem"], float64(19); got != want {
-			t.Errorf("mem: got %v, want %v", got, want)
+	_ = traverse.Each(nPredictCalls, func(_ int) error {
+		predictions := pred.Predict(ctx, tasks...)
+		if len(predictions) != numTasks {
+			t.Fatalf("predict did not return 1 Resource per predicted task")
 		}
+		// 95th percentile of 1, 2, 3, ..., 20 is 19.
+		for _, p := range predictions {
+			if got, want := p.Resources["mem"], float64(19); got != want {
+				t.Errorf("mem: got %v, want %v", got, want)
+			}
+		}
+		return nil
+	})
+	if got, want := int(atomic.LoadInt32(&tdb.nImgCmdIdCalls)), 20; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if got, want := int(atomic.LoadInt32(&tdb.nIdentCalls)), 1; got != want {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
 

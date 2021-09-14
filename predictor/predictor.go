@@ -41,10 +41,15 @@ import (
 	"github.com/grailbio/reflow/taskdb"
 )
 
-// maxMemThreshold is the max memory threshold and any profile values above this threshold are ignored.
-// The value is based on the max memory (~3.8TiB) on an EC2 instance type (x1e.32xlarge) available to reflow.
-// TODO(swami): Determine why we get such large values and fix the underlying issue.
-const maxMemThreshold = 4 * data.TiB
+const (
+	// maxMemThreshold is the max memory threshold and any profile values above this threshold are ignored.
+	// The value is based on the max memory (~3.8TiB) on an EC2 instance type (x1e.32xlarge) available to reflow.
+	// TODO(swami): Determine why we get such large values and fix the underlying issue.
+	maxMemThreshold = 4 * data.TiB
+
+	// defaultCacheTtl is the default duration for which cached predictions are valid.
+	defaultCacheTtl = 60 * time.Minute
+)
 
 // Predictor predicts tasks' resource usage. All predictions
 // are performed online using cached profiling data.
@@ -69,6 +74,10 @@ type Predictor struct {
 	// inspectLimiter limits the number of concurrent
 	// ExecInspect Profile unmarshal operations.
 	inspectLimiter *limiter.Limiter
+
+	// cache is used for caching predicted results.
+	cache    sync.Map // map[taskGroup]*predCacheEntry
+	cacheTtl time.Duration
 }
 
 // Prediction consists of various predicted attributes.
@@ -110,6 +119,7 @@ func New(repo reflow.Repository, tdb taskdb.TaskDB, log *log.Logger, minData, ma
 		maxInspect:     maxInspect,
 		memPercentile:  memPercentile,
 		inspectLimiter: inspectLimiter,
+		cacheTtl:       defaultCacheTtl,
 	}
 }
 
@@ -187,25 +197,16 @@ func (p *Predictor) Predict(ctx context.Context, tasks ...*sched.Task) map[*sche
 		// Model each taskGroup's resource usage concurrently. All predicted Resources
 		// are mapped to their respective task.
 		_ = traverse.Each(len(groups), func(i int) error {
-			profiles, err := p.getProfiles(ctx, groups[i])
-			if err != nil {
-				p.log.Debugf("getting profiles for group: %v", err)
-				return nil
-			}
-			durNanos, err := p.durationNanos(profiles)
-			if err != nil {
-				p.log.Debugf("predicting duration (from %d profiles): %v", len(profiles), err)
-			}
-			mem, err := p.memUsage(profiles)
-			if err != nil {
-				p.log.Debugf("predicting memory (from %d profiles): %v", len(profiles), err)
+			preds := p.getPrediction(ctx, groups[i])
+			if preds.err != nil {
+				p.log.Debugf("getting predictions for group: %v", preds.err)
 				return nil
 			}
 			p.log.Debugf("successfully modeled memory usage: %s", groups[i].Name())
 			doneTasks := groupMap[groups[i]]
 			for j := 0; j < len(doneTasks); j++ {
 				predictedResources := make(reflow.Resources)
-				predictedResources["mem"] = mem
+				predictedResources["mem"] = preds.mem
 
 				mu.Lock()
 				todo.RemoveAll(doneTasks[j])
@@ -213,7 +214,7 @@ func (p *Predictor) Predict(ctx context.Context, tasks ...*sched.Task) map[*sche
 					Resources: predictedResources,
 					// TODO(swami): Predict and use total task duration instead of just the time
 					// taken to run the exec  (ie, we should include object load/unload times, etc).
-					Duration: time.Duration(int64(durNanos)),
+					Duration: time.Duration(int64(preds.durNanos)),
 				}
 				mu.Unlock()
 			}
@@ -223,6 +224,42 @@ func (p *Predictor) Predict(ctx context.Context, tasks ...*sched.Task) map[*sche
 	}
 
 	return predMap
+}
+
+// prediction holds all the predictions based on a set of profiles.
+type prediction struct {
+	mem, durNanos float64
+	err           error
+}
+
+// predCacheEntry is an entry in the predictions cache.
+type predCacheEntry struct {
+	p *prediction
+
+	mu sync.Mutex
+	// expiration is the time after which this entry is considered expired.
+	expiration time.Time
+}
+
+// getPrediction returns prediction for the given task group.
+// getPrediction reads from/writes to the prredictor's cache as well.
+func (p *Predictor) getPrediction(ctx context.Context, group taskGroup) prediction {
+	v, _ := p.cache.LoadOrStore(group, new(predCacheEntry))
+	entry := v.(*predCacheEntry)
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.expiration.After(time.Now()) {
+		return *entry.p
+	}
+	entry.p = new(prediction)
+	if profiles, err := p.getProfiles(ctx, group); err != nil {
+		entry.p.err = err
+	} else {
+		entry.p.durNanos, _ = p.durationNanos(profiles)
+		entry.p.mem, entry.p.err = p.memUsage(profiles)
+	}
+	entry.expiration = time.Now().Add(p.cacheTtl)
+	return *entry.p
 }
 
 // getProfiles returns a list of profiles the predicted memory usage of a task in group.
