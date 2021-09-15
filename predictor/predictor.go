@@ -60,9 +60,6 @@ var defaultInspectLimiterTokens = runtime.NumCPU()
 type Predictor struct {
 	// taskDB is the task reporting db.
 	taskDB taskdb.TaskDB
-	// repository is the repository from which ExecInspects are
-	// downloaded.
-	repository reflow.Repository
 	// log is used to log.
 	log *log.Logger
 	// minData is the minimum number of data points (Profiles)
@@ -97,9 +94,13 @@ type Prediction struct {
 // New returns a new Predictor instance. New will panic if either repo or tdb is nil because
 // a Predictor requires both a taskdb and a repository to function. NewPred will also panic if
 // minData <= 0 because a prediction requires at least one data point.
-func New(repo reflow.Repository, tdb taskdb.TaskDB, log *log.Logger, minData, maxInspect int, memPercentile float64) *Predictor {
-	if tdb == nil || repo == nil {
-		panic("predictor requires both a repository and a taskdb to function")
+func New(tdb taskdb.TaskDB, log *log.Logger, minData, maxInspect int, memPercentile float64) *Predictor {
+	if tdb == nil {
+		panic("predictor requires a taskdb")
+	}
+	repo := tdb.Repository()
+	if repo == nil {
+		panic("predictor requires a repository")
 	}
 	if minData <= 0 {
 		panic("minData must be greater than zero")
@@ -117,7 +118,6 @@ func New(repo reflow.Repository, tdb taskdb.TaskDB, log *log.Logger, minData, ma
 
 	return &Predictor{
 		taskDB:         tdb,
-		repository:     repo,
 		log:            log,
 		minData:        minData,
 		maxInspect:     maxInspect,
@@ -294,6 +294,9 @@ func (p *Predictor) getProfiles(ctx context.Context, group taskGroup) ([]reflow.
 	sort.Slice(tasks, func(i, j int) bool {
 		return tasks[i].End.After(tasks[j].End)
 	})
+
+	repo := p.taskDB.Repository()
+
 	inspectDigests := make([]digest.Digest, 0, p.maxInspect)
 	for _, task := range tasks {
 		// Limit the number of inspects we will use to maxInspect.
@@ -305,7 +308,7 @@ func (p *Predictor) getProfiles(ctx context.Context, group taskGroup) ([]reflow.
 			continue
 		}
 		// Check if the inspect's reference in the repository is valid.
-		if _, err := p.repository.Stat(ctx, ins); err != nil {
+		if _, err := repo.Stat(ctx, ins); err != nil {
 			continue
 		}
 		inspectDigests = append(inspectDigests, ins)
@@ -319,7 +322,7 @@ func (p *Predictor) getProfiles(ctx context.Context, group taskGroup) ([]reflow.
 		if inspectDigests[i].IsZero() {
 			panic(fmt.Sprintf("unexpectedly got nil digest"))
 		}
-		rc, err := p.repository.Get(ctx, inspectDigests[i])
+		rc, err := repo.Get(ctx, inspectDigests[i])
 		if err != nil {
 			return nil
 		}

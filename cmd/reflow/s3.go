@@ -15,14 +15,14 @@ import (
 	"github.com/grailbio/reflow/tool"
 )
 
-func setupS3Repository(c *tool.Cmd, ctx context.Context, args ...string) {
+func setupS3Repository(c *tool.Cmd, _ context.Context, args ...string) {
 	flags := flag.NewFlagSet("setup-s3-repository", flag.ExitOnError)
 	help := `Setup-s3-repository provisions a bucket in AWS's S3 storage service
 and modifies Reflow's configuration to use this S3 bucket as its
 object repository.
 
 The resulting configuration can be examined with "reflow config"`
-	c.Parse(flags, args, help, "setup-s3-repository s3bucket")
+	c.Parse(flags, args, help, "setup-s3-repository <s3bucket>")
 	if flags.NArg() != 1 {
 		flags.Usage()
 	}

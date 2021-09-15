@@ -562,3 +562,19 @@ func (p *PredictorTestConfig) Init() error {
 func (p *PredictorTestConfig) InstanceConfig() interface{} {
 	return p
 }
+
+type TableNameFlagsTrait struct {
+	TableName string
+}
+
+func (t *TableNameFlagsTrait) Flags(flags *flag.FlagSet) {
+	flags.StringVar(&t.TableName, "table", "", "name of the dynamodb table")
+}
+
+type BucketNameFlagsTrait struct {
+	BucketName string
+}
+
+func (b *BucketNameFlagsTrait) Flags(flags *flag.FlagSet) {
+	flags.StringVar(&b.BucketName, "bucket", "", "name of the s3 bucket")
+}

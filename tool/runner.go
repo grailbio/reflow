@@ -188,17 +188,13 @@ func NewRunner(infraRunConfig infra.Config, runConfig RunConfig, logger *log.Log
 	if scheduler == nil {
 		panic(fmt.Sprintf("NewRunner must have scheduler"))
 	}
-	var repo reflow.Repository
-	if err = infraRunConfig.Instance(&repo); err != nil {
-		return
-	}
 	// Configure the Predictor.
 	var pred *predictor.Predictor
 	if runConfig.RunFlags.Pred {
 		if cfg, cerr := getPredictorConfig(infraRunConfig, false); cerr != nil {
 			logger.Errorf("error while configuring predictor: %s", cerr)
 		} else {
-			pred = predictor.New(repo, scheduler.TaskDB, logger.Tee(nil, "predictor: "), cfg.MinData, cfg.MaxInspect, cfg.MemPercentile)
+			pred = predictor.New(scheduler.TaskDB, logger.Tee(nil, "predictor: "), cfg.MinData, cfg.MaxInspect, cfg.MemPercentile)
 		}
 	}
 	var runID *taskdb.RunID
@@ -207,6 +203,10 @@ func NewRunner(infraRunConfig infra.Config, runConfig RunConfig, logger *log.Log
 	}
 	var user *infra2.User
 	if err = infraRunConfig.Instance(&user); err != nil {
+		return
+	}
+	var repo reflow.Repository
+	if err = infraRunConfig.Instance(&repo); err != nil {
 		return
 	}
 	r = &Runner{
@@ -337,7 +337,7 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 			r.Log.Debugf("error writing run to taskdb: %v", rerr)
 		} else {
 			go func() { _ = taskdb.KeepRunAlive(tctx, tdb, r.RunID) }()
-			go func() { _ = r.uploadBundle(tctx, r.repo, tdb, r.RunID, bundle, r.runConfig.Program, r.runConfig.Args) }()
+			go func() { _ = r.uploadBundle(tctx, tdb, r.RunID, bundle, r.runConfig.Program, r.runConfig.Args) }()
 		}
 	}
 	run := runner.Runner{
@@ -485,8 +485,9 @@ func (r *Runner) setRunComplete(ctx context.Context, tdb taskdb.TaskDB, endTime 
 
 // UploadBundle generates a bundle and updates taskdb with its digest. If the bundle does not already exist in taskdb,
 // uploadBundle caches it.
-func (r *Runner) uploadBundle(ctx context.Context, repo reflow.Repository, tdb taskdb.TaskDB, runID taskdb.RunID, bundle *syntax.Bundle, file string, args []string) error {
+func (r *Runner) uploadBundle(ctx context.Context, tdb taskdb.TaskDB, runID taskdb.RunID, bundle *syntax.Bundle, file string, args []string) error {
 	var (
+		repo     = tdb.Repository()
 		bundleId digest.Digest
 		rc       io.ReadCloser
 		err      error

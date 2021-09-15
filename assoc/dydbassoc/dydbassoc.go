@@ -30,6 +30,7 @@ import (
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
+	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/liveset"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/metrics"
@@ -39,16 +40,15 @@ import (
 )
 
 func init() {
-	infra.Register("dynamodbassoc", new(Assoc))
+	infra.Register(ProviderName, new(Assoc))
 }
 
 const (
+	// ProviderName is the name of this Assoc's infra config provider.
+	ProviderName = "dynamodbassoc"
+
 	// getTimeout is the timeout used for a single DynamoDB get request.
 	getTimeout = 30 * time.Second
-
-	// Default provisioned capacities for DynamoDB.
-	writecap = 10
-	readcap  = 20
 )
 
 var (
@@ -62,11 +62,8 @@ var (
 // Assoc implements a DynamoDB-backed Assoc for use in caches.
 // Each association entry is represented by a DynamoDB
 // item with the attributes "ID" and "Value".
-//
-// TODO(marius): support batch querying in this interface; it will be
-// more efficient than relying on call concurrency.
 type Assoc struct {
-	assoc.AssocFlagsTrait
+	infra2.TableNameFlagsTrait
 	DB      dynamodbiface.DynamoDBAPI `yaml:"-"`
 	Limiter *limiter.Limiter          `yaml:"-"`
 	// Labels to assign to cache entries.

@@ -542,6 +542,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			task.Set(TaskRunning)
 			err = x.Wait(ctx)
 			if s.TaskDB != nil {
+				// TODO(swami): Fix this so that the task result points to the result fileset.
 				if taskdbErr := s.TaskDB.SetTaskResult(tctx, task.ID, x.ID()); taskdbErr != nil {
 					task.Log.Errorf("taskdb settaskresult: %v", taskdbErr)
 				}
@@ -567,14 +568,15 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		case internal.StatePromote:
 			err = x.Promote(ctx)
 		case internal.StateInspect:
-			task.Log.Debugf("retrieving inspect (and saving to repo %s)", task.Repository.URL())
+			taskDBRepoUrl := s.TaskDB.Repository().URL()
+			task.Log.Debugf("retrieving inspect (and saving to repo %s)", taskDBRepoUrl)
 			var resp reflow.InspectResponse
-			resp, err = x.Inspect(ctx, task.Repository.URL())
+			resp, err = x.Inspect(ctx, taskDBRepoUrl)
 			if err == nil {
 				task.RunInfo = *resp.RunInfo
 			}
 			if d := task.RunInfo.InspectDigest.Digest; err == nil && !d.IsZero() {
-				task.Log.Debugf("saved inspect to repo %s: %s", task.Repository.URL(), d.Short())
+				task.Log.Debugf("saved inspect to repo %s: %s", taskDBRepoUrl, d.Short())
 			}
 		case internal.StateResult:
 			task.Result, err = x.Result(ctx)

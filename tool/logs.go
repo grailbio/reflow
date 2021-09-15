@@ -105,7 +105,7 @@ When printing exec logs, if -stdout is set, then the standard output of the exec
 			d = task.Stdout
 		}
 		if !d.IsZero() {
-			rlogs := c.remoteLogsFromRepo(ctx, d)
+			rlogs := c.remoteLogsFromTaskRepo(ctx, tdb.Repository(), d)
 			if rlogs.Type != reflow.RemoteLogsTypeCloudwatch {
 				c.Printf("log location: %s\n", rlogs)
 				return
@@ -215,9 +215,7 @@ func (c *Cmd) taskFromArg(ctx context.Context, tdb taskdb.TaskDB, d digest.Diges
 	return &tasks[0], nil
 }
 
-func (c *Cmd) remoteLogsFromRepo(ctx context.Context, d digest.Digest) (rl reflow.RemoteLogs) {
-	var repo reflow.Repository
-	c.must(c.Config.Instance(&repo))
+func (c *Cmd) remoteLogsFromTaskRepo(ctx context.Context, repo reflow.Repository, d digest.Digest) (rl reflow.RemoteLogs) {
 	rc, err := repo.Get(ctx, d)
 	if err != nil {
 		c.Fatalf("repository get %s: %v", d.Short(), err)

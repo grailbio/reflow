@@ -17,6 +17,6 @@ type NopTaskDB struct {
 
 // Init implements infra.Provider
 func (t *NopTaskDB) Init() error {
-	t.TaskDB = testutil.NewNopTaskDB()
+	t.TaskDB = testutil.NewNopTaskDB(nil)
 	return nil
 }

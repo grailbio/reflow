@@ -34,19 +34,23 @@ type InmemoryRepository struct {
 }
 
 var (
-	inmemoryReposMapOnce sync.Once
-	inmemoryReposMu      sync.Mutex
-	inmemoryReposMap     map[string]*InmemoryRepository
+	mu    sync.Mutex
+	repos = make(map[string]*InmemoryRepository)
 )
 
-// NewInmemoryRepository returns a new repository that stores objects
-// in memory.
+// NewInmemoryRepository returns a repository that stores objects in memory.
+// NewInmemoryRepository, if called with a non-empty name, will create a named repository,
+// and other callers which use the same name will get the same underlying instance.
+// So independent tests which do not want to share the repository should use unique names
+// (or no name at all, in which case, a random instance is returned each time).
 func NewInmemoryRepository(name string) *InmemoryRepository {
-	inmemoryReposMapOnce.Do(func() {
-		inmemoryReposMap = make(map[string]*InmemoryRepository)
-	})
 	if name == "" {
 		name = fmt.Sprintf("%d", rand.Int63())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if repo, ok := repos[name]; ok && repo != nil {
+		return repo
 	}
 	url, err := url.Parse(fmt.Sprint("inmemory://", name))
 	if err != nil {
@@ -57,16 +61,14 @@ func NewInmemoryRepository(name string) *InmemoryRepository {
 		files: map[digest.Digest][]byte{},
 		url:   url,
 	}
-	inmemoryReposMu.Lock()
-	inmemoryReposMap[name] = repo
-	inmemoryReposMu.Unlock()
+	repos[name] = repo
 	return repo
 }
 
 func GetInMemoryRepository(repo *url.URL) *InmemoryRepository {
-	inmemoryReposMu.Lock()
-	defer inmemoryReposMu.Unlock()
-	return inmemoryReposMap[repo.Host]
+	mu.Lock()
+	defer mu.Unlock()
+	return repos[repo.Host]
 }
 
 func (r *InmemoryRepository) get(k digest.Digest) []byte {

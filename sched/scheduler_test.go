@@ -8,15 +8,15 @@ import (
 	"context"
 	"fmt"
 	golog "log"
+	"math/rand"
 	"os"
 	"sort"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/grailbio/base/retry"
-
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/retry"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/testblob"
@@ -27,6 +27,7 @@ import (
 	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/sched/internal/utiltest"
 	"github.com/grailbio/reflow/taskdb"
+	"github.com/grailbio/reflow/taskdb/inmemorytaskdb"
 	"github.com/grailbio/reflow/test/testutil"
 )
 
@@ -36,7 +37,9 @@ func newTestScheduler(t *testing.T) (scheduler *sched.Scheduler, cluster *utilte
 	scheduler = sched.New()
 	scheduler.Transferer = testutil.Transferer
 	scheduler.Cluster = cluster
-	scheduler.TaskDB = utiltest.NewMockTaskDB()
+	scheduler.TaskDB = inmemorytaskdb.NewInmemoryTaskDB(
+		fmt.Sprintf("tdb_scheduler_test_%d", rand.Int63()),
+		fmt.Sprintf("taskrepo_scheduler_test_%d", rand.Int63()))
 	scheduler.MinAlloc = reflow.Resources{}
 	out := golog.New(os.Stderr, "scheduler: ", golog.LstdFlags)
 	scheduler.Log = log.New(out, log.DebugLevel)
@@ -160,7 +163,7 @@ func TestSchedulerBasic(t *testing.T) {
 	}
 	expectExists(t, repo, out)
 
-	mtdb := scheduler.TaskDB.(*utiltest.MockTaskDB)
+	mtdb := scheduler.TaskDB.(*inmemorytaskdb.InmemoryTaskDB)
 	tasks, _ := mtdb.Tasks(ctx, taskdb.TaskQuery{})
 	if got, want := len(tasks), 1; got != want {
 		t.Errorf("got %v, want %v", got, want)
@@ -260,7 +263,7 @@ func TestSchedulerDifferentTaskRepos(t *testing.T) {
 	expectNotExists(t, repo2, out1)
 	expectNotExists(t, repo1, out2)
 
-	mtdb := scheduler.TaskDB.(*utiltest.MockTaskDB)
+	mtdb := scheduler.TaskDB.(*inmemorytaskdb.InmemoryTaskDB)
 	tdbTasks, _ := mtdb.Tasks(ctx, taskdb.TaskQuery{})
 	if got, want := len(tdbTasks), len(tasks); got != want {
 		t.Errorf("got %v, want %v", got, want)

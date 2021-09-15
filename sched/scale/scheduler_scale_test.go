@@ -35,6 +35,7 @@ func newTestScheduler(t *testing.T) (scheduler *sched.Scheduler, cluster *alloca
 	cluster = new(allocator)
 	scheduler = sched.New()
 	scheduler.Transferer = testutil.Transferer
+	scheduler.TaskDB = testutil.NewNopTaskDB(testutil.NewInmemoryRepository("scheduler_scale_test"))
 	scheduler.Cluster = cluster
 	scheduler.MinAlloc = reflow.Resources{}
 	scheduler.MaxAllocIdleTime = 30 * time.Second

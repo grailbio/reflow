@@ -1033,6 +1033,7 @@ func newTestScheduler() (alloc *testAlloc, config flow.EvalConfig, done func()) 
 
 	sched := sched.New()
 	sched.Transferer = testutil.Transferer
+	sched.TaskDB = testutil.NewNopTaskDB(testutil.NewInmemoryRepository("eval_test"))
 	sched.Cluster = alloc
 	sched.MinAlloc = reflow.Resources{}
 	ctx, cancel := context.WithCancel(context.Background())

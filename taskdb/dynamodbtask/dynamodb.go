@@ -30,6 +30,7 @@ package dynamodbtask
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"strconv"
 	"strings"
@@ -47,11 +48,12 @@ import (
 	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
-	"github.com/grailbio/reflow/assoc/dydbassoc"
 	"github.com/grailbio/reflow/errors"
 	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
+	"github.com/grailbio/reflow/repository/blobrepo"
+	"github.com/grailbio/reflow/repository/s3"
 	"github.com/grailbio/reflow/taskdb"
 )
 
@@ -92,7 +94,7 @@ const (
 )
 
 func init() {
-	infra.Register("dynamodbtask", new(TaskDB))
+	infra.Register(ProviderName, new(TaskDB))
 }
 
 type objType string
@@ -105,6 +107,9 @@ const (
 )
 
 const (
+	// ProviderName is the name of this TaskDB's infra config provider.
+	ProviderName = "dynamodbtask"
+
 	// TimeLayout is the time layout used to serialize time to dynamodb attributes.
 	timeLayout = time.RFC3339
 	// DateLayout is the layout used to serialize date.
@@ -203,20 +208,23 @@ const (
 // a) RunID and its associated metadata (run labels, user info, and leases)
 // b) TaskID and its associated metadata (RunID that spawned this task, FlowID of the node, and leases)
 type TaskDB struct {
+	infra2.TableNameFlagsTrait
+	infra2.BucketNameFlagsTrait
 	// DB is the dynamodb.
 	DB dynamodbiface.DynamoDBAPI
-	// TableName is the table to write the run/task info to.
-	TableName string
 	// Labels on the run.
 	Labels []string
 	// User who initiated this run.
 	User string
 	// Limiter limits number of concurrent operations.
 	limiter *limiter.Limiter
+
+	// Repo is the repository to store large objects referenced from this TaskDB.
+	Repo *blobrepo.Repository
 }
 
 func (t *TaskDB) String() string {
-	return fmt.Sprintf("%T,TableName=%s,Labels=%s", t, t.TableName, strings.Join(t.Labels, ","))
+	return fmt.Sprintf("%T,TableName=%s,BucketName=%s,Labels=%s", t, t.TableName, t.BucketName, strings.Join(t.Labels, ","))
 }
 
 // Help implements infra.Provider.
@@ -225,10 +233,18 @@ func (TaskDB) Help() string {
 }
 
 // Init implements infra.Provider.
-func (t *TaskDB) Init(sess *session.Session, assoc *dydbassoc.Assoc, user *infra2.User, labels pool.Labels) error {
-	t.TableName = assoc.TableName
+func (t *TaskDB) Init(sess *session.Session, user *infra2.User, labels pool.Labels) (err error) {
 	if t.TableName == "" {
 		return fmt.Errorf("TaskDB table name cannot be empty")
+	}
+	switch {
+	case t.Repo != nil:
+	case t.BucketName == "":
+		return fmt.Errorf("TaskDB bucket name cannot be empty")
+	default:
+		if t.Repo, err = s3.InitRepo(sess, t.BucketName); err != nil {
+			return
+		}
 	}
 	t.limiter = limiter.New()
 	t.limiter.Release(32)
@@ -238,12 +254,18 @@ func (t *TaskDB) Init(sess *session.Session, assoc *dydbassoc.Assoc, user *infra
 		t.Labels = append(t.Labels, fmt.Sprintf("%s=%s", k, v))
 	}
 	t.User = string(*user)
-	return nil
+	return
+}
+
+// Flags implements infra.Provider.
+func (t *TaskDB) Flags(flags *flag.FlagSet) {
+	t.TableNameFlagsTrait.Flags(flags)
+	t.BucketNameFlagsTrait.Flags(flags)
 }
 
 // Version implements infra.Provider.
 func (t *TaskDB) Version() int {
-	return 1
+	return 2
 }
 
 // CreateRun sets a new run in the taskdb with the given id, labels and user.
@@ -1230,6 +1252,11 @@ func (t *TaskDB) Scan(ctx context.Context, kind taskdb.Kind, mappingHandler task
 		}
 		return nil
 	}))
+}
+
+// Repository implements taskdb.TaskDB.
+func (t *TaskDB) Repository() reflow.Repository {
+	return t.Repo
 }
 
 type streamedItem struct {

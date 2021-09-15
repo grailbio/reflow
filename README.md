@@ -52,10 +52,11 @@ important ways:
 - [Quickstart - AWS](#quickstart---aws)
 - [Simple bioinformatics workflow](#simple-bioinformatics-workflow)
 - [1000align](#1000align)
-- [A note on Reflow's EC2 cluster manager](#a-note-on-reflows-ec2-cluster-manager)
 - [Documentation](#documentation)
 - [Developing and building Reflow](#developing-and-building-reflow)
 - [Debugging Reflow runs](#debugging-reflow-runs)
+- [A note on Reflow's EC2 cluster manager](#a-note-on-reflows-ec2-cluster-manager)
+- [Setting up a TaskDB](#setting-up-a-taskdb)
 - [Support and community](#support-and-community)
 
 
@@ -169,6 +170,8 @@ unique.
 
 The setup commands created the S3 bucket and DynamoDB table as
 needed, and modified the configuration accordingly.
+
+Advanced users can also optionally [setup a taskdb](#setting-up-a-taskdb).
 
 We're now ready to run our first "hello world" program!
 
@@ -645,6 +648,42 @@ The cluster manager may be configured under the "ec2cluster" key in
 Reflow's configuration. Its parameters are documented by
 [godoc](https://godoc.org/github.com/grailbio/reflow/ec2cluster#Config).
 (Formal documentation is forthcoming.)
+
+## Setting up a TaskDB
+Setting up a TaskDB is entirely optional. The TaskDB is used to store a record of reflow runs,
+their sub-tasks (mainly `exec`s), the EC2 instances that were instantiated, etc.
+It provides the following benefits:
+
+* Tools such as `reflow info` will work better, especially in a multi-user environment.
+
+  That is, if you have a single AWS account and share it with other users to run `reflow`, then
+a TaskDB allows you to monitor and query info about all runs within the account (using `reflow ps`, `reflow info`, etc)
+* Determine cost of a particular run (included in the output of `reflow info`)
+* Determine cost of the cluster (`reflow ps -p` - see documentation using `reflow ps --help`)
+
+The following command can be used to setup a TaskDB (refer documentation:
+
+	% reflow setup-taskdb -help
+
+Note that the same dynamodb table and S3 bucket which were used to setup the cache (see above),
+could optionally be used here.  But note that this (TaskDB) feature comes with a cost (DynamoDB),
+and by keeping them separate, the costs can be managed independently.
+
+Example:
+
+	% reflow setup-taskdb <table_name> <s3_bucket_name>
+	reflow: attempting to create DynamoDB table ...
+	reflow: created DynamoDB table ...
+	reflow: waiting for table to become active; current status: CREATING
+	reflow: created secondary index Date-Keepalive-index
+	reflow: waiting for table to become active; current status: UPDATING
+	reflow: waiting for index Date-Keepalive-index to become active; current status: CREATING
+	...
+	reflow: created secondary index RunID-index
+	reflow: waiting for table to become active; current status: UPDATING
+	reflow: waiting for index RunID-index to become active; current status: CREATING
+	...
+
 
 ## Documentation
 

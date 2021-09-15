@@ -201,6 +201,9 @@ type TaskDB interface {
 	// Scan calls the handler function for every association in the mapping.
 	// Note that the handler function may be called asynchronously from multiple threads.
 	Scan(ctx context.Context, kind Kind, handler MappingHandler) error
+
+	// Repository returns the repository associated with this TaskDB.
+	Repository() reflow.Repository
 }
 
 // TimeFields are various common fields found in all taskdb row types.

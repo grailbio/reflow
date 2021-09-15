@@ -62,15 +62,11 @@ Valid values for -name are "mem" and "duration".
 	if err := c.Config.Instance(&tdb); err != nil {
 		c.Fatalf("pred needs taskdb: %v", err)
 	}
-	var repo reflow.Repository
-	if err := c.Config.Instance(&repo); err != nil {
-		c.Fatalf("pred needs repo: %v", err)
-	}
 	mi := cfg.MaxInspect
 	if *maxInspectFlag > 0 {
 		mi = *maxInspectFlag
 	}
-	p := predictor.New(repo, tdb, c.Log.Tee(nil, "predictor: "), cfg.MinData, mi, cfg.MemPercentile)
+	p := predictor.New(tdb, c.Log.Tee(nil, "predictor: "), cfg.MinData, mi, cfg.MemPercentile)
 	results := make(chan profResults)
 	go func() {
 		_ = traverse.Each(len(flags.Args()), func(i int) error {

@@ -38,6 +38,8 @@ const (
 
 type mockdb struct {
 	taskdb.TaskDB
+	repo reflow.Repository
+
 	nImgCmdIdCalls int32
 	nIdentCalls    int32
 
@@ -69,9 +71,14 @@ func (m *mockdb) Tasks(_ context.Context, taskQuery taskdb.TaskQuery) ([]taskdb.
 	return []taskdb.Task{}, fmt.Errorf("no tasks found")
 }
 
-func newMockdb() *mockdb {
+func (m *mockdb) Repository() reflow.Repository {
+	return m.repo
+}
+
+func newMockdb(repo reflow.Repository) *mockdb {
 	return &mockdb{
 		tasks: make(map[string][]taskdb.Task),
+		repo:  repo,
 	}
 }
 
@@ -200,40 +207,38 @@ func TestNewPred(t *testing.T) {
 
 	// If either repo or tdb are nil, NewPred() must panic because a
 	// Predictor requires both a Repository and a TaskDB to function.
-	r := func(repo reflow.Repository, tdb taskdb.TaskDB, minData, maxInspect int, memPercentile float64) {
+	r := func(tdb taskdb.TaskDB, minData, maxInspect int, memPercentile float64) {
 		if r := recover(); r == nil {
-			t.Errorf("expected panic for repo: %v, taskdb: %v, minData %d, maxInspect %d, memPercentile %v", repo, tdb, minData, maxInspect, memPercentile)
+			t.Errorf("expected panic for taskdb: %v, minData %d, maxInspect %d, memPercentile %v", tdb, minData, maxInspect, memPercentile)
 		}
 	}
 	for _, tt := range []struct {
-		repo                reflow.Repository
 		tdb                 taskdb.TaskDB
 		log                 *log.Logger
 		minData, maxInspect int
 		memPercentile       float64
 	}{
-		{newMockRepo(), nil, logger, 1, 2, 3},
-		{nil, newMockdb(), logger, 1, 2, 3},
-		{nil, nil, logger, 1, 2, 3},
-		{newMockRepo(), newMockdb(), logger, 0, 2, 3},
-		{newMockRepo(), newMockdb(), logger, 2, 1, 3},
-		{newMockRepo(), newMockdb(), logger, 1, 2, -1},
+		{newMockdb(nil), logger, 1, 2, 3},
+		{nil, logger, 1, 2, 3},
+		{newMockdb(newMockRepo()), logger, 0, 2, 3},
+		{newMockdb(newMockRepo()), logger, 2, 1, 3},
+		{newMockdb(newMockRepo()), logger, 1, 2, -1},
 	} {
-		defer r(tt.repo, tt.tdb, tt.minData, tt.maxInspect, tt.memPercentile)
-		_ = New(tt.repo, tt.tdb, tt.log, tt.minData, tt.maxInspect, tt.memPercentile)
+		defer r(tt.tdb, tt.minData, tt.maxInspect, tt.memPercentile)
+		_ = New(tt.tdb, tt.log, tt.minData, tt.maxInspect, tt.memPercentile)
 	}
 }
 
 func TestPredictImgCmdID(t *testing.T) {
 	var (
 		repo     = newMockRepo()
-		tdb      = newMockdb()
+		tdb      = newMockdb(repo)
 		ctx      = context.Background()
 		cacheTtl = time.Second
 	)
 	tasks, _ := generateData(t, ctx, repo, tdb, 0)
 
-	pred := New(repo, tdb, nil, defaultMinData, defaultMaxInspect, defaultMemPercentile)
+	pred := New(tdb, nil, defaultMinData, defaultMaxInspect, defaultMemPercentile)
 	pred.cacheTtl = cacheTtl
 
 	for i := 0; i < numTasks; i++ {
@@ -269,12 +274,12 @@ func TestPredictImgCmdID(t *testing.T) {
 func TestPredictIdent(t *testing.T) {
 	var (
 		repo = newMockRepo()
-		tdb  = newMockdb()
+		tdb  = newMockdb(repo)
 		ctx  = context.Background()
 	)
 	tasks, _ := generateData(t, ctx, repo, tdb, 1)
 
-	pred := New(repo, tdb, nil, defaultMinData, defaultMaxInspect, defaultMemPercentile)
+	pred := New(tdb, nil, defaultMinData, defaultMaxInspect, defaultMemPercentile)
 
 	for i := 0; i < numTasks; i++ {
 		if got, want := tasks[i].Config.Resources["mem"], float64(20); got != want {
@@ -306,7 +311,7 @@ func TestPredictIdent(t *testing.T) {
 func TestPredictMultiGroup(t *testing.T) {
 	var (
 		repo = newMockRepo()
-		tdb  = newMockdb()
+		tdb  = newMockdb(repo)
 		ctx  = context.Background()
 	)
 	tasks, _ := generateData(t, ctx, repo, tdb, 1)
@@ -327,7 +332,7 @@ func TestPredictMultiGroup(t *testing.T) {
 
 	// Since minData is set to 1 and each task has a unique imgCmdID, there will be 20
 	// imgCmdIDs and 20 unique predictions (1, 2, 3..., 20).
-	pred := New(repo, tdb, nil, 1, defaultMaxInspect, defaultMemPercentile)
+	pred := New(tdb, nil, 1, defaultMaxInspect, defaultMemPercentile)
 
 	for i := 0; i < numTasks; i++ {
 		if got, want := tasks[i].Config.Resources["mem"], float64(20); got != want {
@@ -389,7 +394,7 @@ func TestMemUsage(t *testing.T) {
 		{5, 50, generateProfiles([]float64{1, 2, 3, 4}), 0.0, true},
 		{5, 50, generateProfiles([]float64{1, 2, 3, 4, 5}), 3.0, false},
 	} {
-		pred := New(newMockRepo(), newMockdb(), nil, tc.minData, defaultMaxInspect, float64(tc.memPct))
+		pred := New(newMockdb(newMockRepo()), nil, tc.minData, defaultMaxInspect, float64(tc.memPct))
 		mem, err := pred.memUsage(tc.profiles)
 		if (err != nil) != tc.wantErr {
 			t.Errorf("got %v, want error %v", err, tc.wantErr)
@@ -406,11 +411,11 @@ func TestMemUsage(t *testing.T) {
 func TestGetProfilesInspectErrors(t *testing.T) {
 	var (
 		repo = newMockRepo()
-		tdb  = newMockdb()
+		tdb  = newMockdb(repo)
 		ctx  = context.Background()
 	)
 
-	pred := New(repo, tdb, nil, defaultMinData, defaultMaxInspect, defaultMemPercentile)
+	pred := New(tdb, nil, defaultMinData, defaultMaxInspect, defaultMemPercentile)
 
 	tasks, group := generateData(t, ctx, repo, tdb, 0)
 	for i := 0; i < numTasks; i++ {
@@ -463,7 +468,7 @@ func TestGetProfilesInspectErrors(t *testing.T) {
 func TestGroupByLevel(t *testing.T) {
 	var (
 		repo     = newMockRepo()
-		tdb      = newMockdb()
+		tdb      = newMockdb(repo)
 		ctx      = context.Background()
 		tasks, _ = generateData(t, ctx, repo, tdb, 0)
 	)

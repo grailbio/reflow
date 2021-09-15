@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/grailbio/infra"
-	"github.com/grailbio/reflow/assoc"
+	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/test/testutil"
 )
 
@@ -15,20 +15,16 @@ func init() {
 // InMemoryAssoc is an in-memory assoc infra provider
 type InMemoryAssoc struct {
 	*testutil.InmemoryAssoc
-	assoc.AssocFlagsTrait
+	infra2.TableNameFlagsTrait
 }
 
 var (
-	makeOnce sync.Once
-	mu       sync.Mutex
-	assocs   map[string]*testutil.InmemoryAssoc
+	mu     sync.Mutex
+	assocs = make(map[string]*testutil.InmemoryAssoc)
 )
 
 // Init implements infra.Provider
 func (a *InMemoryAssoc) Init() error {
-	makeOnce.Do(func() {
-		assocs = make(map[string]*testutil.InmemoryAssoc)
-	})
 	mu.Lock()
 	defer mu.Unlock()
 	if ea, ok := assocs[a.TableName]; ok {

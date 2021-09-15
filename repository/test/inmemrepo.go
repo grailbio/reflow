@@ -8,7 +8,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/testblob"
-	"github.com/grailbio/reflow/repository"
+	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/repository/blobrepo"
 )
 
@@ -21,7 +21,7 @@ const scheme = "inmemory"
 // InMemoryBlobRepository is a blob backed repository which stores values in memory
 type InMemoryBlobRepository struct {
 	*blobrepo.Repository
-	repository.RepoFlagsTrait
+	infra2.BucketNameFlagsTrait
 }
 
 var (
@@ -35,7 +35,7 @@ func (r *InMemoryBlobRepository) Init() error {
 		store = testblob.New(scheme)
 		blobrepo.Register(scheme, store)
 	})
-	bucket, err := store.Bucket(context.Background(), r.RepoFlagsTrait.BucketName)
+	bucket, err := store.Bucket(context.Background(), r.BucketNameFlagsTrait.BucketName)
 	if err != nil {
 		return err
 	}

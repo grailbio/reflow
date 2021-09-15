@@ -79,6 +79,7 @@ func main() {
 			"setup-ec2":            setupEC2,
 			"setup-s3-repository":  setupS3Repository,
 			"setup-dynamodb-assoc": setupDynamoDBAssoc,
+			"setup-taskdb":         setupTaskDB,
 		},
 	}
 	cmd.Schema = infra.Schema{

@@ -10,11 +10,13 @@ import (
 )
 
 // NewNopTaskDB returns a nop taskdb (for tests).
-func NewNopTaskDB() taskdb.TaskDB {
-	return nopTaskDB{}
+func NewNopTaskDB(repo reflow.Repository) taskdb.TaskDB {
+	return nopTaskDB{repo: repo}
 }
 
-type nopTaskDB struct{}
+type nopTaskDB struct {
+	repo reflow.Repository
+}
 
 // CreateRun is a no op.
 func (n nopTaskDB) CreateRun(ctx context.Context, id taskdb.RunID, user string) error {
@@ -113,4 +115,9 @@ func (n nopTaskDB) Pools(ctx context.Context, poolQuery taskdb.PoolQuery) ([]tas
 // Scan does nothing.
 func (n nopTaskDB) Scan(ctx context.Context, kind taskdb.Kind, handler taskdb.MappingHandler) error {
 	return nil
+}
+
+// Repository returns the repository (if any).
+func (n nopTaskDB) Repository() reflow.Repository {
+	return n.repo
 }

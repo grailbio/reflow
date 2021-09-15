@@ -24,7 +24,7 @@ import (
 	_ "github.com/grailbio/infra/aws"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
-	_ "github.com/grailbio/reflow/assoc/dydbassoc"
+	"github.com/grailbio/reflow/assoc/dydbassoc"
 	"github.com/grailbio/reflow/errors"
 	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
@@ -52,10 +52,11 @@ func TestRunCreate(t *testing.T) {
 	var (
 		labels = []string{"test=label"}
 		mockdb = mockDynamodbPut{}
-		taskb  = &TaskDB{DB: &mockdb, TableName: mockTableName, Labels: labels}
+		taskb  = &TaskDB{DB: &mockdb, Labels: labels}
 		runID  = taskdb.RunID(reflow.Digester.Rand(rand.New(rand.NewSource(1))))
 		user   = "reflow"
 	)
+	taskb.TableName = mockTableName
 	err := taskb.CreateRun(context.Background(), runID, user)
 	if err != nil {
 		t.Fatal(err)
@@ -80,11 +81,12 @@ func TestRunCreate(t *testing.T) {
 func TestSetRunAttrs(t *testing.T) {
 	var (
 		mockdb = mockDynamoDBUpdate{}
-		taskb  = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		taskb  = &TaskDB{DB: &mockdb}
 		runID  = taskdb.NewRunID()
 		bundle = reflow.Digester.Rand(nil)
 		args   = []string{"-a=1", "-b=2"}
 	)
+	taskb.TableName = mockTableName
 	err := taskb.SetRunAttrs(context.Background(), runID, bundle, args)
 	if err != nil {
 		t.Fatal(err)
@@ -105,7 +107,8 @@ func TestSetRunAttrs(t *testing.T) {
 		}
 	}
 	// Verify correct behavior if no args are passed to SetRunAttrs
-	taskb = &TaskDB{DB: &mockdb, TableName: mockTableName}
+	taskb = &TaskDB{DB: &mockdb}
+	taskb.TableName = mockTableName
 	err = taskb.SetRunAttrs(context.Background(), runID, bundle, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -125,7 +128,8 @@ func TestSetRunAttrs(t *testing.T) {
 	}
 
 	var emptyArgs []string
-	taskb = &TaskDB{DB: &mockdb, TableName: mockTableName}
+	taskb = &TaskDB{DB: &mockdb}
+	taskb.TableName = mockTableName
 	err = taskb.SetRunAttrs(context.Background(), runID, bundle, emptyArgs)
 	if err != nil {
 		t.Fatal(err)
@@ -150,7 +154,7 @@ func TestTaskCreate(t *testing.T) {
 	var (
 		labels   = []string{"test=label"}
 		mockdb   = mockDynamodbPut{}
-		taskb    = &TaskDB{DB: &mockdb, TableName: mockTableName, Labels: labels}
+		taskb    = &TaskDB{DB: &mockdb, Labels: labels}
 		taskID   = taskdb.NewTaskID()
 		runID    = taskdb.NewRunID()
 		allocID  = reflow.Digester.Rand(nil)
@@ -161,6 +165,7 @@ func TestTaskCreate(t *testing.T) {
 		imgCmdID = taskdb.NewImgCmdID("image", "cmd")
 		res      = reflow.Resources{"cpu": 2, "mem": 4 * 1024 * 1024 * 1024}
 	)
+	taskb.TableName = mockTableName
 	err := taskb.CreateTask(context.Background(), taskdb.Task{
 		ID:        taskID,
 		RunID:     runID,
@@ -215,10 +220,11 @@ func (m *mockDynamoDBUpdate) UpdateItemWithContext(ctx aws.Context, input *dynam
 func TestSetTaskResult(t *testing.T) {
 	var (
 		mockdb = mockDynamoDBUpdate{}
-		taskb  = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		taskb  = &TaskDB{DB: &mockdb}
 		taskID = taskdb.NewTaskID()
 		result = reflow.Digester.Rand(nil)
 	)
+	taskb.TableName = mockTableName
 	err := taskb.SetTaskResult(context.Background(), taskID, result)
 	if err != nil {
 		t.Fatal(err)
@@ -241,10 +247,11 @@ func TestSetTaskResult(t *testing.T) {
 func TestSetTaskUri(t *testing.T) {
 	var (
 		mockdb = mockDynamoDBUpdate{}
-		taskb  = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		taskb  = &TaskDB{DB: &mockdb}
 		taskID = taskdb.NewTaskID()
 		uri    = "some_uri"
 	)
+	taskb.TableName = mockTableName
 	err := taskb.SetTaskUri(context.Background(), taskID, uri)
 	if err != nil {
 		t.Fatal(err)
@@ -267,12 +274,13 @@ func TestSetTaskUri(t *testing.T) {
 func TestSetTaskAttrs(t *testing.T) {
 	var (
 		mockdb  = mockDynamoDBUpdate{}
-		taskb   = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		taskb   = &TaskDB{DB: &mockdb}
 		taskID  = taskdb.NewTaskID()
 		stderr  = reflow.Digester.Rand(nil)
 		stdout  = reflow.Digester.Rand(nil)
 		inspect = reflow.Digester.Rand(nil)
 	)
+	taskb.TableName = mockTableName
 	err := taskb.SetTaskAttrs(context.Background(), taskID, stdout, stderr, inspect)
 	if err != nil {
 		t.Fatal(err)
@@ -297,7 +305,7 @@ func TestSetTaskAttrs(t *testing.T) {
 func TestSetRunComplete(t *testing.T) {
 	var (
 		mockdb    = mockDynamoDBUpdate{}
-		taskb     = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		taskb     = &TaskDB{DB: &mockdb}
 		runID     = taskdb.NewRunID()
 		execLog   = reflow.Digester.Rand(nil)
 		sysLog    = reflow.Digester.Rand(nil)
@@ -305,6 +313,7 @@ func TestSetRunComplete(t *testing.T) {
 		trace     = reflow.Digester.Rand(nil)
 		end       = time.Now()
 	)
+	taskb.TableName = mockTableName
 	err := taskb.SetRunComplete(context.Background(), runID, execLog, sysLog, evalGraph, trace, end)
 	if err != nil {
 		t.Fatal(err)
@@ -333,11 +342,12 @@ func TestSetRunComplete(t *testing.T) {
 func TestSetTaskComplete(t *testing.T) {
 	var (
 		mockdb = mockDynamoDBUpdate{}
-		taskb  = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		taskb  = &TaskDB{DB: &mockdb}
 		taskID = taskdb.NewTaskID()
 		tdbErr error
 		end    = time.Now()
 	)
+	taskb.TableName = mockTableName
 	err := taskb.SetTaskComplete(context.Background(), taskID, tdbErr, end)
 	if err != nil {
 		t.Fatal(err)
@@ -379,12 +389,13 @@ func TestSetTaskComplete(t *testing.T) {
 func TestStartAlloc(t *testing.T) {
 	var (
 		mockdb  = mockDynamodbPut{}
-		taskb   = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		taskb   = &TaskDB{DB: &mockdb}
 		allocID = reflow.NewStringDigest("allocid")
 		poolID  = reflow.Digester.Rand(nil)
 		res     = reflow.Resources{"cpu": 2, "mem": 4 * 1024 * 1024 * 1024}
 		start   = time.Now().Add(-time.Hour)
 	)
+	taskb.TableName = mockTableName
 	err := taskb.StartAlloc(context.Background(), allocID, poolID, res, start)
 	if err != nil {
 		t.Fatal(err)
@@ -411,7 +422,7 @@ func TestStartAlloc(t *testing.T) {
 func TestStartPool(t *testing.T) {
 	var (
 		mockdb = mockDynamodbPut{}
-		taskb  = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		taskb  = &TaskDB{DB: &mockdb}
 		p      = taskdb.Pool{
 			PoolID:    reflow.NewStringDigest("poolid"),
 			PoolType:  "pool_type",
@@ -419,6 +430,7 @@ func TestStartPool(t *testing.T) {
 			URI:       "http://some_url",
 		}
 	)
+	taskb.TableName = mockTableName
 	p.Start = time.Now().Add(-time.Hour)
 	p.ClusterName = "cluster_name"
 	p.User = "user@grailbio.com"
@@ -453,10 +465,11 @@ func TestStartPool(t *testing.T) {
 func TestSetResources(t *testing.T) {
 	var (
 		mockdb = mockDynamoDBUpdate{}
-		taskb  = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		taskb  = &TaskDB{DB: &mockdb}
 		id     = reflow.Digester.Rand(nil)
 		res    = reflow.Resources{"cpu": 2, "mem": 4 * 1024 * 1024 * 1024}
 	)
+	taskb.TableName = mockTableName
 	err := taskb.SetResources(context.Background(), id, res)
 	if err != nil {
 		t.Fatal(err)
@@ -479,10 +492,11 @@ func TestSetResources(t *testing.T) {
 func TestKeepIDAlive(t *testing.T) {
 	var (
 		mockdb    = mockDynamoDBUpdate{}
-		taskb     = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		taskb     = &TaskDB{DB: &mockdb}
 		runID     = taskdb.NewRunID()
 		keepalive = time.Now().UTC()
 	)
+	taskb.TableName = mockTableName
 	err := taskb.KeepIDAlive(context.Background(), digest.Digest(runID), keepalive)
 	if err != nil {
 		t.Fatal(err)
@@ -507,10 +521,11 @@ func TestKeepIDAlive(t *testing.T) {
 func TestSetEndTime(t *testing.T) {
 	var (
 		mockdb  = mockDynamoDBUpdate{}
-		taskb   = &TaskDB{DB: &mockdb, TableName: mockTableName}
+		taskb   = &TaskDB{DB: &mockdb}
 		id      = reflow.Digester.Rand(nil)
 		endtime = time.Now().UTC()
 	)
+	taskb.TableName = mockTableName
 	err := taskb.SetEndTime(context.Background(), id, endtime)
 	if err != nil {
 		t.Fatal(err)
@@ -582,8 +597,9 @@ func TestRunsIDQueries(t *testing.T) {
 		runID      = taskdb.RunID(id)
 		truncRunID = taskdb.RunID(truncated(id))
 		mockdb     = getMockRunTaskDB()
-		taskb      = &TaskDB{DB: mockdb, TableName: mockTableName}
+		taskb      = &TaskDB{DB: mockdb}
 	)
+	taskb.TableName = mockTableName
 	mockdb.id = id
 	for _, tt := range []struct {
 		q                     taskdb.RunQuery
@@ -640,10 +656,11 @@ func TestRunsIDQueries(t *testing.T) {
 func TestRunsSinceQuery(t *testing.T) {
 	var (
 		mockdb = getmockquerytaskdb()
-		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
+		taskb  = &TaskDB{DB: mockdb}
 		now    = time.Now().UTC()
 		since  = now.Add(-time.Minute * 10)
 	)
+	taskb.TableName = mockTableName
 	// Ensure since has the current UTC date so we generate only one query
 	if date(now) != date(since) {
 		since = now.UTC().Truncate(time.Hour * 24)
@@ -677,8 +694,9 @@ func TestRunsSinceQuery(t *testing.T) {
 func TestRunsTimeBucketQuery(t *testing.T) {
 	var (
 		mockdb = getmockquerytaskdb()
-		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
+		taskb  = &TaskDB{DB: mockdb}
 	)
+	taskb.TableName = mockTableName
 	queryTime := time.Now().UTC().Add(-time.Hour * 24)
 	// Make sure we don't hit an hour boundary. This can result in one extra query.
 	if queryTime.Truncate(time.Hour) == queryTime {
@@ -740,10 +758,11 @@ func TestRunsTimeBucketQuery(t *testing.T) {
 func TestRunsSinceUserQuery(t *testing.T) {
 	var (
 		mockdb = getmockquerytaskdb()
-		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
+		taskb  = &TaskDB{DB: mockdb}
 		since  = time.Now().UTC()
 		query  = taskdb.RunQuery{User: "reflow", Since: since}
 	)
+	taskb.TableName = mockTableName
 	date := date(since).Format(dateLayout)
 	_, err := taskb.Runs(context.Background(), query)
 	if err != nil {
@@ -852,8 +871,9 @@ func TestTasksIDQueries(t *testing.T) {
 		taskID      = taskdb.TaskID(id)
 		truncTaskID = taskdb.TaskID(truncated(id))
 		mockdb      = getmocktaskstaskdb()
-		taskb       = &TaskDB{DB: mockdb, TableName: mockTableName}
+		taskb       = &TaskDB{DB: mockdb}
 	)
+	taskb.TableName = mockTableName
 	mockdb.id = id
 	for _, tt := range []struct {
 		q                     taskdb.TaskQuery
@@ -908,9 +928,10 @@ func TestTasksRunIDQuery(t *testing.T) {
 	var (
 		id     = taskdb.NewRunID()
 		mockdb = getmockquerytaskdb()
-		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
+		taskb  = &TaskDB{DB: mockdb}
 		query  = taskdb.TaskQuery{RunID: id}
 	)
+	taskb.TableName = mockTableName
 	mockdb.id = digest.Digest(id)
 	mockdb.uri = "execURI"
 	mockdb.ident = "testident"
@@ -956,9 +977,10 @@ func TestTasksImgCmdIDQuery(t *testing.T) {
 		cmd      = "cmd"
 		imgCmdID = taskdb.NewImgCmdID(image, cmd)
 		mockdb   = getmockquerytaskdb()
-		taskb    = &TaskDB{DB: mockdb, TableName: mockTableName}
+		taskb    = &TaskDB{DB: mockdb}
 		query    = taskdb.TaskQuery{ImgCmdID: imgCmdID}
 	)
+	taskb.TableName = mockTableName
 	id, err := reflow.Digester.Parse(imgCmdID.ID())
 	if err != nil {
 		t.Fatal(err)
@@ -1007,9 +1029,10 @@ func TestTasksIdentQuery(t *testing.T) {
 		ident  = "testident"
 		id     = reflow.Digester.Rand(nil)
 		mockdb = getmockquerytaskdb()
-		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
+		taskb  = &TaskDB{DB: mockdb}
 		query  = taskdb.TaskQuery{Ident: ident}
 	)
+	taskb.TableName = mockTableName
 	mockdb.id = id
 	mockdb.uri = "execURI"
 	mockdb.ident = ident
@@ -1052,10 +1075,11 @@ func TestTasksIdentQuery(t *testing.T) {
 func TestTasksSinceQuery(t *testing.T) {
 	var (
 		mockdb = getmockquerytaskdb()
-		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
+		taskb  = &TaskDB{DB: mockdb}
 		now    = time.Now().UTC()
 		since  = now.Add(-time.Minute * 10)
 	)
+	taskb.TableName = mockTableName
 	// Ensure since has the current UTC date so we generate only one query
 	if date(now) != date(since) {
 		since = now.UTC().Truncate(time.Hour * 24)
@@ -1089,8 +1113,9 @@ func TestTasksSinceQuery(t *testing.T) {
 func TestTasksTimeBucketQuery(t *testing.T) {
 	var (
 		mockdb = getmockquerytaskdb()
-		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
+		taskb  = &TaskDB{DB: mockdb}
 	)
+	taskb.TableName = mockTableName
 	queryTime := time.Now().UTC().Add(-time.Hour * 24)
 	// Make sure we don't hit an hour boundary. This can result in one extra query.
 	if queryTime.Truncate(time.Hour) == queryTime {
@@ -1152,10 +1177,11 @@ func TestTasksLimitQuery(t *testing.T) {
 		ident        = "testident"
 		id           = reflow.Digester.Rand(nil)
 		mockdb       = getmockquerytaskdb()
-		taskb        = &TaskDB{DB: mockdb, TableName: mockTableName}
+		taskb        = &TaskDB{DB: mockdb}
 		limit  int64 = 5
 		query        = taskdb.TaskQuery{Ident: ident, Limit: limit}
 	)
+	taskb.TableName = mockTableName
 	mockdb.id = id
 	mockdb.uri = "execURI"
 	mockdb.ident = ident
@@ -1174,9 +1200,10 @@ func TestTasksAwsErrMissingIndex(t *testing.T) {
 		runID       = taskdb.NewRunID()
 		expectederr = awserr.New("ValidationException", "The table does not have the specified index", nil)
 		mockdb      = getmocktaskstaskdb()
-		taskb       = &TaskDB{DB: mockdb, TableName: mockTableName}
+		taskb       = &TaskDB{DB: mockdb}
 		query       = taskdb.TaskQuery{RunID: runID}
 	)
+	taskb.TableName = mockTableName
 	mockdb.err = expectederr
 	tasks, err := taskb.Tasks(context.Background(), query)
 	awserr, ok := err.(*errors.Error).Err.(*errors.Error).Err.(awserr.Error)
@@ -1196,9 +1223,10 @@ func TestTasksUnknownError(t *testing.T) {
 		badTaskID   = taskdb.NewTaskID()
 		expectederr = errors.New("some unknown error")
 		mockdb      = getmocktaskstaskdb()
-		taskb       = &TaskDB{DB: mockdb, TableName: mockTableName}
+		taskb       = &TaskDB{DB: mockdb}
 		query       = taskdb.TaskQuery{ID: badTaskID}
 	)
+	taskb.TableName = mockTableName
 	mockdb.err = expectederr
 	tasks, err := taskb.Tasks(context.Background(), query)
 	if err == nil {
@@ -1218,9 +1246,10 @@ func TestTasksRunIDQueryAwsErrMissingIndex(t *testing.T) {
 		runID       = taskdb.NewRunID()
 		expectederr = awserr.New("ValidationException", "The table does not have the specified index", nil)
 		mockdb      = getmockquerytaskdb()
-		taskb       = &TaskDB{DB: mockdb, TableName: mockTableName}
+		taskb       = &TaskDB{DB: mockdb}
 		query       = taskdb.TaskQuery{RunID: runID}
 	)
+	taskb.TableName = mockTableName
 	mockdb.err = expectederr
 	tasks, err := taskb.Tasks(context.Background(), query)
 	awserr, ok := err.(*errors.Error).Err.(*errors.Error).Err.(awserr.Error)
@@ -1240,9 +1269,10 @@ func TestTasksRunIDQueryOtherError(t *testing.T) {
 		runID       = taskdb.NewRunID()
 		expectederr = awserr.New("", "some error", nil)
 		mockdb      = getmockquerytaskdb()
-		taskb       = &TaskDB{DB: mockdb, TableName: mockTableName}
+		taskb       = &TaskDB{DB: mockdb}
 		query       = taskdb.TaskQuery{RunID: runID}
 	)
+	taskb.TableName = mockTableName
 	mockdb.err = expectederr
 	tasks, err := taskb.Tasks(context.Background(), query)
 	awserr, ok := err.(*errors.Error).Err.(awserr.Error)
@@ -1258,7 +1288,10 @@ func TestTasksRunIDQueryOtherError(t *testing.T) {
 }
 
 func TestDydbTaskdbInfra(t *testing.T) {
-	const table = "reflow-unittest"
+	const (
+		bucket = "reflow-unittest"
+		table  = "reflow-unittest"
+	)
 	testutil.SkipIfNoCreds(t)
 	var schema = infra.Schema{
 		"session": new(session.Session),
@@ -1271,8 +1304,8 @@ func TestDydbTaskdbInfra(t *testing.T) {
 	config, err := schema.Make(infra.Keys{
 		"session": "awssession",
 		"user":    "user,user=test",
-		"taskdb":  "dynamodbtask",
-		"assoc":   fmt.Sprintf("dynamodbassoc,table=%v", table),
+		"taskdb":  fmt.Sprintf("%s,table=%v,bucket=%s", ProviderName, table, bucket),
+		"assoc":   fmt.Sprintf("%s,table=%v", dydbassoc.ProviderName, table),
 		"logger":  "logger",
 		"labels":  "kv",
 	})
@@ -1322,8 +1355,9 @@ func TestTaskDBScan(t *testing.T) {
 	var (
 		ctx    = context.Background()
 		mockdb = &mockDynamodbScanTasks{}
-		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
+		taskb  = &TaskDB{DB: mockdb}
 	)
+	taskb.TableName = mockTableName
 	for _, tt := range []struct {
 		kind     taskdb.Kind
 		key      digest.Digest
