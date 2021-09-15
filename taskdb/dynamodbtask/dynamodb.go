@@ -724,25 +724,31 @@ func (t *TaskDB) buildIndexQuery(kind taskdb.Kind, indexName, partKey string, ty
 		":keyval": {S: aws.String(partKey)},
 		":type":   {S: aws.String(string(typ))},
 	}
+	exprAttrNames := map[string]string{"#Type": colType}
+	filters := []string{"#Type = :type"}
+	projCols := make([]string, len(cols))
+	if len(cols) > 0 {
+		for i, col := range cols {
+			colname, ok := colmap[col]
+			if !ok {
+				panic("invalid kind")
+			}
+			deref := fmt.Sprintf("#%s", colname)
+			exprAttrNames[deref] = colname
+			projCols[i] = deref
+			filters = append(filters, fmt.Sprintf("attribute_exists(%s)", deref))
+		}
+	}
 	input := &dynamodb.QueryInput{
 		TableName:                 aws.String(t.TableName),
 		IndexName:                 aws.String(indexName),
 		KeyConditionExpression:    aws.String(keyExpression),
 		ExpressionAttributeValues: attributeValues,
-		FilterExpression:          aws.String("#Type = :type"),
-		ExpressionAttributeNames: map[string]*string{
-			"#Type": aws.String(colType),
-		},
+		FilterExpression:          aws.String(strings.Join(filters, " AND ")),
+		ExpressionAttributeNames:  aws.StringMap(exprAttrNames),
 	}
-	if len(cols) > 0 {
-		projCols := make([]string, len(cols))
-		for i, col := range cols {
-			colname, colnameOk := colmap[col]
-			if !colnameOk {
-				panic("invalid kind")
-			}
-			projCols[i] = colname
-		}
+	// ProjectionExpression must only be set if it is non-empty.
+	if len(projCols) > 0 {
 		input.ProjectionExpression = aws.String(strings.Join(projCols, ", "))
 	}
 	return []*dynamodb.QueryInput{input}
