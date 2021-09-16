@@ -132,38 +132,13 @@ func (s *Session) Open(path string) (Module, error) {
 		s.srcByModule[path] = source
 		mod = lx.Module
 	case ".rfx": // Reflow bundles.
-		bundle, openErr := OpenBundle(srcDig, bytes.NewReader(source), int64(len(source)))
-		if openErr != nil {
-			return nil, openErr
-		}
-		// Find the entrypoint; type check and evaluate it in a new, isolated
-		// session.
-		entry, args, entrypointPath, err := bundle.Entrypoint()
-		if err != nil {
+		if mod, err = OpenBundleModule(bytes.NewReader(source), int64(len(source)), path, srcDig); err != nil {
 			return nil, err
 		}
-		sess := NewSession(bundle)
-		sess.path = entrypointPath
-		lx := &Parser{
-			File: path,
-			Body: bytes.NewReader(entry),
-			Mode: ParseModule,
-		}
-		if err = lx.Parse(); err != nil {
-			return nil, err
-		}
-		// The module is initalized inside of its own, isolated session.
-		if err = lx.Module.Init(sess, sess.Types); err != nil {
-			return nil, err
-		}
-		if err = lx.Module.InjectArgs(sess, args); err != nil {
-			return nil, err
-		}
-		s.modules[path] = lx.Module
+		s.modules[path] = mod
 		// We treat the module monolithically: its source is the contents
 		// of the bundle itself.
 		s.srcByModule[path] = source
-		mod = lx.Module
 	case ".reflow": // Reflow "v0" script.
 		prog := &lang.Program{
 			File: path,

@@ -1,3 +1,7 @@
-val p = make("p.rfx", p1 := "hello")
-val Main = (p.X, p.Y)
+param (
+	p1 = "hello"
+	p3 = 321
+)
 
+val p = make("p.rfx", p1 := p1, p3 := p3)
+val Main = (p.X, p.Y)

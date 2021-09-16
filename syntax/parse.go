@@ -242,7 +242,7 @@ func (x *Parser) unscan() (prev, tok rune, text string, pos scanner.Position) {
 
 // Lex returns the next token.
 func (x *Parser) Lex(yy *yySymType) (xx int) {
-	var comment string
+	var comment strings.Builder
 	if tok := x.first; tok != 0 {
 		x.first = 0
 		return tok
@@ -252,7 +252,7 @@ func (x *Parser) Lex(yy *yySymType) (xx int) {
 Scan:
 	if tok, ok := tokens[tok]; ok {
 		yy.pos.Position = pos
-		yy.pos.comment = comment
+		yy.pos.comment = comment.String()
 		return tok
 	}
 	switch tok {
@@ -265,7 +265,7 @@ Scan:
 	case scanner.Ident:
 		if tok, ok := identTokens[text]; ok {
 			yy.pos.Position = pos
-			yy.pos.comment = comment
+			yy.pos.comment = comment.String()
 			return tok
 		}
 		switch text {
@@ -278,7 +278,7 @@ Scan:
 			}
 			return tokExpr
 		}
-		yy.expr = &Expr{Position: pos, Comment: comment, Kind: ExprIdent, Ident: text}
+		yy.expr = &Expr{Position: pos, Comment: comment.String(), Kind: ExprIdent, Ident: text}
 		return tokIdent
 	case scanner.Int:
 		yy.expr = &Expr{
@@ -335,12 +335,12 @@ Scan:
 			switch tok {
 			case scanner.Comment:
 				if strings.HasPrefix(text, "//") {
-					comment += strings.TrimSpace(text[2:])
+					comment.WriteString(strings.TrimSpace(text[2:]))
 				} else {
-					comment += strings.TrimSpace(text[2 : len(text)-2])
+					comment.WriteString(strings.TrimSpace(text[2 : len(text)-2]))
 				}
 			case '\n':
-				comment += text
+				comment.WriteString(text)
 			default:
 				if prev1 == '\n' {
 					_, tok, text, pos = x.unscan()
@@ -358,7 +358,7 @@ Scan:
 		goto Scan
 	}
 	yy.pos.Position = pos
-	yy.pos.comment = comment
+	yy.pos.comment = comment.String()
 	return int(tok)
 }
 

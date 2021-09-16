@@ -13,6 +13,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"sort"
 	"sync"
 
 	"github.com/grailbio/base/digest"
@@ -68,10 +69,18 @@ func (b *Bundle) Entrypoint() (source []byte, args []string, path string, err er
 }
 
 // WriteTo writes an archive (ZIP formatted) of this bundle to the provided
-// io.Writer. Archives written by Write can be opened by OpenBundle.
+// io.Writer. Archives written by Write can be opened by OpenBundleModule.
 func (b *Bundle) WriteTo(w io.Writer) error {
 	z := zip.NewWriter(w)
-	for d, data := range b.files {
+	digests := make([]digest.Digest, 0, len(b.files))
+	for d := range b.files {
+		digests = append(digests, d)
+	}
+	sort.Slice(digests, func(i, j int) bool {
+		return digests[i].String() < digests[j].String()
+	})
+	for _, d := range digests {
+		data := b.files[d]
 		f, err := z.Create(d.String())
 		if err != nil {
 			return err
@@ -93,26 +102,35 @@ func (b *Bundle) WriteTo(w io.Writer) error {
 var (
 	// bundleOnce makes sure we load a bundle (identified by its source digest) only once.
 	bundleOnce once.Map
-	// bundleCache maps a bundle's digest to a Bundle object.
-	bundleCache sync.Map // map[digest.Digest]*Bundle
+	// bundleModCache maps a bundle's digest to a Bundle object.
+	bundleModCache sync.Map // map[digest.Digest]*ModuleImpl
 )
 
-// OpenBundle opens a bundle archive saved by Bundle.Write.
-// OpenBundle uses a cache to retrieve known bundles (by digest).
-func OpenBundle(d digest.Digest, r io.ReaderAt, size int64) (*Bundle, error) {
-	err := bundleOnce.Do(d, func() error {
-		bundle, err := openBundle(r, size)
+// OpenBundleModule opens a bundle archive saved by Bundle.Write and parses it into a Module.
+// The arguments are:
+// src: The source code (expected to be a bundle archive saved using Bundle.Write.
+// size: Size of the source code bytes.
+// srcPath: Path of the source which was used to fetch the source from the underlying Sourcer.
+// srcDigest: Digest of the underlying source code
+// OpenBundleModule uses a cache to retrieve known already parsed bundles (by digest).
+func OpenBundleModule(src io.ReaderAt, size int64, srcPath string, srcDigest digest.Digest) (Module, error) {
+	err := bundleOnce.Do(srcDigest, func() error {
+		bundle, err := openBundle(src, size)
 		if err != nil {
 			return err
 		}
-		bundleCache.Store(d, bundle)
+		mod, err := parseBundle(bundle, srcPath)
+		if err != nil {
+			return err
+		}
+		bundleModCache.Store(srcDigest, mod)
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	v, _ := bundleCache.Load(d)
-	return v.(*Bundle), nil
+	v, _ := bundleModCache.Load(srcDigest)
+	return v.(*ModuleImpl), nil
 }
 
 // openBundle opens a bundle archive saved by Bundle.Write.
@@ -138,7 +156,7 @@ func openBundle(r io.ReaderAt, size int64) (*Bundle, error) {
 			return nil, err
 		}
 		bundle.files[d], err = ioutil.ReadAll(f)
-		f.Close()
+		_ = f.Close()
 		if err != nil {
 			return nil, err
 		}
@@ -155,4 +173,31 @@ func openBundle(r io.ReaderAt, size int64) (*Bundle, error) {
 		return nil, err
 	}
 	return bundle, nil
+}
+
+// parseBundle parses a bundle into a module.
+func parseBundle(bundle *Bundle, path string) (*ModuleImpl, error) {
+	// Find the entrypoint; type check and evaluate it in a new, isolated session.
+	entry, args, entrypointPath, err := bundle.Entrypoint()
+	if err != nil {
+		return nil, err
+	}
+	sess := NewSession(bundle)
+	sess.path = entrypointPath
+	lx := Parser{
+		File: path,
+		Body: bytes.NewReader(entry),
+		Mode: ParseModule,
+	}
+	if err = lx.Parse(); err != nil {
+		return nil, err
+	}
+	mod := lx.Module
+	if err = mod.Init(sess, sess.Types); err != nil {
+		return nil, err
+	}
+	if err = mod.InjectArgs(sess, args); err != nil {
+		return nil, err
+	}
+	return mod, nil
 }
