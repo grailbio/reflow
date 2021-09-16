@@ -75,7 +75,8 @@ retriable.`
 	e := Eval{
 		InputArgs: flags.Args(),
 	}
-	c.must(e.Run())
+	_, err := e.Run(false)
+	c.must(err)
 	sess, err := awsSession(c.Config)
 	c.must(err)
 	c.must(e.ResolveImages(sess))

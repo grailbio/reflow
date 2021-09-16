@@ -42,6 +42,7 @@ import (
 	repositoryhttp "github.com/grailbio/reflow/repository/http"
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/sched"
+	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/wg"
 	"golang.org/x/net/http2"
@@ -285,7 +286,8 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 		Program: r.runConfig.Program,
 		Args:    r.runConfig.Args,
 	}
-	if err = e.Run(); err != nil {
+	bundle, err := e.Run(true)
+	if err != nil {
 		return runner.State{}, err
 	}
 	if err = e.ResolveImages(r.sess); err != nil {
@@ -335,7 +337,7 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 			r.Log.Debugf("error writing run to taskdb: %v", rerr)
 		} else {
 			go func() { _ = taskdb.KeepRunAlive(tctx, tdb, r.RunID) }()
-			go func() { _ = r.uploadBundle(tctx, r.repo, tdb, r.RunID, e, r.runConfig.Program, r.runConfig.Args) }()
+			go func() { _ = r.uploadBundle(tctx, r.repo, tdb, r.RunID, bundle, r.runConfig.Program, r.runConfig.Args) }()
 		}
 	}
 	run := runner.Runner{
@@ -483,7 +485,7 @@ func (r *Runner) setRunComplete(ctx context.Context, tdb taskdb.TaskDB, endTime 
 
 // UploadBundle generates a bundle and updates taskdb with its digest. If the bundle does not already exist in taskdb,
 // uploadBundle caches it.
-func (r *Runner) uploadBundle(ctx context.Context, repo reflow.Repository, tdb taskdb.TaskDB, runID taskdb.RunID, e Eval, file string, args []string) error {
+func (r *Runner) uploadBundle(ctx context.Context, repo reflow.Repository, tdb taskdb.TaskDB, runID taskdb.RunID, bundle *syntax.Bundle, file string, args []string) error {
 	var (
 		bundleId digest.Digest
 		rc       io.ReadCloser
@@ -494,7 +496,7 @@ func (r *Runner) uploadBundle(ctx context.Context, repo reflow.Repository, tdb t
 	if ext := filepath.Ext(file); ext == ".rfx" {
 		rc, bundleId, err = getBundle(file)
 	} else {
-		rc, bundleId, tmpName, err = makeBundle(e.Bundle)
+		rc, bundleId, tmpName, err = makeBundle(bundle)
 		if err == nil {
 			defer os.Remove(tmpName)
 		}

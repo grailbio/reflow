@@ -37,8 +37,6 @@ type Eval struct {
 	Args []string
 	// V1 tells whether this program is a "V1" (".rf") program.
 	V1 bool
-	// Bundle stores a v1 bundle associated with this evaluation.
-	Bundle *syntax.Bundle
 	// Images is the list of images that were parsed from a syntax session.
 	Images []string
 	// ImageMap stores a mapping between image names and resolved
@@ -75,11 +73,12 @@ func (e *Eval) Main() *flow.Flow {
 // legacy (".reflow") and modern (".rf") programs. It interprets
 // flags as module parameters. Input arguments and options are
 // specified in the passed-in Eval; results are deposited there, too.
-func (e *Eval) Run() error {
+// Run will also return a reflow Bundle for the given reflow program,
+// if getBundle is set to true and if applicable (ie, only if it is a V1 reflow program with .rf or .rfx extension)
+func (e *Eval) Run(getBundle bool) (*syntax.Bundle, error) {
 	if len(e.InputArgs) == 0 && len(e.Program) == 0 {
-		return errors.New("no program provided")
+		return nil, errors.New("no program provided")
 	}
-
 	var (
 		file string
 		args []string
@@ -92,17 +91,17 @@ func (e *Eval) Run() error {
 	var err error
 	e.Program, err = filepath.Abs(file)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	switch ext := filepath.Ext(file); ext {
 	case ".reflow":
 		f, err := os.Open(file)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		prog := &lang.Program{File: file, Errors: os.Stderr}
 		if err := prog.ParseAndTypecheck(f); err != nil {
-			return fmt.Errorf("type error: %s", err)
+			return nil, fmt.Errorf("type error: %s", err)
 		}
 		flags := prog.Flags()
 		usage := func() error {
@@ -115,7 +114,7 @@ func (e *Eval) Run() error {
 		}
 		e.Params = make(map[string]string)
 		if err = flags.Parse(args); err != nil {
-			return err
+			return nil, err
 		}
 		var flagErr error
 		flags.VisitAll(func(f *flag.Flag) {
@@ -126,7 +125,7 @@ func (e *Eval) Run() error {
 			e.Params[f.Name] = f.Value.String()
 		})
 		if flagErr != nil {
-			return flagErr
+			return nil, flagErr
 		}
 		prog.Args = flags.Args()
 		e.Args = prog.Args
@@ -134,17 +133,19 @@ func (e *Eval) Run() error {
 			"Main": prog.Eval(),
 		}
 		e.Type = prog.ModuleType()
-		return nil
+		return nil, nil
 	case ".rf", ".rfx":
 		sess := syntax.NewSession(nil)
 		if err := e.evalV1(sess); err != nil {
-			return err
+			return nil, err
 		}
-		e.Bundle = sess.Bundle()
 		e.Images = sess.Images()
-		return nil
+		if getBundle {
+			return sess.Bundle(), nil
+		}
+		return nil, nil
 	default:
-		return fmt.Errorf("unknown file extension %q", ext)
+		return nil, fmt.Errorf("unknown file extension %q", ext)
 	}
 }
 
