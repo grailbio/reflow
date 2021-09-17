@@ -149,9 +149,6 @@ type Module interface {
 	// When it does, all parameters are forced and fully evaluated
 	// before instantiating a new module instance.
 	Eager() bool
-	// Source of this module. This can be used to archive the program
-	// and rerun the program on a different machine.
-	Source() []byte
 	// InjectArgs injects a set of command line flags to override module
 	// parameters.
 	InjectArgs(sess *Session, args []string) error
@@ -173,8 +170,6 @@ type ModuleImpl struct {
 
 	Docs map[string]string
 
-	// source bytes of this module.
-	source []byte
 	typ    *types.T
 	tenv   *types.Env
 
@@ -186,11 +181,6 @@ type ModuleImpl struct {
 	penv       *types.Env
 	predicates types.Predicates
 	required   map[string]bool
-}
-
-// Source gets the source code of this module.
-func (m *ModuleImpl) Source() []byte {
-	return m.source
 }
 
 // Eager returns false.

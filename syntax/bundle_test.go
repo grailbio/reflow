@@ -11,18 +11,23 @@ import (
 	"os"
 	"testing"
 
+	"github.com/grailbio/base/digest"
+	"github.com/grailbio/reflow"
+
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/values"
 )
 
 type memorySourcer map[string][]byte
 
-func (m memorySourcer) Source(path string) ([]byte, error) {
-	p := m[path]
+func (m memorySourcer) Source(path string) (p []byte, d digest.Digest, err error) {
+	p = m[path]
 	if p == nil {
-		return nil, os.ErrNotExist
+		err = os.ErrNotExist
+	} else {
+		d = reflow.Digester.FromBytes(p)
 	}
-	return p, nil
+	return
 }
 
 func TestBundle(t *testing.T) {

@@ -38,8 +38,10 @@ type Session struct {
 
 	src Sourcer
 
-	path    string
-	modules map[string]Module
+	path        string
+	modules     map[string]Module
+	srcByModule map[string][]byte
+
 	// Entrypoint is the first module opened.
 	entrypoint     Module
 	entrypointPath string
@@ -58,7 +60,12 @@ type Session struct {
 //
 // If src is nil, the default Sourcer is selected.
 func NewSession(src Sourcer) *Session {
-	s := &Session{modules: map[string]Module{}, images: map[string]bool{}, src: src}
+	s := &Session{
+		modules:     map[string]Module{},
+		srcByModule: make(map[string][]byte),
+		images:      map[string]bool{},
+		src:         src,
+	}
 	if s.src == nil {
 		s.src = Filesystem
 	}
@@ -86,7 +93,7 @@ func (s *Session) Open(path string) (Module, error) {
 	if m, ok := s.modules[path]; ok {
 		return m, nil
 	}
-	source, err := s.src.Source(path)
+	source, srcDig, err := s.src.Source(path)
 	if err != nil {
 		return nil, err
 	}
@@ -121,13 +128,13 @@ func (s *Session) Open(path string) (Module, error) {
 		for _, decl := range lx.Module.Decls {
 			decl.Ident = base + "." + decl.Ident
 		}
-		lx.Module.source = source
 		s.modules[path] = lx.Module
+		s.srcByModule[path] = source
 		mod = lx.Module
 	case ".rfx": // Reflow bundles.
-		bundle, err := OpenBundle(bytes.NewReader(source), int64(len(source)))
-		if err != nil {
-			return nil, err
+		bundle, openErr := OpenBundle(srcDig, bytes.NewReader(source), int64(len(source)))
+		if openErr != nil {
+			return nil, openErr
 		}
 		// Find the entrypoint; type check and evaluate it in a new, isolated
 		// session.
@@ -142,20 +149,20 @@ func (s *Session) Open(path string) (Module, error) {
 			Body: bytes.NewReader(entry),
 			Mode: ParseModule,
 		}
-		if err := lx.Parse(); err != nil {
+		if err = lx.Parse(); err != nil {
 			return nil, err
 		}
 		// The module is initalized inside of its own, isolated session.
-		if err := lx.Module.Init(sess, sess.Types); err != nil {
+		if err = lx.Module.Init(sess, sess.Types); err != nil {
 			return nil, err
 		}
-		if err := lx.Module.InjectArgs(sess, args); err != nil {
+		if err = lx.Module.InjectArgs(sess, args); err != nil {
 			return nil, err
 		}
+		s.modules[path] = lx.Module
 		// We treat the module monolithically: its source is the contents
 		// of the bundle itself.
-		lx.Module.source = source
-		s.modules[path] = lx.Module
+		s.srcByModule[path] = source
 		mod = lx.Module
 	case ".reflow": // Reflow "v0" script.
 		prog := &lang.Program{
@@ -174,7 +181,6 @@ func (s *Session) Open(path string) (Module, error) {
 			params: make(map[string]string),
 			path:   path,
 			typ:    prog.ModuleType(),
-			source: source,
 		}
 		flags := prog.Flags()
 		flags.VisitAll(func(f *flag.Flag) {
@@ -192,6 +198,7 @@ func (s *Session) Open(path string) (Module, error) {
 			return nil, err
 		}
 		s.modules[path] = m
+		s.srcByModule[path] = source
 		mod = m
 	}
 	if assignEntrypoint {
@@ -209,10 +216,11 @@ func (s *Session) Bundle() *Bundle {
 	bundle.files = make(map[digest.Digest][]byte)
 	bundle.manifest.Files = make(map[string]digest.Digest)
 	for path, mod := range s.modules {
-		var (
-			p = mod.Source()
-			d = reflow.Digester.FromBytes(p)
-		)
+		p, ok := s.srcByModule[path]
+		if !ok || p == nil {
+			panic(fmt.Sprintf("missing source for path %s", path))
+		}
+		d := reflow.Digester.FromBytes(p)
 		bundle.files[d] = p
 		bundle.manifest.Files[path] = d
 		if mod == s.entrypoint {
@@ -277,7 +285,7 @@ func (s *Session) NWarn() int {
 // files.
 type Sourcer interface {
 	// Source returns the source bytes for the provided path.
-	Source(path string) ([]byte, error)
+	Source(path string) ([]byte, digest.Digest, error)
 }
 
 // Filesystem is a Sourcer that reads from the local file system.
@@ -285,6 +293,14 @@ var Filesystem Sourcer = filesystem{}
 
 type filesystem struct{}
 
-func (filesystem) Source(path string) ([]byte, error) {
-	return ioutil.ReadFile(path)
+func (filesystem) Source(path string) (b []byte, d digest.Digest, err error) {
+	b, err = ioutil.ReadFile(path)
+	if err != nil {
+		return
+	}
+	dw := reflow.Digester.NewWriter()
+	if _, err = io.Copy(dw, bytes.NewReader(b)); err == nil {
+		d = dw.Digest()
+	}
+	return
 }

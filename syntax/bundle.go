@@ -13,8 +13,10 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"sync"
 
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/reflow/log"
 )
 
@@ -42,16 +44,16 @@ type Bundle struct {
 
 // Source retrieves the source bytes associated with
 // the provided path.
-func (b *Bundle) Source(path string) ([]byte, error) {
-	d, ok := b.manifest.Files[path]
-	if !ok {
-		return nil, os.ErrNotExist
+func (b *Bundle) Source(path string) (p []byte, d digest.Digest, err error) {
+	var ok bool
+	if d, ok = b.manifest.Files[path]; !ok {
+		err = os.ErrNotExist
+		return
 	}
-	p, ok := b.files[d]
-	if !ok {
-		return nil, fmt.Errorf("invalid bundle: file %s (%v) is missing", path, d)
+	if p, ok = b.files[d]; !ok {
+		err = fmt.Errorf("invalid bundle: file %s (%v) is missing", path, d)
 	}
-	return p, nil
+	return
 }
 
 // Entrypoint returns the bundle's entrypoint: its source,
@@ -88,8 +90,33 @@ func (b *Bundle) WriteTo(w io.Writer) error {
 	return z.Close()
 }
 
+var (
+	// bundleOnce makes sure we load a bundle (identified by its source digest) only once.
+	bundleOnce once.Map
+	// bundleCache maps a bundle's digest to a Bundle object.
+	bundleCache sync.Map // map[digest.Digest]*Bundle
+)
+
 // OpenBundle opens a bundle archive saved by Bundle.Write.
-func OpenBundle(r io.ReaderAt, size int64) (*Bundle, error) {
+// OpenBundle uses a cache to retrieve known bundles (by digest).
+func OpenBundle(d digest.Digest, r io.ReaderAt, size int64) (*Bundle, error) {
+	err := bundleOnce.Do(d, func() error {
+		bundle, err := openBundle(r, size)
+		if err != nil {
+			return err
+		}
+		bundleCache.Store(d, bundle)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	v, _ := bundleCache.Load(d)
+	return v.(*Bundle), nil
+}
+
+// openBundle opens a bundle archive saved by Bundle.Write.
+func openBundle(r io.ReaderAt, size int64) (*Bundle, error) {
 	z, err := zip.NewReader(r, size)
 	if err != nil {
 		return nil, err
