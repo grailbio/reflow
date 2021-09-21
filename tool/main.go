@@ -20,7 +20,9 @@ import (
 	"runtime/pprof"
 	"sort"
 	"syscall"
+	"time"
 
+	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/must"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/infra"
@@ -76,7 +78,8 @@ type Cmd struct {
 	logFlag        string
 	filesetOpLim   int
 
-	onexits []func()
+	memStatsDuration time.Duration
+	onexits          []func()
 
 	flags *flag.FlagSet
 
@@ -343,6 +346,8 @@ func (c *Cmd) Main() {
 		c.Exit(1)
 	}()
 
+	go c.logMemStats(ctx, c.Log, c.memStatsDuration)
+
 	// If the command panics, we want to recover, log and exit normally.
 	var perr error
 	func() {
@@ -428,6 +433,7 @@ func (c *Cmd) Flags() *flag.FlagSet {
 		c.flags.StringVar(&c.httpFlag, "http", "", "run a diagnostic HTTP server on this port")
 		c.flags.StringVar(&c.cpuProfileFlag, "cpuprofile", "", "capture a CPU profile and deposit it to the provided path")
 		c.flags.StringVar(&c.memProfileFlag, "memprofile", "", "capture a Memory profile and deposit it to the provided path")
+		c.flags.DurationVar(&c.memStatsDuration, "memstatsduration", 0, "log high-level memory stats at this frequency (eg: 100ms)")
 		c.flags.StringVar(&c.logFlag, "log", "info", "set the log level: off, error, info, debug")
 		c.flags.IntVar(&c.filesetOpLim, "fileset_op_limit", -1, "set the number of concurrent reflow fileset operations allowed (if unset or non-positive, uses default which is number of CPUs)")
 
@@ -476,4 +482,35 @@ func increaseFDRlimit() error {
 	}
 
 	return syscall.Setrlimit(syscall.RLIMIT_NOFILE, &l)
+}
+
+func (c *Cmd) logMemStats(ctx context.Context, log *log.Logger, freq time.Duration) {
+	if freq == 0 {
+		return
+	}
+	readAndPrint := func(prefix string) {
+		stats := new(runtime.MemStats)
+		runtime.ReadMemStats(stats)
+		pref := fmt.Sprintf("[%s]:", time.Now().Format(time.RFC3339))
+		if prefix != "" {
+			pref = pref + " " + prefix
+		}
+		log.Printf("%s Sys %s, Stack: %s/%s Heap: %s/%s\n", pref,
+			data.Size(stats.Sys),
+			data.Size(stats.StackInuse), data.Size(stats.StackSys),
+			data.Size(stats.HeapInuse), data.Size(stats.HeapSys))
+	}
+	c.onexit(func() {
+		runtime.GC()
+		readAndPrint("(post GC)")
+	})
+	iter := time.NewTicker(freq)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-iter.C:
+		}
+		readAndPrint("")
+	}
 }
