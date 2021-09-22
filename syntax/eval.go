@@ -1265,13 +1265,15 @@ func (e *Expr) evalComprK(sess *Session, env *values.Env, ident string, begin in
 		// TODO: make sure we compute the same digest for the single-clause case.
 		//	(and test this)
 		env2 := env.Push()
-		for i, j := begin, 0; i < len(e.ComprClauses); i++ {
+		for i := begin; i < len(e.ComprClauses); i++ {
 			clause := e.ComprClauses[i]
 			switch clause.Kind {
 			case ComprEnum:
-				for _, id := range clause.Pat.Idents(nil) {
-					env2.Bind(id, digestN(j))
-					j++
+				for _, m := range clause.Pat.Matchers() {
+					if m.Kind != MatchValue || m.Ident == "" {
+						continue
+					}
+					env2.Bind(m.Ident, m.Path().Digest())
 				}
 			case ComprFilter:
 			}

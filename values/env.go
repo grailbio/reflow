@@ -6,6 +6,7 @@ package values
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow/types"
@@ -13,6 +14,16 @@ import (
 
 // Symtab is a symbol table of values.
 type Symtab map[string]T
+
+func (s Symtab) PrettyString() string {
+	b := strings.Builder{}
+	b.WriteString("--------------Symtab--------------\n")
+	for k, v := range s {
+		b.WriteString(fmt.Sprintf("%s = %v\n", k, v))
+	}
+	b.WriteString("----------------------------------\n")
+	return b.String()
+}
 
 // Env binds identifiers to evaluation.
 type Env struct {
