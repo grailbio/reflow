@@ -7,12 +7,13 @@ package values
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow/types"
 )
 
-// Symtab is a symbol table of values.
+// symtab is a symbol table of values.
 type Symtab map[string]T
 
 func (s Symtab) PrettyString() string {
@@ -27,10 +28,14 @@ func (s Symtab) PrettyString() string {
 
 // Env binds identifiers to evaluation.
 type Env struct {
-	// Symtab is the symbol table for this level.
-	Symtab Symtab
+	// symtab is the symbol table for this level.
+	symtab Symtab
 	debug  bool
 	next   *Env
+
+	// digests maps ids to computed/cached digest values.
+	mu      sync.Mutex
+	digests map[string]digest.Digest
 }
 
 // NewEnv constructs and initializes a new Env.
@@ -44,7 +49,12 @@ func (e *Env) Bind(id string, v T) {
 	if id == "" {
 		panic("empty identifier")
 	}
-	e.Symtab[id] = v
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if w, ok := e.symtab[id]; ok && !Equal(v, w) {
+		delete(e.digests, id)
+	}
+	e.symtab[id] = v
 }
 
 // String returns a string describing all the bindings in this
@@ -52,7 +62,7 @@ func (e *Env) Bind(id string, v T) {
 func (e *Env) String() string {
 	tab := make(Symtab)
 	for ; e != nil; e = e.next {
-		for id, v := range e.Symtab {
+		for id, v := range e.symtab {
 			_, ok := tab[id]
 			if !ok {
 				tab[id] = v
@@ -76,23 +86,38 @@ type digester interface {
 //	}
 //
 // it returns the result of calling the Digest Method.
-func (e *Env) Digest(id string, t *types.T) digest.Digest {
-	v := e.Value(id)
+//
+// Digest also caches the computed digests for an id, and will return the cached value
+// upon subsequent calls.
+func (e *Env) Digest(id string, t *types.T) (d digest.Digest) {
+	v, ve := e.valueAndEnv(id)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if ve != nil {
+		var cached bool
+		if d, cached = ve.digests[id]; cached {
+			return
+		}
+	}
 	switch vv := v.(type) {
 	case digest.Digest:
-		return vv
+		d = vv
 	case digester:
-		return vv.Digest()
+		d = vv.Digest()
 	default:
-		return Digest(vv, t)
+		d = Digest(vv, t)
 	}
+	if ve != nil {
+		ve.digests[id] = d
+	}
+	return d
 }
 
 // Level returns the level of identifier id. Level can thus be used
 // as a de-Bruijn index (in conjunction with the identifier).
 func (e *Env) Level(id string) int {
 	for l := 0; e != nil; e, l = e.next, l+1 {
-		if e.Symtab[id] != nil {
+		if e.symtab[id] != nil {
 			return l
 		}
 	}
@@ -102,7 +127,7 @@ func (e *Env) Level(id string) int {
 // Contains tells whether environment e binds identifier id.
 func (e *Env) Contains(id string) bool {
 	for ; e != nil; e = e.next {
-		if _, ok := e.Symtab[id]; ok {
+		if _, ok := e.symtab[id]; ok {
 			return true
 		}
 	}
@@ -111,23 +136,30 @@ func (e *Env) Contains(id string) bool {
 
 // Value returns the value bound to identifier id, or else nil.
 func (e *Env) Value(id string) T {
+	v, _ := e.valueAndEnv(id)
+	return v
+}
+
+// Value returns the value bound to identifier id, or else nil.
+func (e *Env) valueAndEnv(id string) (T, *Env) {
 	if e == nil {
-		return nil
+		return nil, nil
 	}
 	for ; e != nil; e = e.next {
-		if v := e.Symtab[id]; v != nil {
-			return v
+		if v := e.symtab[id]; v != nil {
+			return v, e
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // Push returns returns a new environment level, linked
 // to the previous.
 func (e *Env) Push() *Env {
 	return &Env{
-		Symtab: make(Symtab),
-		next:   e,
+		symtab:  make(Symtab),
+		digests: make(map[string]digest.Digest),
+		next:    e,
 	}
 }
 
