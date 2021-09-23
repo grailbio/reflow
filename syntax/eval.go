@@ -1326,6 +1326,10 @@ func (e *Expr) evalCompr(sess *Session, env *values.Env, ident string, begin int
 				left := vs[0].(*values.Map)
 				var err error
 				left.Each(func(k, v values.T) {
+					// return immediately if an error occurred in a previous entry
+					if err != nil {
+						return
+					}
 					env2 := env.Push()
 					for _, matcher := range clause.Pat.Matchers() {
 						tup := values.Tuple{k, v}

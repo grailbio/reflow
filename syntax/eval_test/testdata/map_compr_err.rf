@@ -1,0 +1,3 @@
+val test = make("$/test")
+val TestMapComprErr = [test.Assert(bools) | (_, bools) <- ["a": [true], "b": [false]]]
+

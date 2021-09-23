@@ -5,6 +5,7 @@
 package eval_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/grailbio/reflow/syntax"
@@ -46,6 +47,8 @@ func TestEvalErr(t *testing.T) {
 		{"testdata/strings_err1.rf", "number has no digits"},
 		{"testdata/strings_err2.rf", "number has no digits"},
 		{"testdata/strings_err3.rf", "expected end of string, found '-'"},
+		{"testdata/map_compr_err.rf", "failed assertion map_compr_err.TestMapComprErr"},
+		{"testdata/list_compr_err.rf", "failed assertion list_compr_err.TestListComprErr"},
 	} {
 		m, err := sess.Open(c.file)
 		if err != nil {
@@ -57,7 +60,7 @@ func TestEvalErr(t *testing.T) {
 			t.Errorf("%s: expected error", c.file)
 			continue
 		}
-		if got, want := err.Error(), c.err; got != want {
+		if got, want := err.Error(), c.err; !strings.Contains(got, want) {
 			t.Errorf("%s: got '%v', want '%v'", c.file, got, want)
 		}
 	}

@@ -1,0 +1,2 @@
+val test = make("$/test")
+val TestListComprErr = [test.Assert(bools) | bools <- [[false], [true]]]
