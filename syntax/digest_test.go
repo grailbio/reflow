@@ -67,16 +67,22 @@ func TestDigestDelay(t *testing.T) {
 }
 
 func TestDigestCompr(t *testing.T) {
-	for _, expr := range []string{
-		`[x*x | x <- delay([1,2,3])]`,
-		`[y*y | y <- delay([1,2,3])]`,
+	for _, tc := range []struct {
+		expr string
+		want string
+	}{
+		// we expect the first two cases to have the same digest because they are equivalent when evaluated
+		{`[x*x | x <- delay([1,2,3])]`, "sha256:337a09abbd076b3c5744b6fc7eec05f3035a79431503b452153aced03a741d57"},
+		{`[y*y | y <- delay([1,2,3])]`, "sha256:337a09abbd076b3c5744b6fc7eec05f3035a79431503b452153aced03a741d57"},
+		// despite having the same identifiers as the previous case, this digest should be different
+		{`[y*y | y <- delay([4,5,6])]`, "sha256:1a62e182832898d8d2e9d096be2af02302aa186732c5dfdb8f797f4ce9469462"},
 	} {
-		v, _, _, err := eval(expr)
+		v, _, _, err := eval(tc.expr)
 		if err != nil {
-			t.Fatalf("%s: %v", expr, err)
+			t.Fatalf("%s: %v", tc.expr, err)
 		}
 		f := v.(*flow.Flow)
-		if got, want := f.Digest().String(), "sha256:8310ad9a33309b3b9b37c1bed2ec7898757cad3b3b5929aee538797bfee8fba0"; got != want {
+		if got, want := f.Digest().String(), tc.want; got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
 	}

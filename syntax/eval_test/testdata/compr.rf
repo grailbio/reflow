@@ -1,0 +1,70 @@
+val d = dir("testdata/testdir")
+val filelist = list(d)
+val filemap = map(d)
+
+// List comprehension test cases
+
+val TestListComprTuple = {
+	 val (paths, files) = ([p | (p, x) <- filelist], [f | (y, f) <- filelist])
+	 ((paths[0] == "0") && (files[0] == file("testdata/testdir/0")))
+}
+
+val TestListComprTupleFirstIsBlank = {
+	 val (paths, files) = ([p | (p, _) <- filelist], [f | (y, f) <- filelist])
+	 ((paths[0] == "0") && (files[0] == file("testdata/testdir/0")))
+}
+
+val TestListComprTupleSecondIsBlank = {
+	 val (paths, files) = ([p | (p, x) <- filelist], [f | (_, f) <- filelist])
+	 ((paths[0] == "0") && (files[0] == file("testdata/testdir/0")))
+}
+
+val TestListComprTupleTwoIgnorePatterns = {
+	val (paths, files) = ([p | (p, _) <- filelist], [f | (_, f) <- filelist])
+	((paths[0] == "0") && (files[0] == file("testdata/testdir/0")))
+}
+
+val TestListComprTupleSameVar = {
+	val (paths, files) = ([x | (x, _) <- filelist], [x | (_, x) <- filelist])
+	((paths[0] == "0") && (files[0] == file("testdata/testdir/0")))
+}
+
+val TestListComprNestedTupleBothBlankIdentifiers = {
+	val stuff = [((p, f), (p, f)) | (p, f) <- filelist]
+	val (paths, files) = ([p | ((_, _), (p, _)) <- stuff], [f | (_, (_, f)) <- stuff])
+	((paths[0] == "0") && (files[0] == file("testdata/testdir/0")))
+}
+
+val TestMultipleListsComprTupleSameVar = {
+	val intlist = [1]
+	val (pathLenPlusOne, fileSizePlusOne) = (
+		[len(x) + y | (x, _) <- filelist, y <- intlist], // len(x) is the length of the path str
+		[len(x) + y | (_, x) <- filelist, y <- intlist]) // len(x) is the size of the file
+	((pathLenPlusOne[0] == len("0") + 1) && (fileSizePlusOne[0] == len(file("testdata/testdir/0")) + 1))
+}
+
+val TestFilterListComprTupleSameVar = {
+	val (paths, files) = ([x | (x, _) <- filelist, if len(x) >= 0], [x | (_, x) <- filelist, if len(x) >= 0])
+	((paths[0] == "0") && (files[0] == file("testdata/testdir/0")))
+}
+
+type PathFile #Path(string) | #File(file)
+val TestListComprVariant = {
+	val ps = [#Path("0")]
+	val fs = [#File(file("testdata/testdir/0"))]
+	val (paths, files) = ([p | #Path(p) <- delay(ps)], [f | #File(f) <- delay(fs)])
+	((paths[0] == "0") && (files[0] == file("testdata/testdir/0")))
+}
+
+// Map comprehension test cases: all the files in testdir are empty, so we can always
+// expect files[0] to have a size of 0 bytes (regardless of the map iteration order).
+
+val TestMapComprTupleTwoIgnorePatterns = {
+	val (paths, files) = ([p | (p, _) <- filemap], [f | (_, f) <- filemap])
+	((len(paths) == 20) && (len(files[0]) == 0))
+}
+
+val TestMapComprTupleSameVar = {
+	val (paths, files) = ([x | (x, _) <- filemap], [x | (_, x) <- filemap])
+	((len(paths) == 20) && (len(files[0]) == 0))
+}
