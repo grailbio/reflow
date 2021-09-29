@@ -641,11 +641,15 @@ func TestRunsSinceQuery(t *testing.T) {
 	var (
 		mockdb = getmockquerytaskdb()
 		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
-		since  = time.Now().UTC().Add(-time.Minute * 10)
-		query  = taskdb.RunQuery{Since: since}
+		now    = time.Now().UTC()
+		since  = now.Add(-time.Minute * 10)
 	)
-	date := date(since).Format(dateLayout)
-	_, err := taskb.Runs(context.Background(), query)
+	// Ensure since has the current UTC date so we generate only one query
+	if date(now) != date(since) {
+		since = now.UTC().Truncate(time.Hour * 24)
+	}
+	date := date(now).Format(dateLayout)
+	_, err := taskb.Runs(context.Background(), taskdb.RunQuery{Since: since})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1049,11 +1053,15 @@ func TestTasksSinceQuery(t *testing.T) {
 	var (
 		mockdb = getmockquerytaskdb()
 		taskb  = &TaskDB{DB: mockdb, TableName: mockTableName}
-		since  = time.Now().UTC().Add(-time.Minute * 10)
-		query  = taskdb.TaskQuery{Since: since}
+		now    = time.Now().UTC()
+		since  = now.Add(-time.Minute * 10)
 	)
-	date := date(since).Format(dateLayout)
-	_, err := taskb.Tasks(context.Background(), query)
+	// Ensure since has the current UTC date so we generate only one query
+	if date(now) != date(since) {
+		since = now.UTC().Truncate(time.Hour * 24)
+	}
+	date := date(now).Format(dateLayout)
+	_, err := taskb.Tasks(context.Background(), taskdb.TaskQuery{Since: since})
 	if err != nil {
 		t.Fatal(err)
 	}
