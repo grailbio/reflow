@@ -28,6 +28,7 @@ import (
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/taskdb"
 	_ "github.com/grailbio/reflow/taskdb/dynamodbtask"
+	_ "github.com/grailbio/reflow/taskdb/noptaskdb"
 	"github.com/grailbio/reflow/tool"
 	"github.com/grailbio/reflow/trace"
 	_ "github.com/grailbio/reflow/trace"

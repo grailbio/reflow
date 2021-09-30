@@ -228,6 +228,23 @@ type RemoteLogs struct {
 	LogStreamName string
 }
 
+// InspectResponse is the value returned by a call to an exec's Inspect.
+type InspectResponse struct {
+	// Inspect is the raw inspect data for this exec
+	Inspect ExecInspect
+	// InspectDigest is the reference to the inspect object stored in the repository. Non-zero if a repo is provided
+	// to the Inspect call.
+	InspectDigest RepoObjectRef
+	// Stdout is the reference to the exec's stdout log.
+	// Stdout will never be set if a repo was not provided to the `Inspect` call which returned this response.
+	// And still, some implementations may not populate this field.
+	Stdout RepoObjectRef
+	// Stderr is the reference to the exec's stdout log.
+	// Stderr will never be set if a repo was not provided to the `Inspect` call which returned this response.
+	// And still, some implementations may not populate this field.
+	Stderr RepoObjectRef
+}
+
 func (r RemoteLogs) String() string {
 	return fmt.Sprintf("(%s) LogGroupName: %s, LogStreamName: %s", r.Type, r.LogGroupName, r.LogStreamName)
 }
@@ -249,7 +266,8 @@ type Exec interface {
 	// Inspect inspects the exec. It can be called at any point in the Exec's lifetime.
 	// If a repo is provided, Inspect will also marshal this exec's inspect (but only if the exec is complete),
 	// into the given repo and returns the digest of the marshaled contents.
-	Inspect(ctx context.Context, repo *url.URL) (ExecInspect, digest.Digest, error)
+	// If a repo is provided, the implementation may also put the exec's stdout and stderr logs and return their references.
+	Inspect(ctx context.Context, repo *url.URL) (resp InspectResponse, err error)
 
 	// Wait awaits completion of the Exec.
 	Wait(ctx context.Context) error

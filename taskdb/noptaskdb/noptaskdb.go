@@ -1,4 +1,4 @@
-package test
+package noptaskdb
 
 import (
 	"github.com/grailbio/infra"

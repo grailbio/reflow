@@ -47,7 +47,7 @@ func (n nopTaskDB) SetTaskUri(ctx context.Context, id taskdb.TaskID, uri string)
 }
 
 // SetTaskAttrs does nothing.
-func (n nopTaskDB) SetTaskAttrs(ctx context.Context, id taskdb.TaskID, stdout, stderr, inspect digest.Digest) error {
+func (n nopTaskDB) SetTaskAttrs(ctx context.Context, id taskdb.TaskID, inspect digest.Digest, stdout digest.Digest, stderr digest.Digest) error {
 	return nil
 }
 

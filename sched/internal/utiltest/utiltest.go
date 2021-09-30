@@ -206,9 +206,9 @@ func (e *testExec) Result(ctx context.Context) (reflow.Result, error) {
 	return e.result, e.err
 }
 
-func (e *testExec) Inspect(ctx context.Context, repo *url.URL) (inspect reflow.ExecInspect, d digest.Digest, err error) {
+func (e *testExec) Inspect(ctx context.Context, repo *url.URL) (resp reflow.InspectResponse, err error) {
 	_, err = e.Result(ctx)
-	return reflow.ExecInspect{}, d, err
+	return resp, err
 }
 
 func (e *testExec) Promote(ctx context.Context) error {
@@ -601,6 +601,10 @@ func (t *MockTaskDB) SetTaskUri(ctx context.Context, id taskdb.TaskID, uri strin
 		t.tasks[id] = tsk
 	}
 	t.numCalls["SetTaskUri"] = t.numCalls["SetTaskUri"] + 1
+	return nil
+}
+
+func (t *MockTaskDB) SetTaskAttrs(ctx context.Context, id taskdb.TaskID, stdout, stderr, inspect digest.Digest) error {
 	return nil
 }
 

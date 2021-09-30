@@ -424,14 +424,10 @@ func (n execNode) Do(ctx context.Context, call *rest.Call) {
 			return
 		}
 	}
-	inspect, d, err := n.e.Inspect(ctx, repo)
+	resp, err := n.e.Inspect(ctx, repo)
 	if err != nil {
 		call.Error(err)
 		return
 	}
-	reply := struct {
-		Inspect       reflow.ExecInspect
-		InspectDigest digest.Digest
-	}{inspect, d}
-	call.Reply(http.StatusOK, reply)
+	call.Reply(http.StatusOK, resp)
 }

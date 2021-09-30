@@ -1173,54 +1173,6 @@ func (e *Eval) cacheWriteAsync(ctx context.Context, f *Flow) {
 	}()
 }
 
-func (e *Eval) taskdbWrite(ctx context.Context, op Op, task *sched.Task) error {
-	if !op.External() {
-		return nil
-	}
-
-	var (
-		exec = task.Exec
-		tdb  = task.TaskDB
-		id   = task.ID
-
-		stdout, stderr digest.Digest
-	)
-	g, ctx := errgroup.WithContext(ctx)
-	if exec != nil {
-		if loc, err := exec.RemoteLogs(ctx, true); err == nil {
-			if stdout, err = repository.Marshal(ctx, e.Repository, loc); err != nil {
-				log.Errorf("repository put stdout: %v", err)
-			}
-		}
-		if loc, err := exec.RemoteLogs(ctx, false); err == nil {
-			if stderr, err = repository.Marshal(ctx, e.Repository, loc); err != nil {
-				log.Errorf("repository put stderr: %v", err)
-			}
-		}
-	}
-	if tdb != nil {
-		g.Go(func() error {
-			err := tdb.SetTaskAttrs(ctx, id, stdout, stderr, task.InspectDigest)
-			if err != nil {
-				e.Log.Debugf("taskdb settaskattrs: %v", err)
-			}
-			return nil
-		})
-	}
-	return g.Wait()
-}
-
-func (e *Eval) taskdbWriteAsync(ctx context.Context, op Op, task *sched.Task) {
-	bgctx := Background(ctx)
-	go func() {
-		err := e.taskdbWrite(bgctx, op, task)
-		if err != nil {
-			e.Log.Errorf("taskdb write %v: %v", task.ID, err)
-		}
-		bgctx.Complete()
-	}()
-}
-
 // lookupFailed marks the flow f as having failed lookup. Lookup
 // failure is treated differently depending on evaluation mode. In
 // bottom-up mode, we're only looked up if our dependencies are met,
@@ -1764,10 +1716,16 @@ var statusPrinters = [maxOp]struct {
 				if f.Exec != nil {
 					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 					defer cancel()
-					if loc, err := f.Exec.RemoteLogs(ctx, true); err == nil {
+
+					// Print RemoteLogs objects / repository digests for logging objects, if present.
+					if !f.ExecStdout.Digest.IsZero() {
+						_, _ = fmt.Fprintf(w, "stdout: %s\n", f.ExecStdout)
+					} else if loc, err := f.Exec.RemoteLogs(ctx, true); err == nil {
 						_, _ = fmt.Fprintf(w, "stdout location: %s\n", loc)
 					}
-					if loc, err := f.Exec.RemoteLogs(ctx, false); err == nil {
+					if !f.ExecStderr.Digest.IsZero() {
+						_, _ = fmt.Fprintf(w, "stderr: %s\n", f.ExecStderr)
+					} else if loc, err := f.Exec.RemoteLogs(ctx, false); err == nil {
 						_, _ = fmt.Fprintf(w, "stderr location: %s\n", loc)
 					}
 				}
@@ -1931,13 +1889,12 @@ func (e *Eval) taskWait(ctx context.Context, f *Flow, task *sched.Task) error {
 		return err
 	}
 	f.Inspect = task.Inspect
+	f.ExecStdout = task.Stdout
+	f.ExecStderr = task.Stderr
 	if task.Err != nil {
 		e.Mutate(f, task.Err, Done)
 	} else {
 		e.Mutate(f, task.Result.Err, task.Result.Fileset, Propagate, Done)
-	}
-	if task.TaskDB != nil {
-		e.taskdbWriteAsync(ctx, f.Op, task)
 	}
 	return nil
 }

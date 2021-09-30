@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	bashImage    = "yikaus/alpine-bash" // the default alpine image doesn't have Bash.
+	bashImage = "yikaus/alpine-bash" // the default alpine image doesn't have Bash.
 	// We put this in /tmp because it's one of the default locations
 	// that are bindable from Docker for Mac.
 	tmpDir = "/tmp"
@@ -42,9 +42,10 @@ const (
 func newTestExecutorOrSkip(t *testing.T, creds *credentials.Credentials) (*Executor, func()) {
 	dir, cleanup := testutil.TempDir(t, tmpDir, "reflowtest")
 	x := &Executor{
-		Client:   newDockerClientOrSkip(t),
-		Dir:      dir,
-		AWSCreds: creds,
+		Client:       newDockerClientOrSkip(t),
+		Dir:          dir,
+		AWSCreds:     creds,
+		remoteStream: MockRemoteStream{},
 	}
 	x.SetResources(reflow.Resources{
 		"mem":  1 << 30,
@@ -56,6 +57,16 @@ func newTestExecutorOrSkip(t *testing.T, creds *credentials.Credentials) (*Execu
 		t.Fatal(err)
 	}
 	return x, cleanup
+}
+
+type MockRemoteStream struct{}
+
+func (m MockRemoteStream) NewStream(prefix string, sType streamType) (remoteLogsOutputter, error) {
+	return &cloudWatchLogsStream{client: &cloudWatchLogs{group: "test"}, name: prefix + "/" + string(sType)}, nil
+}
+
+func (m MockRemoteStream) Close() error {
+	return nil
 }
 
 func TestExec(t *testing.T) {
@@ -92,12 +103,12 @@ func TestExec(t *testing.T) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 	// Get gauges and profile
-	i, _, err := exec.Inspect(ctx, nil)
+	resp, err := exec.Inspect(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	gauges := i.Gauges
-	profile := i.Profile
+	gauges := resp.Inspect.Gauges
+	profile := resp.Inspect.Profile
 
 	// Disk and tmp must be nonzero because they are always profiled at least once
 	if got, zero := gauges["disk"], 0.0; got <= zero {
@@ -168,12 +179,12 @@ func TestProfileContextTimeOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	i, _, err := execslow.Inspect(ctx, nil)
+	resp, err := execslow.Inspect(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	gauges := i.Gauges
-	profile := i.Profile
+	gauges := resp.Inspect.Gauges
+	profile := resp.Inspect.Profile
 
 	// Disk and tmp must be nonzero because they are always profiled at least once
 	if got, zero := gauges["disk"], 0.0; got <= zero {
@@ -638,6 +649,7 @@ func TestExecLoadUnloadDeadObjectRace(t *testing.T) {
 
 func TestInspect(t *testing.T) {
 	x, cleanup := newTestExecutorOrSkip(t, nil)
+	x.SaveLogsToRepo = true
 	defer cleanup()
 	ctx := context.Background()
 	blobScheme, blobBucket := "testscheme", "testbucket"
@@ -657,26 +669,38 @@ func TestInspect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = exec.Inspect(ctx, nil)
+	_, err = exec.Inspect(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, d, err := exec.Inspect(ctx, &repoUrl)
+	resp, err := exec.Inspect(ctx, &repoUrl)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !d.IsZero() {
-		t.Error("Returned digest must be empty before completion")
+	if !resp.InspectDigest.Digest.IsZero() {
+		t.Error("Returned inspectDigest must be empty before completion")
+	}
+	if !resp.Stdout.Digest.IsZero() {
+		t.Error("Returned stdout must be empty before completion")
+	}
+	if !resp.Stderr.Digest.IsZero() {
+		t.Error("Returned stderr must be empty before completion")
 	}
 	err = exec.Wait(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, d, err = exec.Inspect(ctx, &repoUrl)
+	resp, err = exec.Inspect(ctx, &repoUrl)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.IsZero() {
+	if resp.InspectDigest.Digest.IsZero() {
+		t.Error("Returned inspect digest must be non-empty after completion")
+	}
+	if resp.Stdout.Digest.IsZero() {
+		t.Error("Returned stdout digest must be non-empty after completion")
+	}
+	if resp.Stderr.Digest.IsZero() {
 		t.Error("Returned digest must be non-empty after completion")
 	}
 

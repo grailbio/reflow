@@ -28,6 +28,7 @@ import (
 	"github.com/grailbio/reflow/local"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
+	"github.com/grailbio/reflow/taskdb"
 	"golang.org/x/net/http2"
 )
 
@@ -75,7 +76,7 @@ func (c *Cluster) updateNeed(req reflow.Requirements) (cancel func()) {
 }
 
 // Init implements infra.Provider
-func (c *Cluster) Init(tls tls.Certs, session *session.Session, logger *log.Logger, creds *credentials.Credentials) error {
+func (c *Cluster) Init(tls tls.Certs, session *session.Session, logger *log.Logger, creds *credentials.Credentials, tdb taskdb.TaskDB) error {
 	var err error
 	if c.Client, c.total, err = dockerClient(); err != nil {
 		return err
@@ -102,6 +103,7 @@ func (c *Cluster) Init(tls tls.Certs, session *session.Session, logger *log.Logg
 		},
 		Log:          logger.Tee(nil, "executor: "),
 		HardMemLimit: false,
+		TaskDB:       tdb,
 	}
 	if err = pool.Start(); err != nil {
 		return err

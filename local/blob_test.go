@@ -71,14 +71,14 @@ func executeAndGetResult(ctx context.Context, t *testing.T, s3 *blobExec) reflow
 	if err := s3.Wait(ctx); err != nil {
 		t.Fatal(err)
 	}
-	inspect, _, err := s3.Inspect(ctx, nil)
+	resp, err := s3.Inspect(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := inspect.Error; err != nil {
+	if err := resp.Inspect.Error; err != nil {
 		t.Fatalf("unexpected error %v", err)
 	}
-	if got, want := inspect.State, "complete"; got != want {
+	if got, want := resp.Inspect.State, "complete"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 

@@ -105,7 +105,9 @@ The columns displayed by list are:
 		var err error
 		switch entry := entries[i].(type) {
 		case reflow.Exec:
-			inspects[i], _, err = entry.Inspect(ctx, nil)
+			var resp reflow.InspectResponse
+			resp, err = entry.Inspect(ctx, nil)
+			inspects[i] = resp.Inspect
 		case pool.Alloc:
 			inspects[i], err = entry.Inspect(ctx)
 		case pool.Offer:

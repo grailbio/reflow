@@ -71,12 +71,15 @@ func (e *Exec) Promote(ctx context.Context) error {
 }
 
 // Inspect rendezvous the result of this exec and returns the inspection output.
-func (e *Exec) Inspect(ctx context.Context, repo *url.URL) (inspect reflow.ExecInspect, d digest.Digest, err error) {
+func (e *Exec) Inspect(ctx context.Context, repo *url.URL) (resp reflow.InspectResponse, err error) {
 	r, err := e.result(ctx)
 	if repo != nil {
-		d = reflow.Digester.Rand(rand.New(rand.NewSource(0)))
+		resp.InspectDigest = reflow.RepoObjectRef{repo, reflow.Digester.Rand(rand.New(rand.NewSource(0)))}
+		resp.Stdout = reflow.RepoObjectRef{repo, reflow.Digester.Rand(rand.New(rand.NewSource(1)))}
+		resp.Stderr = reflow.RepoObjectRef{repo, reflow.Digester.Rand(rand.New(rand.NewSource(2)))}
 	}
-	return r.Inspect, d, err
+	resp.Inspect = r.Inspect
+	return
 }
 
 // Wait rendezvous this exec.

@@ -519,8 +519,8 @@ func (e *blobExec) Promote(ctx context.Context) error {
 }
 
 // Inspect returns exec metadata.
-func (e *blobExec) Inspect(ctx context.Context, repo *url.URL) (inspect reflow.ExecInspect, d digest.Digest, err error) {
-	inspect = reflow.ExecInspect{
+func (e *blobExec) Inspect(ctx context.Context, repo *url.URL) (resp reflow.InspectResponse, err error) {
+	inspect := reflow.ExecInspect{
 		Config:  e.Config,
 		Created: e.Manifest.Created,
 	}
@@ -552,9 +552,10 @@ func (e *blobExec) Inspect(ctx context.Context, repo *url.URL) (inspect reflow.E
 		inspect.State = "complete"
 		inspect.Status = fmt.Sprintf("%s complete", e.transferTypeStr())
 		if repo != nil {
-			d, err = saveInspect(ctx, state, inspect, repo)
+			resp.InspectDigest, resp.Stdout, resp.Stderr, err = saveExecInfo(ctx, state, e, inspect, repo, e.x.SaveLogsToRepo)
 		}
 	}
+	resp.Inspect = inspect
 	return
 }
 

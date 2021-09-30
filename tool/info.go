@@ -100,10 +100,11 @@ Exact costs are shown (if available) only for runs.
 				if err != nil {
 					c.Fatalf("failed to fetch exec for %q: %s", arg, err)
 				}
-				inspect, _, err = exec.Inspect(ctx, nil)
+				resp, err := exec.Inspect(ctx, nil)
 				if err != nil {
 					c.Fatalf("error inspecting exec %q: %s", arg, err)
 				}
+				inspect = resp.Inspect
 			}
 			var result reflow.Result
 			if inspect.State == "complete" {

@@ -79,7 +79,7 @@ type Task struct {
 	Inspect reflow.ExecInspect
 
 	// InspectDigest Stores the digest returned from the exec when it is instructed to write its inspect data to the repo.
-	InspectDigest digest.Digest
+	InspectDigest reflow.RepoObjectRef
 
 	// Exec is the exec which is running (or ran) the task. Exec is
 	// set by the scheduler before the task enters TaskRunning state.
@@ -117,6 +117,10 @@ type Task struct {
 
 	// nonDirectTransfer represents a task which cannot be executed as a direct transfer.
 	nonDirectTransfer bool
+
+	// Digests returned from exec, representing log information in the repo.
+	Stdout reflow.RepoObjectRef
+	Stderr reflow.RepoObjectRef
 }
 
 // NewTask returns a new, initialized task. The Task may be populated

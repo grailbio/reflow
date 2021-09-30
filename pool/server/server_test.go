@@ -163,10 +163,10 @@ func TestInspect(t *testing.T) {
 	repo := testRepository.URL()
 
 	for _, test := range []struct {
-		repo        *url.URL
-		method      string
-		validDigest bool
-		statusCode  int
+		repo         *url.URL
+		method       string
+		validDigests bool
+		statusCode   int
 	}{
 		{
 			nil,
@@ -195,7 +195,6 @@ func TestInspect(t *testing.T) {
 	} {
 		call := client.Call(test.method, "/v1/allocs/testalloc/execs/%s", reflow.Digester.FromString("testexec"))
 		var code int
-		var err error
 		if test.method == "POST" {
 			code, err = call.DoJSON(ctx, test.repo)
 		} else {
@@ -210,10 +209,7 @@ func TestInspect(t *testing.T) {
 		}
 
 		if test.statusCode == http.StatusOK && test.method != "HEAD" {
-			var m struct {
-				Inspect       reflow.ExecInspect
-				InspectDigest digest.Digest
-			}
+			var m reflow.InspectResponse
 			if err := call.Unmarshal(&m); err != nil {
 				t.Fatal(err)
 			}
@@ -223,13 +219,18 @@ func TestInspect(t *testing.T) {
 			if got, want := m.Inspect.State, testInspect.State; got != want {
 				t.Errorf("got %v, want %v", got, want)
 			}
-			if got, want := !m.InspectDigest.IsZero(), test.validDigest; got != want {
+			if got, want := !m.InspectDigest.Digest.IsZero(), test.validDigests; got != want {
+				t.Errorf("got %v, want %v", got, want)
+			}
+			if got, want := !m.Stdout.Digest.IsZero(), test.validDigests; got != want {
+				t.Errorf("got %v, want %v", got, want)
+			}
+			if got, want := !m.Stderr.Digest.IsZero(), test.validDigests; got != want {
 				t.Errorf("got %v, want %v", got, want)
 			}
 		}
 		call.Close()
 	}
-
 }
 
 func TestEndToEnd(t *testing.T) {

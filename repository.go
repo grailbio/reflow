@@ -6,6 +6,7 @@ package reflow
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/url"
 	"time"
@@ -66,4 +67,16 @@ type Transferer interface {
 	Transfer(ctx context.Context, dst, src Repository, files ...File) error
 
 	NeedTransfer(ctx context.Context, dst Repository, files ...File) ([]File, error)
+}
+
+// RepoObjectRef is a reference to an object in a particular Repository.
+type RepoObjectRef struct {
+	// RepoURL is the URL of the repository where this object is located
+	RepoURL *url.URL
+	// Digest is the reference to this object in the repository where it is located
+	Digest digest.Digest
+}
+
+func (ror RepoObjectRef) String() string {
+	return fmt.Sprintf("digest: %s (repo: %s)", ror.Digest, ror.RepoURL)
 }

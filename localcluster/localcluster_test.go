@@ -19,6 +19,8 @@ import (
 	"github.com/grailbio/reflow/pool"
 	_ "github.com/grailbio/reflow/repository/s3/test"
 	"github.com/grailbio/reflow/runner"
+	"github.com/grailbio/reflow/taskdb"
+	_ "github.com/grailbio/reflow/taskdb/noptaskdb"
 )
 
 func getTestReflowConfig() infra.Config {
@@ -32,6 +34,7 @@ func getTestReflowConfig() infra.Config {
 		infra2.Log:        new(log.Logger),
 		infra2.Repository: new(reflow.Repository),
 		infra2.Session:    new(session.Session),
+		infra2.TaskDB:     new(taskdb.TaskDB),
 		infra2.TLS:        new(tls.Certs),
 		infra2.Username:   new(infra2.User),
 	}
@@ -54,6 +57,7 @@ func getTestReflowConfigKeys() infra.Keys {
 		infra2.Log:        "logger,level=debug",
 		infra2.Repository: "fakes3",
 		infra2.Session:    "fakesession",
+		infra2.TaskDB:     "noptaskdb",
 		infra2.TLS:        "tls,file=/tmp/ca.reflow",
 		infra2.Username:   "user",
 	}

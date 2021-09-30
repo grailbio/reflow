@@ -6,14 +6,15 @@ package local
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 
-	"github.com/grailbio/base/digest"
+	"golang.org/x/sync/errgroup"
+
+	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/repository/blobrepo"
-
-	"github.com/grailbio/reflow"
 )
 
 // execState describes the current state of an exec.
@@ -36,15 +37,69 @@ type exec interface {
 	Kill(context.Context) error
 }
 
-func saveInspect(ctx context.Context, state execState, insp reflow.ExecInspect, repo *url.URL) (d digest.Digest, err error) {
-	if state != execComplete {
-		err = errors.Errorf("cannot marshal, exec not complete: %s", insp.State)
+func saveExecLog(ctx context.Context, e reflow.Exec, repo reflow.Repository, stdout bool) (logRef reflow.RepoObjectRef, err error) {
+	log, logErr := e.Logs(ctx, stdout, !stdout, false)
+	if logErr != nil {
+		err = errors.E(fmt.Sprintf("e.Logs(stdout %t)", stdout), logErr)
 		return
 	}
-	brepo, rerr := blobrepo.Dial(repo)
+	defer log.Close()
+	if d, pErr := repo.Put(ctx, log); pErr == nil {
+		logRef = reflow.RepoObjectRef{RepoURL: repo.URL(), Digest: d}
+	} else {
+		err = errors.E("repo.Put", pErr)
+		return
+	}
+	return
+}
+
+func saveInspect(ctx context.Context, insp reflow.ExecInspect, repo reflow.Repository) (inspect reflow.RepoObjectRef, err error) {
+	d, err := repository.Marshal(ctx, repo, insp)
+	if err != nil {
+		return
+	}
+	inspect = reflow.RepoObjectRef{RepoURL: repo.URL(), Digest: d}
+	return
+}
+
+func saveExecInfo(ctx context.Context, state execState, e reflow.Exec, insp reflow.ExecInspect, repoUrl *url.URL, saveLogsToRepo bool) (
+	inspect reflow.RepoObjectRef, stdout reflow.RepoObjectRef, stderr reflow.RepoObjectRef, err error) {
+	if state != execComplete {
+		err = fmt.Errorf("cannot save exec info, exec not complete: %s", insp.State)
+		return
+	}
+	repo, rerr := blobrepo.Dial(repoUrl)
 	if rerr != nil {
 		err = errors.E("blobrepo.Dial", rerr)
 		return
 	}
-	return repository.Marshal(ctx, brepo, insp)
+
+	if !saveLogsToRepo {
+		inspect, err = saveInspect(ctx, insp, repo)
+		return
+	}
+
+	g, _ := errgroup.WithContext(ctx)
+	var m errors.Multi
+	g.Go(func() error {
+		var saveErr error
+		inspect, saveErr = saveInspect(ctx, insp, repo)
+		m.Add(saveErr)
+		return nil
+	})
+	g.Go(func() error {
+		var saveErr error
+		stdout, saveErr = saveExecLog(ctx, e, repo, true)
+		m.Add(saveErr)
+		return nil
+	})
+	g.Go(func() error {
+		var saveErr error
+		stderr, saveErr = saveExecLog(ctx, e, repo, false)
+		m.Add(saveErr)
+		return nil
+	})
+	_ = g.Wait()
+	err = m.Combined()
+	return
 }

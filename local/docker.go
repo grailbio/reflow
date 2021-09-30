@@ -710,8 +710,8 @@ func (e *dockerExec) Shell(ctx context.Context) (io.ReadWriteCloser, error) {
 }
 
 // Inspect returns the current state of the exec.
-func (e *dockerExec) Inspect(ctx context.Context, repo *url.URL) (inspect reflow.ExecInspect, d digest.Digest, err error) {
-	inspect = reflow.ExecInspect{
+func (e *dockerExec) Inspect(ctx context.Context, repo *url.URL) (resp reflow.InspectResponse, err error) {
+	inspect := reflow.ExecInspect{
 		Created: e.Manifest.Created,
 		Config:  e.Config,
 		Docker:  e.Docker,
@@ -754,9 +754,11 @@ func (e *dockerExec) Inspect(ctx context.Context, repo *url.URL) (inspect reflow
 		inspect.State = "complete"
 		inspect.Status = "the exec container has completed"
 		if repo != nil {
-			d, err = saveInspect(ctx, state, inspect, repo)
+			resp.InspectDigest, resp.Stderr, resp.Stdout, err = saveExecInfo(ctx, state, e, inspect, repo, e.Executor.SaveLogsToRepo)
 		}
 	}
+	resp.Inspect = inspect
+
 	return
 }
 

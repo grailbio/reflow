@@ -312,6 +312,10 @@ type Flow struct {
 	// Inspect stores an exec's inspect output.
 	Inspect reflow.ExecInspect
 
+	// References to stored log data, returned from exec (only applicable for Op=Exec)
+	ExecStdout reflow.RepoObjectRef
+	ExecStderr reflow.RepoObjectRef
+
 	Tracked bool
 
 	Status *status.Task

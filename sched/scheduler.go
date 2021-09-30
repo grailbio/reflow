@@ -568,8 +568,13 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 			err = x.Promote(ctx)
 		case internal.StateInspect:
 			task.Log.Debugf("retrieving inspect (and saving to repo %s)", task.Repository.URL())
-			task.Inspect, task.InspectDigest, err = x.Inspect(ctx, task.Repository.URL())
-			if d := task.InspectDigest; err == nil && !d.IsZero() {
+			var resp reflow.InspectResponse
+			resp, err = x.Inspect(ctx, task.Repository.URL())
+			if err == nil {
+				task.Inspect, task.InspectDigest, task.Stdout, task.Stderr =
+					resp.Inspect, resp.InspectDigest, resp.Stdout, resp.Stderr
+			}
+			if d := task.InspectDigest.Digest; err == nil && !d.IsZero() {
 				task.Log.Debugf("saved inspect to repo %s: %s", task.Repository.URL(), d.Short())
 			}
 		case internal.StateResult:
@@ -602,6 +607,9 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		if unloadErr := unload(ctx, task, &loadedData, alloc, &resultUnloaded); unloadErr != nil {
 			task.Log.Debugf("error unloading data after task failure, this wastes disk space on the alloc: %s", unloadErr)
 		}
+	}
+	if err == nil && s.TaskDB != nil {
+		err = s.TaskDB.SetTaskAttrs(ctx, task.ID, task.Stdout.Digest, task.Stderr.Digest, task.InspectDigest.Digest)
 	}
 	task.Err = err
 	switch {

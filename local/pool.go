@@ -29,6 +29,7 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/taskdb"
+	"github.com/grailbio/reflow/taskdb/noptaskdb"
 )
 
 const (
@@ -352,6 +353,7 @@ func (p *Pool) createCwLogGroup() error {
 // keepalive is the duration to keep this alloc alive at the start
 // (i.e. before any keepalive requests).
 func (p *Pool) newAlloc(id string, keepalive time.Duration) *alloc {
+	_, isNoop := p.TaskDB.(noptaskdb.NopTaskDB)
 	e := &Executor{
 		ID:              id,
 		Client:          p.Client,
@@ -363,6 +365,7 @@ func (p *Pool) newAlloc(id string, keepalive time.Duration) *alloc {
 		Log:             p.Log.Tee(nil, id+": "),
 		HardMemLimit:    p.HardMemLimit,
 		NodeOomDetector: p.NodeOomDetector,
+		SaveLogsToRepo:  isNoop,
 	}
 	if p.Session != nil {
 		cwlclient := cloudwatchlogs.New(p.Session)
