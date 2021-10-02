@@ -387,14 +387,22 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 		code = int64(e.Docker.State.ExitCode)
 	}
 
-	finishedAt, err := time.Parse(time.RFC3339Nano, e.Docker.State.FinishedAt)
+	finishedAt, err := time.Parse(reflow.DockerInspectTimeFormat, e.Docker.State.FinishedAt)
 	if err != nil {
 		return execInit, errors.E(errors.Invalid, errors.Errorf("parsing docker time %s: %v", e.Docker.State.FinishedAt, err))
 	}
 
 	var startedAt time.Time
-	if t, err := time.Parse(time.RFC3339Nano, e.Docker.State.StartedAt); err == nil {
+	if t, err := time.Parse(reflow.DockerInspectTimeFormat, e.Docker.State.StartedAt); err == nil {
 		startedAt = t
+	}
+
+	// If the container was incredibly short-lived, we get bad time values from docker, for example:
+	// start 2021-09-29 05:45:05.330744043
+	// end   2021-09-29 05:45:05.330505255
+	// notice that start is after end, so in such a case, just use now as the finish time.
+	if !startedAt.Before(finishedAt) {
+		finishedAt = time.Now()
 	}
 
 	// Note: /dev/kmsg only exists on linux. If the container is running on a non-linux machine isOOMSystem will

@@ -68,11 +68,11 @@ func (m *oomDetector) Oom(pid int, start, end time.Time) (bool, string) {
 			start.Format(time.RFC3339), end.Format(time.RFC3339), pressureMemStalled, d)
 	}
 	tvs, err = m.query(memTotalBytes, start, end)
-	if l := len(tvs); err != nil || l == 0 {
-		if l == 0 {
-			err = fmt.Errorf("no values found")
-		}
+	if err != nil {
 		m.log.Errorf("oomDetector query %s: %v", memTotalBytes, err)
+	}
+	if l := len(tvs); l == 0 {
+		m.log.Errorf("oomDetector query %s: no values found", memTotalBytes)
 		return false, ""
 	}
 	totBytes := tvs[0]

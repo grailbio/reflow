@@ -187,18 +187,20 @@ type ExecInspect struct {
 	ExecError *errors.Error `json:",omitempty"`
 }
 
+// DockerInspectTimeFormat is the format of the time fields in Docker.State retrieved using docker container inspect.
+const DockerInspectTimeFormat = "2006-01-02T15:04:05.999999999Z"
+
 // Runtime computes the exec's runtime based on Docker's timestamps.
 func (e ExecInspect) Runtime() time.Duration {
-	const dockerFmt = "2006-01-02T15:04:05.999999999Z"
 	if e.Docker.ContainerJSONBase == nil || e.Docker.State == nil {
 		return time.Duration(0)
 	}
 	state := e.Docker.State
-	start, err := time.Parse(dockerFmt, state.StartedAt)
+	start, err := time.Parse(DockerInspectTimeFormat, state.StartedAt)
 	if err != nil {
 		return time.Duration(0)
 	}
-	end, err := time.Parse(dockerFmt, state.FinishedAt)
+	end, err := time.Parse(DockerInspectTimeFormat, state.FinishedAt)
 	if err != nil {
 		return time.Duration(0)
 	}
