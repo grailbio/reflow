@@ -79,6 +79,7 @@ type Cmd struct {
 	filesetOpLim   int
 
 	memStatsDuration time.Duration
+	memStatsGC       bool
 	onexits          []func()
 
 	flags *flag.FlagSet
@@ -434,6 +435,7 @@ func (c *Cmd) Flags() *flag.FlagSet {
 		c.flags.StringVar(&c.cpuProfileFlag, "cpuprofile", "", "capture a CPU profile and deposit it to the provided path")
 		c.flags.StringVar(&c.memProfileFlag, "memprofile", "", "capture a Memory profile and deposit it to the provided path")
 		c.flags.DurationVar(&c.memStatsDuration, "memstatsduration", 0, "log high-level memory stats at this frequency (eg: 100ms)")
+		c.flags.BoolVar(&c.memStatsGC, "memstatsgc", false, "whether to GC before collecting memstats (at each memstatsduration interval)")
 		c.flags.StringVar(&c.logFlag, "log", "info", "set the log level: off, error, info, debug")
 		c.flags.IntVar(&c.filesetOpLim, "fileset_op_limit", -1, "set the number of concurrent reflow fileset operations allowed (if unset or non-positive, uses default which is number of CPUs)")
 
@@ -489,6 +491,9 @@ func (c *Cmd) logMemStats(ctx context.Context, log *log.Logger, freq time.Durati
 		return
 	}
 	readAndPrint := func(prefix string) {
+		if c.memStatsGC {
+			runtime.GC()
+		}
 		stats := new(runtime.MemStats)
 		runtime.ReadMemStats(stats)
 		pref := fmt.Sprintf("[%s]:", time.Now().Format(time.RFC3339))
