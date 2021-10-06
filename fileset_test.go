@@ -430,7 +430,7 @@ func TestCustomMarshal(t *testing.T) {
 		fs := fuzz.FilesetDeep(fuzz.Intn(5)+1, fuzz.Intn(2)+1, fuzz.Intn(10)%2 == 0, fuzz.Intn(10)%2 == 0)
 		ofs := oldFs(fs)
 		var b bytes.Buffer
-		if err := fs.WriteJSON(&b); err != nil {
+		if err := fs.Write(&b, reflow.FilesetMarshalFmtJSON); err != nil {
 			t.Fatal(err)
 		}
 		want, err := json.Marshal(ofs)
@@ -449,31 +449,18 @@ func TestCustomMarshal(t *testing.T) {
 func TestCustomUnmarshal(t *testing.T) {
 	fuzz := testutil.NewFuzz(nil)
 	for i := 0; i < 100; i++ {
-		want := fuzz.FilesetDeep(fuzz.Intn(5)+1, fuzz.Intn(2)+1, fuzz.Intn(10)%2 == 0, fuzz.Intn(10)%2 == 0)
-		// Marshal oldFileset using JSON std library and read using custom unmarshal.
-		b, err := json.Marshal(oldFs(want))
-		if err != nil {
-			t.Fatal(err)
-		}
-		var got reflow.Fileset
-		if err = got.ReadJSON(bytes.NewReader(b)); err != nil {
-			t.Fatal(err)
-		}
-		if diff, yes := want.Diff(got); yes {
-			t.Fatalf("got:\n%s\nwant:\n%s\ndiff:\n%v", got, want, diff)
-		}
-		// Custom marshal, and unmarshal to oldFileset using JSON std library.
+		want := fuzz.FilesetDeep(fuzz.Intn(5)+1, 1, false, fuzz.Intn(10)%2 == 0)
+		// Custom marshalProto, and unmarshalProto to oldFileset using JSON std library.
 		var bb bytes.Buffer
-		if err = want.WriteJSON(&bb); err != nil {
+		if err := want.Write(&bb, reflow.FilesetMarshalFmtProtoParts); err != nil {
 			t.Fatal(err)
 		}
-		var ofs oldFileset
-		if err = json.Unmarshal(bb.Bytes(), &ofs); err != nil {
+		var fs2 reflow.Fileset
+		if err := fs2.Read(&bb, reflow.FilesetMarshalFmtProtoParts); err != nil {
 			t.Fatal(err)
 		}
-		got = newFs(ofs)
-		if diff, yes := want.Diff(got); yes {
-			t.Fatalf("got:\n%s\nwant:\n%s\ndiff:\n%v", got, want, diff)
+		if diff, yes := want.Diff(fs2); yes {
+			t.Fatalf("got:\n%s\nwant:\n%s\ndiff:\n%v", fs2, want, diff)
 		}
 	}
 }
@@ -538,8 +525,21 @@ func BenchmarkFileset(b *testing.B) {
 	}
 }
 
+type WriterWithCounter struct {
+	sink    io.Writer
+	counter int
+}
+
+func (w *WriterWithCounter) Write(p []byte) (n int, err error) {
+	w.counter += len(p)
+	return w.sink.Write(p)
+}
+
+func (w *WriterWithCounter) BytesWritten() int {
+	return w.counter
+}
+
 func BenchmarkMarshal(b *testing.B) {
-	b.ReportAllocs()
 	fuzz := testutil.NewFuzz(nil)
 	for _, nums := range benchCombinations {
 		fs := fuzz.FilesetDeep(nums.nfiles, 0, false, false)
@@ -563,27 +563,32 @@ func BenchmarkMarshal(b *testing.B) {
 				return json.NewEncoder(w).Encode(oldFs(fs))
 			}},
 			{"json-custom-stream", func(w io.Writer, fs reflow.Fileset) error {
-				return fs.WriteJSON(w)
+				return fs.Write(w, reflow.FilesetMarshalFmtJSON)
+			}},
+			{"json-custom-stream-parts", func(w io.Writer, fs reflow.Fileset) error {
+				return fs.Write(w, reflow.FilesetMarshalFmtProtoParts)
 			}},
 		} {
 			s, nums := s, nums
 			b.Run(fmt.Sprintf("%s-nfiles-%d-nass-%d", s.name, nums.nfiles, nums.nass), func(b *testing.B) {
+				b.ReportAllocs()
+				wc := &WriterWithCounter{sink: ioutil.Discard}
 				for i := 0; i < b.N; i++ {
 					// Note: Discard the marshalled results since we are only benchmarking here.
 					// Otherwise, even if we were to hold the results in a buffer, the results
-					// are affected by the need to have to continuously grow the buffer as we marshal.
+					// are affected by the need to have to continuously grow the buffer as we marshalProto.
 					// (especially in the custom marshaling case).
-					if err := s.encode(ioutil.Discard, fs); err != nil {
+					if err := s.encode(wc, fs); err != nil {
 						b.Fatal(err)
 					}
 				}
+				b.ReportMetric(float64(wc.BytesWritten()/b.N), "diskB/op")
 			})
 		}
 	}
 }
 
 func BenchmarkUnmarshal(b *testing.B) {
-	b.ReportAllocs()
 	fuzz := testutil.NewFuzz(nil)
 	for _, nums := range benchCombinations {
 		fs := fuzz.FilesetDeep(nums.nfiles, 0, false, false)
@@ -591,33 +596,55 @@ func BenchmarkUnmarshal(b *testing.B) {
 		if err := fs.AddAssertions(a); err != nil {
 			b.Fatal(err)
 		}
-		fssb, err := json.Marshal(oldFs(fs))
-		if err != nil {
-			b.Fatal(err)
-		}
-		r := bytes.NewReader(fssb)
 		for _, s := range []struct {
 			name   string
+			encode func(io.Writer, *reflow.Fileset) error
 			decode func(io.Reader, *reflow.Fileset) error
 		}{
-			{"json-std-lib", func(r io.Reader, fs *reflow.Fileset) error {
-				var ofs oldFileset
-				err := json.NewDecoder(r).Decode(&ofs)
-				*fs = newFs(ofs)
-				return err
-			}},
-			{"json-custom", func(r io.Reader, fs *reflow.Fileset) error {
-				return fs.ReadJSON(r)
-			}},
+			{
+				"json-std-lib",
+				func(w io.Writer, fs *reflow.Fileset) error {
+					return fs.Write(w, reflow.FilesetMarshalFmtJSON)
+				},
+				func(r io.Reader, fs *reflow.Fileset) error {
+					var ofs oldFileset
+					err := json.NewDecoder(r).Decode(&ofs)
+					*fs = newFs(ofs)
+					return err
+				},
+			},
+			{
+				"json-custom",
+				func(w io.Writer, fs *reflow.Fileset) error {
+					return fs.Write(w, reflow.FilesetMarshalFmtJSON)
+				},
+				func(r io.Reader, fs *reflow.Fileset) error {
+					return fs.Read(r, reflow.FilesetMarshalFmtJSON)
+				},
+			},
+			{
+				"proto-custom-parts",
+				func(w io.Writer, fs *reflow.Fileset) error {
+					return fs.Write(w, reflow.FilesetMarshalFmtProtoParts)
+				},
+				func(r io.Reader, fs *reflow.Fileset) error {
+					return fs.Read(r, reflow.FilesetMarshalFmtProtoParts)
+				},
+			},
 		} {
 			s, nums := s, nums
+			buf := new(bytes.Buffer)
+			if err := s.encode(buf, &fs); err != nil {
+				b.Fatal(err)
+			}
 			b.Run(fmt.Sprintf("%s-nfiles-%d-nass-%d", s.name, nums.nfiles, nums.nass), func(b *testing.B) {
+				b.ReportAllocs()
 				for i := 0; i < b.N; i++ {
 					var gotfs reflow.Fileset
-					if err := s.decode(r, &gotfs); err != nil && err != io.EOF {
+					if err := s.decode(buf, &gotfs); err != nil && err != io.EOF {
 						b.Fatal(err)
 					}
-					r.Reset(fssb)
+					buf.Reset()
 				}
 			})
 		}

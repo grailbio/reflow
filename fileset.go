@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow/errors"
@@ -53,7 +54,7 @@ type File struct {
 	// Assertions can include properties of other subjects that
 	// contributed to producing this File.
 	// In order to include Assertions when converting to/from JSON,
-	// the custom Fileset.WriteJSON and Fileset.ReadJSON methods must be used.
+	// the custom Fileset.Write and Fileset.Read methods must be used.
 	// The standard JSON library (and probably most third party ones) will ignore this field.
 	Assertions *Assertions `json:"-"`
 }
@@ -488,14 +489,237 @@ func (v Fileset) pullup(m map[string]File) {
 	}
 }
 
-// WriteJSON writes (marshals) this Fileset in JSON format to the given writer.
-// WriteJSON is more efficient than `json.Marshal` and more specifically it includes
-// the Assertions of every File within this Fileset.
-func (v *Fileset) WriteJSON(w io.Writer) error {
-	return v.marshal(w)
+type FilesetMarshalFormat int
+
+const (
+	// FilesetMarshalFmtJSON is more efficient than `json.Marshal` and more specifically it includes
+	// the Assertions of every File within this Fileset.
+	FilesetMarshalFmtJSON FilesetMarshalFormat = iota
+	// FilesetMarshalFmtProtoParts is more efficient than FilesetMarshalFmtJSON and uses a custom format with
+	// the following design:
+	// - The components of fileset (files in Fileset.Map, individual assertions and the linkage between those
+	//   assertions and certain files) are converted into smaller "part" structs.
+	// - Those parts are marshalled to disk as the protobuf formats defined in `fileset.proto`.
+	FilesetMarshalFmtProtoParts
+)
+
+// Write serializes and writes (marshals) this Fileset in the specified format to the given writer.
+func (v *Fileset) Write(w io.Writer, f FilesetMarshalFormat) error {
+	switch f {
+	case FilesetMarshalFmtJSON:
+		return v.marshalJSON(w)
+	case FilesetMarshalFmtProtoParts:
+		return v.marshalProto(w)
+	}
+	panic(fmt.Sprintf("unknown fileset marshalProto format %d", f))
 }
 
-func (v *Fileset) marshal(w io.Writer) error {
+func (v *Fileset) marshalProto(w io.Writer) error {
+	files := make(map[digest.Digest]int32, 0)
+	assertions := make(map[string]int32, 0)
+	assertionsGroups := make(map[*Assertions]int32, 0)
+	b := proto.NewBuffer([]byte{})
+
+	var a *Assertions
+
+	files[digest.Digest{}] = 0
+	assertions[""] = 0
+	assertionsGroups[a] = 0
+
+	if err := v.encodeFilesetParts(0, -1, w, b, files, assertions, assertionsGroups); err != nil {
+		return err
+	}
+
+	for i, fs := range v.List {
+		if len(fs.List) != 0 {
+			return fmt.Errorf(fmt.Sprintf("invalid fileset encountered of depth > 1 (%d)", len(fs.List)))
+		}
+		if err := fs.encodeFilesetParts(1, int32(i), w, b, files, assertions, assertionsGroups); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// marshalProtoWithBuffer writes a proto Message to the given Writer. First,
+// the message is written to an intermediate buffer. The length of that serialized
+// Message is then written to the output, followed by the serialized message itself.
+// We must write the length of the message as a header so we can decode multiple
+// fileset parts later when we are decoding the fileset as a stream.
+// See the documentation below for more explanation on streaming multiple protobufs.
+// https://developers.google.com/protocol-buffers/docs/techniques#streaming
+func marshalProtoWithBuffer(pb proto.Message, b *proto.Buffer, w io.Writer) error {
+	defer b.Reset()
+	if err := b.Marshal(pb); err != nil {
+		return err
+	}
+	if err := binary.Write(w, binary.LittleEndian, int64(len(b.Bytes()))); err != nil {
+		return err
+	}
+	if n, err := w.Write(b.Bytes()); err != nil {
+		return err
+	} else if n != len(b.Bytes()) {
+		return errors.New(fmt.Sprintf("expected to write %d bytes but only wrote %d bytes while marshalling fileset part",
+			len(b.Bytes()), n))
+	}
+	return nil
+}
+
+// unmarshalProtoWithBuffer reads the length of the next FilesetPart in the stream,
+// copies that number of bytes to an intermediate buffer and finally unmarshals the
+// FilesetPart encoded by that buffer. See the documentation for marshalProtoWithBuffer
+// for more explanation of the stream format.
+func unmarshalProtoWithBuffer(b *bytes.Buffer, r io.Reader) (FilesetPart, error) {
+	defer b.Reset()
+	var partLen int64
+	if err := binary.Read(r, binary.LittleEndian, &partLen); err != nil {
+		return FilesetPart{}, err
+	}
+	if n, err := io.CopyN(b, r, partLen); err != nil {
+		return FilesetPart{}, err
+	} else if n != partLen {
+		return FilesetPart{}, errors.New(fmt.Sprintf("failed to read file part, "+
+			"expected to read %d bytes but read %d bytes to the buffer", partLen, n))
+	}
+
+	var part FilesetPart
+	err := proto.Unmarshal(b.Bytes(), &part)
+	return part, err
+}
+
+func (v *Fileset) encodeFilesetParts(
+	depth, index int32,
+	w io.Writer,
+	b *proto.Buffer,
+	files map[digest.Digest]int32,
+	assertionsPartsIdsByKey map[string]int32,
+	assertionsGroupsPartsByPtr map[*Assertions]int32,
+) error {
+	if (depth == 0 && index != -1) || (depth == 1 && index < 0) || (depth > 1) {
+		panic(fmt.Sprintf("attempting to encode fileset with unexpected shape [depth = %d, index = %d]",
+			depth, index))
+	}
+
+	var err error
+	for path, file := range v.Map {
+		if _, ok := files[file.Digest()]; !ok {
+			var assertionsGroupId int32
+			if assertionsGroupId, err = encodeAssertionsParts(
+				file.Assertions,
+				w, b,
+				assertionsPartsIdsByKey,
+				assertionsGroupsPartsByPtr); err != nil {
+				return err
+			}
+			var id string
+			if !file.ID.IsZero() {
+				id = file.ID.String()
+			}
+			if err := marshalProtoWithBuffer(&FilesetPart{
+				Part: &FilesetPart_Fp{
+					Fp: &FilePart{
+						Id: int32(len(files)),
+						File: &FileP{
+							Id:   id,
+							Size: file.Size,
+						},
+						AssertionsGroupId: assertionsGroupId,
+					},
+				},
+			}, b, w); err != nil {
+				return err
+			}
+			files[file.Digest()] = int32(len(files))
+		}
+
+		fid := files[file.Digest()]
+		if err := marshalProtoWithBuffer(&FilesetPart{
+			Part: &FilesetPart_Fmp{
+				Fmp: &FileMappingPart{
+					Depth:  depth,
+					Index:  index,
+					Key:    path,
+					FileId: fid,
+				},
+			},
+		}, b, w); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// encodeAssertionsParts encodes and yields an ID.
+func encodeAssertionsParts(
+	assertions *Assertions,
+	w io.Writer,
+	b *proto.Buffer,
+	assertionsPartsIdsByKey map[string]int32,
+	assertionsGroupsPartsByPtr map[*Assertions]int32,
+) (int32, error) {
+	if assertions == nil {
+		return 0, nil
+	}
+	var groupId int32
+	var ok bool
+	if groupId, ok = assertionsGroupsPartsByPtr[assertions]; ok {
+		return groupId, nil
+	}
+
+	var i int
+	assertionIds := make([]int32, len(assertions.m))
+	for key, as := range assertions.m {
+		if _, ok := assertionsPartsIdsByKey[key.Subject]; !ok {
+			idx := int32(len(assertionsPartsIdsByKey))
+			bp := &BlobProperties{}
+			if v, ok := as.objects[BlobAssertionPropertyETag]; ok {
+				bp.Etag = v
+			}
+			if v, ok := as.objects[BlobAssertionPropertyLastModified]; ok {
+				bp.LastModified = v
+			}
+			if v, ok := as.objects[BlobAssertionPropertySize]; ok {
+				bp.Size = v
+			}
+			keyPart := &AssertionsKeyPart{
+				Id:      idx,
+				Subject: key.Subject,
+				Properties: &AssertionsKeyPart_Bp{
+					Bp: bp,
+				},
+			}
+			if err := marshalProtoWithBuffer(&FilesetPart{
+				Part: &FilesetPart_Akp{
+					Akp: keyPart,
+				},
+			}, b, w); err != nil {
+				return 0, err
+			}
+			assertionsPartsIdsByKey[key.Subject] = idx
+		}
+		assertionIds[i] = assertionsPartsIdsByKey[key.Subject]
+		i += 1
+	}
+
+	groupId = int32(len(assertionsGroupsPartsByPtr))
+
+	if err := marshalProtoWithBuffer(&FilesetPart{
+		Part: &FilesetPart_Agp{
+			Agp: &AssertionsGroupPart{
+				Id:     groupId,
+				KeyIds: assertionIds,
+			},
+		},
+	}, b, w); err != nil {
+		return 0, err
+	}
+
+	assertionsGroupsPartsByPtr[assertions] = groupId
+	return groupId, nil
+}
+
+func (v *Fileset) marshalJSON(w io.Writer) error {
 	var (
 		commaB       = []byte(",")
 		objOpenB     = []byte("{")
@@ -519,7 +743,7 @@ func (v *Fileset) marshal(w io.Writer) error {
 					return err
 				}
 			}
-			if err = fs.marshal(w); err != nil {
+			if err = fs.marshalJSON(w); err != nil {
 				return err
 			}
 		}
@@ -587,17 +811,129 @@ func (v *Fileset) marshal(w io.Writer) error {
 	return nil
 }
 
-// ReadJSON reads (unmarshals) JSON from the given Reader into this Fileset.
-// ReadJSON is a lot more efficient than `json.Unmarshal` and specifically it
-// will unmarshal Assertions (if any) for every File within this Fileset.
-func (v *Fileset) ReadJSON(r io.Reader) error {
-	return v.unmarshal(json.NewDecoder(r))
+// Read reads (unmarshals) a serialized fileset from the given Reader into
+// this Fileset.
+func (v *Fileset) Read(r io.Reader, f FilesetMarshalFormat) error {
+	switch f {
+	case FilesetMarshalFmtJSON:
+		return v.unmarshalJSON(json.NewDecoder(r))
+	case FilesetMarshalFmtProtoParts:
+		return v.unmarshalProto(r)
+	}
+	panic(fmt.Sprintf("unknown fileset marshalProto format %d", f))
 }
 
-func (v *Fileset) unmarshal(dec *json.Decoder) error {
+func (v *Fileset) unmarshalProto(r io.Reader) error {
+	// file id -> file and assertion fields
+	files := make(map[int32]*FilePart, 0)
+	// assertion key part id -> set of blob properties
+	assertions := make(map[int32]*AssertionsKeyPart)
+	// assertion group id -> slice of assertion key parts
+	assertionsGroupPartById := make(map[int32]*AssertionsGroupPart)
+	// assertion group id -> complete assertion groups constructed of assertion key parts
+	assertionsGroupById := make(map[int32]*Assertions)
+
+	buf := new(bytes.Buffer)
+
+	for {
+		var p FilesetPart
+		var err error
+		if p, err = unmarshalProtoWithBuffer(buf, r); err != nil {
+			if err == io.EOF {
+				return nil
+			} else {
+				return err
+			}
+		}
+		if fid := p.GetFp(); fid != nil {
+			files[fid.Id] = fid
+		} else if as := p.GetAkp(); as != nil {
+			assertions[as.Id] = as
+		} else if g := p.GetAgp(); g != nil {
+			assertionsGroupPartById[g.Id] = g
+		} else if m := p.GetFmp(); m != nil {
+			switch m.Depth {
+			case 0:
+				v.insertFile(m.Key, m.FileId, files, assertionsGroupPartById, assertionsGroupById, assertions)
+			case 1:
+				if int(m.Index) >= len(v.List) {
+					l := make([]Fileset, m.Index+1)
+					for i, fs := range v.List {
+						l[i] = fs
+					}
+					v.List = l
+				}
+				v.List[m.Index].insertFile(m.Key, m.FileId, files, assertionsGroupPartById, assertionsGroupById, assertions)
+			default:
+				panic(fmt.Sprintf("unexpected depth fileset %d", m.Depth))
+			}
+		} else {
+			panic("unexpected null part received")
+		}
+	}
+}
+
+func (v *Fileset) insertFile(key string, fId int32,
+	filesById map[int32]*FilePart,
+	assertionsGroupPartById map[int32]*AssertionsGroupPart,
+	assertionsGroupById map[int32]*Assertions,
+	assertionsById map[int32]*AssertionsKeyPart) {
+
+	var f *FilePart
+	var ok bool
+	if f, ok = filesById[fId]; !ok {
+		panic(fmt.Sprintf("failed to find expected file with id %d", fId))
+	}
+
+	id, err := digest.Parse(f.File.Id)
+	if err != nil {
+		panic(fmt.Sprintf("failed to parse digest %s during fileset unmarshalling", f.File.Id))
+	}
+	file := File{ID: id, Size: f.File.Size}
+
+	if f.AssertionsGroupId != 0 {
+		if _, ok = assertionsGroupById[f.AssertionsGroupId]; !ok {
+			assertions := NewAssertions()
+			assertionsGroupPart := assertionsGroupPartById[f.AssertionsGroupId]
+			// only reconstruct the group once, afterwards use cached value
+			delete(assertionsGroupPartById, f.AssertionsGroupId)
+			for _, assertionPartId := range assertionsGroupPart.KeyIds {
+				var as *AssertionsKeyPart
+				if as, ok = assertionsById[assertionPartId]; !ok {
+					panic(fmt.Sprintf("failed to find expected assertion with id %d", assertionPartId))
+				}
+				if as.GetBp() == nil {
+					panic(fmt.Sprintf("expected blob properties on assertion("+
+						"%s) during unmarshalling but found none", as.Subject))
+				}
+				fields := make(map[string]string, 3)
+				if as.GetBp().Etag != "" {
+					fields[BlobAssertionPropertyETag] = as.GetBp().Etag
+				}
+				if as.GetBp().LastModified != "" {
+					fields[BlobAssertionPropertyLastModified] = as.GetBp().LastModified
+				}
+				if as.GetBp().Size != "" {
+					fields[BlobAssertionPropertySize] = as.GetBp().Size
+				}
+				assertions.m[AssertionKey{Namespace: "blob", Subject: as.Subject}] = &assertion{
+					objects: fields,
+				}
+			}
+			assertionsGroupById[f.AssertionsGroupId] = assertions
+		}
+		file.Assertions = assertionsGroupById[f.AssertionsGroupId]
+	}
+	if v.Map == nil {
+		v.Map = make(map[string]File)
+	}
+	v.Map[key] = file
+}
+
+func (v *Fileset) unmarshalJSON(dec *json.Decoder) error {
 	// m maps the digest of an Assertions object to itself and is used to avoid duplicate in-memory objects.
 	m := make(map[digest.Digest]*Assertions)
-	const debugMsg = "fileset.ReadJSON"
+	const debugMsg = "fileset.Read"
 	if err := expectDelim(dec, objOpen, debugMsg+" (top)"); err != nil {
 		return err
 	}
@@ -613,7 +949,7 @@ func (v *Fileset) unmarshal(dec *json.Decoder) error {
 			}
 			for dec.More() {
 				var fs Fileset
-				if err = fs.unmarshal(dec); err != nil {
+				if err = fs.unmarshalJSON(dec); err != nil {
 					return err
 				}
 				v.List = append(v.List, fs)

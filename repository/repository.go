@@ -151,7 +151,7 @@ func Marshal(ctx context.Context, repo reflow.Repository, v interface{}) (digest
 	go func() {
 		var err error
 		if _, ok := v.(*reflow.Fileset); ok {
-			err = v.(*reflow.Fileset).WriteJSON(bw)
+			err = v.(*reflow.Fileset).Write(bw, reflow.FilesetMarshalFmtJSON)
 			if err == nil {
 				err = bw.Flush()
 			}
@@ -173,7 +173,7 @@ func Unmarshal(ctx context.Context, repo reflow.Repository, k digest.Digest, v i
 	}
 	defer func() { _ = rc.Close() }()
 	if fs, ok := v.(*reflow.Fileset); ok {
-		return fs.ReadJSON(rc)
+		return fs.Read(rc, reflow.FilesetMarshalFmtJSON)
 	}
 	return json.NewDecoder(rc).Decode(v)
 }

@@ -274,7 +274,7 @@ func assertionGenerator(bmux blob.Mux) reflow.AssertionGeneratorMux {
 	if bmux == nil {
 		panic(fmt.Sprintf("assertionGenerator got nil blob.Mux"))
 	}
-	return reflow.AssertionGeneratorMux{blob.AssertionsNamespace: bmux}
+	return reflow.AssertionGeneratorMux{reflow.BlobAssertionsNamespace: bmux}
 }
 
 // asserter returns a reflow.Assert based on the given name.

@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package reflow;
+
+option go_package = "github.com/grailbio/reflow";
+
+message FileP {
+  string id = 1;
+  int64 size = 2;
+}
+
+message FilePart {
+  int32 id = 1;
+  FileP file = 2;
+  int32 assertionsGroupId = 3;
+}
+
+message FileMappingPart {
+  int32 depth = 1;
+  int32 index = 2;
+  string key = 3;
+  int32 fileId = 4;
+}
+
+message BlobProperties {
+  string etag = 1;
+  string lastModified = 2;
+  string size = 3;
+}
+
+message AssertionsKeyPart {
+  int32 id = 1;
+  string subject = 2;
+  oneof properties {
+    BlobProperties bp = 3;
+  }
+}
+
+message AssertionsGroupPart {
+  int32 id = 1;
+  repeated int32 keyIds = 2 [packed = true];
+}
+
+message FilesetPart {
+  oneof part {
+    FilePart fp = 1;
+    FileMappingPart fmp = 2;
+    AssertionsKeyPart akp = 3;
+    AssertionsGroupPart agp = 4;
+  }
+}
