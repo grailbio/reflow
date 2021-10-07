@@ -418,14 +418,18 @@ func TestGetProfilesInspectErrors(t *testing.T) {
 			t.Fatalf("got %v, want %v", got, want)
 		}
 	}
-	// Give each ExecInspect an Error or an ExecError.
-	var i int
+	// Give some ExecInspects an Error or an ExecError.
+	// and corrupt one of them so that it cannot be JSON decoded.
+	// The corruption is done to later assert that the inspectLimiter didn't lose tokens
+	// due to failures in decoding.  (ie, the bug which was fixed as part of this change)
+	var (
+		i int
+	)
 	for d, b := range repo.files {
 		var ei reflow.ExecInspect
 		if err := json.Unmarshal(b, &ei); err != nil {
 			t.Fatal(err)
 		}
-
 		switch i % 3 {
 		case 0:
 			ei.Error = errors.Recover(errors.E(errors.NotExist, "filler error"))
@@ -437,12 +441,22 @@ func TestGetProfilesInspectErrors(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if i == 0 {
+			b = []byte("some corrupted json")
+		}
 		repo.files[d] = b
 		i++
 	}
 	profiles, _ := pred.getProfiles(ctx, group)
 	if got, want := len(profiles), numTasks/3; got != want {
 		t.Fatalf("got %v, want %v", got, want)
+	}
+
+	// Ensure that the predictor correctly released the inspectLimiter tokens
+	ctx, cancel := context.WithTimeout(ctx, 1 * time.Second)
+	defer cancel()
+	if err := pred.inspectLimiter.Acquire(ctx, defaultInspectLimiterTokens); err != nil {
+		t.Errorf("could not acquire %d tokens: %v", defaultInspectLimiterTokens, err)
 	}
 }
 

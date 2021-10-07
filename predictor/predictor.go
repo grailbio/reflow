@@ -49,7 +49,11 @@ const (
 
 	// defaultCacheTtl is the default duration for which cached predictions are valid.
 	defaultCacheTtl = 60 * time.Minute
+
 )
+
+// defaultInspectLimiterTokens is the default number of tokens used by the predictor's inspect limiter.
+var defaultInspectLimiterTokens = runtime.NumCPU()
 
 // Predictor predicts tasks' resource usage. All predictions
 // are performed online using cached profiling data.
@@ -109,7 +113,7 @@ func New(repo reflow.Repository, tdb taskdb.TaskDB, log *log.Logger, minData, ma
 	// (on the order of 10s of MiB). Because of this,
 	// inspectLimiter is set to the number of available CPUs.
 	inspectLimiter := limiter.New()
-	inspectLimiter.Release(runtime.NumCPU())
+	inspectLimiter.Release(defaultInspectLimiterTokens)
 
 	return &Predictor{
 		taskDB:         tdb,
@@ -325,10 +329,11 @@ func (p *Predictor) getProfiles(ctx context.Context, group taskGroup) ([]reflow.
 			return nil
 		}
 		var si smallInspect
-		if err := json.NewDecoder(rc).Decode(&si); err != nil {
+		err = json.NewDecoder(rc).Decode(&si)
+		p.inspectLimiter.Release(1)
+		if err != nil {
 			return nil
 		}
-		p.inspectLimiter.Release(1)
 
 		// Only use profiles with memory data to make memory predictions.
 		if _, ok := si.Profile["mem"]; ok && si.Error == nil && si.ExecError == nil {
