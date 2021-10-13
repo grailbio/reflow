@@ -97,15 +97,6 @@ func (m *mockdb) BatchGetItemWithContext(ctx aws.Context, input *dynamodb.BatchG
 					"Value": {
 						S: aws.String(*v["ID"].S),
 					},
-					"Logs": {
-						S: aws.String(*v["ID"].S),
-					},
-					"Bundle": {
-						S: aws.String(*v["ID"].S),
-					},
-					"ExecInspect": {
-						S: aws.String(*v["ID"].S),
-					},
 				}
 				o.Responses[mockTable] = append(o.Responses[mockTable], m)
 			}
@@ -144,7 +135,7 @@ func (m *mockdb) ScanWithContext(ctx aws.Context, input *dynamodb.ScanInput, opt
 	return output, nil
 }
 
-var kinds = []assoc.Kind{assoc.Fileset, assoc.ExecInspect, assoc.Logs, assoc.Bundle}
+var kinds = []assoc.Kind{assoc.Fileset}
 
 func TestDelete(t *testing.T) {
 	ctx := context.Background()
@@ -224,35 +215,6 @@ func TestSimpleBatchGetItem(t *testing.T) {
 	}
 }
 
-func TestMultiKindBatchGetItem(t *testing.T) {
-	var wg sync.WaitGroup
-	ctx, _ := flow.WithBackground(context.Background(), &wg)
-	db := &mockdb{}
-	ass := &Assoc{DB: db}
-	ass.TableName = mockTable
-	k := reflow.Digester.Rand(nil)
-	keys := []assoc.Key{{assoc.Fileset, k}, {assoc.ExecInspect, k}}
-	batch := make(assoc.Batch)
-	batch.Add(keys...)
-	err := ass.BatchGet(ctx, batch)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := len(batch), 2; got != want {
-		t.Fatalf("expected %v responses, got %v", want, got)
-	}
-	if got, want := batch[keys[0]].Digest, k; batch.Found(keys[0]) && got != want {
-		t.Errorf("want %v, got %v", got, want)
-	}
-	if got, want := batch[keys[1]].Digest, k; batch.Found(keys[0]) && got != want {
-		t.Errorf("want %v, got %v", got, want)
-	}
-	wg.Wait()
-	if got, want := db.NumUpdates(), 2; got != want {
-		t.Errorf("got %d updates, want %d", got, want)
-	}
-}
-
 type mockdbunprocessed struct {
 	dynamodbiface.DynamoDBAPI
 	maxRetries int
@@ -302,15 +264,6 @@ func (m *mockdbunprocessed) BatchGetItemWithContext(ctx aws.Context, input *dyna
 					"Value": {
 						S: aws.String(*v["ID"].S),
 					},
-					"Logs": {
-						S: aws.String(*v["ID"].S),
-					},
-					"Bundle": {
-						S: aws.String(*v["ID"].S),
-					},
-					"ExecInspect": {
-						S: aws.String(*v["ID"].S),
-					},
 				}
 				o.Responses[mockTable] = append(o.Responses[mockTable], m)
 			}
@@ -341,7 +294,7 @@ func TestParallelBatchGetItem(t *testing.T) {
 	digests := make([]assoc.Key, count)
 
 	for i := 0; i < count; i++ {
-		digests[i] = assoc.Key{Kind: kinds[rand.Int()%4], Digest: reflow.Digester.Rand(nil)}
+		digests[i] = assoc.Key{Kind: kinds[rand.Int()%len(kinds)], Digest: reflow.Digester.Rand(nil)}
 	}
 	g, ctx := errgroup.WithContext(ctx)
 	ch := make(chan assoc.Key)
@@ -436,15 +389,6 @@ func (m *mockdbInvalidDigest) BatchGetItemWithContext(ctx aws.Context, input *dy
 					"Value": {
 						S: aws.String(*v["ID"].S),
 					},
-					"Logs": {
-						S: aws.String(*v["ID"].S),
-					},
-					"Bundle": {
-						S: aws.String(*v["ID"].S),
-					},
-					"ExecInspect": {
-						S: aws.String(*v["ID"].S),
-					},
 				}
 				ma[m.invalidDigestCol] = &dynamodb.AttributeValue{S: aws.String("corrupted")}
 				o.Responses[mockTable] = append(o.Responses[mockTable], ma)
@@ -464,7 +408,7 @@ func (m *mockdbInvalidDigest) UpdateItemWithContext(ctx aws.Context, input *dyna
 func TestInvalidDigest(t *testing.T) {
 	batch := make(assoc.Batch)
 	for i := 0; i < 1000; i++ {
-		batch[assoc.Key{Kind: kinds[i%4], Digest: reflow.Digester.Rand(nil)}] = assoc.Result{}
+		batch[assoc.Key{Kind: kinds[i%len(kinds)], Digest: reflow.Digester.Rand(nil)}] = assoc.Result{}
 	}
 	pat := `encoding/hex: invalid byte:.*`
 	re, err := regexp.Compile(pat)
@@ -494,7 +438,7 @@ func TestInvalidDigest(t *testing.T) {
 				}
 			}
 		}
-		if got, want := errCount, 250; got != want {
+		if got, want := errCount, len(batch) / len(kinds); got != want {
 			t.Errorf(fmt.Sprintf("expected %v invalid digest keys, got %v", want, got))
 		}
 		wg.Wait()
@@ -551,8 +495,8 @@ func TestAssocScanValidEntries(t *testing.T) {
 		lastAccessTimeUnix string
 	}{
 		{assoc.Fileset, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), []string{"grail:type=reflow", "grail:user=abc@graiobio.com"}, "1571573191"},
-		{assoc.ExecInspect, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), nil, "1572455280"},
-		{assoc.Logs, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), nil, "1572448157"},
+		{assoc.Fileset, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), nil, "1572455280"},
+		{assoc.Fileset, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), nil, "1572448157"},
 		{assoc.Fileset, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), []string{"grail:type=reflow", "grail:user=def@graiobio.com"}, "1568099519"},
 		{assoc.Fileset, reflow.Digester.Rand(nil), digest.Digest{}, nil, "1568099519"},
 	} {
@@ -566,10 +510,6 @@ func TestAssocScanValidEntries(t *testing.T) {
 			switch tt.kind {
 			case assoc.Fileset:
 				entry.Attributes[colmap[tt.kind]] = &val
-			case assoc.ExecInspect, assoc.Logs, assoc.Bundle:
-				entry.Attributes[colmap[tt.kind]] = &dynamodb.AttributeValue{
-					L: []*dynamodb.AttributeValue{&val},
-				}
 			}
 		}
 		if tt.labels != nil {
@@ -587,9 +527,6 @@ func TestAssocScanValidEntries(t *testing.T) {
 
 	var (
 		numFileSets          = new(int)
-		numExecInspects      = new(int)
-		numLogs              = new(int)
-		numBundles           = new(int)
 		thresholdTime        = time.Unix(1572000000, 0)
 		numPastThresholdTime = 0
 	)
@@ -599,10 +536,7 @@ func TestAssocScanValidEntries(t *testing.T) {
 		assocKind           assoc.Kind
 		wantLabels          []string
 	}{
-		{numFileSets, 2, 1, assoc.Fileset, []string{"grail:type=reflow", "grail:user=abc@graiobio.com"}},
-		{numExecInspects, 1, 0, assoc.ExecInspect, nil},
-		{numLogs, 1, 0, assoc.Logs, nil},
-		{numBundles, 0, 0, assoc.Bundle, nil},
+		{numFileSets, 4, 1, assoc.Fileset, []string{"grail:type=reflow", "grail:user=abc@graiobio.com"}},
 	} {
 		gotLabel := 0
 		err := ass.Scan(ctx, tt.assocKind, assoc.MappingHandlerFunc(func(k digest.Digest, v []digest.Digest, mapkind assoc.Kind, lastAccessTime time.Time, labels []string) {
@@ -612,12 +546,6 @@ func TestAssocScanValidEntries(t *testing.T) {
 			switch mapkind {
 			case assoc.Fileset:
 				*numFileSets++
-			case assoc.ExecInspect:
-				*numExecInspects++
-			case assoc.Logs:
-				*numLogs++
-			case assoc.Bundle:
-				*numBundles++
 			default:
 				return
 			}

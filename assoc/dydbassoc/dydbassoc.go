@@ -53,10 +53,7 @@ const (
 
 var (
 	colmap = map[assoc.Kind]string{
-		assoc.Fileset:     "Value",
-		assoc.Logs:        "Logs",
-		assoc.Bundle:      "Bundle",
-		assoc.ExecInspect: "ExecInspect",
+		assoc.Fileset: "Value",
 	}
 	backOffPolicy = retry.MaxRetries(retry.Backoff(2*time.Millisecond, time.Minute, 1), 10)
 )
@@ -216,7 +213,7 @@ func (a *Assoc) Store(ctx context.Context, kind assoc.Kind, k, v digest.Digest) 
 	}()
 
 	switch kind {
-	case assoc.Fileset, assoc.ExecInspect, assoc.Logs, assoc.Bundle:
+	case assoc.Fileset:
 	default:
 		return errors.E(errors.NotSupported, errors.Errorf("mappings of kind %v are not supported", kind))
 	}
@@ -303,37 +300,6 @@ func (a *Assoc) getUpdateComponents(kind assoc.Kind, k, v digest.Digest) (expr s
 		}
 		// Value is a reserved word. Use a placeholder.
 		an["#v"] = aws.String("Value")
-	case assoc.ExecInspect:
-		switch {
-		case v.IsZero():
-			expr = "REMOVE ExecInspect"
-		default:
-			expr = "SET ExecInspect = list_append(:inspect, if_not_exists(ExecInspect, :empty_list))"
-			av[":inspect"] = &dynamodb.AttributeValue{L: []*dynamodb.AttributeValue{&dynamodb.AttributeValue{S: aws.String(v.String())}}}
-			av[":empty_list"] = &dynamodb.AttributeValue{L: []*dynamodb.AttributeValue{}}
-		}
-	case assoc.Logs:
-		switch {
-		case v.IsZero():
-			expr = "REMOVE Logs"
-		default:
-			expr = "SET Logs = list_append(:logs, if_not_exists(Logs, :empty_list))"
-			av[":logs"] = &dynamodb.AttributeValue{L: []*dynamodb.AttributeValue{&dynamodb.AttributeValue{S: aws.String(v.String())}}}
-			av[":empty_list"] = &dynamodb.AttributeValue{L: []*dynamodb.AttributeValue{}}
-		}
-	case assoc.Bundle:
-		k4 := k
-		k4.Truncate(4)
-		switch {
-		case v.IsZero():
-			expr = "REMOVE Bundle"
-		default:
-			expr = "SET ID4 = :id4, Bundle= list_append(:bundle, if_not_exists(Bundle, :empty_list))"
-			av[":bundle"] = &dynamodb.AttributeValue{L: []*dynamodb.AttributeValue{&dynamodb.AttributeValue{S: aws.String(v.String())}}}
-			av[":id4"] = &dynamodb.AttributeValue{S: aws.String(k4.HexN(4))}
-			av[":empty_list"] = &dynamodb.AttributeValue{L: []*dynamodb.AttributeValue{}}
-		}
-
 	}
 	if !v.IsZero() && len(a.Labels) > 0 {
 		a.labelsOnce.Do(func() {
@@ -361,7 +327,7 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 
 	var v digest.Digest
 	switch kind {
-	case assoc.Fileset, assoc.ExecInspect, assoc.Logs, assoc.Bundle:
+	case assoc.Fileset:
 	default:
 		return k, v, errors.E(errors.NotSupported, errors.Errorf("mappings of kind %v are not supported", kind))
 	}
@@ -369,12 +335,6 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 	switch kind {
 	case assoc.Fileset:
 		col = "Value"
-	case assoc.ExecInspect:
-		col = "ExecInspect"
-	case assoc.Logs:
-		col = "Logs"
-	case assoc.Bundle:
-		col = "Bundle"
 	}
 	if err := a.Limiter.Acquire(ctx, 1); err != nil {
 		return k, v, err
@@ -434,7 +394,7 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 		}
 		item = resp.Item[col]
 	}
-	if item == nil || (kind == assoc.Fileset && item.S == nil) || (kind == assoc.ExecInspect && item.L == nil) || (kind == assoc.Logs && item.L == nil) || (kind == assoc.Bundle && item.L == nil) {
+	if item == nil || (kind == assoc.Fileset && item.S == nil) {
 		return k, v, errors.E("lookup", k, errors.NotExist)
 	}
 	if item.L != nil {
@@ -842,19 +802,6 @@ func (a *Assoc) Scan(ctx context.Context, kind assoc.Kind, mappingHandler assoc.
 						continue
 					}
 					v = []digest.Digest{d}
-				case assoc.ExecInspect, assoc.Logs, assoc.Bundle:
-					l := dbval.L
-					for _, val := range l {
-						d, err := reflow.Digester.Parse(*val.S)
-						if err != nil {
-							continue
-						}
-						v = append(v, d)
-					}
-					if v == nil {
-						log.Errorf("no valid digests of kind %v for dynamodb entry %v", kind, item)
-						continue
-					}
 				}
 				mappingHandler.HandleMapping(ctx, k, v, kind, time.Unix(itemAccessTime, 0), labels)
 			}
