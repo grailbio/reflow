@@ -59,6 +59,7 @@ type bucket struct {
 	mu      sync.Mutex
 	objects map[string][]byte
 	ids     map[string]string
+	putErr  error
 }
 
 func (b *bucket) get(key string) ([]byte, string, bool) {
@@ -152,6 +153,9 @@ func (b *bucket) Get(ctx context.Context, key string, etag string) (io.ReadClose
 }
 
 func (b *bucket) Put(ctx context.Context, key string, size int64, body io.Reader, contentHash string) error {
+	if b.putErr != nil {
+		return b.putErr
+	}
 	p, err := ioutil.ReadAll(body)
 	if err != nil {
 		return err
@@ -225,4 +229,29 @@ func (b *bucket) Delete(ctx context.Context, keys ...string) error {
 
 func (b *bucket) Location() string {
 	return b.name
+}
+
+type ErrStore struct {
+	blob.Store
+	PutErr error
+}
+
+func (es *ErrStore) Bucket(ctx context.Context, name string) (blob.Bucket, error) {
+	bucket, err := es.Store.Bucket(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	return &ErrBucket{Bucket: bucket, PutErr: es.PutErr}, nil
+}
+
+type ErrBucket struct {
+	blob.Bucket
+	PutErr error
+}
+
+func (eb *ErrBucket) Put(ctx context.Context, key string, size int64, body io.Reader, contentHash string) error {
+	if eb.PutErr != nil {
+		return eb.PutErr
+	}
+	return eb.Bucket.Put(ctx, key, size, body, contentHash)
 }

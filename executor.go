@@ -269,6 +269,7 @@ type Exec interface {
 	// If a repo is provided, Inspect will also marshal this exec's inspect (but only if the exec is complete),
 	// into the given repo and returns the digest of the marshaled contents.
 	// If a repo is provided, the implementation may also put the exec's stdout and stderr logs and return their references.
+	// Implementations may return zero values for digest fields in the case of transient errors.
 	Inspect(ctx context.Context, repo *url.URL) (resp InspectResponse, err error)
 
 	// Wait awaits completion of the Exec.

@@ -62,6 +62,7 @@ func saveInspect(ctx context.Context, insp reflow.ExecInspect, repo reflow.Repos
 	return
 }
 
+// Saving of Inspect and logs is best effort, meaning retryable errors from saving to the repo are not returned.
 func saveExecInfo(ctx context.Context, state execState, e reflow.Exec, insp reflow.ExecInspect, repoUrl *url.URL, saveLogsToRepo bool) (
 	inspect reflow.RepoObjectRef, stdout reflow.RepoObjectRef, stderr reflow.RepoObjectRef, err error) {
 	if state != execComplete {
@@ -75,7 +76,11 @@ func saveExecInfo(ctx context.Context, state execState, e reflow.Exec, insp refl
 	}
 
 	if !saveLogsToRepo {
-		inspect, err = saveInspect(ctx, insp, repo)
+		var serr error
+		inspect, serr = saveInspect(ctx, insp, repo)
+		if serr != nil && errors.NonRetryable(serr) {
+			err = serr
+		}
 		return
 	}
 
@@ -84,19 +89,25 @@ func saveExecInfo(ctx context.Context, state execState, e reflow.Exec, insp refl
 	g.Go(func() error {
 		var saveErr error
 		inspect, saveErr = saveInspect(ctx, insp, repo)
-		m.Add(saveErr)
+		if saveErr != nil && errors.NonRetryable(saveErr) {
+			m.Add(saveErr)
+		}
 		return nil
 	})
 	g.Go(func() error {
 		var saveErr error
 		stdout, saveErr = saveExecLog(ctx, e, repo, true)
-		m.Add(saveErr)
+		if saveErr != nil && errors.NonRetryable(saveErr) {
+			m.Add(saveErr)
+		}
 		return nil
 	})
 	g.Go(func() error {
 		var saveErr error
 		stderr, saveErr = saveExecLog(ctx, e, repo, false)
-		m.Add(saveErr)
+		if saveErr != nil && errors.NonRetryable(saveErr) {
+			m.Add(saveErr)
+		}
 		return nil
 	})
 	_ = g.Wait()

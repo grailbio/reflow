@@ -24,6 +24,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/testblob"
+	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/walker"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository"
@@ -704,4 +705,32 @@ func TestInspect(t *testing.T) {
 		t.Error("Returned digest must be non-empty after completion")
 	}
 
+	errStore := testblob.ErrStore{
+		Store:  store,
+		PutErr: errors.E("test err", errors.Net),
+	}
+	blobrepo.Register("testscheme", &errStore)
+	resp, err = exec.Inspect(ctx, &repoUrl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.InspectDigest.Digest.IsZero() {
+		t.Error("Returned inspect digest should be empty")
+	}
+	if !resp.Stdout.Digest.IsZero() {
+		t.Error("Returned stdout digest should be empty")
+	}
+	if !resp.Stderr.Digest.IsZero() {
+		t.Error("Returned stderr digest should be empty")
+	}
+
+	errStore = testblob.ErrStore{
+		Store:  store,
+		PutErr: errors.E("test err", errors.Invalid),
+	}
+	blobrepo.Register("testscheme", &errStore)
+	_, err = exec.Inspect(ctx, &repoUrl)
+	if err == nil {
+		t.Error("Non retryable error should be returned")
+	}
 }
