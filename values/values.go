@@ -650,7 +650,13 @@ func WriteDigest(w io.Writer, v T, t *types.T) {
 	case types.SumKind:
 		variant := v.(*Variant)
 		io.WriteString(w, variant.Tag)
-		WriteDigest(w, variant.Elem, t.VariantMap()[variant.Tag])
+		elemTyp, ok := t.VariantMap()[variant.Tag]
+		if !ok {
+			panic("unexpected variant tag: " + variant.Tag)
+		}
+		if elemTyp != nil {
+			WriteDigest(w, variant.Elem, elemTyp)
+		}
 	case types.FuncKind:
 		digest.WriteDigest(w, v.(Func).Digest())
 	}

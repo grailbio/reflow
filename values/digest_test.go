@@ -224,6 +224,28 @@ func TestDigest(t *testing.T) {
 			},
 			"sha256:06132bcc7b9dc5373e7bee046fd23eb1826e599424cff420346111bd5f2835ab",
 		},
+		{
+			&types.T{
+				Kind: types.SumKind,
+				Variants: []*types.Variant{
+					{Tag: "None"},
+					{Tag: "Int", Elem: types.Int},
+				},
+			},
+			func() T { return &Variant{Tag: "None"} },
+			"sha256:727e511e8fb530780a628ad017419d933b7f7453f87bdef61f3339ec4f86f373",
+		},
+		{
+			&types.T{
+				Kind: types.SumKind,
+				Variants: []*types.Variant{
+					{Tag: "None"},
+					{Tag: "Int", Elem: types.Int},
+				},
+			},
+			func() T { return &Variant{Tag: "Int", Elem: big.NewInt(0)} },
+			"sha256:cdffa9f65561562220ad62d08cc612245cb2d2486233e8fe547bc8afb80e5c03",
+		},
 	} {
 		var v T
 		if f, ok := c.val.(func() T); ok {
