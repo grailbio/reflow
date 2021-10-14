@@ -56,6 +56,14 @@ val TestListComprVariant = {
 	((paths[0] == "0") && (files[0] == file("testdata/testdir/0")))
 }
 
+type MaybeIntList #None | #IntList([int])
+val TestListComprVariantWithIgnore = {
+	maybeIntList := delay([#Int([1, 2]), #Int([10, 20])])
+	first := [x | #Int([x, _]) <- maybeIntList]
+	second := [y | #Int([_, y]) <- maybeIntList]
+	(first == [1, 10]) && (second == [2, 20])
+}
+
 // Map comprehension test cases: all the files in testdir are empty, so we can always
 // expect files[0] to have a size of 0 bytes (regardless of the map iteration order).
 
