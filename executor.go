@@ -190,6 +190,20 @@ type ExecInspect struct {
 // DockerInspectTimeFormat is the format of the time fields in Docker.State retrieved using docker container inspect.
 const DockerInspectTimeFormat = "2006-01-02T15:04:05.999999999Z"
 
+// ExecRunInfo contains information associated with a completed Exec run.
+type ExecRunInfo struct {
+	Runtime   time.Duration
+	Profile   Profile
+	Resources Resources
+
+	// InspectDigest is the reference to the inspect object stored in the repository.
+	InspectDigest RepoObjectRef
+	// Stdout is the reference to the exec's stdout log.
+	Stdout RepoObjectRef
+	// Stderr is the reference to the exec's stdout log.
+	Stderr RepoObjectRef
+}
+
 // Runtime computes the exec's runtime based on Docker's timestamps.
 func (e ExecInspect) Runtime() time.Duration {
 	if e.Docker.ContainerJSONBase == nil || e.Docker.State == nil {
@@ -211,6 +225,15 @@ func (e ExecInspect) Runtime() time.Duration {
 	return diff
 }
 
+// RunInfo returns an ExecRunInfo object populated with the data from this inspect.
+func (e ExecInspect) RunInfo() ExecRunInfo {
+	return ExecRunInfo{
+		Profile:   e.Profile,
+		Runtime:   e.Runtime(),
+		Resources: e.Config.Resources,
+	}
+}
+
 type RemoteLogsType string
 
 const (
@@ -230,21 +253,13 @@ type RemoteLogs struct {
 	LogStreamName string
 }
 
-// InspectResponse is the value returned by a call to an exec's Inspect.
+// InspectResponse is the value returned by a call to an exec's Inspect. Either Inspect or RunInfo will be populated,
+// with the other field set to nil.
 type InspectResponse struct {
-	// Inspect is the raw inspect data for this exec
-	Inspect ExecInspect
-	// InspectDigest is the reference to the inspect object stored in the repository. Non-zero if a repo is provided
-	// to the Inspect call.
-	InspectDigest RepoObjectRef
-	// Stdout is the reference to the exec's stdout log.
-	// Stdout will never be set if a repo was not provided to the `Inspect` call which returned this response.
-	// And still, some implementations may not populate this field.
-	Stdout RepoObjectRef
-	// Stderr is the reference to the exec's stdout log.
-	// Stderr will never be set if a repo was not provided to the `Inspect` call which returned this response.
-	// And still, some implementations may not populate this field.
-	Stderr RepoObjectRef
+	// Inspect is the full inspect data for this exec.
+	Inspect *ExecInspect `json:",omitempty"`
+	// RunInfo contains useful information for the client derived from the ExecInspect.
+	RunInfo *ExecRunInfo `json:",omitempty"`
 }
 
 func (r RemoteLogs) String() string {

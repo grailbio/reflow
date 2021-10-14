@@ -399,7 +399,7 @@ func (c *Cmd) execInfos(ctx context.Context, execs []reflow.Exec) []execInfo {
 			if err != nil {
 				c.Log.Errorf("inspect %s: %v", exec.ID(), err)
 			} else {
-				infos[i] = execInfo{URI: exec.URI(), ID: exec.ID(), ExecInspect: resp.Inspect}
+				infos[i] = execInfo{URI: exec.URI(), ID: exec.ID(), ExecInspect: *resp.Inspect}
 			}
 			return nil
 		})

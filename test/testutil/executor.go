@@ -74,11 +74,14 @@ func (e *Exec) Promote(ctx context.Context) error {
 func (e *Exec) Inspect(ctx context.Context, repo *url.URL) (resp reflow.InspectResponse, err error) {
 	r, err := e.result(ctx)
 	if repo != nil {
-		resp.InspectDigest = reflow.RepoObjectRef{repo, reflow.Digester.Rand(rand.New(rand.NewSource(0)))}
-		resp.Stdout = reflow.RepoObjectRef{repo, reflow.Digester.Rand(rand.New(rand.NewSource(1)))}
-		resp.Stderr = reflow.RepoObjectRef{repo, reflow.Digester.Rand(rand.New(rand.NewSource(2)))}
+		runInfo := r.Inspect.RunInfo()
+		runInfo.InspectDigest = reflow.RepoObjectRef{repo, reflow.Digester.Rand(rand.New(rand.NewSource(0)))}
+		runInfo.Stdout = reflow.RepoObjectRef{repo, reflow.Digester.Rand(rand.New(rand.NewSource(1)))}
+		runInfo.Stderr = reflow.RepoObjectRef{repo, reflow.Digester.Rand(rand.New(rand.NewSource(2)))}
+		resp.RunInfo = &runInfo
+	} else {
+		resp.Inspect = &r.Inspect
 	}
-	resp.Inspect = r.Inspect
 	return
 }
 

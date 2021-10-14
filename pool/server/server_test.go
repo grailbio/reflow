@@ -163,33 +163,28 @@ func TestInspect(t *testing.T) {
 	repo := testRepository.URL()
 
 	for _, test := range []struct {
-		repo         *url.URL
-		method       string
-		validDigests bool
-		statusCode   int
+		repo       *url.URL
+		method     string
+		statusCode int
 	}{
 		{
 			nil,
 			"HEAD",
-			false,
 			http.StatusOK,
 		},
 		{
 			nil,
 			"GET",
-			false,
 			http.StatusOK,
 		},
 		{
 			repo,
 			"POST",
-			true,
 			http.StatusOK,
 		},
 		{
 			nil,
 			"POST",
-			false,
 			http.StatusBadRequest,
 		},
 	} {
@@ -213,20 +208,29 @@ func TestInspect(t *testing.T) {
 			if err := call.Unmarshal(&m); err != nil {
 				t.Fatal(err)
 			}
-			if got, want := m.Inspect.Status, testInspect.Status; got != want {
-				t.Errorf("got %v, want %v", got, want)
+			if test.method == "POST" {
+				if m.RunInfo == nil {
+					t.Error("RunInfo must be present for POST request")
+				}
+				if m.Inspect != nil {
+					t.Error("RunInfo must not be present for POST request")
+				}
+			} else {
+				if m.RunInfo != nil {
+					t.Error("RunInfo must be nil for GET request")
+				}
+				if m.Inspect == nil {
+					t.Error("RunInfo must be present for GET request")
+				}
 			}
-			if got, want := m.Inspect.State, testInspect.State; got != want {
-				t.Errorf("got %v, want %v", got, want)
+			if m.RunInfo.InspectDigest.Digest.IsZero() {
+				t.Error("InspectDigest is not present")
 			}
-			if got, want := !m.InspectDigest.Digest.IsZero(), test.validDigests; got != want {
-				t.Errorf("got %v, want %v", got, want)
+			if m.RunInfo.Stdout.Digest.IsZero() {
+				t.Error("Stdout is not present")
 			}
-			if got, want := !m.Stdout.Digest.IsZero(), test.validDigests; got != want {
-				t.Errorf("got %v, want %v", got, want)
-			}
-			if got, want := !m.Stderr.Digest.IsZero(), test.validDigests; got != want {
-				t.Errorf("got %v, want %v", got, want)
+			if m.RunInfo.Stderr.Digest.IsZero() {
+				t.Error("Stderr is not present")
 			}
 		}
 		call.Close()

@@ -678,14 +678,11 @@ func TestInspect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !resp.InspectDigest.Digest.IsZero() {
-		t.Error("Returned inspectDigest must be empty before completion")
+	if resp.Inspect != nil {
+		t.Error("Inspect should be nil with non-nil repo")
 	}
-	if !resp.Stdout.Digest.IsZero() {
-		t.Error("Returned stdout must be empty before completion")
-	}
-	if !resp.Stderr.Digest.IsZero() {
-		t.Error("Returned stderr must be empty before completion")
+	if resp.RunInfo != nil {
+		t.Error("RunInfo should be nil if called before completion")
 	}
 	err = exec.Wait(ctx)
 	if err != nil {
@@ -695,13 +692,13 @@ func TestInspect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.InspectDigest.Digest.IsZero() {
+	if resp.RunInfo.InspectDigest.Digest.IsZero() {
 		t.Error("Returned inspect digest must be non-empty after completion")
 	}
-	if resp.Stdout.Digest.IsZero() {
+	if resp.RunInfo.Stdout.Digest.IsZero() {
 		t.Error("Returned stdout digest must be non-empty after completion")
 	}
-	if resp.Stderr.Digest.IsZero() {
+	if resp.RunInfo.Stderr.Digest.IsZero() {
 		t.Error("Returned digest must be non-empty after completion")
 	}
 
@@ -714,13 +711,13 @@ func TestInspect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !resp.InspectDigest.Digest.IsZero() {
+	if !resp.RunInfo.InspectDigest.Digest.IsZero() {
 		t.Error("Returned inspect digest should be empty")
 	}
-	if !resp.Stdout.Digest.IsZero() {
+	if !resp.RunInfo.Stdout.Digest.IsZero() {
 		t.Error("Returned stdout digest should be empty")
 	}
-	if !resp.Stderr.Digest.IsZero() {
+	if !resp.RunInfo.Stderr.Digest.IsZero() {
 		t.Error("Returned stderr digest should be empty")
 	}
 

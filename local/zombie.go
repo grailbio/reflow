@@ -163,7 +163,12 @@ func (z *zombieExec) Inspect(ctx context.Context, repo *url.URL) (resp reflow.In
 	if state := manifest.Docker.State; state != nil && state.ExitCode != 0 {
 		inspect.Error = errors.Recover(errors.E("exec", z.URI(), errors.Errorf("process exited with status %d", state.ExitCode)))
 	}
-	resp.Inspect = inspect
+	if repo == nil {
+		resp.Inspect = &inspect
+	} else {
+		runInfo := inspect.RunInfo()
+		resp.RunInfo = &runInfo
+	}
 	return
 }
 

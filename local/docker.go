@@ -762,11 +762,14 @@ func (e *dockerExec) Inspect(ctx context.Context, repo *url.URL) (resp reflow.In
 		inspect.State = "complete"
 		inspect.Status = "the exec container has completed"
 		if repo != nil {
-			resp.InspectDigest, resp.Stderr, resp.Stdout, err = saveExecInfo(ctx, state, e, inspect, repo, e.Executor.SaveLogsToRepo)
+			var runInfo reflow.ExecRunInfo
+			runInfo, err = saveExecInfo(ctx, state, e, inspect, repo, e.Executor.SaveLogsToRepo)
+			resp.RunInfo = &runInfo
 		}
 	}
-	resp.Inspect = inspect
-
+	if repo == nil {
+		resp.Inspect = &inspect
+	}
 	return
 }
 

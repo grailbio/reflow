@@ -207,7 +207,8 @@ func (e *testExec) Result(ctx context.Context) (reflow.Result, error) {
 }
 
 func (e *testExec) Inspect(ctx context.Context, repo *url.URL) (resp reflow.InspectResponse, err error) {
-	_, err = e.Result(ctx)
+	resp.Inspect = &reflow.ExecInspect{}
+	resp.RunInfo = &reflow.ExecRunInfo{}
 	return resp, err
 }
 

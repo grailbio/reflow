@@ -429,5 +429,11 @@ func (n execNode) Do(ctx context.Context, call *rest.Call) {
 		call.Error(err)
 		return
 	}
+	if call.Method() == "POST" {
+		// For POST requests, do not return full inspect to save memory on the client.
+		resp.Inspect = nil
+	} else {
+		resp.RunInfo = nil
+	}
 	call.Reply(http.StatusOK, resp)
 }

@@ -180,10 +180,14 @@ func (e *localfileExec) Inspect(ctx context.Context, repo *url.URL) (resp reflow
 		inspect.State = "complete"
 		inspect.Status = "file linking is complete"
 		if repo != nil {
-			resp.InspectDigest, resp.Stdout, resp.Stderr, err = saveExecInfo(ctx, state, e, inspect, repo, e.Executor.SaveLogsToRepo)
+			var runInfo reflow.ExecRunInfo
+			runInfo, err = saveExecInfo(ctx, state, e, inspect, repo, e.Executor.SaveLogsToRepo)
+			resp.RunInfo = &runInfo
 		}
 	}
-	resp.Inspect = inspect
+	if repo == nil {
+		resp.Inspect = &inspect
+	}
 	return
 }
 

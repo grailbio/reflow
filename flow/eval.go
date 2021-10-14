@@ -646,19 +646,19 @@ func (e *Eval) LogSummary(log *log.Logger) {
 		if v.Cached {
 			a.Ncache++
 		}
-		if len(v.Inspect.Profile) == 0 {
+		if len(v.RunInfo.Profile) == 0 {
 			n++
 			stats[ident] = a
 			continue
 		}
 		if v.Op == Exec {
-			a.CPU.Add(v.Inspect.Profile["cpu"].Mean)
-			a.Memory.Add(v.Inspect.Profile["mem"].Max)
-			a.Disk.Add(v.Inspect.Profile["disk"].Max)
-			a.Temp.Add(v.Inspect.Profile["tmp"].Max)
-			a.Requested = v.Inspect.Config.Resources
+			a.CPU.Add(v.RunInfo.Profile["cpu"].Mean)
+			a.Memory.Add(v.RunInfo.Profile["mem"].Max)
+			a.Disk.Add(v.RunInfo.Profile["disk"].Max)
+			a.Temp.Add(v.RunInfo.Profile["tmp"].Max)
+			a.Requested = v.RunInfo.Resources
 		}
-		if d := v.Inspect.Runtime().Minutes(); d > 0 {
+		if d := v.RunInfo.Runtime.Minutes(); d > 0 {
 			a.Runtime.Add(d)
 		}
 		n++
@@ -1718,13 +1718,13 @@ var statusPrinters = [maxOp]struct {
 					defer cancel()
 
 					// Print RemoteLogs objects / repository digests for logging objects, if present.
-					if !f.ExecStdout.Digest.IsZero() {
-						_, _ = fmt.Fprintf(w, "stdout: %s\n", f.ExecStdout)
+					if !f.RunInfo.Stdout.Digest.IsZero() {
+						_, _ = fmt.Fprintf(w, "stdout: %s\n", f.RunInfo.Stdout)
 					} else if loc, err := f.Exec.RemoteLogs(ctx, true); err == nil {
 						_, _ = fmt.Fprintf(w, "stdout location: %s\n", loc)
 					}
-					if !f.ExecStderr.Digest.IsZero() {
-						_, _ = fmt.Fprintf(w, "stderr: %s\n", f.ExecStderr)
+					if !f.RunInfo.Stdout.Digest.IsZero() {
+						_, _ = fmt.Fprintf(w, "stderr: %s\n", f.RunInfo.Stderr)
 					} else if loc, err := f.Exec.RemoteLogs(ctx, false); err == nil {
 						_, _ = fmt.Fprintf(w, "stderr location: %s\n", loc)
 					}
@@ -1743,7 +1743,7 @@ var statusPrinters = [maxOp]struct {
 				}
 			}
 			fmt.Fprintln(w, "profile:")
-			profile := f.Inspect.Profile
+			profile := f.RunInfo.Profile
 			for _, k := range []string{"cpu", "mem", "disk", "tmp"} {
 				prof := profile[k]
 				dur := prof.Last.Sub(prof.First).Round(time.Second)
@@ -1858,7 +1858,7 @@ func (e *Eval) LogFlow(ctx context.Context, f *Flow) {
 			// Get resources from ExecInspect if the flow is done
 			// because `f.Reserved` may have already been cleared
 			// by `returnFlow()`.
-			logResources.Set(f.Inspect.Config.Resources)
+			logResources.Set(f.RunInfo.Resources)
 		default:
 			logResources.Set(f.Reserved)
 		}
@@ -1888,9 +1888,7 @@ func (e *Eval) taskWait(ctx context.Context, f *Flow, task *sched.Task) error {
 	if err := task.Wait(ctx, sched.TaskDone); err != nil {
 		return err
 	}
-	f.Inspect = task.Inspect
-	f.ExecStdout = task.Stdout
-	f.ExecStderr = task.Stderr
+	f.RunInfo = task.RunInfo
 	if task.Err != nil {
 		e.Mutate(f, task.Err, Done)
 	} else {
@@ -2019,7 +2017,7 @@ func spacePrefix(s string) string {
 }
 
 func printRuntimeStats(b *bytes.Buffer, f *Flow) {
-	b.WriteString(round(f.Inspect.Runtime()).String())
+	b.WriteString(round(f.RunInfo.Runtime).String())
 	if fs, ok := f.Value.(reflow.Fileset); ok {
 		b.WriteString(" ")
 		b.WriteString(data.Size(fs.Size()).String())

@@ -104,7 +104,7 @@ Exact costs are shown (if available) only for runs.
 				if err != nil {
 					c.Fatalf("error inspecting exec %q: %s", arg, err)
 				}
-				inspect = resp.Inspect
+				inspect = *resp.Inspect
 			}
 			var result reflow.Result
 			if inspect.State == "complete" {

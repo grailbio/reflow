@@ -552,10 +552,14 @@ func (e *blobExec) Inspect(ctx context.Context, repo *url.URL) (resp reflow.Insp
 		inspect.State = "complete"
 		inspect.Status = fmt.Sprintf("%s complete", e.transferTypeStr())
 		if repo != nil {
-			resp.InspectDigest, resp.Stdout, resp.Stderr, err = saveExecInfo(ctx, state, e, inspect, repo, e.x.SaveLogsToRepo)
+			var runInfo reflow.ExecRunInfo
+			runInfo, err = saveExecInfo(ctx, state, e, inspect, repo, e.x.SaveLogsToRepo)
+			resp.RunInfo = &runInfo
 		}
 	}
-	resp.Inspect = inspect
+	if repo == nil {
+		resp.Inspect = &inspect
+	}
 	return
 }
 

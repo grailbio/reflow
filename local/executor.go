@@ -95,7 +95,7 @@ type Executor struct {
 	// NodeOomDetector is an oom detector based node metrics
 	NodeOomDetector OomDetector
 
-	// SaveLogsToRepo determines whether or not exec's used by this Executor save their raw stdout/stderr logs during Exec.Inspect
+	// SaveLogsToRepo determines whether or not exec's used by this Executor save their raw stdout/stderr logs during Exec.RunInfo
 	SaveLogsToRepo bool
 
 	// remoteStream is the client used to write logs to a remote cloud

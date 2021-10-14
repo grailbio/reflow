@@ -309,12 +309,8 @@ type Flow struct {
 	// Cached stores whether the flow was retrieved from cache.
 	Cached bool
 
-	// Inspect stores an exec's inspect output.
-	Inspect reflow.ExecInspect
-
-	// References to stored log data, returned from exec (only applicable for Op=Exec)
-	ExecStdout reflow.RepoObjectRef
-	ExecStderr reflow.RepoObjectRef
+	// RunInfo stores a subset of the exec's inspect data, used for logging.
+	RunInfo reflow.ExecRunInfo
 
 	Tracked bool
 
@@ -397,7 +393,7 @@ func (f *Flow) Requirements() (req reflow.Requirements) {
 func (f *Flow) ExecReset() {
 	f.Exec = nil
 	f.Err = nil
-	f.Inspect = reflow.ExecInspect{}
+	f.RunInfo = reflow.ExecRunInfo{}
 }
 
 func (f *Flow) requirements(m map[*Flow]reflow.Requirements) (req reflow.Requirements) {

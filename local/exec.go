@@ -64,11 +64,12 @@ func saveInspect(ctx context.Context, insp reflow.ExecInspect, repo reflow.Repos
 
 // Saving of Inspect and logs is best effort, meaning retryable errors from saving to the repo are not returned.
 func saveExecInfo(ctx context.Context, state execState, e reflow.Exec, insp reflow.ExecInspect, repoUrl *url.URL, saveLogsToRepo bool) (
-	inspect reflow.RepoObjectRef, stdout reflow.RepoObjectRef, stderr reflow.RepoObjectRef, err error) {
+	runInfo reflow.ExecRunInfo, err error) {
 	if state != execComplete {
 		err = fmt.Errorf("cannot save exec info, exec not complete: %s", insp.State)
 		return
 	}
+	runInfo = insp.RunInfo()
 	repo, rerr := blobrepo.Dial(repoUrl)
 	if rerr != nil {
 		err = errors.E("blobrepo.Dial", rerr)
@@ -77,7 +78,7 @@ func saveExecInfo(ctx context.Context, state execState, e reflow.Exec, insp refl
 
 	if !saveLogsToRepo {
 		var serr error
-		inspect, serr = saveInspect(ctx, insp, repo)
+		runInfo.InspectDigest, serr = saveInspect(ctx, insp, repo)
 		if serr != nil && errors.NonRetryable(serr) {
 			err = serr
 		}
@@ -88,7 +89,7 @@ func saveExecInfo(ctx context.Context, state execState, e reflow.Exec, insp refl
 	var m errors.Multi
 	g.Go(func() error {
 		var saveErr error
-		inspect, saveErr = saveInspect(ctx, insp, repo)
+		runInfo.InspectDigest, saveErr = saveInspect(ctx, insp, repo)
 		if saveErr != nil && errors.NonRetryable(saveErr) {
 			m.Add(saveErr)
 		}
@@ -96,7 +97,7 @@ func saveExecInfo(ctx context.Context, state execState, e reflow.Exec, insp refl
 	})
 	g.Go(func() error {
 		var saveErr error
-		stdout, saveErr = saveExecLog(ctx, e, repo, true)
+		runInfo.Stdout, saveErr = saveExecLog(ctx, e, repo, true)
 		if saveErr != nil && errors.NonRetryable(saveErr) {
 			m.Add(saveErr)
 		}
@@ -104,7 +105,7 @@ func saveExecInfo(ctx context.Context, state execState, e reflow.Exec, insp refl
 	})
 	g.Go(func() error {
 		var saveErr error
-		stderr, saveErr = saveExecLog(ctx, e, repo, false)
+		runInfo.Stderr, saveErr = saveExecLog(ctx, e, repo, false)
 		if saveErr != nil && errors.NonRetryable(saveErr) {
 			m.Add(saveErr)
 		}
