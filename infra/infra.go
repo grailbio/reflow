@@ -382,12 +382,10 @@ func (l *KV) Instance() interface{} {
 // Once the underlying volume is resized, a filesystem resize will be attempted every ResizeSleepDuration
 // until success.
 type VolumeWatcher struct {
-	// LowThresholdPct defines how full the filesystem needs to be
-	// to trigger the low threshold.
+	// LowThresholdPct defines how full the filesystem needs to be to trigger the low threshold.
 	LowThresholdPct float64 `yaml:"lowthresholdpct,omitempty"`
 
-	// HighThresholdPct defines how full the filesystem needs to be
-	// to trigger the high threshold.
+	// HighThresholdPct defines how full the filesystem needs to be to trigger the high threshold.
 	// The time it takes for the filesystem to fill from low threshold to high threshold
 	// selects between a lower (time is longer) or higher (time is shorter)
 	// amount of extra space to get added to the volume.
@@ -419,6 +417,33 @@ type ReflowletConfig struct {
 	VolumeWatcher VolumeWatcher `yaml:"volumewatcher,omitempty"`
 }
 
+// MergeReflowletConfig merges/overrides field values into `base` from `other`.
+func MergeReflowletConfig(base, other ReflowletConfig) ReflowletConfig {
+	rc := base
+	if other.MaxIdleDuration != 0 {
+		rc.MaxIdleDuration = other.MaxIdleDuration
+	}
+	if other.LogStatsDuration != 0 {
+		rc.LogStatsDuration = other.LogStatsDuration
+	}
+	if other.VolumeWatcher.LowThresholdPct != 0 {
+		rc.VolumeWatcher.LowThresholdPct = other.VolumeWatcher.LowThresholdPct
+	}
+	if other.VolumeWatcher.HighThresholdPct != 0 {
+		rc.VolumeWatcher.HighThresholdPct = other.VolumeWatcher.HighThresholdPct
+	}
+	if other.VolumeWatcher.WatcherSleepDuration != 0 {
+		rc.VolumeWatcher.WatcherSleepDuration = other.VolumeWatcher.WatcherSleepDuration
+	}
+	if other.VolumeWatcher.ResizeSleepDuration != 0 {
+		rc.VolumeWatcher.ResizeSleepDuration = other.VolumeWatcher.ResizeSleepDuration
+	}
+	if other.VolumeWatcher.FastThresholdDuration != 0 {
+		rc.VolumeWatcher.FastThresholdDuration = other.VolumeWatcher.FastThresholdDuration
+	}
+	return rc
+}
+
 var DefaultReflowletConfig = ReflowletConfig{
 	MaxIdleDuration:  10 * time.Minute,
 	LogStatsDuration: 1 * time.Minute,
@@ -439,13 +464,26 @@ var DefaultVolumeWatcher = VolumeWatcher{
 func (rp *ReflowletConfig) Init() error {
 	if rp == nil || *rp == (ReflowletConfig{}) {
 		*rp = DefaultReflowletConfig
+		return nil
 	}
+	*rp = MergeReflowletConfig(DefaultReflowletConfig, *rp)
 	return nil
 }
 
 // Instance implements infra.Provider.
 func (rp *ReflowletConfig) InstanceConfig() interface{} {
 	return rp
+}
+
+// Flags implements infra.Provider.
+func (rp *ReflowletConfig) Flags(flags *flag.FlagSet) {
+	flags.DurationVar(&rp.MaxIdleDuration, "maxidleduration", 10 * time.Minute, "MaxIdleDuration is the maximum duration the reflowlet will be idle waiting to receive work after which it dies.")
+	flags.DurationVar(&rp.LogStatsDuration, "logstatsduration",  time.Minute, "LogStatsDuration is the periodicity with which the reflowlet will log statistics.")
+	flags.Float64Var(&rp.VolumeWatcher.LowThresholdPct, "lowthresholdpct", 55.0, "LowThresholdPct defines how full the filesystem needs to be to trigger the low threshold.")
+	flags.Float64Var(&rp.VolumeWatcher.HighThresholdPct, "highthresholdpct", 75.0, "HighThresholdPct defines how full the filesystem needs to be to trigger the high threshold.")
+	flags.DurationVar(&rp.VolumeWatcher.WatcherSleepDuration, "watchersleepduration",  time.Minute, "WatcherSleepDuration is the frequency at which to check if resizing is needed")
+	flags.DurationVar(&rp.VolumeWatcher.ResizeSleepDuration, "resizesleepduration",  5 * time.Second, "ResizeSleepDuration is the frequency at which to attempt resizing")
+	flags.DurationVar(&rp.VolumeWatcher.FastThresholdDuration, "fastthresholdduration",  24 * time.Hour, "LogStatsDuration is the periodicity with which the reflowlet will log statistics.")
 }
 
 // DockerConfig sets the docker memory limit to either be hard or soft.
