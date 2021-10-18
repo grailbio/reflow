@@ -32,9 +32,9 @@ var (
 // (and hence expose the EBS volumes as NVMe) as per:
 // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-types.html#ec2-nitro-instances
 // Note: www.ec2instances.info doesn't capture this correctly.
-var nitroInstanceTypePrefixes = []string{"A1", "C5", "C5a", "C5d", "C5n", "G4", "I3en", "Inf1", "M5", "M5a", "M5ad", "M5d", "M5dn", "M5n", "M6g", "p3dn.24xlarge", "R5", "R5a", "R5ad", "R5d", "R5dn", "R5n", "T3", "T3a", "z1d"}
+var nitroInstanceTypePrefixes = []string{"A1", "C5", "C5a", "C5d", "C5n", "G4", "I3en", "Inf1", "M5", "M5a", "M5ad", "M5d", "M5dn", "M5n", "M6g", "M6gd", "M6i", "p3dn.24xlarge", "R5", "R5a", "R5ad", "R5d", "R5dn", "R5n", "T3", "T3a", "z1d"}
 
-var avx512InstanceTypePrefixes = []string{"m5", "c5", "r5"}
+var avx512InstanceTypePrefixes = []string{"m5", "c5", "r5", "m6i"}
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `usage: ec2instances dir
