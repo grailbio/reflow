@@ -318,7 +318,7 @@ func TestInstanceAllocationRequest(t *testing.T) {
 			1,
 			[]*waiter{
 				{
-					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 2, "mem": 3.7 * float64(data.GiB)}},
+					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 2, "mem": 3.3 * float64(data.GiB)}},
 				}},
 			[]instanceConfig{
 				{
@@ -331,7 +331,7 @@ func TestInstanceAllocationRequest(t *testing.T) {
 			2,
 			[]*waiter{
 				{
-					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 2, "mem": 3.7 * float64(data.GiB)}, Width: 2},
+					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 2, "mem": 3.3 * float64(data.GiB)}, Width: 2},
 				}},
 			[]instanceConfig{
 				{
@@ -370,7 +370,7 @@ func TestInstanceAllocationRequest(t *testing.T) {
 			5,
 			[]*waiter{
 				{
-					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 2, "mem": 3.7 * float64(data.GiB)}},
+					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 2, "mem": 3.3 * float64(data.GiB)}},
 				},
 				{
 					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 32, "mem": 9 * float64(data.GiB)}},

@@ -33,6 +33,8 @@ import (
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/ec2authenticator"
+	"github.com/grailbio/reflow/ec2cluster"
+	"github.com/grailbio/reflow/ec2cluster/instances"
 	"github.com/grailbio/reflow/ec2cluster/volume"
 	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/local"
@@ -200,6 +202,13 @@ func (s *Server) loopUntilIdle(p *local.Pool, rc *infra2.ReflowletConfig, logger
 
 // ListenAndServe serves the Reflowlet server on the configured address.
 func (s *Server) ListenAndServe() error {
+	// We don't expect this function to ever return unless there is an error.
+	// In the case of an error, we delay the return of this function to allow for the
+	// logs to be flushed to cloudwatch
+	defer func() {
+		time.Sleep(time.Second + ec2cluster.ReflowletCloudwatchFlushMs * time.Millisecond)
+	}()
+
 	addr := os.Getenv("DOCKER_HOST")
 	if addr == "" {
 		addr = "unix:///var/run/docker.sock"
@@ -257,12 +266,18 @@ func (s *Server) ListenAndServe() error {
 	var (
 		tdb    taskdb.TaskDB
 		poolId reflow.StringDigest
+		expectedUsableMemBytes int64
 	)
 	if s.EC2Cluster {
 		if err = s.Config.Instance(&tdb); err != nil {
 			log.Debugf("taskdb: %v", err)
 		}
 		poolId = reflow.NewStringDigest(s.ec2Identity.InstanceID)
+		verifiedStatus := instances.VerifiedByRegion[s.ec2Identity.Region][s.ec2Identity.InstanceType]
+		if !verifiedStatus.Verified {
+			log.Debugf("WARNING: using an unverified instance type: %s", s.ec2Identity.InstanceType)
+		}
+		expectedUsableMemBytes = verifiedStatus.ExpectedMemoryBytes()
 	}
 
 	// Default HTTPS and s3 clients for repository dialers.
@@ -287,7 +302,7 @@ func (s *Server) ListenAndServe() error {
 		Log:           log.Std.Tee(nil, "executor: "),
 		HardMemLimit:  hardMemLimit,
 	}
-	if err = p.Start(); err != nil {
+	if err = p.Start(expectedUsableMemBytes); err != nil {
 		return err
 	}
 

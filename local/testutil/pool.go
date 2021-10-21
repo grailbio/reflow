@@ -46,7 +46,7 @@ func NewTestPoolOrSkip(t *testing.T) (*local.Pool, func()) {
 		Client: NewDockerClientOrSkip(t),
 		Dir:    dir,
 	}
-	if err := p.Start(); err != nil {
+	if err := p.Start(0); err != nil {
 		t.Fatal(err)
 	}
 	return p, cleanup

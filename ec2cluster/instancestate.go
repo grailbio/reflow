@@ -33,7 +33,7 @@ func init() {
 			Price:         typ.Price,
 			Resources: reflow.Resources{
 				"cpu": float64(typ.VCPU),
-				"mem": (1 - memoryDiscount) * typ.Memory * 1024 * 1024 * 1024,
+				// We don't set the memory here, because we will do it later based on verification status.
 			},
 			// According to Amazon, "t2" instances are the only current-generation
 			// instances not supported by spot.
@@ -103,6 +103,9 @@ func newInstanceState(configs []instanceConfig, sleep time.Duration, region stri
 		if price, cheapest := cfg.Price[region], cheapestCfg.Price[region]; price < cheapest {
 			s.cheapestIndex = i
 		}
+		// Update the resources based on memory sampled during verification
+		verifiedStatus := instances.VerifiedByRegion[region][cfg.Type]
+		cfg.Resources["mem"] = float64(verifiedStatus.ExpectedMemoryBytes())
 	}
 	return s
 }

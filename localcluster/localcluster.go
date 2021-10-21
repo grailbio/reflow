@@ -105,7 +105,7 @@ func (c *Cluster) Init(tls tls.Certs, session *session.Session, logger *log.Logg
 		HardMemLimit: false,
 		TaskDB:       tdb,
 	}
-	if err = pool.Start(); err != nil {
+	if err = pool.Start(0); err != nil {
 		return err
 	}
 	c.Pool = pool

@@ -12,7 +12,9 @@ import (
 )
 
 var verifiedTmpl = template.Must(template.New("verified").Parse(`
-// THIS FILE WAS AUTOMATICALLY GENERATED. DO NOT EDIT.
+// THIS FILE WAS AUTOMATICALLY GENERATED. DO NOT EDIT DIRECTLY UNLESS
+// when making changes to the format of the file, in which case, one would
+// need to edit it first, and then update the template accordingly.
 
 package {{.Package}}
 
@@ -24,6 +26,18 @@ type VerifiedStatus struct {
 	Verified bool
 	// ApproxETASeconds is the approximate ETA (in seconds) for Reflow to become available on this instance type.
 	ApproxETASeconds int64
+	// MemoryBytes is memory bytes reported as available on this Instance type.
+	MemoryBytes int64
+}
+
+// ExpectedMemoryBytes is the amount of memory we can expect to be available based on verification.
+func (v VerifiedStatus) ExpectedMemoryBytes() int64 {
+	// samplingErrorDiscount is used to discount the amount of memory to account for sampling variation.
+	// Since we are modeling the expected available memory on an instance type based on
+	// one sample (collected during verification), this provides a buffer.
+	const samplingErrorDiscount = 0.02 // 2 percent
+
+	return int64(float64(v.MemoryBytes) * (1 - samplingErrorDiscount))
 }
 
 // VerifiedByRegion stores mapping of instance types to VerifiedStatus by AWS Region.
@@ -31,7 +45,7 @@ var VerifiedByRegion = make(map[string]map[string]VerifiedStatus)
 
 func init() {
     {{range $key, $value := .VerifiedByRegion}} VerifiedByRegion["{{$key}}"] = map[string]VerifiedStatus{
-	    {{range $k, $v := $value}} {{printf "%q" $k}}:    { {{printf "%t" $v.Attempted}}, {{printf "%t" $v.Verified}}, {{printf "%d" $v.ApproxETASeconds}} },
+	    {{range $k, $v := $value}} {{printf "%q" $k}}:    { {{printf "%t" $v.Attempted}}, {{printf "%t" $v.Verified}}, {{printf "%d" $v.ApproxETASeconds}}, {{printf "%d" $v.MemoryBytes}} },
         {{end}}
     }
 	{{end}}
@@ -67,7 +81,7 @@ func (v *VerifiedSrcGenerator) AddTypes(types []string) *VerifiedSrcGenerator {
 	for region := range v.VerifiedByRegion {
 		for _, k := range types {
 			if _, ok := v.VerifiedByRegion[region][k]; !ok {
-				v.VerifiedByRegion[region][k] = VerifiedStatus{false, false, -1}
+				v.VerifiedByRegion[region][k] = VerifiedStatus{false, false, -1, 0}
 			}
 		}
 	}

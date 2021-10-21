@@ -468,21 +468,24 @@ func (c *Cluster) QueryTags() map[string]string {
 	return qtags
 }
 
-// Probe attempts to instantiate an EC2 instance of the given type and returns a duration and an error.
-// In case of a nil error the duration represents how long it took (single data point) for a usable
-// Reflowlet to come up on that instance type.
-// A non-nil error means that the reflowlet failed to come up on this instance type.  The error
-// could be due to context deadline, in case we gave up waiting for it to come up.
-func (c *Cluster) Probe(ctx context.Context, instanceType string) (time.Duration, error) {
+// Probe attempts to instantiate an EC2 instance of the given type and returns
+// the available resources on it (as per its offers), a duration and an error.
+// In case of a nil error:
+// - the duration represents how long it took for a usable Reflowlet to come up on that instance type.
+// - the resources represents how much actual resources are available/usable on that instance type.
+// Note: Of course the above are based on a single data point.
+// A non-nil error means that the reflowlet failed to come up on this instance type.
+// The error could be due to context deadline, in case we gave up waiting for it to come up.
+func (c *Cluster) Probe(ctx context.Context, instanceType string) (reflow.Resources, time.Duration, error) {
+	var r reflow.Resources
 	if err := c.VerifyAndInit(); err != nil {
-		return time.Duration(0), err
+		return r, time.Duration(0), err
 	}
 	config := c.instanceConfigs[instanceType]
 	i := c.newInstance(config)
 probe:
 	i.Task = c.Status.Startf("%s", instanceType)
 	i.Go(context.Background())
-	ec2TerminateInstance(i.EC2, *i.ec2inst.InstanceId, i.Log)
 	if i.err != nil {
 		// If the error was due to Spot unavailability, try on-demand instead.
 		if i.Spot && errors.Is(errors.Unavailable, i.err) {
@@ -494,9 +497,33 @@ probe:
 		}
 		i.Task.Printf("%v", i.err.Error())
 	}
+	if i.ec2inst != nil {
+		// Terminate the instance before exiting, if one does exist,
+		// whether we ultimately ended up with an error or not
+		defer ec2TerminateInstance(i.EC2, *i.ec2inst.InstanceId, i.Log)
+	}
+	if i.err == nil {
+		iid, dns := *i.ec2inst.InstanceId, *i.ec2inst.PublicDnsName
+		baseurl := fmt.Sprintf("https://%s:9000/v1/", dns)
+		if clnt, err := client.New(baseurl, c.HTTPClient, nil); err != nil {
+			c.Log.Errorf("client %s: %v", baseurl, err)
+		} else {
+			c.Log.Printf("discovered instance %s (%s) %s", iid, instanceType, dns)
+			offers, oerr := clnt.Offers(ctx)
+			switch {
+			case oerr != nil:
+				c.Log.Errorf("client %s offers: %v", baseurl, oerr)
+			case len(offers) != 1:
+				c.Log.Errorf("client %s offers: expected 1 offer, got %d: %v", baseurl, len(offers), offers)
+			default:
+				r = offers[0].Available()
+			}
+		}
+
+	}
 	i.Task.Done()
 	dur := i.Task.Value().End.Sub(i.Task.Value().Begin)
-	return dur.Round(time.Second), i.err
+	return r, dur.Round(time.Second), i.err
 }
 
 func (c *Cluster) newInstance(config instanceConfig) *instance {

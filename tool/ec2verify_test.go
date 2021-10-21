@@ -14,9 +14,9 @@ import (
 func TestFilterInstanceTypes(t *testing.T) {
 	instanceTypes := []string{"a", "b", "c", "d"}
 	existing := map[string]instances.VerifiedStatus{
-		"a": {true, true, 10},
-		"b": {true, false, 70},
-		"c": {false, false, -1},
+		"a": {true, true, 10, 0},
+		"b": {true, false, 70, 0},
+		"c": {false, false, -1, 0},
 	}
 	for _, tt := range []struct {
 		instanceTypes      []string
@@ -43,5 +43,21 @@ func TestFilterInstanceTypes(t *testing.T) {
 			t.Errorf("got %v want %v", got, want)
 		}
 
+	}
+}
+
+func TestExpectedMemoryBytes(t *testing.T) {
+	for _, tt := range []struct{
+		instanceType string
+		expectedMem  int64
+	} {
+		{"c3.large", 3654045523},
+		{"m5.large", 7563137260},
+		{"c5.4xlarge", 30567888547},
+		{"m5dn.xlarge", 15341268848},
+	} {
+		if got, want := instances.VerifiedByRegion["us-west-2"][tt.instanceType].ExpectedMemoryBytes(), tt.expectedMem; got != want {
+			t.Errorf("%s: got %d, want %d", tt.instanceType, got, want)
+		}
 	}
 }

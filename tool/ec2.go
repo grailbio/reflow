@@ -13,6 +13,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/grailbio/base/cloud/spotadvisor"
+	"github.com/grailbio/base/data"
 	"github.com/grailbio/reflow/ec2cluster/instances"
 )
 
@@ -68,12 +69,17 @@ The columns displayed by the instance listing are:
 			panic("notreached")
 		}
 	})
+
+	// TODO(swami): Get region from config
+	// Unfortunately, this is not trivial.
+	region := "us-west-2"
+
 	// best effort to include spot advisor data; if error, "N/A" will be shown in printed output
 	sa, _ = spotadvisor.NewSpotAdvisor(c.Log, ctx.Done())
 	var tw tabwriter.Writer
 	tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 	defer tw.Flush()
-	fmt.Fprint(&tw, "type\t\tmem\tcpu\tebs_max\tprice\tinterrupt prob\tcpu features\tflags\n")
+	fmt.Fprint(&tw, "type\t\tusable mem\tinstance mem\tcpu\tebs_max\tprice\tinterrupt prob\tcpu features\tflags\n")
 	for _, typ := range types {
 		var flags []string
 		if typ.EBSOptimized {
@@ -90,8 +96,14 @@ The columns displayed by the instance listing are:
 			features = append(features, feature)
 		}
 		sort.Strings(features)
-		fmt.Fprintf(&tw, "%s\t\t%.2f\t%d\t%.2f\t%.2f\t%s\t{%s}\t{%s}\n",
-			typ.Name, typ.Memory,
+
+		verifiedStatus := instances.VerifiedByRegion[region][typ.Name]
+		if !verifiedStatus.Verified {
+			continue
+		}
+		usableMem := data.Size(verifiedStatus.ExpectedMemoryBytes())
+		fmt.Fprintf(&tw, "%s\t\t%s\t%s\t%d\t%.2f\t%.2f\t%s\t{%s}\t{%s}\n",
+			typ.Name, usableMem, data.Size(typ.Memory) * data.GiB,
 			typ.VCPU, typ.EBSThroughput, typ.Price[*regionFlag],
 			getSpotInterruptRange(*regionFlag, typ.Name),
 			strings.Join(features, ","),

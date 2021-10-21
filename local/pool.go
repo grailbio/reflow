@@ -38,6 +38,12 @@ const (
 	allocsPath = "allocs"
 	// remoteStreamCWLogGroupName is the cloudwatch log group name for remote streams.
 	remoteStreamCWLogGroupName = "reflow"
+
+	// reflowletProcessMemoryReservationPct is the amount of memory that's reserved for the reflowlet process,
+	// currently set to 5%. The EC2 overhead and this memory reservation for the reflowlet process,
+	// will both be accounted for when we do per-instance verification (using `reflow ec2verify`).
+	// NOTE: Changing this will warrant re-verification of all instance types.
+	reflowletProcessMemoryReservationPct = 0.05
 )
 
 var errAllocExpired = errors.New("alloc expired")
@@ -133,7 +139,11 @@ func (p *Pool) updateDiskSize(r reflow.Resources) {
 // Start starts the pool. If the pool has a state snapshot, Start
 // will restore the pool's previous state. Start will also make sure
 // that all zombie allocs are collected.
-func (p *Pool) Start() error {
+// expectedUsableMemBytes is the expected memory on this pool,
+// and if the available memory is less than this, then the pool returns an error.
+// expectedUsableMemBytes can be set to a small number (eg: zero) to signify that
+// there's no specific expectation.
+func (p *Pool) Start(expectedUsableMemBytes int64) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	ctx := context.Background()
@@ -142,8 +152,12 @@ func (p *Pool) Start() error {
 	if err != nil {
 		return err
 	}
+	availableMem := math.Floor(float64(info.MemTotal) * (1 - reflowletProcessMemoryReservationPct))
+	if got, want := int64(availableMem), expectedUsableMemBytes; got < want {
+		return errors.Errorf("unviable pool, available mem (%d) < expected mem (%d)", got, want)
+	}
 	resources := reflow.Resources{
-		"mem": math.Floor(float64(info.MemTotal) * 0.95),
+		"mem": availableMem,
 		"cpu": float64(info.NCPU),
 	}
 	features, err := cpuFeatures()

@@ -47,16 +47,6 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-// memoryDiscount is the amount of memory that's reserved by the
-// reflowlet and EC2 together. Ideally we'd be able to be more
-// precise about this (e.g., extract actual guarantees about
-// available memory from AWS), but this doesn't seem possible at this
-// time.
-//
-// We reserve 5% for the Reflowlet, and the EC2 overhead appears to
-// be a little shy of 2%.
-const memoryDiscount = 0.05 + 0.02
-
 var (
 	// commonArgs are the arguments passed to both the bootstrap and reflow binary.
 	commonArgs = []string{"-config", "/etc/reflowconfig"}
@@ -605,6 +595,8 @@ func (i *instance) bootstrapExpiryArgs() []string {
 	return []string{"-expiry", fmt.Sprintf("%s", expiry)}
 }
 
+const ReflowletCloudwatchFlushMs = 5000
+
 func (i *instance) launch(ctx context.Context) (string, error) {
 	// First we need to construct the cloud-config that's passed to
 	// our instances via EC2's user-data mechanism.
@@ -759,12 +751,12 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 		Path:        "/etc/journald-cloudwatch-logs.conf",
 		Permissions: "0644",
 		Owner:       "root",
-		Content: `log_group = "reflow/reflowlet"
+		Content: tmpl(`log_group = "reflow/reflowlet"
 fields = ["_HOSTNAME", "PRIORITY", "MESSAGE"]
 queue_poll_duration_ms = 1000
-queue_flush_log_ms = 5000
+queue_flush_log_ms = {{.flush_log_ms}}
 field_length = 1024
-`,
+`, args{"flush_log_ms": ReflowletCloudwatchFlushMs}),
 	})
 
 	c.AppendUnit(CloudUnit{

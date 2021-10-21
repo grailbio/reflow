@@ -25,9 +25,14 @@ func (c *Cmd) ec2verify(ctx context.Context, args ...string) {
 		help  = `ec2verify verifies reflowlet start-up on all previously unverified EC2 instance types
 and outputs a config with the verified instance types only.
 Previously attempted but failed instance types can be tried again using the flag --retry.
-Optionally, the -package will write out the verified results to a Go file verified.go in the given package`
+Optionally, the -package will write out the verified results to a Go file verified.go in the given package
+
+Example usage:
+> reflow ec2verify --retry --probe --package=$GRAIL/go/src/github.com/grailbio/reflow/ec2cluster/instances
+`
 		probeFlag = flags.Bool("probe", false, "whether to actually probe and verify instance types or just do a dry run")
 		limitFlag = flags.Int("limit", 10, "number of instance types to probe concurrently (default 10)")
+		maxFlag = flags.Int("max", -1, "max number of instance types of those that need to be verified to actually verify (ignored if <=0)")
 		retry     = flags.Bool("retry", false, "whether to retry previously attempted but unverified instance types")
 		pkgPath   = flags.String("package", "", "if specified, the result of verification will be saved in a file verified.go in this Go package")
 	)
@@ -50,20 +55,28 @@ Optionally, the -package will write out the verified results to a Go file verifi
 		c.Exit(0)
 	}
 	sort.Strings(toverify)
-	c.Log.Printf("instance types to be verified: %s\n", strings.Join(toverify, ", "))
+
+	if max := *maxFlag; max > 0 {
+		if len(toverify) < max {
+			max = len(toverify)
+		}
+		toverify = toverify[:max]
+	}
+
+	c.Log.Printf("instance types to be verified [%d]: %s\n", len(toverify), strings.Join(toverify, ", "))
 
 	final := make(map[string]instances.VerifiedStatus)
 	for _, it := range ec.InstanceTypes {
 		vs, ok := existing[it]
 		if !ok {
-			vs = instances.VerifiedStatus{false, false, -1}
+			vs = instances.VerifiedStatus{false, false, -1, 0}
 		}
 		final[it] = vs
 	}
 	if *probeFlag {
 		results := probe(ctx, ec, toverify, *limitFlag)
 		for _, r := range results {
-			final[r.ec2Type] = instances.VerifiedStatus{true, r.err == nil, int64(r.duration.Seconds())}
+			final[r.ec2Type] = instances.VerifiedStatus{true, r.err == nil, int64(r.duration.Seconds()), r.memBytes}
 			if r.err == nil {
 				c.Log.Printf("Successfully verified instance type: %s (took %s)\n", r.ec2Type, r.duration)
 				verified = append(verified, r.ec2Type)
@@ -79,13 +92,6 @@ Optionally, the -package will write out the verified results to a Go file verifi
 	sort.Strings(verified)
 	ec.InstanceTypes = verified
 
-	data, err := c.Config.Marshal(true)
-	c.must(err)
-	if _, err := c.Stdout.Write(data); err != nil {
-		c.Fatal(err)
-	}
-	c.Println()
-
 	if *pkgPath != "" {
 		dir := *pkgPath
 		instances.VerifiedByRegion[ec.Region] = final
@@ -99,17 +105,22 @@ Optionally, the -package will write out the verified results to a Go file verifi
 }
 
 type probeResult struct {
-	ec2Type  string
-	duration time.Duration
-	err      error
+	ec2Type   string
+	memBytes  int64
+	duration  time.Duration
+	err       error
 }
 
 // probe is a helper function to probe many instance types concurrently.
 func probe(ctx context.Context, cluster *ec2cluster.Cluster, instanceTypes []string, limit int) []probeResult {
 	results := make([]probeResult, len(instanceTypes))
 	_ = traverse.Limit(limit).Each(len(instanceTypes), func(i int) error {
-		d, err := cluster.Probe(ctx, instanceTypes[i])
-		results[i] = probeResult{instanceTypes[i], d, err}
+		r, d, err := cluster.Probe(ctx, instanceTypes[i])
+		var memBytes int64
+		if r != nil {
+			memBytes = int64(r["mem"])
+		}
+		results[i] = probeResult{instanceTypes[i], memBytes, d, err}
 		return nil
 	})
 	return results
