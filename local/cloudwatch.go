@@ -66,32 +66,35 @@ func newCloudWatchLogs(client cloudwatchlogsiface.CloudWatchLogsAPI, group strin
 // NewStream creates new stream with the given stream prefix and type.
 func (c *cloudWatchLogs) NewStream(prefix string, sType streamType) (remoteLogsOutputter, error) {
 	stream := &cloudWatchLogsStream{client: c, name: prefix + "/" + string(sType)}
+	return stream, nil
+}
 
+func (c *cloudWatchLogs) createStream(name string) error {
 	out, err := c.client.DescribeLogStreams(&cloudwatchlogs.DescribeLogStreamsInput{
-		LogGroupName:        aws.String(stream.client.group),
-		LogStreamNamePrefix: aws.String(stream.name),
+		LogGroupName:        aws.String(c.group),
+		LogStreamNamePrefix: aws.String(name),
 	})
 	if err == nil {
 		var found bool
 		for _, s := range out.LogStreams {
-			if found = aws.StringValue(s.LogStreamName) == stream.name; found {
+			if found = aws.StringValue(s.LogStreamName) == name; found {
 				break
 			}
 		}
 		if found {
-			return stream, nil
+			return nil
 		}
 	}
 	_, err = c.client.CreateLogStream(&cloudwatchlogs.CreateLogStreamInput{
-		LogGroupName:  aws.String(stream.client.group),
-		LogStreamName: aws.String(stream.name),
+		LogGroupName:  aws.String(c.group),
+		LogStreamName: aws.String(name),
 	})
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == cloudwatchlogs.ErrCodeResourceAlreadyExistsException {
 			err = nil
 		}
 	}
-	return stream, err
+	return err
 }
 
 func (c *cloudWatchLogs) Close() error {
@@ -103,6 +106,13 @@ func (c *cloudWatchLogs) loop() {
 	go func() {
 		sequenceToken := make(map[string]*string)
 		for entry := range c.buffer {
+			// If this is the first log for this stream, create the stream in cloudwatch first
+			if _, ok := sequenceToken[entry.stream]; !ok {
+				err := c.createStream(entry.stream)
+				if err != nil {
+					log.Errorf("Failed to create log stream: %v", err)
+				}
+			}
 			event := []*cloudwatchlogs.InputLogEvent{{
 				Message:   aws.String(entry.msg),
 				Timestamp: aws.Int64(time.Now().UnixNano() / 1000000),
