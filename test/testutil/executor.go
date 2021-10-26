@@ -271,7 +271,7 @@ func (e *Executor) Equiv(flows ...*flow.Flow) bool {
 	return len(ids) == 0
 }
 
-// Exec rendeszvous the Exec for the provided flow.
+// Exec rendezvous the Exec for the provided flow.
 func (e *Executor) Exec(ctx context.Context, f *flow.Flow) *Exec {
 	e.mu.Lock()
 	defer e.mu.Unlock()

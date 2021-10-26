@@ -20,6 +20,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/retry"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 )
@@ -151,7 +152,7 @@ func Marshal(ctx context.Context, repo reflow.Repository, v interface{}) (digest
 	go func() {
 		var err error
 		if _, ok := v.(*reflow.Fileset); ok {
-			err = v.(*reflow.Fileset).Write(bw, reflow.FilesetMarshalFmtJSON)
+			err = v.(*reflow.Fileset).Write(bw, assoc.FilesetV2)
 			if err == nil {
 				err = bw.Flush()
 			}
@@ -166,14 +167,19 @@ func Marshal(ctx context.Context, repo reflow.Repository, v interface{}) (digest
 
 // Unmarshal unmarshals the value named by digest k into v.
 // If the value does not exist in repository, an error is returned.
-func Unmarshal(ctx context.Context, repo reflow.Repository, k digest.Digest, v interface{}) error {
+func Unmarshal(ctx context.Context, repo reflow.Repository, k digest.Digest, v interface{}, kind assoc.Kind) error {
 	rc, err := repo.Get(ctx, k)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = rc.Close() }()
 	if fs, ok := v.(*reflow.Fileset); ok {
-		return fs.Read(rc, reflow.FilesetMarshalFmtJSON)
+		switch kind {
+		case assoc.Fileset, assoc.FilesetV2:
+			return fs.Read(rc, kind)
+		default:
+			return errors.New(fmt.Sprintf("attempting to unmarshal fileset but unknown kind passed [kind=%d, key=%s]", kind, k.Short()))
+		}
 	}
 	return json.NewDecoder(rc).Decode(v)
 }

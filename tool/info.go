@@ -261,18 +261,18 @@ func (c *Cmd) printCacheInfo(ctx context.Context, w io.Writer, id digest.Digest)
 	if err != nil {
 		c.Fatal(err)
 	}
-	id, fsid, err := ass.Get(ctx, assoc.Fileset, id)
+	id, fsid, err := ass.Get(ctx, assoc.FilesetV2, id)
 	switch {
 	case err == nil:
 		var repo reflow.Repository
 		c.must(c.Config.Instance(&repo))
 		var fs reflow.Fileset
-		switch err := repository.Unmarshal(ctx, repo, fsid, &fs); {
-		case err == nil:
-		case errors.Is(errors.NotExist, err):
+		switch uErr := repository.Unmarshal(ctx, repo, fsid, &fs, assoc.FilesetV2); {
+		case uErr == nil:
+		case errors.Is(errors.NotExist, uErr):
 			return false
 		default:
-			c.Fatalf("repository.Unmarshal %v: %v", fsid, err)
+			c.Fatalf("repository.Unmarshal %v: %v", fsid, uErr)
 		}
 		fmt.Fprintln(w, id.Hex(), "(cached fileset)")
 		if fs.N() == 0 {

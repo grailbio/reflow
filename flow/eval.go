@@ -1156,7 +1156,7 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow) error {
 	for i := range keys {
 		key := keys[i]
 		g.Go(func() error {
-			return e.Assoc.Store(ctx, assoc.Fileset, key, id)
+			return e.Assoc.Store(ctx, assoc.FilesetV2, key, id)
 		})
 	}
 	return g.Wait()
@@ -1194,6 +1194,33 @@ func (e *Eval) lookupFailed(f *Flow) {
 
 var batchCacheDigest = reflow.Digester.FromString("batch cache lookup")
 
+func (e *Eval) getFileset(ctx context.Context, f *Flow, keys []digest.Digest, batch assoc.Batch, kind assoc.Kind) (reflow.Fileset, digest.Digest) {
+	var (
+		fs   reflow.Fileset
+		fsid digest.Digest
+		err  error
+	)
+	for _, key := range keys {
+		res, ok := batch[assoc.Key{Kind: kind, Digest: key}]
+		if !ok || res.Digest.IsZero() || res.Error != nil {
+			if ok && res.Error != nil {
+				e.Log.Errorf("assoc.BatchGet: %v %v", key, res.Error)
+			}
+			continue
+		}
+		err = unmarshal(ctx, e.Repository, res.Digest, &fs, kind)
+		if err == nil {
+			e.Log.Debugf("cache.Lookup flow: %s (%s) result from (key, kind): (%s, %s), value: %s\n", f.Digest().Short(), f.Ident, key.Short(), kind.String(), res.Digest)
+			fsid = res.Digest
+			break
+		}
+		if !errors.Is(errors.NotExist, err) {
+			e.Log.Errorf("unmarshal %v: %v", res.Digest, err)
+		}
+	}
+	return fs, fsid
+}
+
 // BatchLookup performs a cache lookup of a set of flow nodes.
 func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 	var endTrace func()
@@ -1222,7 +1249,8 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 			continue
 		}
 		for _, key := range keys {
-			batch.Add(assoc.Key{assoc.Fileset, key})
+			batch.Add(assoc.Key{Kind: assoc.Fileset, Digest: key})
+			batch.Add(assoc.Key{Kind: assoc.FilesetV2, Digest: key})
 		}
 		if e.Log.At(log.DebugLevel) {
 			e.Log.Debugf("cache.Lookup flow: %s (%s) keys: %s\n", f.Digest().Short(), f.Ident, strings.Join(
@@ -1257,34 +1285,20 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 		e.step(f, func(f *Flow) error {
 			defer wg.Done()
 			var (
-				keys = f.CacheKeys()
-				fs   reflow.Fileset
-				fsid digest.Digest
-				err  error
+				keys           = f.CacheKeys()
+				fs             reflow.Fileset
+				fsidV1, fsidV2 digest.Digest
 			)
-			for _, key := range keys {
-				res, ok := batch[assoc.Key{Kind: assoc.Fileset, Digest: key}]
-				if !ok || res.Digest.IsZero() || res.Error != nil {
-					if ok && res.Error != nil {
-						e.Log.Errorf("assoc.BatchGet: %v %v", key, res.Error)
-					}
-					continue
+			fs, fsidV2 = e.getFileset(ctx, f, keys, batch, assoc.FilesetV2)
+			// No V2 fileset was found, so look for a V1 fileset.
+			if fsidV2.IsZero() {
+				fs, fsidV1 = e.getFileset(ctx, f, keys, batch, assoc.Fileset)
+				// Nothing was found, so there is no read repair to do.
+				// Fail the lookup early.
+				if fsidV1.IsZero() {
+					e.lookupFailed(f)
+					return nil
 				}
-				err = unmarshal(ctx, e.Repository, res.Digest, &fs)
-				if err == nil {
-					e.Log.Debugf("cache.Lookup flow: %s (%s) result from key: %s, value: %s\n", f.Digest().Short(), f.Ident, key.Short(), res.Digest)
-					fsid = res.Digest
-					break
-				}
-				if !errors.Is(errors.NotExist, err) {
-					e.Log.Errorf("unmarshal %v: %v", res.Digest, err)
-				}
-			}
-			// Nothing was found, so there is no read repair to do.
-			// Fail the lookup early.
-			if fsid.IsZero() {
-				e.lookupFailed(f)
-				return nil
 			}
 			// Make sure all of the files are present in the repository.
 			// If they are not, we consider this a cache miss.
@@ -1337,24 +1351,31 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 				e.lookupFailed(f)
 				return nil
 			}
-			// Perform read repair: asynchronously write back all non existent keys.
-			writeback := keys[:0]
-			for _, key := range keys {
-				if res, ok := batch[assoc.Key{Kind: assoc.Fileset, Digest: key}]; !ok || res.Digest.IsZero() || res.Error != nil {
-					writeback = append(writeback, key)
-				}
-			}
-			bgctx := Background(ctx)
-			go func() {
-				for _, key := range writeback {
-					if err := e.Assoc.Store(bgctx, assoc.Fileset, key, fsid); err != nil {
-						if !errors.Is(errors.Precondition, err) {
-							e.Log.Errorf("assoc write for read repair %v %v: %v", f, key, err)
-						}
+			// Perform read repair: asynchronously write back all non existent keys in v2 format if we have already
+			// marshalled a v2 format fileset.
+			if !fsidV2.IsZero() {
+				writeback := keys[:0]
+				for _, key := range keys {
+					if res, ok := batch[assoc.Key{Kind: assoc.FilesetV2, Digest: key}]; !ok || res.Digest.IsZero() || res.Error != nil {
+						writeback = append(writeback, key)
 					}
 				}
-				bgctx.Complete()
-			}()
+				bgctx := Background(ctx)
+				go func() {
+					for _, key := range writeback {
+						if err := e.Assoc.Store(bgctx, assoc.Fileset, key, fsidV2); err != nil {
+							if !errors.Is(errors.Precondition, err) {
+								e.Log.Errorf("assoc write for read repair %v %v: %v", f, key, err)
+							}
+						}
+					}
+					bgctx.Complete()
+				}()
+			} else {
+				// If the V2 fileset does not exist yet in the repository, upgrade with an async cache write once we've
+				// mutated the flow to include the unmarshalled v1 fileset.
+				defer e.cacheWriteAsync(ctx, f)
+			}
 			// The node is marked done. If the needed objects are not later
 			// found in the cache's repository, the node will be marked for
 			// recomputation.
@@ -2067,7 +2088,7 @@ func marshal(ctx context.Context, repo reflow.Repository, fs *reflow.Fileset) (d
 
 // Unmarshal unmarshals the value named by digest k into v.
 // If the value does not exist in repository, an error is returned.
-func unmarshal(ctx context.Context, repo reflow.Repository, k digest.Digest, fs *reflow.Fileset) error {
+func unmarshal(ctx context.Context, repo reflow.Repository, k digest.Digest, fs *reflow.Fileset, kind assoc.Kind) error {
 	f, err := repo.Stat(ctx, k)
 	if err != nil {
 		return errors.E("eval.unmarshal: stat", k, err)
@@ -2091,8 +2112,8 @@ func unmarshal(ctx context.Context, repo reflow.Repository, k digest.Digest, fs 
 		defer limiter.Release(numTokens)
 	}
 	start := time.Now()
-	err = repository.Unmarshal(ctx, repo, k, fs)
-	log.Printf("unmarshal fileset: %s %d took:%s %s", data.Size(f.Size), f.Size, time.Since(start).Round(10*time.Millisecond), limited)
+	err = repository.Unmarshal(ctx, repo, k, fs, kind)
+	log.Printf("unmarshal fileset: %s %d %d took:%s %s", data.Size(f.Size), f.Size, fs.N(), time.Since(start).Round(10*time.Millisecond), limited)
 	return err
 }
 

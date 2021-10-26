@@ -17,6 +17,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
+	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
 )
 
@@ -489,31 +490,29 @@ func (v Fileset) pullup(m map[string]File) {
 	}
 }
 
-type FilesetMarshalFormat int
-
-const (
-	// FilesetMarshalFmtJSON is more efficient than `json.Marshal` and more specifically it includes
-	// the Assertions of every File within this Fileset.
-	FilesetMarshalFmtJSON FilesetMarshalFormat = iota
-	// FilesetMarshalFmtProtoParts is more efficient than FilesetMarshalFmtJSON and uses a custom format with
-	// the following design:
-	// - The components of fileset (files in Fileset.Map, individual assertions and the linkage between those
-	//   assertions and certain files) are converted into smaller "part" structs.
-	// - Those parts are marshalled to disk as the protobuf formats defined in `fileset.proto`.
-	FilesetMarshalFmtProtoParts
+// Version bytes for proto header. Two characters by convention.
+var (
+	filesetV2VersionBytes = []byte{'v', '2', '0', '0'}
 )
 
 // Write serializes and writes (marshals) this Fileset in the specified format to the given writer.
-func (v *Fileset) Write(w io.Writer, f FilesetMarshalFormat) error {
-	switch f {
-	case FilesetMarshalFmtJSON:
+func (v *Fileset) Write(w io.Writer, kind assoc.Kind) error {
+	switch kind {
+	case assoc.Fileset:
 		return v.marshalJSON(w)
-	case FilesetMarshalFmtProtoParts:
+	case assoc.FilesetV2:
 		return v.marshalProto(w)
 	}
-	panic(fmt.Sprintf("unknown fileset marshalProto format %d", f))
+	panic(fmt.Sprintf("unknown fileset marshal kind %d", kind))
 }
 
+// marshalProto is more efficient than marshalJSON and uses a custom format with
+// the following design:
+// - A ten byte header. The first two bytes identify the version of the fileset, the next eight
+//   bytes contains the length of the root list.
+// - The components of fileset (files in Fileset.Map, individual assertions and the linkage between those
+//   assertions and certain files) are converted into smaller "part" structs.
+// - Those parts are marshalled to disk as the protobuf formats defined in `fileset.proto`.
 func (v *Fileset) marshalProto(w io.Writer) error {
 	files := make(map[digest.Digest]int32, 0)
 	assertions := make(map[string]int32, 0)
@@ -525,6 +524,19 @@ func (v *Fileset) marshalProto(w io.Writer) error {
 	files[digest.Digest{}] = 0
 	assertions[""] = 0
 	assertionsGroups[a] = 0
+
+	// write version bytes
+	if n, err := w.Write(filesetV2VersionBytes); err != nil {
+		return err
+	} else if n != len(filesetV2VersionBytes) {
+		return errors.E(fmt.Sprintf("wanted to write %d version bytes while marshalling "+
+			"fileset but only wrote %d", len(filesetV2VersionBytes), n))
+	}
+	// encode the length of the root list
+	rootLen := int64(len(v.List))
+	if err := binary.Write(w, binary.LittleEndian, rootLen); err != nil {
+		return err
+	}
 
 	if err := v.encodeFilesetParts(0, -1, w, b, files, assertions, assertionsGroups); err != nil {
 		return err
@@ -560,8 +572,8 @@ func marshalProtoWithBuffer(pb proto.Message, b *proto.Buffer, w io.Writer) erro
 	if n, err := w.Write(b.Bytes()); err != nil {
 		return err
 	} else if n != len(b.Bytes()) {
-		return errors.New(fmt.Sprintf("expected to write %d bytes but only wrote %d bytes while marshalling fileset part",
-			len(b.Bytes()), n))
+		return errors.New(fmt.Sprintf("expected to write %d bytes but only "+
+			"wrote %d bytes while marshalling fileset part", len(b.Bytes()), n))
 	}
 	return nil
 }
@@ -576,16 +588,21 @@ func unmarshalProtoWithBuffer(b *bytes.Buffer, r io.Reader) (FilesetPart, error)
 	if err := binary.Read(r, binary.LittleEndian, &partLen); err != nil {
 		return FilesetPart{}, err
 	}
+
+	// After this point, all errors must be wrapped as Invalid, including io.EOF errors
+	// (which are unexpected once a non-zero part size is read).
 	if n, err := io.CopyN(b, r, partLen); err != nil {
-		return FilesetPart{}, err
+		return FilesetPart{}, errors.E(errors.Invalid, fmt.Sprintf("failed to copy %d bytes for part", partLen), err)
 	} else if n != partLen {
-		return FilesetPart{}, errors.New(fmt.Sprintf("failed to read file part, "+
+		return FilesetPart{}, errors.E(errors.Invalid, fmt.Sprintf("failed to read file part, "+
 			"expected to read %d bytes but read %d bytes to the buffer", partLen, n))
 	}
-
 	var part FilesetPart
-	err := proto.Unmarshal(b.Bytes(), &part)
-	return part, err
+	if err := proto.Unmarshal(b.Bytes(), &part); err != nil {
+		return FilesetPart{}, errors.E(errors.Invalid, fmt.Sprintf("failed to unmarshal %d byte proto part", partLen), err)
+	} else {
+		return part, nil
+	}
 }
 
 func (v *Fileset) encodeFilesetParts(
@@ -719,6 +736,8 @@ func encodeAssertionsParts(
 	return groupId, nil
 }
 
+// marshalJSON is more efficient than `json.Marshal` and more specifically it includes
+// the Assertions of every File within this Fileset.
 func (v *Fileset) marshalJSON(w io.Writer) error {
 	var (
 		commaB       = []byte(",")
@@ -813,14 +832,14 @@ func (v *Fileset) marshalJSON(w io.Writer) error {
 
 // Read reads (unmarshals) a serialized fileset from the given Reader into
 // this Fileset.
-func (v *Fileset) Read(r io.Reader, f FilesetMarshalFormat) error {
-	switch f {
-	case FilesetMarshalFmtJSON:
+func (v *Fileset) Read(r io.Reader, kind assoc.Kind) error {
+	switch kind {
+	case assoc.Fileset:
 		return v.unmarshalJSON(json.NewDecoder(r))
-	case FilesetMarshalFmtProtoParts:
+	case assoc.FilesetV2:
 		return v.unmarshalProto(r)
 	}
-	panic(fmt.Sprintf("unknown fileset marshalProto format %d", f))
+	panic(fmt.Sprintf("unknown fileset marshal kind %d", kind))
 }
 
 func (v *Fileset) unmarshalProto(r io.Reader) error {
@@ -830,11 +849,35 @@ func (v *Fileset) unmarshalProto(r io.Reader) error {
 	assertions := make(map[int32]*AssertionsKeyPart)
 	// assertion group id -> slice of assertion key parts
 	assertionsGroupPartById := make(map[int32]*AssertionsGroupPart)
-	// assertion group id -> complete assertion groups constructed of assertion key parts
+	// assertion group id -> complete assertion groups constructed
+	// of assertion key parts
 	assertionsGroupById := make(map[int32]*Assertions)
 
-	buf := new(bytes.Buffer)
+	// read version header
+	versionHeader := make([]byte, len(filesetV2VersionBytes))
+	if n, err := r.Read(versionHeader); err != nil {
+		return err
+	} else if n != len(filesetV2VersionBytes) {
+		return errors.E(fmt.Sprintf("wanted to write %d version "+
+			"bytes while marshalling fileset but only wrote %d",
+			len(filesetV2VersionBytes), n))
+	}
 
+	if bytes.Compare(versionHeader, filesetV2VersionBytes) != 0 {
+		return errors.E(fmt.Sprintf("unexpected version header "+
+			"%v found while unmarshalling fileset", versionHeader))
+	}
+
+	// attempt to unmarshal the length of the root list
+	var rootLen int64
+	if err := binary.Read(r, binary.LittleEndian, &rootLen); err != nil {
+		return err
+	}
+	if rootLen > 0 {
+		v.List = make([]Fileset, rootLen)
+	}
+
+	buf := new(bytes.Buffer)
 	for {
 		var p FilesetPart
 		var err error
@@ -854,7 +897,9 @@ func (v *Fileset) unmarshalProto(r io.Reader) error {
 		} else if m := p.GetFmp(); m != nil {
 			switch m.Depth {
 			case 0:
-				v.insertFile(m.Key, m.FileId, files, assertionsGroupPartById, assertionsGroupById, assertions)
+				v.insertFile(m.Key, m.FileId, files,
+					assertionsGroupPartById, assertionsGroupById,
+					assertions)
 			case 1:
 				if int(m.Index) >= len(v.List) {
 					l := make([]Fileset, m.Index+1)
@@ -863,7 +908,9 @@ func (v *Fileset) unmarshalProto(r io.Reader) error {
 					}
 					v.List = l
 				}
-				v.List[m.Index].insertFile(m.Key, m.FileId, files, assertionsGroupPartById, assertionsGroupById, assertions)
+				v.List[m.Index].insertFile(m.Key, m.FileId, files,
+					assertionsGroupPartById, assertionsGroupById,
+					assertions)
 			default:
 				panic(fmt.Sprintf("unexpected depth fileset %d", m.Depth))
 			}
@@ -916,9 +963,7 @@ func (v *Fileset) insertFile(key string, fId int32,
 				if as.GetBp().Size != "" {
 					fields[BlobAssertionPropertySize] = as.GetBp().Size
 				}
-				assertions.m[AssertionKey{Namespace: "blob", Subject: as.Subject}] = &assertion{
-					objects: fields,
-				}
+				assertions.m[AssertionKey{Namespace: "blob", Subject: as.Subject}] = newAssertion(fields)
 			}
 			assertionsGroupById[f.AssertionsGroupId] = assertions
 		}

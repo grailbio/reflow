@@ -21,8 +21,12 @@ import (
 type Kind int
 
 const (
-	// Fileset maps fileset values.
+	// Fileset maps fileset values. See the fileset.marshalJSON
+	// docstring for more information about the format.
 	Fileset Kind = iota
+	// FilesetV2 maps fileset v2 values. See the fileset.marshalProto
+	// docstring for more information about the format.
+	FilesetV2
 )
 
 // MappingHandler is an interface for handling a mapping while scanning.

@@ -205,7 +205,8 @@ func unexpected(err error) {
 	panic(fmt.Sprintf("unexpected error %v", err))
 }
 
-// Exists tells whether a value has been cached for the provided keys.
+// Exists tells whether a value has been cached for the provided keys in
+// the FilesetV2 format.
 // Exists checks whether all the objects are present in the Eval's
 // repository.
 func Exists(e *flow.Eval, keys ...digest.Digest) bool {
@@ -213,7 +214,7 @@ func Exists(e *flow.Eval, keys ...digest.Digest) bool {
 		panic("exists must be provided with at least one key")
 	}
 	for _, key := range keys {
-		_, fsid, err := e.Assoc.Get(context.Background(), assoc.Fileset, key)
+		_, fsid, err := e.Assoc.Get(context.Background(), assoc.FilesetV2, key)
 		if err != nil {
 			if !errors.Is(errors.NotExist, err) {
 				unexpected(err)
@@ -221,12 +222,12 @@ func Exists(e *flow.Eval, keys ...digest.Digest) bool {
 			return false
 		}
 		var fs reflow.Fileset
-		if err := repository.Unmarshal(context.Background(), e.Repository, fsid, &fs); err != nil {
-			unexpected(err)
+		if uErr := repository.Unmarshal(context.Background(), e.Repository, fsid, &fs, assoc.FilesetV2); uErr != nil {
+			unexpected(uErr)
 		}
-		files, err := repository.Missing(context.Background(), e.Repository, fs.Files()...)
-		if err != nil {
-			unexpected(err)
+		files, mErr := repository.Missing(context.Background(), e.Repository, fs.Files()...)
+		if mErr != nil {
+			unexpected(mErr)
 		}
 		if len(files) > 0 {
 			return false
@@ -238,12 +239,12 @@ func Exists(e *flow.Eval, keys ...digest.Digest) bool {
 // Value returns the fileset stored for the provided key in the cache
 // configured in Eval e.
 func Value(e *flow.Eval, key digest.Digest) reflow.Fileset {
-	key, fsid, err := e.Assoc.Get(context.Background(), assoc.Fileset, key)
+	key, fsid, err := e.Assoc.Get(context.Background(), assoc.FilesetV2, key)
 	if err != nil {
 		unexpected(err)
 	}
 	var fs reflow.Fileset
-	if err := repository.Unmarshal(context.Background(), e.Repository, fsid, &fs); err != nil {
+	if err := repository.Unmarshal(context.Background(), e.Repository, fsid, &fs, assoc.FilesetV2); err != nil {
 		unexpected(err)
 	}
 	return fs

@@ -17,6 +17,7 @@ import (
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/test/testutil"
 )
 
@@ -430,7 +431,7 @@ func TestCustomMarshal(t *testing.T) {
 		fs := fuzz.FilesetDeep(fuzz.Intn(5)+1, fuzz.Intn(2)+1, fuzz.Intn(10)%2 == 0, fuzz.Intn(10)%2 == 0)
 		ofs := oldFs(fs)
 		var b bytes.Buffer
-		if err := fs.Write(&b, reflow.FilesetMarshalFmtJSON); err != nil {
+		if err := fs.Write(&b, assoc.Fileset); err != nil {
 			t.Fatal(err)
 		}
 		want, err := json.Marshal(ofs)
@@ -448,15 +449,218 @@ func TestCustomMarshal(t *testing.T) {
 
 func TestCustomUnmarshal(t *testing.T) {
 	fuzz := testutil.NewFuzz(nil)
+	for _, test := range []struct {
+		name string
+		fs   reflow.Fileset
+	}{
+		{
+			"empty",
+			reflow.Fileset{},
+		},
+		{
+			"unit file",
+			reflow.Fileset{
+				Map: map[string]reflow.File{
+					".": {
+						ID: fuzz.Digest(),
+					},
+				},
+			},
+		},
+		{
+			"dir",
+			reflow.Fileset{
+				Map: map[string]reflow.File{
+					"foo": {
+						ID: fuzz.Digest(),
+					},
+					"bar": {
+						ID: fuzz.Digest(),
+					},
+				},
+			},
+		},
+		{
+			"list of unit files",
+			reflow.Fileset{
+				List: []reflow.Fileset{
+					{
+						Map: map[string]reflow.File{
+							".": {
+								ID: fuzz.Digest(),
+							},
+						},
+					},
+					{
+						Map: map[string]reflow.File{
+							".": {
+								ID: fuzz.Digest(),
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			"list of unit files and empties",
+			reflow.Fileset{
+				List: []reflow.Fileset{
+					{
+						Map: map[string]reflow.File{
+							".": {
+								ID: fuzz.Digest(),
+							},
+						},
+					},
+					{},
+					{
+						Map: map[string]reflow.File{
+							".": {
+								ID: fuzz.Digest(),
+							},
+						},
+					},
+					{},
+				},
+			},
+		},
+		{
+			"list of dirs",
+			reflow.Fileset{
+				List: []reflow.Fileset{
+					{
+						Map: map[string]reflow.File{
+							"foo": {
+								ID: fuzz.Digest(),
+							},
+							"bar": {
+								ID: fuzz.Digest(),
+							},
+						},
+					},
+					{
+						Map: map[string]reflow.File{
+							"fizz": {
+								ID: fuzz.Digest(),
+							},
+							"buzz": {
+								ID: fuzz.Digest(),
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			"list of dirs and empties",
+			reflow.Fileset{
+				List: []reflow.Fileset{
+					{
+						Map: map[string]reflow.File{
+							"foo": {
+								ID: fuzz.Digest(),
+							},
+							"bar": {
+								ID: fuzz.Digest(),
+							},
+						},
+					},
+					{},
+					{
+						Map: map[string]reflow.File{
+							"fizz": {
+								ID: fuzz.Digest(),
+							},
+							"buzz": {
+								ID: fuzz.Digest(),
+							},
+						},
+					},
+					{},
+				},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var bb bytes.Buffer
+			if err := test.fs.Write(&bb, assoc.FilesetV2); err != nil {
+				t.Fatal(err)
+			}
+			var fs2 reflow.Fileset
+			if err := fs2.Read(&bb, assoc.FilesetV2); err != nil {
+				t.Fatal(err)
+			}
+			if diff, yes := test.fs.Diff(fs2); yes {
+				t.Fatalf("got:\n%s\nwant:\n%s\ndiff:\n%v", fs2, test.fs, diff)
+			}
+		})
+	}
+}
+
+func TestMarshalFmtIncompatibility(t *testing.T) {
+	fuzz := testutil.NewFuzz(nil)
+	want := fuzz.FilesetDeep(fuzz.Intn(5)+1, 1, false, fuzz.Intn(10)%2 == 0)
+
+	fmts := []struct {
+		name      string
+		marshal   func(fs reflow.Fileset, w io.Writer) error
+		unmarshal func(r io.Reader) error
+	}{
+		{
+			"json",
+			func(fs reflow.Fileset, w io.Writer) error {
+				return fs.Write(w, assoc.Fileset)
+			},
+			func(r io.Reader) error {
+				var fs reflow.Fileset
+				return fs.Read(r, assoc.Fileset)
+			},
+		},
+		{
+			"filesetV2",
+			func(fs reflow.Fileset, w io.Writer) error {
+				return fs.Write(w, assoc.FilesetV2)
+			},
+			func(r io.Reader) error {
+				var fs reflow.Fileset
+				return fs.Read(r, assoc.FilesetV2)
+			},
+		},
+	}
+
+	for i, m := range fmts {
+		for j, u := range fmts {
+			if i == j {
+				continue
+			}
+			name := fmt.Sprintf("marshal-%s-unmarshal-%s", m.name, u.name)
+			t.Run(name, func(t *testing.T) {
+				var bb bytes.Buffer
+				if err := m.marshal(want, &bb); err != nil {
+					t.Fatal(err)
+				}
+				if err := u.unmarshal(&bb); err == nil {
+					t.Fatalf("did not expect to correctly "+
+						"unmarshal fileset in format %s with format %s",
+						m.name, u.name,
+					)
+				}
+			})
+		}
+	}
+}
+
+func TestCustomUnmarshalFuzz(t *testing.T) {
+	fuzz := testutil.NewFuzz(nil)
 	for i := 0; i < 100; i++ {
 		want := fuzz.FilesetDeep(fuzz.Intn(5)+1, 1, false, fuzz.Intn(10)%2 == 0)
 		// Custom marshalProto, and unmarshalProto to oldFileset using JSON std library.
 		var bb bytes.Buffer
-		if err := want.Write(&bb, reflow.FilesetMarshalFmtProtoParts); err != nil {
+		if err := want.Write(&bb, assoc.FilesetV2); err != nil {
 			t.Fatal(err)
 		}
 		var fs2 reflow.Fileset
-		if err := fs2.Read(&bb, reflow.FilesetMarshalFmtProtoParts); err != nil {
+		if err := fs2.Read(&bb, assoc.FilesetV2); err != nil {
 			t.Fatal(err)
 		}
 		if diff, yes := want.Diff(fs2); yes {
@@ -563,10 +767,10 @@ func BenchmarkMarshal(b *testing.B) {
 				return json.NewEncoder(w).Encode(oldFs(fs))
 			}},
 			{"json-custom-stream", func(w io.Writer, fs reflow.Fileset) error {
-				return fs.Write(w, reflow.FilesetMarshalFmtJSON)
+				return fs.Write(w, assoc.Fileset)
 			}},
 			{"json-custom-stream-parts", func(w io.Writer, fs reflow.Fileset) error {
-				return fs.Write(w, reflow.FilesetMarshalFmtProtoParts)
+				return fs.Write(w, assoc.FilesetV2)
 			}},
 		} {
 			s, nums := s, nums
@@ -604,7 +808,7 @@ func BenchmarkUnmarshal(b *testing.B) {
 			{
 				"json-std-lib",
 				func(w io.Writer, fs *reflow.Fileset) error {
-					return fs.Write(w, reflow.FilesetMarshalFmtJSON)
+					return fs.Write(w, assoc.Fileset)
 				},
 				func(r io.Reader, fs *reflow.Fileset) error {
 					var ofs oldFileset
@@ -616,19 +820,19 @@ func BenchmarkUnmarshal(b *testing.B) {
 			{
 				"json-custom",
 				func(w io.Writer, fs *reflow.Fileset) error {
-					return fs.Write(w, reflow.FilesetMarshalFmtJSON)
+					return fs.Write(w, assoc.Fileset)
 				},
 				func(r io.Reader, fs *reflow.Fileset) error {
-					return fs.Read(r, reflow.FilesetMarshalFmtJSON)
+					return fs.Read(r, assoc.Fileset)
 				},
 			},
 			{
 				"proto-custom-parts",
 				func(w io.Writer, fs *reflow.Fileset) error {
-					return fs.Write(w, reflow.FilesetMarshalFmtProtoParts)
+					return fs.Write(w, assoc.FilesetV2)
 				},
 				func(r io.Reader, fs *reflow.Fileset) error {
-					return fs.Read(r, reflow.FilesetMarshalFmtProtoParts)
+					return fs.Read(r, assoc.FilesetV2)
 				},
 			},
 		} {

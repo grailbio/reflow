@@ -4,9 +4,17 @@ package assoc
 
 import "strconv"
 
-const _Kind_name = "FilesetExecInspectLogsBundle"
+func _() {
+	// An "invalid array index" compiler error signifies that the constant values have changed.
+	// Re-run the stringer command to generate them again.
+	var x [1]struct{}
+	_ = x[Fileset-0]
+	_ = x[FilesetV2-1]
+}
 
-var _Kind_index = [...]uint8{0, 7, 18, 22, 28}
+const _Kind_name = "FilesetFilesetV2"
+
+var _Kind_index = [...]uint8{0, 7, 16}
 
 func (i Kind) String() string {
 	if i < 0 || i >= Kind(len(_Kind_index)-1) {

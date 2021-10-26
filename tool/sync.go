@@ -40,10 +40,10 @@ are not also in the fileset.`
 	c.must(c.Config.Instance(&ass))
 	var repo reflow.Repository
 	c.must(c.Config.Instance(&repo))
-	id, fsid, err := ass.Get(ctx, assoc.Fileset, id)
+	id, fsid, err := ass.Get(ctx, assoc.FilesetV2, id)
 	c.must(err)
 	var fs reflow.Fileset
-	c.must(repository.Unmarshal(ctx, repo, fsid, &fs))
+	c.must(repository.Unmarshal(ctx, repo, fsid, &fs, assoc.FilesetV2))
 	if fs.N() == 0 {
 		c.Fatal("fileset is empty")
 	}

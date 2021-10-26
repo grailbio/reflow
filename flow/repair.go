@@ -62,7 +62,7 @@ func NewRepair(config EvalConfig) *Repair {
 // Do repairs the flow f. Repair is performed by using cached
 // evaluations to populate values, and, when the cache is missing
 // entries and a value can be computed immediately (i.e., without
-// consuling an executor), computing that value. Flows that are
+// consulting an executor), computing that value. Flows that are
 // successfully evaluated this way (sustaining no errors) are written
 // back with their completed set of cache keys.
 //
@@ -87,7 +87,7 @@ func (r *Repair) Do(ctx context.Context, f *Flow) {
 		}
 		ctx, cancel := context.WithTimeout(ctx, r.CacheLookupTimeout)
 		var err error
-		key, fsid, err = r.Assoc.Get(ctx, assoc.Fileset, key)
+		key, fsid, err = r.Assoc.Get(ctx, assoc.FilesetV2, key)
 		if r.GetLimit != nil {
 			r.GetLimit.Release(1)
 		}
@@ -98,7 +98,7 @@ func (r *Repair) Do(ctx context.Context, f *Flow) {
 			}
 			continue
 		}
-		err = unmarshal(ctx, r.Repository, fsid, &fs)
+		err = unmarshal(ctx, r.Repository, fsid, &fs, assoc.FilesetV2)
 		if err == nil {
 			hit = true
 			break
@@ -276,7 +276,7 @@ func (r *Repair) Go(ctx context.Context, concurrency int) {
 			for wb := range r.writebacks {
 				r.Log.Printf("write back %s %s %s", wb.Flow.Ident, wb.Flow, wb.Fsid)
 				for _, key := range wb.Flow.CacheKeys() {
-					err := r.Assoc.Store(ctx, assoc.Fileset, key, wb.Fsid)
+					err := r.Assoc.Store(ctx, assoc.FilesetV2, key, wb.Fsid)
 					switch {
 					case errors.Is(errors.Precondition, err):
 					case err == nil:

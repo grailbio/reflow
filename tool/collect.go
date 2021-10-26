@@ -191,9 +191,9 @@ preceded by ! is negated.
 	liveObjectsNotInRepository := int64(0)
 
 	start := time.Now()
-	err = ass.Scan(ctx, assoc.Fileset, assoc.MappingHandlerFunc(func(k digest.Digest, v []digest.Digest, kind assoc.Kind, lastAccessTime time.Time, labels []string) {
+	err = ass.Scan(ctx, assoc.FilesetV2, assoc.MappingHandlerFunc(func(k digest.Digest, v []digest.Digest, kind assoc.Kind, lastAccessTime time.Time, labels []string) {
 		switch kind {
-		case assoc.Fileset:
+		case assoc.FilesetV2:
 		default:
 			return
 		}

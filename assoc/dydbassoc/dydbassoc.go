@@ -53,7 +53,8 @@ const (
 
 var (
 	colmap = map[assoc.Kind]string{
-		assoc.Fileset: "Value",
+		assoc.Fileset:   "Value",
+		assoc.FilesetV2: "ValueV2",
 	}
 	backOffPolicy = retry.MaxRetries(retry.Backoff(2*time.Millisecond, time.Minute, 1), 10)
 )
@@ -213,7 +214,7 @@ func (a *Assoc) Store(ctx context.Context, kind assoc.Kind, k, v digest.Digest) 
 	}()
 
 	switch kind {
-	case assoc.Fileset:
+	case assoc.Fileset, assoc.FilesetV2:
 	default:
 		return errors.E(errors.NotSupported, errors.Errorf("mappings of kind %v are not supported", kind))
 	}
@@ -285,22 +286,21 @@ func (a *Assoc) Delete(ctx context.Context, k digest.Digest) error {
 func (a *Assoc) getUpdateComponents(kind assoc.Kind, k, v digest.Digest) (expr string, av map[string]*dynamodb.AttributeValue, an map[string]*string) {
 	av = make(map[string]*dynamodb.AttributeValue)
 	an = make(map[string]*string)
-	switch kind {
-	case assoc.Fileset:
-		k4 := k
-		k4.Truncate(4)
-		switch {
-		case v.IsZero():
-			expr = "REMOVE #v"
-		default:
-			expr = "SET #v = :value, ID4 = :id4, LastAccessTime = :lastaccess"
-			av[":value"] = &dynamodb.AttributeValue{S: aws.String(v.String())}
-			av[":id4"] = &dynamodb.AttributeValue{S: aws.String(k4.HexN(4))}
-			av[":lastaccess"] = &dynamodb.AttributeValue{N: aws.String(fmt.Sprint(time.Now().Unix()))}
-		}
-		// Value is a reserved word. Use a placeholder.
-		an["#v"] = aws.String("Value")
+
+	k4 := k
+	k4.Truncate(4)
+	switch {
+	case v.IsZero():
+		expr = "REMOVE #v"
+	default:
+		expr = "SET #v = :value, ID4 = :id4, LastAccessTime = :lastaccess"
+		av[":value"] = &dynamodb.AttributeValue{S: aws.String(v.String())}
+		av[":id4"] = &dynamodb.AttributeValue{S: aws.String(k4.HexN(4))}
+		av[":lastaccess"] = &dynamodb.AttributeValue{N: aws.String(fmt.Sprint(time.Now().Unix()))}
 	}
+	// Value is a reserved word. Use a placeholder.
+	an["#v"] = aws.String(colmap[kind])
+
 	if !v.IsZero() && len(a.Labels) > 0 {
 		a.labelsOnce.Do(func() {
 			for k, v := range a.Labels {
@@ -327,15 +327,11 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 
 	var v digest.Digest
 	switch kind {
-	case assoc.Fileset:
+	case assoc.Fileset, assoc.FilesetV2:
 	default:
 		return k, v, errors.E(errors.NotSupported, errors.Errorf("mappings of kind %v are not supported", kind))
 	}
-	var col string
-	switch kind {
-	case assoc.Fileset:
-		col = "Value"
-	}
+	col := colmap[kind]
 	if err := a.Limiter.Acquire(ctx, 1); err != nil {
 		return k, v, err
 	}
@@ -793,16 +789,12 @@ func (a *Assoc) Scan(ctx context.Context, kind assoc.Kind, mappingHandler assoc.
 				}
 
 				dbval := *item[colname]
-				var v []digest.Digest
-				switch kind {
-				case assoc.Fileset:
-					d, err := reflow.Digester.Parse(*dbval.S)
-					if err != nil {
-						log.Errorf("invalid digest of kind %v for dynamodb entry %v", kind, item)
-						continue
-					}
-					v = []digest.Digest{d}
+				d, err := reflow.Digester.Parse(*dbval.S)
+				if err != nil {
+					log.Errorf("invalid digest of kind %v for dynamodb entry %v", kind, item)
+					continue
 				}
+				v := []digest.Digest{d}
 				mappingHandler.HandleMapping(ctx, k, v, kind, time.Unix(itemAccessTime, 0), labels)
 			}
 		}

@@ -91,7 +91,7 @@ func WriteCacheFileset(e *flow.Eval, key digest.Digest, fs reflow.Fileset) {
 	if err != nil {
 		unexpected(err)
 	}
-	if err := e.Assoc.Store(context.Background(), assoc.Fileset, key, fsid); err != nil {
+	if err := e.Assoc.Store(context.Background(), assoc.FilesetV2, key, fsid); err != nil {
 		unexpected(err)
 	}
 }
