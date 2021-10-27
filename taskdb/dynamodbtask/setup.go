@@ -25,6 +25,20 @@ type indexdefs struct {
 }
 
 var indexes = map[string]*indexdefs{
+	idIndex: {
+		attrdefs: []*dynamodb.AttributeDefinition{
+			{
+				AttributeName: aws.String(colID),
+				AttributeType: aws.String("S"),
+			},
+		},
+		keyschema: []*dynamodb.KeySchemaElement{
+			{
+				KeyType:       aws.String("HASH"),
+				AttributeName: aws.String(colID),
+			},
+		},
+	},
 	id4Index: {
 		attrdefs: []*dynamodb.AttributeDefinition{
 			{

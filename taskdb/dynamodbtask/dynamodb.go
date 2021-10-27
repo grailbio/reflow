@@ -265,7 +265,7 @@ func (t *TaskDB) Flags(flags *flag.FlagSet) {
 
 // Version implements infra.Provider.
 func (t *TaskDB) Version() int {
-	return 2
+	return 3
 }
 
 // CreateRun sets a new run in the taskdb with the given id, labels and user.
