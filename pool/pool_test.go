@@ -93,6 +93,29 @@ func TestPickN(t *testing.T) {
 				4: offers(scale(large, 1.1), medium, medium, medium),
 			},
 		},
+		{
+			scale(medium, 0.9), large,
+			offers(small, scale(small, 1.5), scale(small, 1.7),
+				medium, medium, scale(medium, 1.3), scale(medium, 1.8),
+				scale(large, 1.1), scale(large, 1.5), scale(large, 1.8)),
+			map[int][]Offer{
+				2: offers(scale(large, 1.1), scale(large, 1.5)),
+				4: offers(
+					scale(large, 1.1),
+					scale(large, 1.5),
+					scale(large, 1.8),
+					scale(medium, 1.8),
+				),
+				50: offers(
+					scale(large, 1.1),
+					scale(large, 1.5),
+					scale(large, 1.8),
+					scale(medium, 1.8),
+					scale(medium, 1.3),
+					medium, medium,
+				),
+			},
+		},
 	} {
 		for n, want := range tc.wantByN {
 			got := pickN(tc.offers, n, tc.min, tc.max)

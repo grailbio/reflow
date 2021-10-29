@@ -51,6 +51,22 @@ func TestResources(t *testing.T) {
 	}
 }
 
+func TestResourcesEqual(t *testing.T) {
+	for _, tt := range []struct{
+		a, b reflow.Resources
+		want bool
+	} {
+		{reflow.Resources{"mem": 10, "cpu": 5, "disk": 1}, reflow.Resources{"mem": 5, "cpu": 2, "disk": 3}, false},
+		{reflow.Resources{"mem": 0, "cpu": 0}, reflow.Resources{}, true},
+		{reflow.Resources{"mem": 0, "cpu": 0}, nil, true},
+		{reflow.Resources{}, nil, true},
+	} {
+		if got, want := tt.a.Equal(tt.b), tt.want; got != want {
+			t.Errorf("%s.Equal(%s): got %v, want %v", tt.a, tt.b, got, want)
+		}
+	}
+}
+
 func assertRequirements(t *testing.T, req reflow.Requirements, min, max reflow.Resources) {
 	t.Helper()
 	if got, want := req.Min, min; !got.Equal(want) {

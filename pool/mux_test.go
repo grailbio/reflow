@@ -140,9 +140,9 @@ func TestMux(t *testing.T) {
 }
 
 func createPools(n int, r reflow.Resources, name string) (pools []Pool) {
+	pools = make([]Pool, n)
 	for i := 0; i < n; i++ {
-		p := NewNamedTestPool(name, r)
-		pools = append(pools, p)
+		pools[i] = NewNamedTestPool(name, r)
 	}
 	return
 }
@@ -153,29 +153,27 @@ func TestMuxScaleWithCaching(t *testing.T) {
 	pools = append(pools, createPools(nSmall, small, "small")...)
 	pools = append(pools, createPools(nMedium, medium, "medium")...)
 	pools = append(pools, createPools(nLarge, large, "large")...)
-	var (
-		mux Mux
-		wg  sync.WaitGroup
-	)
+	var mux Mux
 	mux.SetCaching(true)
 	mux.SetPools(pools)
 
 	nAllocs := nSmall + 2*nMedium + 4*nLarge
-	if got, want := allocateMux(t, mux, nAllocs, 100*time.Millisecond, &wg), 0; got != want {
+	if got, want := allocateMux(t, mux, nAllocs, 100*time.Millisecond), 0; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	wg.Wait()
 	verifyCallCounts(t, pools, 1, 1)
-	if got, want := allocateMux(t, mux, nAllocs, 100*time.Millisecond, &wg), 0; got != want {
+	if got, want := allocateMux(t, mux, nAllocs, 100*time.Millisecond), 0; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	wg.Wait()
 	verifyCallCounts(t, pools, 1, 2)
 }
 
-func allocateMux(t *testing.T, mux Mux, n int, allocLifetime time.Duration, wg *sync.WaitGroup) int {
-	var nFails int32
-	ctx := context.Background()
+func allocateMux(t *testing.T, mux Mux, n int, allocLifetime time.Duration) int {
+	var (
+		nFails int32
+		ctx    = context.Background()
+		wg     sync.WaitGroup
+	)
 	wg.Add(n)
 	err := traverse.Each(n, func(i int) error {
 		a, err := Allocate(ctx, &mux, reflow.Requirements{Min: small}, nil)
@@ -198,6 +196,7 @@ func allocateMux(t *testing.T, mux Mux, n int, allocLifetime time.Duration, wg *
 	if err != nil {
 		t.Fatal(err)
 	}
+	wg.Wait()
 	return int(atomic.LoadInt32(&nFails))
 }
 

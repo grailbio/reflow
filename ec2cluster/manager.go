@@ -402,10 +402,10 @@ func (m *Manager) loop(pctx context.Context) {
 				continue
 			}
 			var (
-				ws        []*waiter
 				available = inst.Resources
 				nnotify   int
 			)
+			n := 0
 			for _, w := range waiters {
 				if w.ctx.Err() != nil {
 					continue
@@ -417,10 +417,11 @@ func (m *Manager) loop(pctx context.Context) {
 					w.notify()
 					nnotify++
 				} else {
-					ws = append(ws, w)
+					waiters[n] = w
+					n++
 				}
 			}
-			waiters = ws
+			waiters = waiters[:n]
 			m.log.Debugf("added instance %s resources%s pending%s available%s waiters:%d notified:%d",
 				inst.Type, inst.Resources, pending, available, len(waiters), nnotify)
 		case w := <-m.waitc:
@@ -439,13 +440,14 @@ func (m *Manager) loop(pctx context.Context) {
 					drained = true
 				}
 			}
-			var ws []*waiter
+			n := 0
 			for _, w := range waiters {
 				if w.ctx.Err() == nil {
-					ws = append(ws, w)
+					waiters[n] = w
+					n++
 				}
 			}
-			waiters = ws
+			waiters = waiters[:n]
 		}
 	}
 }

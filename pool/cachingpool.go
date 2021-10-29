@@ -15,8 +15,6 @@ import (
 	"github.com/grailbio/reflow"
 )
 
-const emptyOffersTtl = 60 * time.Second
-
 type cachingPool struct {
 	Pool
 	mu         sync.Mutex
@@ -44,7 +42,6 @@ func (p *cachingPool) Offers(ctx context.Context) (offers []Offer, err error) {
 		if !o.(*trackedOffer).Outdated() {
 			valid = append(valid, o)
 		}
-
 	}
 	if len(valid) == 0 {
 		offers, err = p.refresh(ctx)
@@ -64,7 +61,12 @@ func (p *cachingPool) refresh(ctx context.Context) (offers []Offer, err error) {
 	if offers, err = p.Pool.Offers(ctx); err != nil {
 		return
 	}
-	p.expiration = time.Now().Add(emptyOffersTtl)
+	// offersTtl is the duration for which the offers from the underlying pool are cached.
+	// offersTtl matters in cases where the underlying pool might be shared with other callers
+	// who might've grabbed some/all of the offers.  By using a a ttl expiration, we allow for
+	// the discovery of potentially larger offers that might become available in the underlying pool.
+	const offersTtl = 60 * time.Second
+	p.expiration = time.Now().Add(offersTtl)
 	p.offers = make([]Offer, len(offers))
 	for i, o := range offers {
 		p.offers[i] = newTrackedOffer(o)
