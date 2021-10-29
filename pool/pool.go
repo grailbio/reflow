@@ -14,6 +14,7 @@ import (
 	"container/heap"
 	"context"
 	"fmt"
+	"math/rand"
 	"os/user"
 
 	"github.com/grailbio/reflow"
@@ -90,14 +91,22 @@ func Allocate(ctx context.Context, pool Pool, req reflow.Requirements, labels La
 	return nil, errors.E(errors.Unavailable, errTooManyTries)
 }
 
-const maxOffersToConsider = 10
-
 func allocate(ctx context.Context, pool Pool, req reflow.Requirements, labels Labels) (Alloc, error) {
 	offers, err := pool.Offers(ctx)
 	if err != nil {
 		return nil, err
 	}
-	// TODO(swami): Instead of fixed n, should we vary based on number of offers ?
+	// We shuffle the list of offers so that if we have a large number of equal offers,
+	// different callers of `allocate` do not end up competing for the same set of offers.
+	// Offers are ordered by "best match" before being chosen from anyway (see `pickN`),
+	// so this shuffling doesn't impact performance if offers are largely diverse.
+	rand.Shuffle(len(offers), func(i, j int) { offers[i], offers[j] = offers[j], offers[i] })
+
+	// maxOffersToConsider is the maximum number of offers to consider.  This restricts the size
+	// of the heap built by `pickN` so that the complexity is `P log N` instead of `P log P`,
+	// where `P = len(offers)` and `N = maxOffersToConsider`.
+	const maxOffersToConsider = 10
+
 	ordered := pickN(offers, maxOffersToConsider, req.Min, req.Max())
 
 	for _, pick := range ordered {
@@ -174,30 +183,6 @@ func Allocs(ctx context.Context, pool Pool, log *log.Logger) []Alloc {
 		allocs = append(allocs, a...)
 	}
 	return allocs
-}
-
-// pick selects an offer best matching a minimum and maximum resource
-// requirements. It picks the offer which has at least the minimum
-// amount of resources but as close to maximum as possible.
-func pick(offers []Offer, min, max reflow.Resources) Offer {
-	var pick Offer
-	var distance float64
-	for _, offer := range offers {
-		switch {
-		case !offer.Available().Available(min):
-			continue
-		case pick == nil:
-			pick = offer
-			distance = offer.Available().ScaledDistance(max)
-		default:
-			curDist := offer.Available().ScaledDistance(max)
-			if curDist < distance {
-				pick = offer
-				distance = curDist
-			}
-		}
-	}
-	return pick
 }
 
 // pickN returns upto n offers in decreasing order of "best match" defined as follows:

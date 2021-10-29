@@ -34,51 +34,7 @@ func (*resourceOffer) Accept(ctx context.Context, meta AllocMeta) (Alloc, error)
 	panic("not implemented")
 }
 
-func TestPick(t *testing.T) {
-	offers := []Offer{
-		&resourceOffer{small},
-		&resourceOffer{medium},
-		&resourceOffer{large},
-	}
-	for _, offer := range offers {
-		if got, want := pick(offers, offer.Available(), offer.Available()), offer; got != want {
-			t.Errorf("got %v, want %v", got, want)
-		}
-		var tmp reflow.Resources
-		tmp.Scale(offer.Available(), .5)
-		if got, want := pick(offers, tmp, offer.Available()), offer; got != want {
-			t.Errorf("got %v, want %v", got, want)
-		}
-		tmp.Scale(offer.Available(), 10)
-		if got, want := pick(offers, offer.Available(), tmp), offers[2]; got != want {
-			t.Errorf("got %v, want %v", got, want)
-		}
-	}
-
-	const G = 1 << 30
-	var (
-		min = &resourceOffer{
-			reflow.Resources{"mem": 10 * G, "cpu": 1, "disk": 20 * G}}
-		max = &resourceOffer{
-			reflow.Resources{"mem": 20 * G, "cpu": 1, "disk": 20 * G}}
-		o1 = &resourceOffer{
-			reflow.Resources{"mem": 28 * G, "cpu": 1, "disk": 20 * G}}
-		o2 = &resourceOffer{
-			reflow.Resources{"mem": 18 * G, "cpu": 1, "disk": 20 * G}}
-		o3 = &resourceOffer{
-			reflow.Resources{"mem": 19 * G, "cpu": 1, "disk": 20 * G}}
-		offers1 = []Offer{o1, o2, o3}
-		offers2 = []Offer{o3, o2, o1}
-	)
-	if got, want := pick(offers1, min.Available(), max.Available()), offers1[2]; got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	if got, want := pick(offers2, min.Available(), max.Available()), offers2[0]; got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
-}
-
-func TestOrder(t *testing.T) {
+func TestPickN(t *testing.T) {
 	for i, tc := range []struct {
 		min, max reflow.Resources
 		offers   []Offer
@@ -177,34 +133,59 @@ func newTestPool(id string, r reflow.Resources) testPool {
 	return testPool{idPool(id), &testOffer{resourceOffer: resourceOffer{r}}}
 }
 
-func TestAllocateScaleSmall(t *testing.T) {
-	assertAllocateNoErrors(t, 20)
+func TestAllocateScale(t *testing.T) {
+	for _, tt := range []struct {
+		nPools, nAllocations, nConc, errPct int
+	}{
+		{20, 20, 5, 1},
+		{20, 20, 10, 1},
+		{200, 100, 10, 1},
+		{200, 200, 100, 1},
+		{200, 200, 200, 1},
+		{500, 200, 100, 1},
+		{500, 500, 100, 1},
+		{500, 500, 500, 1},
+		{1000, 100, 10, 1},
+		{1000, 500, 100, 1},
+		{1000, 500, 500, 1},
+		{1000, 1000, 200, 1},
+		{1000, 1000, 500, 1},
+		{1000, 1000, 1000, 1},
+	}{
+		tt := tt
+		name := fmt.Sprintf("TestAllocateScale_nPools_%d_nAllocs_%d_nConc_%d", tt.nPools, tt.nAllocations, tt.nConc)
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			assertAllocateWithinErrPct(t, tt.nPools, tt.nAllocations, tt.nConc, tt.errPct)
+		})
+	}
 }
 
-func TestAllocateScaleLarge(t *testing.T) {
-	assertAllocateNoErrors(t, 200)
-}
-
-const maxErrPercent = 1
-
-func assertAllocateNoErrors(t *testing.T, n int) {
+// assertAllocateWithinErrPct asserts that, when we run a test with nPools pools and try to make
+// nAllocations allocations from that pool, while making nConc concurrent allocation calls,
+// the total number of allocation calls that fail is below errPct.
+func assertAllocateWithinErrPct(t *testing.T, nPools, nAllocations, nConc, errPct int) {
 	rand.Seed(time.Now().Unix())
 	var m Mux
-	pools := make([]Pool, n)
-	for i := 0; i < n; i++ {
+	pools := make([]Pool, nPools)
+	for i := 0; i < nPools; i++ {
 		pools[i] = newTestPool(fmt.Sprintf("pool-%d", i), small)
 	}
 	m.SetPools(pools)
 
 	var nerr int32
-	_ = traverse.Limit(10).Each(n, func(i int) error {
-		if _, err := Allocate(context.Background(), &m, reflow.Requirements{Min: small}, nil); err != nil {
+	_ = traverse.Limit(nConc).Each(nAllocations, func(_ int) error {
+		ctx, cancel := context.WithTimeout(context.Background(), 200 * time.Millisecond)
+		defer cancel()
+		if _, err := Allocate(ctx, &m, reflow.Requirements{Min: small}, nil); err != nil {
 			atomic.AddInt32(&nerr, 1)
 		}
 		return nil
 	})
-	if got, want := atomic.LoadInt32(&nerr), n*maxErrPercent/100; got > int32(want) {
-		t.Errorf("got %v, want <= %v (%d%% of %d)", got, want, maxErrPercent, n)
+	if got, want := atomic.LoadInt32(&nerr), int32(nAllocations*errPct/100); got > want {
+		t.Errorf("got %v, want <= %v (%d%% of %d)", got, want, errPct, nAllocations)
+	} else if got > 0 {
+		t.Logf("got %d errors (below %d%% of %d)", got, errPct, nAllocations)
 	}
 }
 
