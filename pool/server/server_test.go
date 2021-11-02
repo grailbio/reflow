@@ -208,29 +208,32 @@ func TestInspect(t *testing.T) {
 			if err := call.Unmarshal(&m); err != nil {
 				t.Fatal(err)
 			}
-			if test.method == "POST" {
+			switch test.method {
+			case "POST":
 				if m.RunInfo == nil {
 					t.Error("RunInfo must be present for POST request")
 				}
 				if m.Inspect != nil {
-					t.Error("RunInfo must not be present for POST request")
+					t.Error("Inspect must not be present for POST request")
 				}
-			} else {
+				if m.RunInfo.InspectDigest.Digest.IsZero() {
+					t.Error("InspectDigest is not present")
+				}
+				if m.RunInfo.Stdout.Digest.IsZero() {
+					t.Error("Stdout is not present")
+				}
+				if m.RunInfo.Stderr.Digest.IsZero() {
+					t.Error("Stderr is not present")
+				}
+			case "GET":
 				if m.RunInfo != nil {
 					t.Error("RunInfo must be nil for GET request")
 				}
 				if m.Inspect == nil {
-					t.Error("RunInfo must be present for GET request")
+					t.Error("Inspect must be present for GET request")
 				}
-			}
-			if m.RunInfo.InspectDigest.Digest.IsZero() {
-				t.Error("InspectDigest is not present")
-			}
-			if m.RunInfo.Stdout.Digest.IsZero() {
-				t.Error("Stdout is not present")
-			}
-			if m.RunInfo.Stderr.Digest.IsZero() {
-				t.Error("Stderr is not present")
+			default:
+				t.Errorf("unexpected test.method %s", test.method)
 			}
 		}
 		call.Close()
