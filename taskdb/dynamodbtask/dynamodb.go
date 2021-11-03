@@ -205,8 +205,8 @@ const (
 	identSortEndIndex    = "Ident-SortEnd-index"
 	// TODO(swami): Remove the following indices once we've fully migrated to the newer ones.
 	// Note: No external reflow versions were released with support for TaskDB using these older indices.
-	imgCmdIDIndex        = "ImgCmdID-index"
-	identIndex           = "Ident-index"
+	imgCmdIDIndex = "ImgCmdID-index"
+	identIndex    = "Ident-index"
 )
 
 // TaskDB implements the dynamodb backed taskdb.TaskDB interface to
@@ -829,7 +829,6 @@ func (t *TaskDB) buildIndexQuery(kind taskdb.Kind, indexName, partKey string, ty
 	return input
 }
 
-
 // buildSortEndIndexQuery returns a dynamodb QueryInput for the specified key on the specified index where:
 // - indexName is the name of the index and must be one of the "SortEnd" indices.
 // - kind is the index column name
@@ -857,10 +856,10 @@ func (t *TaskDB) buildSortEndIndexQuery(kind taskdb.Kind, indexName, partKey str
 }
 
 // buildSinceQueries builds queries that return taskdb rows with Type set to `typ`,
-// and whose keepalive column value is from `since` and now.
+// and whose keepalive column value is from `since` and `until`.
 // If filters is specified, the queries will return only taskdb rows with column values matching
 // the column kind to value specified in the map
-func (t *TaskDB) buildSinceQueries(typ objType, since time.Time, filters map[taskdb.Kind]string) []*dynamodb.QueryInput {
+func (t *TaskDB) buildSinceQueries(typ objType, since, until time.Time, filters map[taskdb.Kind]string) []*dynamodb.QueryInput {
 	if since.IsZero() {
 		panic("taskdb invalid query: missing since")
 	}
@@ -869,8 +868,11 @@ func (t *TaskDB) buildSinceQueries(typ objType, since time.Time, filters map[tas
 	default:
 		panic(fmt.Sprintf("taskdb invalid query: unrecognized row type %s", typ))
 	}
-	since = since.UTC()
-	// Build time bucket based queries.
+	since, until = since.UTC(), until.UTC()
+	end := until
+	if end.IsZero() {
+		end = time.Now().UTC()
+	}
 	type part struct {
 		keyExpression string
 		attrValues    map[string]*dynamodb.AttributeValue
@@ -882,11 +884,10 @@ func (t *TaskDB) buildSinceQueries(typ objType, since time.Time, filters map[tas
 		filterExprs     = []string{"#Type = :type"}
 		attributeValues = map[string]*dynamodb.AttributeValue{":type": {S: aws.String(string(typ))}}
 		attributeNames  = map[string]*string{"#Type": aws.String(colType)}
-		now             = time.Now().UTC()
 	)
-	for _, d := range dates(since, now) {
+	for _, d := range dates(since, end) {
 		part := part{
-			keyExpression: "#Date = :date and " + colKeepalive + " > :ka ",
+			keyExpression: "#Date = :date and " + colKeepalive + " > :ka",
 			attrValues: map[string]*dynamodb.AttributeValue{
 				":date": {S: aws.String(d.Format(dateLayout))},
 				":ka":   {S: aws.String(since.Format(timeLayout))},
@@ -895,7 +896,12 @@ func (t *TaskDB) buildSinceQueries(typ objType, since time.Time, filters map[tas
 		}
 		timeBuckets = append(timeBuckets, part)
 	}
-
+	if n := len(timeBuckets); n > 1 && !until.IsZero() {
+		lastPart := timeBuckets[n-1]
+		lastPart.keyExpression = "#Date = :date and " + colKeepalive + " < :ka"
+		lastPart.attrValues[":ka"] = &dynamodb.AttributeValue{S: aws.String(until.Format(timeLayout))}
+		timeBuckets[n-1] = lastPart
+	}
 	for k, v := range filters {
 		key, ok := colmap[k]
 		if !ok {
@@ -1014,7 +1020,7 @@ func (t *TaskDB) Tasks(ctx context.Context, q taskdb.TaskQuery) ([]taskdb.Task, 
 			queries = append(queries, query)
 		}
 	default:
-		queries = t.buildSinceQueries(taskObj, q.Since, nil)
+		queries = t.buildSinceQueries(taskObj, q.Since, q.Until, nil)
 	}
 	stream := t.streamItems(ctx, queries, q.Limit)
 	var (
@@ -1127,9 +1133,9 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 	case runQuery.ID.IsValid():
 		queries = append(queries, t.buildIndexQuery(ID, idIndex, runQuery.ID.ID(), runObj))
 	case runQuery.User != "":
-		queries = t.buildSinceQueries(runObj, runQuery.Since, map[taskdb.Kind]string{User: runQuery.User})
+		queries = t.buildSinceQueries(runObj, runQuery.Since, runQuery.Until, map[taskdb.Kind]string{User: runQuery.User})
 	default:
-		queries = t.buildSinceQueries(runObj, runQuery.Since, nil)
+		queries = t.buildSinceQueries(runObj, runQuery.Since, runQuery.Until, nil)
 	}
 	stream := t.streamItems(ctx, queries, 0)
 	var (
@@ -1289,7 +1295,7 @@ func (t *TaskDB) Pools(ctx context.Context, q taskdb.PoolQuery) ([]taskdb.PoolRo
 		if v := q.Cluster.ReflowVersion; v != "" {
 			filters[ReflowVersion] = v
 		}
-		queries = t.buildSinceQueries(poolObj, q.Since, filters)
+		queries = t.buildSinceQueries(poolObj, q.Since, q.Until, filters)
 	}
 	stream := t.streamItems(ctx, queries, 0)
 	var (

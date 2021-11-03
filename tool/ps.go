@@ -120,7 +120,8 @@ func (c *Cmd) ps(ctx context.Context, args ...string) {
 	allFlag := flags.Bool("i", false, "list inactive/dead execs")
 	longFlag := flags.Bool("l", false, "show long listing")
 	userFlag := flags.String("u", "", "user (full username, eg: <username>@grailbio.com)")
-	sinceFlag := flags.String("since", "", "runs (or pools) that were active since")
+	sinceFlag := flags.String("since", "", "runs (or pools) that were active since, default 10m ago (format time.Duration or YYYY-MM-DD UTC)")
+	untilFlag := flags.String("until", "", "runs (or pools) that were active until, default now (format time.Duration or YYYY-MM-DD UTC)")
 	allUsersFlag := flags.Bool("a", false, "show runs (or pools) of all users")
 	poolsFlag := flags.Bool("p", false, "show pools instead of runs and tasks")
 	verFlag := flags.String("p_version", "", "show pools with this reflow version instead")
@@ -137,7 +138,9 @@ Ps lists only running execs for the current user by default.
 It supports the following filters:
     - User: run by a specific user (-u <user>) or any user (-a)
     - Since: run that was active since some duration before now (-since <duration>). Since uses Go's
-duration format. Valid time units are "h", "m", "s". e.g: "24h"
+duration format or a date string in the format YYYY-MM-DD. e.g: "24h" or "2021-10-01"
+    - Until: run that was active Until some duration before now (-until <duration>). Until uses Go's
+duration format or a date string in the format YYYY-MM-DD. e.g: "24h" or "2021-10-07"
 
 Global flags that work in all both query modes:
 Flag -i lists all known execs in any state. Completed execs display profile
@@ -164,7 +167,7 @@ By default, the cluster identifier is based on:
 Pools are listed grouped by each cluster identifier
 
 Flag -l shows the long listing
-It supports the same filters as mentioned above (ie, User and Since).
+It supports the same filters as mentioned above (ie, User, Since and Until).
 In addition, pools for a different reflow version and/or cluster name can be retrieved
 using the flags -p_version and -p_name, respectively.
 In order to match all available reflow versions and/or cluster names, these flags can
@@ -320,10 +323,15 @@ To get the exact cost for pools, add -exact_cost.
 	}
 
 	var (
-		infrauser *infra.User
-		user      string
-		since     time.Time
+		infrauser    *infra.User
+		user         string
+		since, until time.Time
 	)
+	if dateStr := *untilFlag; dateStr != "" {
+		if until, err = parseDateStr(dateStr); err != nil {
+			c.Fatalf("invalid -until %s: %v", dateStr, err)
+		}
+	}
 	if err = c.Config.Instance(&infrauser); err != nil {
 		c.Log.Debug(err)
 	}
@@ -335,21 +343,24 @@ To get the exact cost for pools, add -exact_cost.
 	default:
 		user = infrauser.User()
 	}
-	since = time.Now().Add(-time.Minute * 10)
-	if *sinceFlag != "" {
-		dur, err := time.ParseDuration(*sinceFlag)
-		if err != nil {
-			c.Fatalf("invalid duration %s: %s", *sinceFlag, err)
-		}
-		since = time.Now().Add(-dur)
+	if until.IsZero() {
+		since = time.Now().Add(-time.Minute * 10)
+	} else {
+		since = until.Add(-time.Minute * 10)
 	}
+	if dateStr := *sinceFlag; dateStr != "" {
+		if since, err = parseDateStr(dateStr); err != nil {
+			c.Fatalf("invalid -since %s: %v", dateStr, err)
+		}
+	}
+	c.Log.Debugf("ps since: %s, until: %s", since.Format(time.RFC3339), until.Format(time.RFC3339))
 	if *poolsFlag {
 		cluster := c.Cluster(nil)
 		ec2c, ok := cluster.(*ec2cluster.Cluster)
 		if !ok {
 			c.Fatalf("poolInfo: not applicable for non-ec2 cluster %T", cluster)
 		}
-		q := taskdb.PoolQuery{Since: since, Cluster: taskdb.ClusterID{User: user}}
+		q := taskdb.PoolQuery{Since: since, Until: until, Cluster: taskdb.ClusterID{User: user}}
 		switch *verFlag {
 		case "":
 			q.Cluster.ReflowVersion = ec2c.ReflowVersion
@@ -375,7 +386,7 @@ To get the exact cost for pools, add -exact_cost.
 		return
 	}
 
-	ri, err := c.runInfo(ctx, taskdb.RunQuery{User: user, Since: since}, !*allFlag, false /* cost */)
+	ri, err := c.runInfo(ctx, taskdb.RunQuery{User: user, Since: since, Until: until}, !*allFlag, false /* cost */)
 	if err != nil {
 		c.Log.Debug(err)
 	}
@@ -587,7 +598,7 @@ func (c *Cmd) poolInfos(ctx context.Context, q taskdb.PoolQuery, exactCost bool)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		cc = c.costComputer(ctx, exactCost, q.Since, time.Now())
+		cc = c.costComputer(ctx, exactCost, q.Since, q.Until)
 	}()
 	prs, err := tdb.Pools(ctx, q)
 	wg.Wait()
@@ -794,5 +805,20 @@ func (c *Cmd) writePools(w io.Writer, pis []poolInfo, longListing bool) {
 			fmt.Fprintln(w, "")
 		}
 		fmt.Fprintln(w, "")
+	}
+}
+
+// parseDateStr parses the given string into a time (or error).
+// parseDateStr accepts strings in either format "2006-01-02" or as a time.Duration.
+func parseDateStr(str string) (time.Time, error) {
+	const dateFormat = "2006-01-02"
+	if dur, derr := time.ParseDuration(str); derr != nil {
+		if date, err := time.Parse(dateFormat, str); err != nil {
+			return time.Time{}, fmt.Errorf("invalid value %s: %v, %v", str, err, derr)
+		} else {
+			return date, nil
+		}
+	} else {
+		return time.Now().Add(-dur), nil
 	}
 }

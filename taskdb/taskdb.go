@@ -346,7 +346,7 @@ type Alloc struct {
 // 1. Only ID/RunID/ImgCmdID/Ident specified: Query tasks with the corresponding ID.
 //    When ImgCmdID/Ident is specified, the returned TaskDB.Tasks have only some of the fields set.
 //
-// 2. Since specified: Query tasks whose keepalive is within that time frame.
+// 2. Since + Until specified: Query tasks whose keepalive is within that time frame.
 //
 // If either ID or RunID is provided, then if WithAlloc is also set, then the allocs
 // that the tasks were executed on are also fetched (along with their Pools)
@@ -360,8 +360,8 @@ type TaskQuery struct {
 	ImgCmdID ImgCmdID
 	// Ident is the human-readable identifier of the task's exec.
 	Ident string
-	// Since queries for tasks that were active past this time.
-	Since time.Time
+	// Since, Until queries for tasks that were active past Since until Until.
+	Since, Until time.Time
 	// Limit is the maximum number of tasks a query will return. If Limit <= 0, the query will return
 	// all matching tasks. It is possible to get more tasks than is specified than the Limit because
 	// querying is stopped once there are at least as many tasks as Limit.
@@ -375,13 +375,13 @@ type TaskQuery struct {
 //
 // 1. Only ID specified: Query runs with the corresponding ID.
 //
-// 2. Since + User specified: Query runs whose keepalive is within that time frame that belong to the specified User.
+// 2. Since + Until + User specified: Query runs whose keepalive is within that time frame that belong to the specified User.
 // If User is not specified, the query will return results for all users.
 type RunQuery struct {
 	// ID is the run id being queried.
 	ID RunID
-	// Since queries for runs that were active past this time.
-	Since time.Time
+	// Since, Until queries for runs that were active past Since until Until.
+	Since, Until time.Time
 	// User looks up the runs that are created by the user. If empty, the user filter is dropped.
 	User string
 }
@@ -390,12 +390,12 @@ type RunQuery struct {
 //
 // 1. Only IDs specified: Query Pools with the corresponding IDs.
 //
-// 2. Since + Cluster specified: Query pools matching the cluster description whose keepalive is within that time frame.
+// 2. Since + Until + Cluster specified: Query pools matching the cluster description whose keepalive is within that time frame.
 type PoolQuery struct {
 	// IDs are the list of Alloc ids being queried.
 	IDs []digest.Digest
-	// Since queries for pools that were active past this time.
-	Since time.Time
+	// Since, Until queries for pools that were active past Since until Until.
+	Since, Until time.Time
 	// Cluster looks up the pools that match the given cluster description.
 	Cluster ClusterID
 }
