@@ -44,3 +44,12 @@ val TestSumCompareNe1 = foo != bar
 val TestSumCompareNe2 = foo != makeI(1)
 val TestSumCompareNe3 = makeS("hi") != makeI(1)
 val TestSumCompareNe4 = makeS("hi") != makeS("hello")
+
+// for URLs with no scheme (e.g. s3:// or localfile://) file assumes they are
+// local files and inlines them, so they are always resolved for tests;
+// resolved/unresolved and unresolved/unresolved comparisons are covered by integ tests
+val TestFileCompareBothResolvedSameFile = file("testdata/testdir/0") == file("testdata/testdir/0")
+val TestFileCompareBothResolvedDiffFileEqualContents = file("testdata/testdir/0") == file("testdata/testdir/1")
+val TestFileCompareBothResolvedUnequal = file("testdata/testdir2/hello.txt") != file("testdata/testdir2/world.txt")
+val TestDirCompareBothResolvedSameDir = dir("testdata/testdir") == dir("testdata/testdir")
+val TestDirCompareBothResolvedUnequal = dir("testdata/testdir") != dir("testdata/testdir2")

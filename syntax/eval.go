@@ -145,9 +145,38 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			}, nil
 		case "==", "!=":
 			eq := e.Op == "=="
+			comp := func(vs []values.T) (values.T, error) {
+				v, eqErr := e.evalEq(sess, env, ident, vs[0], vs[1], e.Left.Type)
+				if eqErr != nil {
+					return nil, eqErr
+				}
+				if !eq {
+					v, eqErr = not(v)
+				}
+				return v, eqErr
+			}
+			forceIntern := func(src string) (values.T, error) {
+				srcurl, perr := url.Parse(src)
+				if perr != nil {
+					return nil, perr
+				}
+				return &flow.Flow{
+					Op:         flow.Coerce,
+					FlowDigest: coerceFilesetToFileDigest,
+					Coerce:     coerceFilesetToFile,
+					Deps: []*flow.Flow{
+						{
+							Op:         flow.Intern,
+							MustIntern: true,
+							URL:        srcurl,
+							Position:   e.Position.String(),
+							Ident:      ident,
+						},
+					},
+				}, nil
+			}
 			switch e.Left.Type.Kind {
-			case types.ListKind, types.MapKind, types.TupleKind, types.StructKind, types.DirKind,
-				types.SumKind:
+			case types.ListKind, types.MapKind, types.TupleKind, types.StructKind, types.SumKind:
 				return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 					v, err := e.evalEq(sess, env, ident, vs[0], vs[1], e.Left.Type)
 					if err != nil {
@@ -158,37 +187,54 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 					}
 					return v, err
 				}, e.Left, e.Right)
+			case types.DirKind:
+				return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+					l, r := vs[0].(values.Dir), vs[1].(values.Dir)
+					if l.Len() != r.Len() {
+						return !eq, nil
+					}
+					var deps []interface{}
+					lscan, rscan := l.Scan(), r.Scan()
+					for lscan.Scan() && rscan.Scan() {
+						switch {
+						case lscan.Path() != rscan.Path():
+							return !eq, nil
+						case lscan.File().IsRef() != rscan.File().IsRef():
+							var (
+								lval values.T = lscan.File()
+								rval values.T = rscan.File()
+							)
+							if lscan.File().IsRef() {
+								if lval, err = forceIntern(lscan.File().Source); err != nil {
+									return nil, err
+								}
+							}
+							if rscan.File().IsRef() {
+								if rval, err = forceIntern(rscan.File().Source); err != nil {
+									return nil, err
+								}
+							}
+							dep := []interface{}{tval{types.File, lval}, tval{types.File, rval}}
+							deps = append(deps, dep...)
+						default:
+							if !lscan.File().Equal(rscan.File()) {
+								return !eq, nil
+							}
+						}
+					}
+					if len(deps) == 0 {
+						return eq, nil
+					}
+					return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+						for i := 0; i < len(vs); i += 2 {
+							if !vs[i].(reflow.File).Equal(vs[i+1].(reflow.File)) {
+								return !eq, nil
+							}
+						}
+						return eq, nil
+					}, deps...)
+				}, e.Left, e.Right)
 			case types.FileKind:
-				comp := func(vs []values.T) (values.T, error) {
-					v, err := e.evalEq(sess, env, ident, vs[0], vs[1], e.Left.Type)
-					if err != nil {
-						return nil, err
-					}
-					if !eq {
-						v, err = not(v)
-					}
-					return v, err
-				}
-				forceIntern := func(src string) (values.T, error) {
-					url, err := url.Parse(src)
-					if err != nil {
-						return nil, err
-					}
-					return &flow.Flow{
-						Op:         flow.Coerce,
-						FlowDigest: coerceFilesetToFileDigest,
-						Coerce:     coerceFilesetToFile,
-						Deps: []*flow.Flow{
-							{
-								Op:         flow.Intern,
-								MustIntern: true,
-								URL:        url,
-								Position:   e.Position.String(),
-								Ident:      ident,
-							},
-						},
-					}, nil
-				}
 				return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 					l, r := vs[0].(reflow.File), vs[1].(reflow.File)
 					if l.IsRef() != r.IsRef() {
