@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-// +build !unit integration
+//go:build !unit || integration
 
 package server
 
@@ -126,7 +126,7 @@ func TestClientServerLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fs, err := alloc.Load(ctx, nil, reflow.Fileset{Map: map[string]reflow.File{".": testFile}})
+	fs, err := alloc.Load(ctx, &url.URL{Path: "foo"}, reflow.Fileset{Map: map[string]reflow.File{".": testFile}})
 	if err != nil {
 		t.Fatal(err)
 	}

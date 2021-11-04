@@ -431,7 +431,7 @@ func TestCustomMarshal(t *testing.T) {
 		fs := fuzz.FilesetDeep(fuzz.Intn(5)+1, fuzz.Intn(2)+1, fuzz.Intn(10)%2 == 0, fuzz.Intn(10)%2 == 0)
 		ofs := oldFs(fs)
 		var b bytes.Buffer
-		if err := fs.Write(&b, assoc.Fileset); err != nil {
+		if err := fs.Write(&b, assoc.Fileset, true, true); err != nil {
 			t.Fatal(err)
 		}
 		want, err := json.Marshal(ofs)
@@ -583,7 +583,7 @@ func TestCustomUnmarshal(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var bb bytes.Buffer
-			if err := test.fs.Write(&bb, assoc.FilesetV2); err != nil {
+			if err := test.fs.Write(&bb, assoc.FilesetV2, true, true); err != nil {
 				t.Fatal(err)
 			}
 			var fs2 reflow.Fileset
@@ -609,7 +609,7 @@ func TestMarshalFmtIncompatibility(t *testing.T) {
 		{
 			"json",
 			func(fs reflow.Fileset, w io.Writer) error {
-				return fs.Write(w, assoc.Fileset)
+				return fs.Write(w, assoc.Fileset, true, true)
 			},
 			func(r io.Reader) error {
 				var fs reflow.Fileset
@@ -619,7 +619,7 @@ func TestMarshalFmtIncompatibility(t *testing.T) {
 		{
 			"filesetV2",
 			func(fs reflow.Fileset, w io.Writer) error {
-				return fs.Write(w, assoc.FilesetV2)
+				return fs.Write(w, assoc.FilesetV2, true, true)
 			},
 			func(r io.Reader) error {
 				var fs reflow.Fileset
@@ -652,19 +652,22 @@ func TestMarshalFmtIncompatibility(t *testing.T) {
 
 func TestCustomUnmarshalFuzz(t *testing.T) {
 	fuzz := testutil.NewFuzz(nil)
-	for i := 0; i < 100; i++ {
-		want := fuzz.FilesetDeep(fuzz.Intn(5)+1, 1, false, fuzz.Intn(10)%2 == 0)
-		// Custom marshalProto, and unmarshalProto to oldFileset using JSON std library.
-		var bb bytes.Buffer
-		if err := want.Write(&bb, assoc.FilesetV2); err != nil {
-			t.Fatal(err)
-		}
-		var fs2 reflow.Fileset
-		if err := fs2.Read(&bb, assoc.FilesetV2); err != nil {
-			t.Fatal(err)
-		}
-		if diff, yes := want.Diff(fs2); yes {
-			t.Fatalf("got:\n%s\nwant:\n%s\ndiff:\n%v", fs2, want, diff)
+	for _, refok := range []bool{true, false} {
+		for _, aok := range []bool{true, false} {
+			for i := 0; i < 25; i++ {
+				want := fuzz.FilesetDeep(fuzz.Intn(5)+1, 1, refok, aok)
+				var bb bytes.Buffer
+				if err := want.Write(&bb, assoc.FilesetV2, refok, aok); err != nil {
+					t.Fatal(err)
+				}
+				var fs2 reflow.Fileset
+				if err := fs2.Read(&bb, assoc.FilesetV2); err != nil {
+					t.Fatal(err)
+				}
+				if diff, yes := want.Diff(fs2); yes {
+					t.Fatalf("got:\n%s\nwant:\n%s\ndiff:\n%v", fs2, want, diff)
+				}
+			}
 		}
 	}
 }
@@ -767,10 +770,10 @@ func BenchmarkMarshal(b *testing.B) {
 				return json.NewEncoder(w).Encode(oldFs(fs))
 			}},
 			{"json-custom-stream", func(w io.Writer, fs reflow.Fileset) error {
-				return fs.Write(w, assoc.Fileset)
+				return fs.Write(w, assoc.Fileset, true, true)
 			}},
 			{"json-custom-stream-parts", func(w io.Writer, fs reflow.Fileset) error {
-				return fs.Write(w, assoc.FilesetV2)
+				return fs.Write(w, assoc.FilesetV2, true, true)
 			}},
 		} {
 			s, nums := s, nums
@@ -808,7 +811,7 @@ func BenchmarkUnmarshal(b *testing.B) {
 			{
 				"json-std-lib",
 				func(w io.Writer, fs *reflow.Fileset) error {
-					return fs.Write(w, assoc.Fileset)
+					return fs.Write(w, assoc.Fileset, true, true)
 				},
 				func(r io.Reader, fs *reflow.Fileset) error {
 					var ofs oldFileset
@@ -820,7 +823,7 @@ func BenchmarkUnmarshal(b *testing.B) {
 			{
 				"json-custom",
 				func(w io.Writer, fs *reflow.Fileset) error {
-					return fs.Write(w, assoc.Fileset)
+					return fs.Write(w, assoc.Fileset, true, true)
 				},
 				func(r io.Reader, fs *reflow.Fileset) error {
 					return fs.Read(r, assoc.Fileset)
@@ -829,7 +832,7 @@ func BenchmarkUnmarshal(b *testing.B) {
 			{
 				"proto-custom-parts",
 				func(w io.Writer, fs *reflow.Fileset) error {
-					return fs.Write(w, assoc.FilesetV2)
+					return fs.Write(w, assoc.FilesetV2, true, true)
 				},
 				func(r io.Reader, fs *reflow.Fileset) error {
 					return fs.Read(r, assoc.FilesetV2)

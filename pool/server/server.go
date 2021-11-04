@@ -155,14 +155,25 @@ func (n allocNode) Walk(ctx context.Context, call *rest.Call, path string) rest.
 			if !call.Allow("POST") {
 				return
 			}
-			arg := struct {
-				Fileset reflow.Fileset
-				SrcUrl  *url.URL
-			}{}
-			if call.Unmarshal(&arg) != nil {
+			var fs reflow.Fileset
+			if call.UnmarshalFileset(&fs) != nil {
 				return
 			}
-			fs, err := n.a.Load(ctx, arg.SrcUrl, arg.Fileset)
+
+			var srcUrl *url.URL
+			if srcUrlRaw := call.GetQueryParam("srcurl"); srcUrlRaw == "" {
+				call.Error(errors.E("no srcurl encoded for load"))
+				return
+			} else {
+				var err error
+				if srcUrl, err = url.Parse(srcUrlRaw); err != nil {
+					call.Error(errors.E("failed to parse srcUrl %s on load request",
+						srcUrlRaw))
+					return
+				}
+			}
+
+			fs, err := n.a.Load(ctx, srcUrl, fs)
 			if err != nil {
 				call.Error(err)
 				return
@@ -175,7 +186,7 @@ func (n allocNode) Walk(ctx context.Context, call *rest.Call, path string) rest.
 				return
 			}
 			var fs reflow.Fileset
-			if call.Unmarshal(&fs) != nil {
+			if call.UnmarshalFileset(&fs) != nil {
 				return
 			}
 			err := n.a.Unload(ctx, fs)
@@ -191,7 +202,7 @@ func (n allocNode) Walk(ctx context.Context, call *rest.Call, path string) rest.
 				return
 			}
 			var fs reflow.Fileset
-			if call.Unmarshal(&fs) != nil {
+			if call.UnmarshalFileset(&fs) != nil {
 				return
 			}
 			err := n.a.VerifyIntegrity(ctx, fs)

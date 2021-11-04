@@ -311,7 +311,7 @@ func TestCacheLookupFilesetMigration(t *testing.T) {
 	// TODO(ghorrell): remove once fileset migration is complete
 	fs := testutil.WriteFiles(eval.Repository)
 	buf := new(bytes.Buffer)
-	wErr := fs.Write(buf, assoc.Fileset)
+	wErr := fs.Write(buf, assoc.Fileset, true, true)
 	if wErr != nil {
 		t.Fatal(wErr)
 	}

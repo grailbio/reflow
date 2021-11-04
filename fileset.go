@@ -492,16 +492,19 @@ func (v Fileset) pullup(m map[string]File) {
 
 // Version bytes for proto header. Two characters by convention.
 var (
-	filesetV2VersionBytes = []byte{'v', '2', '0', '0'}
+	filesetV2VersionBytes = []byte{'v', '2', '0', '1'}
 )
 
 // Write serializes and writes (marshals) this Fileset in the specified format to the given writer.
-func (v *Fileset) Write(w io.Writer, kind assoc.Kind) error {
+// If includeFileRefFields is true, the proto marshalled format will include reference file fields
+// such as source and etag.
+// If includeAssertions is true, the proto marshalled format will include assertions on files.
+func (v *Fileset) Write(w io.Writer, kind assoc.Kind, includeFileRefFields, includeAssertions bool) error {
 	switch kind {
 	case assoc.Fileset:
 		return v.marshalJSON(w)
 	case assoc.FilesetV2:
-		return v.marshalProto(w)
+		return v.marshalProto(w, includeFileRefFields, includeAssertions)
 	}
 	panic(fmt.Sprintf("unknown fileset marshal kind %d", kind))
 }
@@ -513,7 +516,9 @@ func (v *Fileset) Write(w io.Writer, kind assoc.Kind) error {
 // - The components of fileset (files in Fileset.Map, individual assertions and the linkage between those
 //   assertions and certain files) are converted into smaller "part" structs.
 // - Those parts are marshalled to disk as the protobuf formats defined in `fileset.proto`.
-func (v *Fileset) marshalProto(w io.Writer) error {
+// If includeFileRefFields is true, the marshalled format will include reference file fields.
+// If includeAssertions is true, the marshalled format will include assertions on files.
+func (v *Fileset) marshalProto(w io.Writer, includeFileRefFields, includeAssertions bool) error {
 	files := make(map[digest.Digest]int32, 0)
 	assertions := make(map[string]int32, 0)
 	assertionsGroups := make(map[*Assertions]int32, 0)
@@ -538,7 +543,7 @@ func (v *Fileset) marshalProto(w io.Writer) error {
 		return err
 	}
 
-	if err := v.encodeFilesetParts(0, -1, w, b, files, assertions, assertionsGroups); err != nil {
+	if err := v.encodeFilesetParts(0, -1, w, b, files, assertions, assertionsGroups, includeFileRefFields, includeAssertions); err != nil {
 		return err
 	}
 
@@ -546,7 +551,7 @@ func (v *Fileset) marshalProto(w io.Writer) error {
 		if len(fs.List) != 0 {
 			return fmt.Errorf(fmt.Sprintf("invalid fileset encountered of depth > 1 (%d)", len(fs.List)))
 		}
-		if err := fs.encodeFilesetParts(1, int32(i), w, b, files, assertions, assertionsGroups); err != nil {
+		if err := fs.encodeFilesetParts(1, int32(i), w, b, files, assertions, assertionsGroups, includeFileRefFields, includeAssertions); err != nil {
 			return err
 		}
 	}
@@ -605,14 +610,10 @@ func unmarshalProtoWithBuffer(b *bytes.Buffer, r io.Reader) (FilesetPart, error)
 	}
 }
 
-func (v *Fileset) encodeFilesetParts(
-	depth, index int32,
-	w io.Writer,
-	b *proto.Buffer,
-	files map[digest.Digest]int32,
-	assertionsPartsIdsByKey map[string]int32,
+func (v *Fileset) encodeFilesetParts(depth, index int32, w io.Writer, b *proto.Buffer,
+	files map[digest.Digest]int32, assertionsPartsIdsByKey map[string]int32,
 	assertionsGroupsPartsByPtr map[*Assertions]int32,
-) error {
+	includeFileRefFields, includeAssertions bool) error {
 	if (depth == 0 && index != -1) || (depth == 1 && index < 0) || (depth > 1) {
 		panic(fmt.Sprintf("attempting to encode fileset with unexpected shape [depth = %d, index = %d]",
 			depth, index))
@@ -622,25 +623,42 @@ func (v *Fileset) encodeFilesetParts(
 	for path, file := range v.Map {
 		if _, ok := files[file.Digest()]; !ok {
 			var assertionsGroupId int32
-			if assertionsGroupId, err = encodeAssertionsParts(
-				file.Assertions,
-				w, b,
-				assertionsPartsIdsByKey,
-				assertionsGroupsPartsByPtr); err != nil {
-				return err
+			if includeAssertions {
+				if assertionsGroupId, err = encodeAssertionsParts(
+					file.Assertions,
+					w, b,
+					assertionsPartsIdsByKey,
+					assertionsGroupsPartsByPtr); err != nil {
+					return err
+				}
 			}
 			var id string
 			if !file.ID.IsZero() {
 				id = file.ID.String()
 			}
+			fP := &FileP{
+				Id:   id,
+				Size: file.Size,
+			}
+			if includeFileRefFields {
+				var contentHash string
+				if !file.ContentHash.IsZero() {
+					contentHash = file.ContentHash.String()
+				}
+				fP.Source = file.Source
+				fP.Etag = file.ETag
+				fP.ContentHash = contentHash
+				fP.LastModified = &Timestamp{
+					Seconds: file.LastModified.Unix(),
+					Nanos:   int64(file.LastModified.Nanosecond()),
+				}
+			}
+
 			if err := marshalProtoWithBuffer(&FilesetPart{
 				Part: &FilesetPart_Fp{
 					Fp: &FilePart{
-						Id: int32(len(files)),
-						File: &FileP{
-							Id:   id,
-							Size: file.Size,
-						},
+						Id:                int32(len(files)),
+						File:              fP,
 						AssertionsGroupId: assertionsGroupId,
 					},
 				},
@@ -858,8 +876,8 @@ func (v *Fileset) unmarshalProto(r io.Reader) error {
 	if n, err := r.Read(versionHeader); err != nil {
 		return err
 	} else if n != len(filesetV2VersionBytes) {
-		return errors.E(fmt.Sprintf("wanted to write %d version "+
-			"bytes while marshalling fileset but only wrote %d",
+		return errors.E(fmt.Sprintf("wanted to read %d version "+
+			"bytes while marshalling fileset but only read %d",
 			len(filesetV2VersionBytes), n))
 	}
 
@@ -936,7 +954,25 @@ func (v *Fileset) insertFile(key string, fId int32,
 	if err != nil {
 		panic(fmt.Sprintf("failed to parse digest %s during fileset unmarshalling", f.File.Id))
 	}
-	file := File{ID: id, Size: f.File.Size}
+
+	var ts time.Time
+	if f.File.LastModified != nil {
+		ts = time.Unix(f.File.LastModified.Seconds, f.File.LastModified.Nanos)
+	}
+
+	contentHash, err := digest.Parse(f.File.ContentHash)
+	if err != nil {
+		panic(fmt.Sprintf("failed to parse content hash %s during fileset unmarshalling", f.File.ContentHash))
+	}
+
+	file := File{
+		ID:           id,
+		Size:         f.File.Size,
+		Source:       f.File.Source,
+		ETag:         f.File.Etag,
+		LastModified: ts,
+		ContentHash:  contentHash,
+	}
 
 	if f.AssertionsGroupId != 0 {
 		if _, ok = assertionsGroupById[f.AssertionsGroupId]; !ok {

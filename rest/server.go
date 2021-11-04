@@ -32,6 +32,8 @@ import (
 	"path"
 	"strings"
 
+	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 )
@@ -113,6 +115,13 @@ func (c *Call) URL() *url.URL {
 	return c.req.URL
 }
 
+// GetQueryParam returns the query parameter string for key k on the
+// call request.
+func (c *Call) GetQueryParam(k string) string {
+	u := c.req.URL
+	return u.Query().Get(k)
+}
+
 // Done tells if the call is done--whether it is replied to
 // or has failed.
 func (c *Call) Done() bool {
@@ -143,6 +152,15 @@ func (c *Call) Unmarshal(v interface{}) error {
 	if err != nil {
 		c.code = http.StatusBadRequest
 		c.reply = errors.E("unmarshal", fmt.Sprint(v), err)
+	}
+	return err
+}
+
+func (c *Call) UnmarshalFileset(fs *reflow.Fileset) error {
+	err := fs.Read(c.req.Body, assoc.FilesetV2)
+	if err != nil {
+		c.code = http.StatusBadRequest
+		c.reply = errors.E("unmarshal fileset v2", err)
 	}
 	return err
 }
@@ -185,8 +203,14 @@ func (c *Call) flush() {
 	}
 	c.writer.WriteHeader(code)
 	if reply != nil {
-		if err := json.NewEncoder(c.writer).Encode(reply); err != nil {
-			panic(err)
+		if fs, ok := reply.(reflow.Fileset); ok {
+			if err := fs.Write(c.writer, assoc.FilesetV2, true, false); err != nil {
+				panic(err)
+			}
+		} else {
+			if err := json.NewEncoder(c.writer).Encode(reply); err != nil {
+				panic(err)
+			}
 		}
 	}
 }

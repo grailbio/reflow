@@ -16,6 +16,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
@@ -299,12 +300,9 @@ func (a *clientAlloc) Execs(ctx context.Context) ([]reflow.Exec, error) {
 // Load loads the fileset into the alloc repository.
 func (a *clientAlloc) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) (reflow.Fileset, error) {
 	call := a.Call("POST", "allocs/%s/load", a.id)
-	defer call.Close()
-	arg := struct {
-		Fileset reflow.Fileset
-		SrcUrl  *url.URL
-	}{fs, repo}
-	code, err := call.DoJSON(ctx, arg)
+	defer func() { _ = call.Close() }()
+	call.SetQueryParam("srcurl", repo.String())
+	code, err := call.DoFileset(ctx, fs)
 	if err != nil {
 		return reflow.Fileset{}, errors.E("load", a.ID(), err)
 	}
@@ -312,7 +310,7 @@ func (a *clientAlloc) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset
 		return reflow.Fileset{}, call.Error()
 	}
 	fs = reflow.Fileset{}
-	err = call.Unmarshal(&fs)
+	err = fs.Read(call.Body(), assoc.FilesetV2)
 	return fs, err
 }
 
@@ -320,7 +318,7 @@ func (a *clientAlloc) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset
 func (a *clientAlloc) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) error {
 	call := a.Call("POST", "allocs/%s/verify", a.id)
 	defer func() { _ = call.Close() }()
-	code, err := call.DoJSON(ctx, fs)
+	code, err := call.DoFileset(ctx, fs)
 	if err != nil {
 		return errors.E("verify", a.ID(), err)
 	}
@@ -334,7 +332,7 @@ func (a *clientAlloc) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) er
 func (a *clientAlloc) Unload(ctx context.Context, fs reflow.Fileset) error {
 	call := a.Call("POST", "allocs/%s/unload", a.id)
 	defer call.Close()
-	code, err := call.DoJSON(ctx, fs)
+	code, err := call.DoFileset(ctx, fs)
 	if err != nil {
 		return errors.E("unload", a.ID(), err)
 	}

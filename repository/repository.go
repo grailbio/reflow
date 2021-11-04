@@ -152,7 +152,7 @@ func Marshal(ctx context.Context, repo reflow.Repository, v interface{}) (digest
 	go func() {
 		var err error
 		if _, ok := v.(*reflow.Fileset); ok {
-			err = v.(*reflow.Fileset).Write(bw, assoc.FilesetV2)
+			err = v.(*reflow.Fileset).Write(bw, assoc.FilesetV2, false, true)
 			if err == nil {
 				err = bw.Flush()
 			}

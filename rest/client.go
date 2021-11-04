@@ -15,6 +15,8 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/log"
 	"golang.org/x/net/context/ctxhttp"
@@ -53,10 +55,11 @@ func (c *Client) URL() *url.URL { return c.url }
 // (relative to the client's root URL).
 func (c *Client) Call(method, format string, args ...interface{}) *ClientCall {
 	return &ClientCall{
-		Client: c,
-		Header: http.Header{},
-		method: method,
-		path:   fmt.Sprintf(format, args...),
+		Client:      c,
+		Header:      http.Header{},
+		method:      method,
+		path:        fmt.Sprintf(format, args...),
+		queryParams: map[string]string{},
 	}
 }
 
@@ -70,11 +73,12 @@ func (c *Client) Call(method, format string, args ...interface{}) *ClientCall {
 // ClientCall is also an io.ReadCloser for the reply body.
 type ClientCall struct {
 	*Client
-	Header http.Header
-	method string
-	path   string
-	resp   *http.Response
-	err    error
+	Header      http.Header
+	method      string
+	path        string
+	queryParams map[string]string
+	resp        *http.Response
+	err         error
 }
 
 func (c *ClientCall) String() string {
@@ -102,6 +106,11 @@ func (c *ClientCall) Message() (string, error) {
 	return m, err
 }
 
+// SetQueryParam adds or overwrites a query parameter on the call.
+func (c *ClientCall) SetQueryParam(k, v string) {
+	c.queryParams[k] = v
+}
+
 // Do performs a call with the given context and body. It returns the
 // HTTP status code for the reply, or a non-nil error if one occured.
 func (c *ClientCall) Do(ctx context.Context, body io.Reader) (int, error) {
@@ -119,6 +128,12 @@ func (c *ClientCall) Do(ctx context.Context, body io.Reader) (int, error) {
 		query = parts[1]
 	}
 	r.URL = c.url.ResolveReference(&url.URL{Path: path, RawQuery: query})
+	// add query parameters
+	q := r.URL.Query()
+	for k, v := range c.queryParams {
+		q.Set(k, v)
+	}
+	r.URL.RawQuery = q.Encode()
 	r.Header = c.Header
 	if c.log.At(log.DebugLevel) {
 		b, err := httputil.DumpRequest(r, true)
@@ -170,6 +185,20 @@ func (c *ClientCall) DoJSON(ctx context.Context, req interface{}) (int, error) {
 	return c.Do(ctx, body)
 }
 
+func (c *ClientCall) DoFileset(ctx context.Context, fs reflow.Fileset) (int, error) {
+	r, w := io.Pipe()
+	var streamErr error
+	go func() {
+		streamErr = fs.Write(w, assoc.FilesetV2, true, false)
+		_ = w.CloseWithError(streamErr)
+	}()
+	code, err := c.Do(ctx, r)
+	if streamErr != nil {
+		return 0, streamErr
+	}
+	return code, err
+}
+
 // Unmarshal unmarshals the call's reply using Go's JSON decoder.
 func (c *ClientCall) Unmarshal(reply interface{}) error {
 	if c.err != nil {
@@ -179,6 +208,11 @@ func (c *ClientCall) Unmarshal(reply interface{}) error {
 		c.err = json.NewDecoder(c.resp.Body).Decode(reply)
 	}
 	return c.err
+}
+
+// Body returns the reader for the call's reply body.
+func (c *ClientCall) Body() io.ReadCloser {
+	return c.resp.Body
 }
 
 // Read implements io.Reader for the call's reply body.
@@ -194,7 +228,7 @@ func (c *ClientCall) Close() error {
 	return nil
 }
 
-// ContentLength returns the content lenth of the reply.
+// ContentLength returns the content length of the reply.
 // Unless the request's method is HEAD, this is the number
 // of bytes that may be read from the call.
 func (c *ClientCall) ContentLength() int64 {
