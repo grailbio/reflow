@@ -239,6 +239,9 @@ To get the exact cost for pools, add -exact_cost.
 			}
 		}
 		sort.Slice(infos, func(i, j int) bool {
+			if infos[i].Created.Equal(infos[j].Created) {
+				return infos[i].ID.String() < infos[j].ID.String()
+			}
 			return infos[i].Created.Before(infos[j].Created)
 		})
 		var tw tabwriter.Writer
@@ -491,6 +494,9 @@ func (c *Cmd) taskInfo(ctx context.Context, q taskdb.TaskQuery, liveOnly, cost b
 	}
 	ti = b
 	sort.Slice(ti, func(i, j int) bool {
+		if ti[i].Start.Equal(ti[j].Start) {
+			return ti[i].ID.ID() < ti[j].ID.ID()
+		}
 		return ti[i].Start.Before(ti[j].Start)
 	})
 	return ti, err
@@ -540,6 +546,12 @@ func (c *Cmd) runInfo(ctx context.Context, q taskdb.RunQuery, liveOnly, exactCos
 		})
 	}
 	err = g.Wait()
+	sort.Slice(ri, func(i, j int) bool {
+		if ri[i].Start.Equal(ri[j].Start) {
+			return ri[i].ID.ID() < ri[j].ID.ID()
+		}
+		return ri[i].Start.Before(ri[j].Start)
+	})
 	return ri, err
 }
 
@@ -740,6 +752,9 @@ func (c *Cmd) writePools(w io.Writer, pis []poolInfo, longListing bool) {
 	byCluster := make(map[taskdb.ClusterID][]poolInfo)
 	clusterCost := make(map[taskdb.ClusterID]Cost)
 	sort.Slice(pis, func(i, j int) bool {
+		if pis[i].Start.Equal(pis[j].Start) {
+			return pis[i].ID.String() < pis[j].ID.String()
+		}
 		return pis[i].Start.Before(pis[j].Start)
 	})
 	for _, pi := range pis {
