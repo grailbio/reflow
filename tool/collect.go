@@ -111,13 +111,15 @@ type collectInputs struct {
 	deadValueFilter, deadKeyFilter mapLiveset
 
 	itemsScannedCount          int64
+	itemsMigratedCount         int64
+	itemsMigratedAttemptCount  int64
 	liveItemCount              int64
 	liveObjectsInFilesets      int64
 	liveObjectsNotInRepository int64
 }
 
-func (c *Cmd) buildCollectInputs(ctx context.Context, ass assoc.Assoc, repo reflow.Repository,
-	keepFilter, labelsFilter *filter, threshold time.Time) (*collectInputs, error) {
+func (c *Cmd) buildCollectInputsAndMigrate(ctx context.Context, ass assoc.Assoc, repo reflow.Repository,
+	keepFilter, labelsFilter *filter, threshold time.Time, migrateFS2MaxAttemptsCount int64) (*collectInputs, error) {
 	// Use an estimate of the item count in the assoc to create our bloom filters
 	count, err := ass.Count(ctx)
 	c.Log.Debugf("Finding liveset for cache with %d associations and threshold: %v", count, threshold)
@@ -136,6 +138,8 @@ func (c *Cmd) buildCollectInputs(ctx context.Context, ass assoc.Assoc, repo refl
 	liveItemCount := int64(0)
 	liveObjectsInFilesets := int64(0)
 	liveObjectsNotInRepository := int64(0)
+	itemsMigratedCount := int64(0)
+	itemsMigratedAttemptCount := int64(0)
 
 	mappingHandlerFn := func(k digest.Digest, v map[assoc.Kind]digest.Digest, lastAccessTime time.Time, labels []string) {
 		var fs reflow.Fileset
@@ -221,6 +225,28 @@ func (c *Cmd) buildCollectInputs(ctx context.Context, ass assoc.Assoc, repo refl
 			}
 			resultsLock.Unlock()
 		}
+
+		// check if assoc key has a v1 fileset that require migrations
+		_, fsOk := v[assoc.Fileset]
+		_, fs2Ok := v[assoc.FilesetV2]
+		resultsLock.Lock()
+		if fsOk && !fs2Ok && (migrateFS2MaxAttemptsCount == -1 || itemsMigratedAttemptCount < migrateFS2MaxAttemptsCount) {
+			itemsMigratedAttemptCount++
+			resultsLock.Unlock()
+			var mErr error
+			var fsid digest.Digest
+			if fsid, mErr = repository.Marshal(ctx, repo, fs); mErr != nil {
+				c.Log.Errorf("Failed to marshal during filesetV2 migration [k=%v]: %s", k, mErr)
+				return
+			}
+			if mErr = ass.Store(context.Background(), assoc.FilesetV2, k, fsid); mErr != nil {
+				c.Log.Errorf("Failed to store in assoc during filesetV2 migration [%v=%v]: %s", k, fsid, mErr)
+				return
+			}
+			resultsLock.Lock()
+			itemsMigratedCount++
+		}
+		resultsLock.Unlock()
 	}
 
 	err = ass.Scan(ctx, []assoc.Kind{assoc.Fileset, assoc.FilesetV2}, assoc.MappingHandlerFunc(mappingHandlerFn))
@@ -230,6 +256,8 @@ func (c *Cmd) buildCollectInputs(ctx context.Context, ass assoc.Assoc, repo refl
 		deadValueFilter:            deadValueFilter,
 		deadKeyFilter:              deadKeyFilter,
 		itemsScannedCount:          itemsScannedCount,
+		itemsMigratedCount:         itemsMigratedCount,
+		itemsMigratedAttemptCount:  itemsMigratedAttemptCount,
 		liveItemCount:              liveItemCount,
 		liveObjectsInFilesets:      liveObjectsInFilesets,
 		liveObjectsNotInRepository: liveObjectsNotInRepository,
@@ -244,6 +272,7 @@ func (c *Cmd) collect(ctx context.Context, args ...string) {
 	rateFlag := flags.Int64("rate", 300, "maximum writes/sec to dynamodb")
 	keepFlag := flags.String("keep", "", "regexp to match against labels of cache entries to keep (don't collect)")
 	labelsFlag := flags.String("labels", "", "regexp to match against labels of cache entries to collect")
+	migrateFS2MaxAttemptsFlag := flags.Int64("migrate-fs-max-attempts", 5000, "max count of v1 filesets to attempt to migrate to the v2 format during each run (0=none, -1=no limit)")
 	help := `Collect performs garbage collection of the reflow cache, removing
 entries where cache entry labels don't match the keep regexp clause;
 and (1) cache entry labels match the labels regexp; or (2) cache
@@ -294,7 +323,8 @@ preceded by ! is negated.
 
 	start := time.Now()
 	var inps *collectInputs
-	inps, err = c.buildCollectInputs(ctx, ass, repo, keepFilter, labelsFilter, threshold)
+	inps, err = c.buildCollectInputsAndMigrate(ctx, ass, repo, keepFilter,
+		labelsFilter, threshold, *migrateFS2MaxAttemptsFlag)
 	// Bail if anything went wrong since we're about to garbage collect based on these livesets
 	c.must(err)
 

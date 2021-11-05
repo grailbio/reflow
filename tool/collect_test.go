@@ -65,9 +65,8 @@ func nullInps(inps *collectInputs) {
 
 func TestBuildCollectInputsAndMigrate(t *testing.T) {
 	// setup the assoc and repo with:
-	// 2 x FS2 filesets with 2 files each
-	// 2 x FS1 filesets with 2 files each
-
+	// - 2 x FS2 filesets with 2 files each
+	// - 2 x FS1 filesets with 2 files each
 	fuzz := testutil.NewFuzz(nil)
 	ctx := context.Background()
 	ass, repo := testutil.NewInmemoryAssoc(), testutil.NewInmemoryRepository("")
@@ -128,6 +127,8 @@ func TestBuildCollectInputsAndMigrate(t *testing.T) {
 			0,
 			&collectInputs{
 				itemsScannedCount:          4,
+				itemsMigratedCount:         0,
+				itemsMigratedAttemptCount:  0,
 				liveObjectsInFilesets:      0,
 				liveItemCount:              0,
 				liveObjectsNotInRepository: 0,
@@ -153,6 +154,8 @@ func TestBuildCollectInputsAndMigrate(t *testing.T) {
 			0,
 			&collectInputs{
 				itemsScannedCount:          4,
+				itemsMigratedCount:         0,
+				itemsMigratedAttemptCount:  0,
 				liveObjectsInFilesets:      2 * 2,
 				liveItemCount:              2,
 				liveObjectsNotInRepository: 0,
@@ -178,8 +181,64 @@ func TestBuildCollectInputsAndMigrate(t *testing.T) {
 			0,
 			&collectInputs{
 				itemsScannedCount:          4,
+				itemsMigratedCount:         0,
+				itemsMigratedAttemptCount:  0,
 				liveObjectsInFilesets:      2 * 2,
 				liveItemCount:              2,
+				liveObjectsNotInRepository: 0,
+			},
+		},
+		{
+			"update all fileset v1",
+			[]time.Time{
+				time.Unix(200, 0),
+				time.Unix(200, 0),
+				time.Unix(200, 0),
+				time.Unix(200, 0),
+			},
+			[][]string{
+				{"foo"},
+				{"foo"},
+				{"foo"},
+				{"foo"},
+			},
+			"foo",
+			"bar",
+			time.Unix(100, 0),
+			-1,
+			&collectInputs{
+				itemsScannedCount:          4,
+				itemsMigratedCount:         2,
+				itemsMigratedAttemptCount:  2,
+				liveObjectsInFilesets:      4 * 2,
+				liveItemCount:              4,
+				liveObjectsNotInRepository: 0,
+			},
+		},
+		{
+			"update limit fileset v1",
+			[]time.Time{
+				time.Unix(200, 0),
+				time.Unix(200, 0),
+				time.Unix(200, 0),
+				time.Unix(200, 0),
+			},
+			[][]string{
+				{"foo"},
+				{"foo"},
+				{"foo"},
+				{"foo"},
+			},
+			"foo",
+			"bar",
+			time.Unix(100, 0),
+			1,
+			&collectInputs{
+				itemsScannedCount:          4,
+				itemsMigratedCount:         1,
+				itemsMigratedAttemptCount:  1,
+				liveObjectsInFilesets:      4 * 2,
+				liveItemCount:              4,
 				liveObjectsNotInRepository: 0,
 			},
 		},
@@ -204,7 +263,7 @@ func TestBuildCollectInputsAndMigrate(t *testing.T) {
 			labelsFilter, err := parseFilter(test.labelsFilterPattern)
 			require.NoError(t, err)
 
-			inps, err := (&Cmd{}).buildCollectInputs(ctx, tAss, tRepo, keepFilter, labelsFilter, test.threshold)
+			inps, err := (&Cmd{}).buildCollectInputsAndMigrate(ctx, tAss, tRepo, keepFilter, labelsFilter, test.threshold, test.maxFS2MigrateCount)
 			require.NoError(t, err)
 			nullInps(inps)
 			require.Equal(t, test.expectedResult, inps)
