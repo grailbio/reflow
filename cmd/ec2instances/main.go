@@ -154,6 +154,15 @@ func main() {
 			log.Printf("excluding instance type %s because it uses ARM (would need a different AMI)", e.Type)
 			continue
 		}
+		if strings.HasPrefix(e.Type, "u-") {
+			log.Printf("excluding High Memory instance type %s (purpose-built for large in-memory Databases)", e.Type)
+			continue
+		}
+		if strings.HasPrefix(e.Type, "vt1") {
+			log.Printf("excluding VT* instance type %s (specialized for video transcoding)", e.Type)
+			continue
+		}
+
 		parts := strings.Split(e.Type, ".")
 		if strings.HasSuffix(parts[0], "gd") || strings.HasSuffix(parts[0], "g") {
 			log.Printf("excluding instance type %s because it uses AWS Graviton (would need a different AMI)", e.Type)

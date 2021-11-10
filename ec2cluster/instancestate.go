@@ -230,6 +230,9 @@ func (s *instanceState) MinAvailable(need reflow.Resources, spot bool, maxPrice 
 		}
 	}
 
+	// Sort by instance type name, since some instance types have the exact same cost.
+	sort.Slice(viable, func(i, j int) bool { return viable[i].Type < viable[j].Type })
+
 	// Choose a higher cost but better EBS throughput instance type if applicable.
 	for _, config := range viable {
 		price = config.Price[s.region]
