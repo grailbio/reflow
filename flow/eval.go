@@ -48,13 +48,11 @@ const (
 	// The minimum number of CPUs we allocate for an exec.
 	minExecCPU = 1
 
-	numExecTries = 5
-
 	// printAllTasks can be set to aid testing and debugging.
 	printAllTasks = false
 
-	// maxOOMRetries is the maximum number of times a task can be retried due to an OOM.
-	maxOOMRetries = 3
+	// maxTaskRetries is the maximum number of times a task can be retried due to any retryable errors.
+	maxTaskRetries = 3
 
 	// memMultiplier is the increase in memory that will be allocated to a task which OOMs.
 	memMultiplier = 1.5
@@ -529,24 +527,37 @@ func (e *Eval) Do(ctx context.Context) error {
 					if err := e.taskWait(ctx, f, task); err != nil {
 						return err
 					}
-					// The Predictor can lower a task's memory requirements and cause a non-OOM memory error. This is
-					// because the linux OOM killer does not catch all OOM errors. In order to prevent such an error from
-					// causing a reflow program to fail, assume that if the Predictor lowers the memory of a task and
-					// that task returns a non-OOM error, the task should be retried with its original resources.
-					if task.Result.Err != nil && !errors.Is(errors.OOM, task.Result.Err) && f.Reserved["mem"] < f.Resources["mem"] {
-						var err error
-						if task, err = e.retryTask(ctx, f, f.Resources, "Predictor", "default resources"); err != nil {
-							return err
+					for retries := 0; retries < maxTaskRetries && task.Result.Err != nil; retries++ {
+						var (
+							retry          bool
+							resources      reflow.Resources
+							retryType, msg string
+						)
+						switch {
+						// task.Result.Err should be non-nil here (due to for loop cond)
+						case !errors.Is(errors.OOM, task.Result.Err) && f.Reserved["mem"] < f.Resources["mem"]:
+							// The Predictor can lower a task's memory requirements and cause a non-OOM memory error. This is
+							// because the linux OOM killer does not catch all OOM errors. In order to prevent such an error from
+							// causing a reflow program to fail, assume that if the Predictor lowers the memory of a task and
+							// that task returns a non-OOM error, the task should be retried with its original resources.
+							retry, resources, retryType = true, f.Resources, "Predictor"
+							msg = fmt.Sprintf("non-OOM error, switch from predicted (%s) to default (%s) memory", data.Size(f.Reserved["mem"]), data.Size(f.Resources["mem"]))
+						case errors.Is(errors.OOM, task.Result.Err):
+							// Retry OOMs with adjusted resources.
+							retry, retryType, resources = true, "OOM", oomAdjust(f.Resources, task.Config.Resources)
+							msg = fmt.Sprintf("%v of memory", data.Size(resources["mem"]))
+						case errors.Is(errors.Temporary, task.Result.Err):
+							// Retry Temporary.
+							retry, retryType, resources = true, "Temporary", f.Reserved
 						}
-					}
-					// Retry OOMs if needed.
-					for retries := 0; retries < maxOOMRetries && task.Result.Err != nil && errors.Is(errors.OOM, task.Result.Err); retries++ {
-						resources := oomAdjust(f.Resources, task.Config.Resources)
-						msg := fmt.Sprintf("%v of memory (%v/%v) due to OOM error: %s",
-							data.Size(resources["mem"]), retries+1, maxOOMRetries, task.Result.Err)
-						var err error
-						if task, err = e.retryTask(ctx, f, resources, "OOM", msg); err != nil {
-							return err
+						if retry {
+							msg += fmt.Sprintf("(%v/%v) due to error: %s", retries+1, maxTaskRetries, task.Result.Err)
+							var err error
+							if task, err = e.retryTask(ctx, f, resources, retryType, msg); err != nil {
+								return err
+							}
+						} else {
+							break
 						}
 					}
 					// Write to the cache only if a task was successfully completed.

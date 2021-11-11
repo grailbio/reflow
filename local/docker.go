@@ -46,6 +46,13 @@ const (
 	hardLimitSwapMem = 100 * data.MiB
 	// possibleOOMExitCode is the exit code returned by docker which indicates a possible OOM.
 	possibleOOMExitCode = 137
+	// temporaryExecErrorExitCode is the exit code which is considered to be a temporary error.
+	// ie, when this exit code is returned, it means the exec should be retried.
+	// Note: the code 75 was chosen based on:
+	// - https://man.openbsd.org/sysexits.3#EX_TEMPFAIL
+	// - From `/usr/include/sysexits.h` in linux:
+	// #define EX_TEMPFAIL	75	/* temp failure; user is invited to retry */
+	temporaryExecErrorExitCode = 75
 )
 
 var dockerUser = fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
@@ -451,6 +458,9 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 			errors.Errorf("docker returned possible OOM exit code %d", possibleOOMExitCode)))
 	case oomNode:
 		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.OOM, oomNodeReason))
+	case code == temporaryExecErrorExitCode:
+		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.Temporary,
+			errors.Errorf("exec returned exit code %d (considered temporary)", temporaryExecErrorExitCode)))
 	default:
 		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.Errorf("exited with code %d", code)))
 	}
