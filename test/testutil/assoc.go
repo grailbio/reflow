@@ -21,8 +21,10 @@ type assocKey struct {
 }
 
 type InmemoryAssoc struct {
-	mu     sync.Mutex
-	assocs map[assocKey]digest.Digest
+	mu                  sync.Mutex
+	assocs              map[assocKey]digest.Digest
+	scanTimeGenerator   func() time.Time
+	scanLabelsGenerator func() []string
 }
 
 // NewInmemoryAssoc returns a new assoc.Assoc
@@ -82,8 +84,20 @@ func (a *InmemoryAssoc) Count(ctx context.Context) (int64, error) {
 
 // Scan calls the handler function for every association in the mapping.
 // Note that the handler function may be called asynchronously from multiple threads.
-func (a *InmemoryAssoc) Scan(ctx context.Context, kind assoc.Kind, handler assoc.MappingHandler) error {
-	return errors.E("scan", errors.NotSupported)
+func (a *InmemoryAssoc) Scan(ctx context.Context, kinds []assoc.Kind, handler assoc.MappingHandler) error {
+	results := make(map[digest.Digest]map[assoc.Kind]digest.Digest)
+	a.mu.Lock()
+	for k, v := range a.assocs {
+		if _, ok := results[k.Digest]; !ok {
+			results[k.Digest] = make(map[assoc.Kind]digest.Digest)
+		}
+		results[k.Digest][k.Kind] = v
+	}
+	a.mu.Unlock()
+	for k, v := range results {
+		handler.HandleMapping(ctx, k, v, a.scanTimeGenerator(), a.scanLabelsGenerator())
+	}
+	return nil
 }
 
 // Delete deletes the key k unconditionally from the provided assoc.
@@ -93,4 +107,20 @@ func (a *InmemoryAssoc) Delete(ctx context.Context, k digest.Digest) error {
 
 func (a *InmemoryAssoc) RawAssocs() map[assocKey]digest.Digest {
 	return a.assocs
+}
+
+func (a *InmemoryAssoc) SetScanTimeGenerator(gen func() time.Time) {
+	a.scanTimeGenerator = gen
+}
+
+func (a *InmemoryAssoc) SetScanLabelsGenerator(gen func() []string) {
+	a.scanLabelsGenerator = gen
+}
+
+func (a *InmemoryAssoc) Copy() *InmemoryAssoc {
+	aNew := NewInmemoryAssoc()
+	for k, v := range a.assocs {
+		aNew.assocs[k] = v
+	}
+	return aNew
 }

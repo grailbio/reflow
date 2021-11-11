@@ -1363,7 +1363,7 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 				bgctx := Background(ctx)
 				go func() {
 					for _, key := range writeback {
-						if err := e.Assoc.Store(bgctx, assoc.Fileset, key, fsidV2); err != nil {
+						if err := e.Assoc.Store(bgctx, assoc.FilesetV2, key, fsidV2); err != nil {
 							if !errors.Is(errors.Precondition, err) {
 								e.Log.Errorf("assoc write for read repair %v %v: %v", f, key, err)
 							}

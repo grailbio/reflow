@@ -6,7 +6,6 @@ package tool
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"regexp"
@@ -20,18 +19,9 @@ import (
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/liveset/bloomlive"
+	"github.com/grailbio/reflow/repository"
 	"github.com/willf/bloom"
 )
-
-// If the value does not exist in repository, an error is returned.
-func unmarshal(ctx context.Context, repo reflow.Repository, k digest.Digest, v interface{}) error {
-	rc, err := repo.Get(ctx, k)
-	if err != nil {
-		return err
-	}
-	defer rc.Close()
-	return json.NewDecoder(rc).Decode(v)
-}
 
 type filterKind int
 
@@ -116,6 +106,137 @@ func (m mapLiveset) Add(d digest.Digest) {
 	m[d] = struct{}{}
 }
 
+type collectInputs struct {
+	valueFilter, keyFilter         *bloom.BloomFilter
+	deadValueFilter, deadKeyFilter mapLiveset
+
+	itemsScannedCount          int64
+	liveItemCount              int64
+	liveObjectsInFilesets      int64
+	liveObjectsNotInRepository int64
+}
+
+func (c *Cmd) buildCollectInputs(ctx context.Context, ass assoc.Assoc, repo reflow.Repository,
+	keepFilter, labelsFilter *filter, threshold time.Time) (*collectInputs, error) {
+	// Use an estimate of the item count in the assoc to create our bloom filters
+	count, err := ass.Count(ctx)
+	c.Log.Debugf("Finding liveset for cache with %d associations and threshold: %v", count, threshold)
+
+	keyFilter := bloom.NewWithEstimates(uint(count), .000001)
+	valueFilter := bloom.NewWithEstimates(uint(count)*10, .000001)
+
+	// Mark for deletion. We need a map based existence filter because we cannot tolerate false positives
+	// for deletions.
+	deadKeyFilter := make(mapLiveset)
+	deadValueFilter := make(mapLiveset)
+
+	// The mapping handler will be call from multiple threads
+	var resultsLock sync.Mutex
+	itemsScannedCount := int64(0)
+	liveItemCount := int64(0)
+	liveObjectsInFilesets := int64(0)
+	liveObjectsNotInRepository := int64(0)
+
+	mappingHandlerFn := func(k digest.Digest, v map[assoc.Kind]digest.Digest, lastAccessTime time.Time, labels []string) {
+		var fs reflow.Fileset
+		for kind, d := range v {
+			switch kind {
+			case assoc.Fileset, assoc.FilesetV2:
+			default:
+				return
+			}
+
+			checkRepos := func(kind assoc.Kind) (reflow.Fileset, error) {
+				var (
+					crFs  reflow.Fileset
+					crErr error
+				)
+				for i := 0; i < 5; i++ {
+					crErr = repository.Unmarshal(ctx, repo, d, &crFs, kind)
+					if crErr == nil {
+						break
+					}
+					if errors.Is(errors.NotExist, crErr) {
+						// If the object doesn't exist in the repository there's no point adding it to the livesets
+						resultsLock.Lock()
+						itemsScannedCount++
+						liveObjectsNotInRepository++
+						resultsLock.Unlock()
+						return crFs, nil
+					}
+					if errors.Transient(crErr) {
+						continue
+					}
+					// If we can't parse the object for another reason bail now
+					return reflow.Fileset{}, fmt.Errorf("%s %v (flow %v): %v", kind.String(), d, k, crErr)
+				}
+				if crErr != nil {
+					return reflow.Fileset{}, fmt.Errorf("fileset %v (flow %v): %v", d, k, crErr)
+				}
+				return crFs, nil
+			}
+
+			live := keepFilter.Match(labels)
+			if !live && labelsFilter.Match(labels) {
+				fs, err = checkRepos(kind)
+				if err != nil {
+					c.Log.Error(err)
+					return
+				}
+				resultsLock.Lock()
+				for _, f := range fs.Files() {
+					deadValueFilter.Add(f.ID)
+				}
+				deadKeyFilter.Add(k)
+				deadValueFilter.Add(d)
+				itemsScannedCount++
+				if itemsScannedCount%10000 == 0 {
+					c.Log.Debugf("Scanned item %d in association", itemsScannedCount)
+				}
+				resultsLock.Unlock()
+				return
+			}
+			live = live || lastAccessTime.After(threshold)
+			if live {
+				fs, err = checkRepos(kind)
+				if err != nil {
+					c.Log.Error(err)
+					return
+				}
+			}
+			// The repository checking happens outside the results lock for better performance
+			resultsLock.Lock()
+			if live {
+				for _, f := range fs.Files() {
+					liveObjectsInFilesets++
+					valueFilter.Add(f.ID.Bytes())
+				}
+				keyFilter.Add(k.Bytes())
+				valueFilter.Add(d.Bytes())
+				liveItemCount++
+			}
+			itemsScannedCount++
+			if itemsScannedCount%10000 == 0 {
+				c.Log.Debugf("Scanned item %d in association", itemsScannedCount)
+			}
+			resultsLock.Unlock()
+		}
+	}
+
+	err = ass.Scan(ctx, []assoc.Kind{assoc.Fileset, assoc.FilesetV2}, assoc.MappingHandlerFunc(mappingHandlerFn))
+	inps := &collectInputs{
+		valueFilter:                valueFilter,
+		keyFilter:                  keyFilter,
+		deadValueFilter:            deadValueFilter,
+		deadKeyFilter:              deadKeyFilter,
+		itemsScannedCount:          itemsScannedCount,
+		liveItemCount:              liveItemCount,
+		liveObjectsInFilesets:      liveObjectsInFilesets,
+		liveObjectsNotInRepository: liveObjectsNotInRepository,
+	}
+	return inps, err
+}
+
 func (c *Cmd) collect(ctx context.Context, args ...string) {
 	flags := flag.NewFlagSet("collect", flag.ExitOnError)
 	thresholdFlag := flags.String("threshold", "YYYY-MM-DD", "cache entries older than this threshold will be collected; supports both date format (YYYY-MM-DD) clause number of days (15d)")
@@ -171,121 +292,20 @@ preceded by ! is negated.
 	var repo reflow.Repository
 	c.must(c.Config.Instance(&repo))
 
-	// Use an estimate of the item count in the assoc to create our bloom filters
-	count, err := ass.Count(ctx)
-	c.Log.Debugf("Finding liveset for cache with %d associations and threshold: %v", count, threshold)
-
-	keyFilter := bloom.NewWithEstimates(uint(count), .000001)
-	valueFilter := bloom.NewWithEstimates(uint(count)*10, .000001)
-
-	// Mark for deletion. We need a map based existence filter because we cannot tolerate false positives
-	// for deletions.
-	deadKeyFilter := make(mapLiveset)
-	deadValueFilter := make(mapLiveset)
-
-	// The mapping handler will be call from multiple threads
-	var resultsLock sync.Mutex
-	itemsScannedCount := int64(0)
-	liveItemCount := int64(0)
-	liveObjectsInFilesets := int64(0)
-	liveObjectsNotInRepository := int64(0)
-
 	start := time.Now()
-	err = ass.Scan(ctx, assoc.FilesetV2, assoc.MappingHandlerFunc(func(k digest.Digest, v []digest.Digest, kind assoc.Kind, lastAccessTime time.Time, labels []string) {
-		switch kind {
-		case assoc.FilesetV2:
-		default:
-			return
-		}
-		d := v[0]
-		checkRepos := func() (reflow.Fileset, error) {
-			var (
-				fs  reflow.Fileset
-				err error
-			)
-			for i := 0; i < 5; i++ {
-				err = unmarshal(ctx, repo, d, &fs)
-				if err == nil {
-					break
-				}
-				if errors.Is(errors.NotExist, err) {
-					// If the object doesn't exist in the repository there's no point adding it to the livesets
-					resultsLock.Lock()
-					itemsScannedCount++
-					liveObjectsNotInRepository++
-					resultsLock.Unlock()
-					return fs, nil
-				}
-				if errors.Transient(err) {
-					continue
-				}
-				// If we can't parse the object for another reason bail now
-				return reflow.Fileset{}, fmt.Errorf("fileset %v (flow %v): %v", d, k, err)
-			}
-			if err != nil {
-				return reflow.Fileset{}, fmt.Errorf("fileset %v (flow %v): %v", d, k, err)
-			}
-			return fs, nil
-		}
-
-		live := keepFilter.Match(labels)
-		var fs reflow.Fileset
-		if !live && labelsFilter.Match(labels) {
-			fs, err = checkRepos()
-			if err != nil {
-				c.Log.Error(err)
-				return
-			}
-			resultsLock.Lock()
-			defer resultsLock.Unlock()
-			for _, f := range fs.Files() {
-				deadValueFilter.Add(f.ID)
-			}
-			deadKeyFilter.Add(k)
-			deadValueFilter.Add(d)
-			itemsScannedCount++
-			if itemsScannedCount%10000 == 0 {
-				c.Log.Debugf("Scanned item %d in association", itemsScannedCount)
-			}
-			return
-		}
-		live = live || lastAccessTime.After(threshold)
-		if live {
-			fs, err = checkRepos()
-			if err != nil {
-				c.Log.Error(err)
-				return
-			}
-		}
-		// The repository checking happens outside the results lock for better performance
-		resultsLock.Lock()
-		defer resultsLock.Unlock()
-		if live {
-			for _, f := range fs.Files() {
-				liveObjectsInFilesets++
-				valueFilter.Add(f.ID.Bytes())
-			}
-			keyFilter.Add(k.Bytes())
-			valueFilter.Add(d.Bytes())
-			liveItemCount++
-		}
-		itemsScannedCount++
-		if itemsScannedCount%10000 == 0 {
-			c.Log.Debugf("Scanned item %d in association", itemsScannedCount)
-		}
-
-	}))
+	var inps *collectInputs
+	inps, err = c.buildCollectInputs(ctx, ass, repo, keepFilter, labelsFilter, threshold)
 	// Bail if anything went wrong since we're about to garbage collect based on these livesets
 	c.must(err)
 
 	// Some debugging information
 	c.Log.Debugf("Time to scan associations %s", time.Since(start))
 	c.Log.Printf("Scanned %d associations, found %d live associations, %d live objects, %d objects not in repository",
-		itemsScannedCount, liveItemCount, liveObjectsInFilesets, liveObjectsNotInRepository)
+		inps.itemsScannedCount, inps.liveItemCount, inps.liveObjectsInFilesets, inps.liveObjectsNotInRepository)
 
 	// Garbage collect the repository using the values liveset
-	c.must(repo.CollectWithThreshold(ctx, bloomlive.New(valueFilter), deadValueFilter, threshold, *dryRunFlag))
+	c.must(repo.CollectWithThreshold(ctx, bloomlive.New(inps.valueFilter), inps.deadValueFilter, threshold, *dryRunFlag))
 
 	// Garbage collect the association using the keys liveset
-	c.must(ass.CollectWithThreshold(ctx, bloomlive.New(keyFilter), deadKeyFilter, threshold, *rateFlag, *dryRunFlag))
+	c.must(ass.CollectWithThreshold(ctx, bloomlive.New(inps.keyFilter), inps.deadKeyFilter, threshold, *rateFlag, *dryRunFlag))
 }

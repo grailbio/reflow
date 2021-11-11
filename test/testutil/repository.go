@@ -158,7 +158,17 @@ func (r *InmemoryRepository) RawFiles() map[digest.Digest][]byte {
 	return r.files
 }
 
-// InmemoryRepository is an in-memory repository used for testing which also implements scheduler.blobLocator.
+func (r *InmemoryRepository) Copy() *InmemoryRepository {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rNew := NewInmemoryRepository("")
+	for k, v := range r.files {
+		rNew.set(k, v)
+	}
+	return rNew
+}
+
+// InmemoryLocatorRepository is an in-memory repository used for testing which also implements scheduler.blobLocator.
 type InmemoryLocatorRepository struct {
 	*InmemoryRepository
 	locations map[digest.Digest]string
@@ -179,7 +189,7 @@ func (r *InmemoryLocatorRepository) SetLocation(k digest.Digest, loc string) {
 	r.mu.Unlock()
 }
 
-// Implement scheduler.blobLocator
+// Location implements scheduler.blobLocator
 func (r *InmemoryLocatorRepository) Location(ctx context.Context, id digest.Digest) (string, error) {
 	loc := r.locations[id]
 	if loc == "" {

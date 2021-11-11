@@ -36,20 +36,35 @@ type mockEntry struct {
 	Kind       assoc.Kind
 }
 
+func newMockEntry(kind assoc.Kind, d digest.Digest) *mockEntry {
+	return &mockEntry{
+		Attributes: map[string]*dynamodb.AttributeValue{
+			"ID": {
+				S: aws.String(d.String()),
+			},
+			colmap[kind]: {
+				S: aws.String(d.String()),
+			},
+		},
+		Kind: kind,
+	}
+}
+
 type mockdb struct {
 	dynamodbiface.DynamoDBAPI
-	mockStore map[*mockEntry]bool
-	dbscanned bool
-	muScan    sync.Mutex
+	mockStore  map[digest.Digest]*mockEntry
+	maxRetries int
 
-	muUpdate   sync.Mutex
+	mu         sync.Mutex
+	scanned    bool
+	retries    int
 	numUpdates int
 }
 
-// NumUpdates is the total of recorded calls to UpdateWithContext.
+// NumUpdates is the total of recorded calls to UpdateItemWithContext.
 func (m *mockdb) NumUpdates() int {
-	m.muUpdate.Lock()
-	defer m.muUpdate.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.numUpdates
 }
 
@@ -58,28 +73,39 @@ func (m *mockdb) DeleteItemWithContext(ctx aws.Context, input *dynamodb.DeleteIt
 	if !ok {
 		panic("key missing")
 	}
-	for k := range m.mockStore {
-		entry, ok := k.Attributes["ID"]
-		if !ok {
-			continue
-		}
-		if *entry.S == *key.S {
-			delete(m.mockStore, k)
-			return &dynamodb.DeleteItemOutput{
-				Attributes: input.Key,
-			}, nil
-		}
+	d, err := digest.Parse(aws.StringValue(key.S))
+	if err != nil {
+		return nil, err
 	}
+
+	if _, ok = m.mockStore[d]; ok {
+		delete(m.mockStore, d)
+		return &dynamodb.DeleteItemOutput{
+			Attributes: input.Key,
+		}, nil
+	}
+
 	return &dynamodb.DeleteItemOutput{}, nil
 }
 
 func (m *mockdb) BatchGetItemWithContext(ctx aws.Context, input *dynamodb.BatchGetItemInput, options ...request.Option) (*dynamodb.BatchGetItemOutput, error) {
-	var n = len(input.RequestItems[mockTable].Keys)
-	if n == 0 {
+	m.mu.Lock()
+	m.retries = m.retries + 1
+	m.mu.Unlock()
+	var total = len(input.RequestItems[mockTable].Keys)
+	if total == 0 {
 		return &dynamodb.BatchGetItemOutput{Responses: make(map[string][]map[string]*dynamodb.AttributeValue)}, nil
 	}
-	if n > 100 {
+	if total > 100 {
 		return nil, awserr.New("ValidationException", "Too many items requested for the BatchGetItem call", nil)
+	}
+	// process some keys and leave the remaining unprocessed.
+	n := rand.Int() % total
+	if n == 0 {
+		n = 1
+	}
+	if m.retries >= m.maxRetries {
+		n = total
 	}
 	rand.Shuffle(len(input.RequestItems[mockTable].Keys), func(i, j int) {
 		s := input.RequestItems[mockTable].Keys
@@ -87,69 +113,75 @@ func (m *mockdb) BatchGetItemWithContext(ctx aws.Context, input *dynamodb.BatchG
 	})
 	o := &dynamodb.BatchGetItemOutput{Responses: make(map[string][]map[string]*dynamodb.AttributeValue)}
 	if input.RequestItems[mockTable] != nil {
-		for i := 0; i < n; i++ {
+		for i := 0; i < total; i++ {
 			v := input.RequestItems[mockTable].Keys[i]
 			if v["ID"] != nil {
-				m := map[string]*dynamodb.AttributeValue{
-					"ID": {
-						S: aws.String(*v["ID"].S),
-					},
-					"Value": {
-						S: aws.String(*v["ID"].S),
-					},
+				d, err := digest.Parse(aws.StringValue(v["ID"].S))
+				if err != nil {
+					return nil, err
 				}
-				o.Responses[mockTable] = append(o.Responses[mockTable], m)
+				if res, ok := m.mockStore[d]; ok {
+					o.Responses[mockTable] = append(o.Responses[mockTable], res.Attributes)
+				}
 			}
+		}
+		o.UnprocessedKeys = map[string]*dynamodb.KeysAndAttributes{mockTable: {}}
+		for i := n; i < len(input.RequestItems[mockTable].Keys); i++ {
+			v := input.RequestItems[mockTable].Keys[i]
+			o.UnprocessedKeys[mockTable].Keys = append(o.UnprocessedKeys[mockTable].Keys, v)
 		}
 	}
 	return o, nil
 }
 
 func (m *mockdb) UpdateItemWithContext(ctx aws.Context, input *dynamodb.UpdateItemInput, opts ...request.Option) (*dynamodb.UpdateItemOutput, error) {
-	m.muUpdate.Lock()
+	m.mu.Lock()
 	m.numUpdates++
-	m.muUpdate.Unlock()
+	m.mu.Unlock()
 	return nil, nil
 }
 
 func (m *mockdb) ScanWithContext(ctx aws.Context, input *dynamodb.ScanInput, opts ...request.Option) (*dynamodb.ScanOutput, error) {
-	m.muScan.Lock()
-	defer m.muScan.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var output = &dynamodb.ScanOutput{
 		Items: []map[string]*dynamodb.AttributeValue{},
 	}
-	if m.dbscanned {
+	if m.scanned {
 		return output, nil
 	}
-	for k := range m.mockStore {
+	for _, k := range m.mockStore {
 		// Ignore all entries that do not show LastAccessTime.
 		if _, ok := k.Attributes["LastAccessTime"]; !ok {
 			continue
 		}
 		output.Items = append(output.Items, k.Attributes)
 	}
-	m.dbscanned = true
+	m.scanned = true
 	count := int64(len(output.Items))
 	output.Count = &count
 	output.ScannedCount = &count
 	return output, nil
 }
 
-var kinds = []assoc.Kind{assoc.Fileset}
+// reset clears counters and transient state about interactions with the database,
+// but does not clear the store or maxRetries.
+func (m *mockdb) reset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.retries = 0
+	m.scanned = false
+	m.numUpdates = 0
+}
+
+var kinds = []assoc.Kind{assoc.Fileset, assoc.FilesetV2}
 
 func TestDelete(t *testing.T) {
 	ctx := context.Background()
 	key := reflow.Digester.Rand(nil)
-	dummyEntry := mockEntry{
-		Attributes: map[string]*dynamodb.AttributeValue{
-			"ID": {
-				S: aws.String(key.String()),
-			},
-		},
-		Kind: assoc.Fileset,
-	}
+	kind := assoc.FilesetV2
 	db := &mockdb{
-		mockStore: map[*mockEntry]bool{&dummyEntry: true},
+		mockStore: map[digest.Digest]*mockEntry{key: newMockEntry(kind, key)},
 	}
 	ass := &Assoc{DB: db}
 	ass.TableName = mockTable
@@ -193,12 +225,17 @@ func TestEmptyKeys(t *testing.T) {
 func TestSimpleBatchGetItem(t *testing.T) {
 	var wg sync.WaitGroup
 	ctx, _ := flow.WithBackground(context.Background(), &wg)
-	db := &mockdb{}
+	k := reflow.Digester.Rand(nil)
+	kind := assoc.FilesetV2
+	key := assoc.Key{Kind: kind, Digest: k}
+	batch := assoc.Batch{key: assoc.Result{}}
+
+	db := &mockdb{mockStore: map[digest.Digest]*mockEntry{
+		k: newMockEntry(kind, k),
+	}}
 	ass := &Assoc{DB: db}
 	ass.TableName = mockTable
-	k := reflow.Digester.Rand(nil)
-	key := assoc.Key{Kind: assoc.Fileset, Digest: k}
-	batch := assoc.Batch{key: assoc.Result{}}
+
 	err := ass.BatchGet(ctx, batch)
 	if err != nil {
 		t.Fatal(err)
@@ -215,87 +252,22 @@ func TestSimpleBatchGetItem(t *testing.T) {
 	}
 }
 
-type mockdbunprocessed struct {
-	dynamodbiface.DynamoDBAPI
-	maxRetries int
-	retries    int
-
-	mu         sync.Mutex
-	numUpdates int
-}
-
-// NumUpdates is the total of recorded calls to UpdateWithContext.
-func (m *mockdbunprocessed) NumUpdates() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.numUpdates
-}
-
-func (m *mockdbunprocessed) BatchGetItemWithContext(ctx aws.Context, input *dynamodb.BatchGetItemInput, options ...request.Option) (*dynamodb.BatchGetItemOutput, error) {
-	m.retries = m.retries + 1
-	var total = len(input.RequestItems[mockTable].Keys)
-	if total == 0 {
-		return &dynamodb.BatchGetItemOutput{Responses: make(map[string][]map[string]*dynamodb.AttributeValue)}, nil
-	}
-	if total > 100 {
-		return nil, awserr.New("ValidationException", "Too many items requested for the BatchGetItem call", nil)
-	}
-	// process some keys and leave the remaining unprocessed.
-	n := rand.Int() % total
-	if n == 0 {
-		n = 1
-	}
-	if m.retries >= m.maxRetries {
-		n = total
-	}
-	rand.Shuffle(len(input.RequestItems[mockTable].Keys), func(i, j int) {
-		s := input.RequestItems[mockTable].Keys
-		s[i], s[j] = s[j], s[i]
-	})
-	o := &dynamodb.BatchGetItemOutput{Responses: make(map[string][]map[string]*dynamodb.AttributeValue)}
-	if input.RequestItems[mockTable] != nil {
-		for i := 0; i < total; i++ {
-			v := input.RequestItems[mockTable].Keys[i]
-			if v["ID"] != nil {
-				m := map[string]*dynamodb.AttributeValue{
-					"ID": {
-						S: aws.String(*v["ID"].S),
-					},
-					"Value": {
-						S: aws.String(*v["ID"].S),
-					},
-				}
-				o.Responses[mockTable] = append(o.Responses[mockTable], m)
-			}
-		}
-		o.UnprocessedKeys = map[string]*dynamodb.KeysAndAttributes{mockTable: &dynamodb.KeysAndAttributes{}}
-		for i := n; i < len(input.RequestItems[mockTable].Keys); i++ {
-			v := input.RequestItems[mockTable].Keys[i]
-			o.UnprocessedKeys[mockTable].Keys = append(o.UnprocessedKeys[mockTable].Keys, v)
-		}
-	}
-	return o, nil
-}
-
-func (m *mockdbunprocessed) UpdateItemWithContext(ctx aws.Context, input *dynamodb.UpdateItemInput, opts ...request.Option) (*dynamodb.UpdateItemOutput, error) {
-	m.mu.Lock()
-	m.numUpdates++
-	m.mu.Unlock()
-	return nil, nil
-}
-
 func TestParallelBatchGetItem(t *testing.T) {
 	var wg sync.WaitGroup
 	ctx, _ := flow.WithBackground(context.Background(), &wg)
 	count := 10 * 1024
-	db := &mockdbunprocessed{maxRetries: 10}
+	digests := make([]assoc.Key, count)
+	store := make(map[digest.Digest]*mockEntry)
+	for i := 0; i < count; i++ {
+		kind, d := kinds[rand.Int()%len(kinds)], reflow.Digester.Rand(nil)
+		digests[i] = assoc.Key{Kind: kind, Digest: d}
+		entry := newMockEntry(kind, d)
+		store[d] = entry
+	}
+
+	db := &mockdb{maxRetries: 10, mockStore: store}
 	ass := &Assoc{DB: db}
 	ass.TableName = mockTable
-	digests := make([]assoc.Key, count)
-
-	for i := 0; i < count; i++ {
-		digests[i] = assoc.Key{Kind: kinds[rand.Int()%len(kinds)], Digest: reflow.Digester.Rand(nil)}
-	}
 	g, ctx := errgroup.WithContext(ctx)
 	ch := make(chan assoc.Key)
 	for i := 0; i < 10; i++ {
@@ -357,80 +329,51 @@ func TestParallelBatchGetItem(t *testing.T) {
 	}
 }
 
-type mockdbInvalidDigest struct {
-	dynamodbiface.DynamoDBAPI
-	invalidDigestCol string
-
-	mu         sync.Mutex
-	numUpdates int
-}
-
-// NumUpdates is the total of recorded calls to UpdateWithContext.
-func (m *mockdbInvalidDigest) NumUpdates() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.numUpdates
-}
-
-func (m *mockdbInvalidDigest) BatchGetItemWithContext(ctx aws.Context, input *dynamodb.BatchGetItemInput, options ...request.Option) (*dynamodb.BatchGetItemOutput, error) {
-	total := len(input.RequestItems[mockTable].Keys)
-	if total == 0 {
-		return &dynamodb.BatchGetItemOutput{Responses: make(map[string][]map[string]*dynamodb.AttributeValue)}, nil
-	}
-	o := &dynamodb.BatchGetItemOutput{Responses: make(map[string][]map[string]*dynamodb.AttributeValue)}
-	if input.RequestItems[mockTable] != nil {
-		for i := 0; i < total; i++ {
-			v := input.RequestItems[mockTable].Keys[i]
-			if v["ID"] != nil {
-				ma := map[string]*dynamodb.AttributeValue{
-					"ID": {
-						S: aws.String(*v["ID"].S),
-					},
-					"Value": {
-						S: aws.String(*v["ID"].S),
-					},
-				}
-				ma[m.invalidDigestCol] = &dynamodb.AttributeValue{S: aws.String("corrupted")}
-				o.Responses[mockTable] = append(o.Responses[mockTable], ma)
-			}
-		}
-	}
-	return o, nil
-}
-
-func (m *mockdbInvalidDigest) UpdateItemWithContext(ctx aws.Context, input *dynamodb.UpdateItemInput, opts ...request.Option) (*dynamodb.UpdateItemOutput, error) {
-	m.mu.Lock()
-	m.numUpdates++
-	m.mu.Unlock()
-	return nil, nil
-}
-
 func TestInvalidDigest(t *testing.T) {
-	batch := make(assoc.Batch)
-	for i := 0; i < 1000; i++ {
-		batch[assoc.Key{Kind: kinds[i%len(kinds)], Digest: reflow.Digester.Rand(nil)}] = assoc.Result{}
-	}
 	pat := `encoding/hex: invalid byte:.*`
 	re, err := regexp.Compile(pat)
 	if err != nil {
 		t.Fatal(err)
 	}
+	batch := make(assoc.Batch)
+	store := make(map[digest.Digest]*mockEntry)
+	invalidCountByKind := make(map[assoc.Kind]int)
+	var totalInvalidCount int
+	for i := 0; i < 1000; i++ {
+		entryKind, d := kinds[i%len(kinds)], reflow.Digester.Rand(nil)
+		batch[assoc.Key{Kind: entryKind, Digest: d}] = assoc.Result{}
+		entry := newMockEntry(entryKind, d)
+		if rand.Int()%2 == 0 {
+			delete(entry.Attributes, colmap[entryKind])
+			entry.Attributes[colmap[entryKind]] = &dynamodb.AttributeValue{
+				S: aws.String("corrupted"),
+			}
+			if _, ok := invalidCountByKind[entryKind]; !ok {
+				invalidCountByKind[entryKind] = 0
+			}
+			invalidCountByKind[entryKind]++
+			totalInvalidCount++
+		}
+		store[d] = entry
+	}
+
+	db := &mockdb{mockStore: store}
+	ass := &Assoc{DB: db}
+	ass.TableName = mockTable
+	var wg sync.WaitGroup
+	ctx, cancel := flow.WithBackground(context.Background(), &wg)
+	err = ass.BatchGet(ctx, batch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := len(batch), 1000; got != want {
+		t.Errorf(fmt.Sprintf("expected %v result keys, got %v", want, got))
+	}
+
 	for _, kind := range kinds {
-		db := &mockdbInvalidDigest{invalidDigestCol: colmap[kind]}
-		ass := &Assoc{DB: db}
-		ass.TableName = mockTable
-		var wg sync.WaitGroup
-		ctx, cancel := flow.WithBackground(context.Background(), &wg)
-		err := ass.BatchGet(ctx, batch)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got, want := len(batch), 1000; got != want {
-			t.Errorf(fmt.Sprintf("expected %v result keys, got %v", want, got))
-		}
 		errCount := 0
 		for k, v := range batch {
-			if k.Kind == kind {
+			if k.Kind == kind && v.Error != nil {
 				ok := re.MatchString(v.Error.Error())
 				errCount++
 				if !ok {
@@ -438,15 +381,15 @@ func TestInvalidDigest(t *testing.T) {
 				}
 			}
 		}
-		if got, want := errCount, len(batch) / len(kinds); got != want {
+		if got, want := errCount, invalidCountByKind[kind]; got != want {
 			t.Errorf(fmt.Sprintf("expected %v invalid digest keys, got %v", want, got))
 		}
-		wg.Wait()
-		if got, want := db.NumUpdates(), 1000-errCount; got != want {
-			t.Errorf("got %d updates, want %d", got, want)
-		}
-		cancel()
 	}
+	wg.Wait()
+	if got, want := db.NumUpdates(), 1000-totalInvalidCount; got != want {
+		t.Errorf("got %d updates, want %d", got, want)
+	}
+	cancel()
 }
 
 func TestDydbassocInfra(t *testing.T) {
@@ -483,7 +426,7 @@ func TestDydbassocInfra(t *testing.T) {
 func TestAssocScanValidEntries(t *testing.T) {
 	var (
 		ctx = context.Background()
-		db  = &mockdb{mockStore: make(map[*mockEntry]bool)}
+		db  = &mockdb{mockStore: make(map[digest.Digest]*mockEntry)}
 		ass = &Assoc{DB: db}
 	)
 	ass.TableName = mockTable
@@ -499,18 +442,18 @@ func TestAssocScanValidEntries(t *testing.T) {
 		{assoc.Fileset, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), nil, "1572448157"},
 		{assoc.Fileset, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), []string{"grail:type=reflow", "grail:user=def@graiobio.com"}, "1568099519"},
 		{assoc.Fileset, reflow.Digester.Rand(nil), digest.Digest{}, nil, "1568099519"},
+		{assoc.FilesetV2, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), []string{"grail:type=reflow", "grail:user=abc@graiobio.com"}, "1571573191"},
+		{assoc.FilesetV2, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), nil, "1572455280"},
+		{assoc.FilesetV2, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), nil, "1572448157"},
+		{assoc.FilesetV2, reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), []string{"grail:type=reflow", "grail:user=def@graiobio.com"}, "1568099519"},
+		{assoc.FilesetV2, reflow.Digester.Rand(nil), digest.Digest{}, nil, "1568099519"},
 	} {
-		entry := mockEntry{
-			Attributes: map[string]*dynamodb.AttributeValue{
-				"ID": {S: aws.String(tt.key.String())},
-			},
-		}
+		entry := newMockEntry(tt.kind, tt.key)
 		if !tt.val.IsZero() {
 			val := dynamodb.AttributeValue{S: aws.String(tt.val.String())}
-			switch tt.kind {
-			case assoc.Fileset:
-				entry.Attributes[colmap[tt.kind]] = &val
-			}
+			entry.Attributes[colmap[tt.kind]] = &val
+		} else {
+			delete(entry.Attributes, colmap[tt.kind])
 		}
 		if tt.labels != nil {
 			var labelsEntry dynamodb.AttributeValue
@@ -522,32 +465,38 @@ func TestAssocScanValidEntries(t *testing.T) {
 		if tt.lastAccessTimeUnix != "" {
 			entry.Attributes["LastAccessTime"] = &dynamodb.AttributeValue{N: aws.String(tt.lastAccessTimeUnix)}
 		}
-		db.mockStore[&entry] = true
+		db.mockStore[tt.key] = entry
 	}
 
 	var (
-		numFileSets          = new(int)
-		thresholdTime        = time.Unix(1572000000, 0)
-		numPastThresholdTime = 0
+		thresholdTime = time.Unix(1572000000, 0)
 	)
 	for _, tt := range []struct {
-		gotKind             *int
-		wantKind, wantLabel int
-		assocKind           assoc.Kind
-		wantLabels          []string
+		assocKinds                             []assoc.Kind
+		wantKind, wantLabel, wantPastThreshold int
+		wantLabels                             []string
 	}{
-		{numFileSets, 4, 1, assoc.Fileset, []string{"grail:type=reflow", "grail:user=abc@graiobio.com"}},
+		{[]assoc.Kind{assoc.Fileset}, 4, 1, 2, []string{"grail:type=reflow", "grail:user=abc@graiobio.com"}},
+		{[]assoc.Kind{assoc.FilesetV2}, 4, 1, 2, []string{"grail:type=reflow", "grail:user=abc@graiobio.com"}},
+		{[]assoc.Kind{assoc.Fileset, assoc.FilesetV2}, 8, 2, 4, []string{"grail:type=reflow", "grail:user=abc@graiobio.com"}},
 	} {
 		gotLabel := 0
-		err := ass.Scan(ctx, tt.assocKind, assoc.MappingHandlerFunc(func(k digest.Digest, v []digest.Digest, mapkind assoc.Kind, lastAccessTime time.Time, labels []string) {
+		gotKind := 0
+		numPastThresholdTime := 0
+		err := ass.Scan(ctx, tt.assocKinds, assoc.MappingHandlerFunc(func(k digest.Digest, v map[assoc.Kind]digest.Digest, lastAccessTime time.Time, labels []string) {
+			var match bool
+			for _, kind := range tt.assocKinds {
+				if _, ok := v[kind]; ok {
+					gotKind++
+					match = true
+					break
+				}
+			}
+			if !match {
+				return
+			}
 			if lastAccessTime.After(thresholdTime) {
 				numPastThresholdTime++
-			}
-			switch mapkind {
-			case assoc.Fileset:
-				*numFileSets++
-			default:
-				return
 			}
 			if tt.wantLabels == nil {
 				return
@@ -564,65 +513,62 @@ func TestAssocScanValidEntries(t *testing.T) {
 				gotLabel++
 			}
 		}))
-		// Reset db.dbscanned to false so that db can be scanned in the next unit test.
-		db.dbscanned = false
+		// Reset db.scanned to false so that db can be scanned in the next unit test.
+		db.reset()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got, want := *tt.gotKind, tt.wantKind; got != want {
-			t.Errorf("kind %v: got %v, want %v", tt.assocKind, got, want)
+		if got, want := gotKind, tt.wantKind; got != want {
+			t.Errorf("kinds %v: got %v, want %v", tt.assocKinds, got, want)
 		}
 		if got, want := gotLabel, tt.wantLabel; got != want {
 			t.Errorf("label: got %v, want %v", got, want)
 		}
-	}
-	if got, want := numPastThresholdTime, 2; got != want {
-		t.Errorf("last access time past threshold: got %v, want %v", got, want)
+		if got, want := numPastThresholdTime, tt.wantPastThreshold; got != want {
+			t.Errorf("last access time past threshold: got %v, want %v", got, want)
+		}
 	}
 }
 
 func TestAssocScanInvalidEntries(t *testing.T) {
 	var (
 		ctx = context.Background()
-		db  = &mockdb{mockStore: make(map[*mockEntry]bool)}
+		db  = &mockdb{mockStore: make(map[digest.Digest]*mockEntry)}
 		ass = &Assoc{DB: db}
 	)
 	ass.TableName = mockTable
 	for _, tt := range []struct {
 		key                digest.Digest
-		val                digest.Digest
+		kind               assoc.Kind
 		lastAccessTimeUnix string
 	}{
-		{reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), "1571573191"},
-		{reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), "1572455280"},
-		{reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), "1572448157"},
-		{reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), "1568099519"},
-		{reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), ""},
-		{reflow.Digester.Rand(nil), reflow.Digester.Rand(nil), "1568099519"},
+		{reflow.Digester.Rand(nil), assoc.Fileset, "1571573191"},
+		{reflow.Digester.Rand(nil), assoc.Fileset, "1572455280"},
+		{reflow.Digester.Rand(nil), assoc.Fileset, "1572448157"},
+		{reflow.Digester.Rand(nil), assoc.Fileset, "1568099519"},
+		{reflow.Digester.Rand(nil), assoc.Fileset, ""},
+		{reflow.Digester.Rand(nil), assoc.Fileset, "1568099519"},
+		{reflow.Digester.Rand(nil), assoc.FilesetV2, "1571573191"},
+		{reflow.Digester.Rand(nil), assoc.FilesetV2, "1568099519"},
+		{reflow.Digester.Rand(nil), assoc.FilesetV2, ""},
+		{reflow.Digester.Rand(nil), assoc.FilesetV2, "1568099519"},
 	} {
-		entry := mockEntry{
-			Attributes: map[string]*dynamodb.AttributeValue{
-				"ID": {S: aws.String(tt.key.String())},
-			},
-		}
-		if !tt.val.IsZero() {
-			entry.Attributes[colmap[assoc.Fileset]] = &dynamodb.AttributeValue{S: aws.String(tt.val.String())}
-		}
+		entry := newMockEntry(tt.kind, tt.key)
 		if tt.lastAccessTimeUnix != "" {
 			entry.Attributes["LastAccessTime"] = &dynamodb.AttributeValue{N: aws.String(tt.lastAccessTimeUnix)}
 		}
-		db.mockStore[&entry] = true
+		db.mockStore[tt.key] = entry
 	}
 
 	// Scan should only scan entries with a LastAccessTime column.
 	var validEntries int
-	err := ass.Scan(ctx, assoc.Fileset, assoc.MappingHandlerFunc(func(k digest.Digest, v []digest.Digest, mapkind assoc.Kind, lastAccessTime time.Time, labels []string) {
+	err := ass.Scan(ctx, []assoc.Kind{assoc.Fileset, assoc.FilesetV2}, assoc.MappingHandlerFunc(func(k digest.Digest, v map[assoc.Kind]digest.Digest, lastAccessTime time.Time, labels []string) {
 		validEntries++
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := validEntries, 5; got != want {
+	if got, want := validEntries, 8; got != want {
 		t.Errorf("got %d valid entries, want %d", got, want)
 	}
 }
@@ -637,7 +583,7 @@ func (t testSet) Contains(k digest.Digest) bool {
 func TestCollectWithThreshold(t *testing.T) {
 	var (
 		ctx              = context.Background()
-		db               = &mockdb{mockStore: make(map[*mockEntry]bool)}
+		db               = &mockdb{mockStore: make(map[digest.Digest]*mockEntry)}
 		ass              = &Assoc{DB: db}
 		threshold        = time.Unix(1000000, 0)
 		liveset, deadset = make(testSet), make(testSet)
@@ -669,7 +615,7 @@ func TestCollectWithThreshold(t *testing.T) {
 			entry.Attributes["LastAccessTime"] = &dynamodb.AttributeValue{N: aws.String(tt.lastAccessTimeUnix)}
 		}
 
-		db.mockStore[&entry] = true
+		db.mockStore[tt.key] = &entry
 		if tt.liveset {
 			liveset[tt.key] = struct{}{}
 		}
@@ -688,7 +634,7 @@ func TestCollectWithThreshold(t *testing.T) {
 		t.Fatalf("got %d mock entries, want %d", got, want)
 	}
 	// Allow db to be scanned for a non-dry run.
-	db.dbscanned = false
+	db.reset()
 
 	if err := ass.CollectWithThreshold(ctx, liveset, deadset, threshold, 300, false); err != nil {
 		t.Fatal(err)
@@ -697,7 +643,7 @@ func TestCollectWithThreshold(t *testing.T) {
 		t.Fatalf("got %d mock entries, want %d", got, want)
 	}
 	var ignoreKeyFound bool
-	for k := range db.mockStore {
+	for _, k := range db.mockStore {
 		key, err := reflow.Digester.Parse(*k.Attributes["ID"].S)
 		if err != nil {
 			t.Fatal(err)

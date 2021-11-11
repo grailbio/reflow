@@ -32,16 +32,16 @@ const (
 // MappingHandler is an interface for handling a mapping while scanning.
 type MappingHandler interface {
 	// HandleMapping handles a scanned association.
-	HandleMapping(ctx context.Context, k digest.Digest, v []digest.Digest, kind Kind, lastAccessTime time.Time, labels []string)
+	HandleMapping(ctx context.Context, k digest.Digest, v map[Kind]digest.Digest, lastAccessTime time.Time, labels []string)
 }
 
 // MappingHandlerFunc is a convenience type to avoid having to declare a struct
 // to implement the MappingHandler interface.
-type MappingHandlerFunc func(k digest.Digest, v []digest.Digest, kind Kind, lastAccessTime time.Time, labels []string)
+type MappingHandlerFunc func(k digest.Digest, v map[Kind]digest.Digest, lastAccessTime time.Time, labels []string)
 
 // HandleMapping implements the MappingHandler interface.
-func (h MappingHandlerFunc) HandleMapping(_ context.Context, k digest.Digest, v []digest.Digest, kind Kind, lastAccessTime time.Time, labels []string) {
-	h(k, v, kind, lastAccessTime, labels)
+func (h MappingHandlerFunc) HandleMapping(_ context.Context, k digest.Digest, v map[Kind]digest.Digest, lastAccessTime time.Time, labels []string) {
+	h(k, v, lastAccessTime, labels)
 }
 
 // Key is the (key, kind) pair which uniquely identifies a value in the assoc.
@@ -114,7 +114,7 @@ type Assoc interface {
 
 	// Scan calls the handler function for every association in the mapping.
 	// Note that the handler function may be called asynchronously from multiple threads.
-	Scan(ctx context.Context, kind Kind, handler MappingHandler) error
+	Scan(ctx context.Context, kinds []Kind, handler MappingHandler) error
 
 	// Delete deletes the key k unconditionally from the provided assoc.
 	Delete(ctx context.Context, k digest.Digest) error

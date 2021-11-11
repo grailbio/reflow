@@ -309,7 +309,7 @@ func TestCacheLookupFilesetMigration(t *testing.T) {
 	eval := flow.NewEval(extern, config)
 
 	// TODO(ghorrell): remove once fileset migration is complete
-	fs := testutil.WriteFiles(eval.Repository)
+	fs := testutil.WriteFiles(eval.Repository, "foo", "bar")
 	buf := new(bytes.Buffer)
 	wErr := fs.Write(buf, assoc.Fileset, true, true)
 	if wErr != nil {
@@ -335,8 +335,12 @@ func TestCacheLookupFilesetMigration(t *testing.T) {
 	if !e.Equiv() { //no flows to be executed, eval will read v1 fileset format
 		t.Error("did not expect any flows to be executed")
 	}
+
 	// expect eval to also writeback v2 format
-	testutil.Exists(eval, extern.Digest())
+	fsWriteback := testutil.Value(eval, extern.Digest())
+	if diff, nomatch := fsWriteback.Diff(fs); nomatch {
+		t.Errorf("expected writeback fs to match input fs but found following diff: %s", diff)
+	}
 }
 
 func TestCacheLookup(t *testing.T) {

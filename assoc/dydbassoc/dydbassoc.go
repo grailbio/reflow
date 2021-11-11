@@ -387,7 +387,7 @@ func (a *Assoc) Get(ctx context.Context, kind assoc.Kind, k digest.Digest) (dige
 		}
 		item = resp.Item[col]
 	}
-	if item == nil || (kind == assoc.Fileset && item.S == nil) {
+	if item == nil || (kind == assoc.Fileset && item.S == nil) || (kind == assoc.FilesetV2 && item.S == nil) {
 		return k, v, errors.E("lookup", k, errors.NotExist)
 	}
 	if item.L != nil {
@@ -746,16 +746,20 @@ func (a *Assoc) Count(ctx context.Context) (int64, error) {
 
 // Scan calls the handler function for every association in the mapping.
 // Note that the handler function may be called asynchronously from multiple threads.
-func (a *Assoc) Scan(ctx context.Context, kind assoc.Kind, mappingHandler assoc.MappingHandler) error {
+func (a *Assoc) Scan(ctx context.Context, kinds []assoc.Kind, mappingHandler assoc.MappingHandler) error {
 	reqStartTime := time.Now()
 	defer func() {
 		metrics.GetDydbassocOpLatencySecondsHistogram(ctx, "scan").Observe(time.Now().Sub(reqStartTime).Seconds())
 	}()
 
 	scanner := newScanner(a)
-	colname, ok := colmap[kind]
-	if !ok {
-		panic("invalid kind")
+	colnameByKind := make(map[assoc.Kind]string)
+	for _, kind := range kinds {
+		if colname, ok := colmap[kind]; !ok {
+			panic("invalid kind")
+		} else {
+			colnameByKind[kind] = colname
+		}
 	}
 
 	return scanner.Scan(ctx, ItemsHandlerFunc(func(items Items) error {
@@ -775,25 +779,35 @@ func (a *Assoc) Scan(ctx context.Context, kind assoc.Kind, mappingHandler assoc.
 				continue
 			}
 
-			if item[colname] != nil {
-				var labels []string
-				if item["Labels"] != nil {
-					err := dynamodbattribute.Unmarshal(item["Labels"], &labels)
+			v := make(map[assoc.Kind]digest.Digest)
+			for kind, colname := range colnameByKind {
+				if item[colname] != nil {
+					dbval := *item[colname]
+					var d digest.Digest
+					d, err = reflow.Digester.Parse(*dbval.S)
 					if err != nil {
-						log.Errorf("invalid label: %v", err)
+						log.Errorf("invalid digest of kind %v for dynamodb entry %v", kind, item)
 						continue
 					}
+					v[kind] = d
 				}
+			}
 
-				dbval := *item[colname]
-				d, err := reflow.Digester.Parse(*dbval.S)
+			// if any of the parameter kinds are associated with this key, call the mapping handler
+			if len(v) == 0 {
+				continue
+			}
+
+			var labels []string
+			if item["Labels"] != nil {
+				err = dynamodbattribute.Unmarshal(item["Labels"], &labels)
 				if err != nil {
-					log.Errorf("invalid digest of kind %v for dynamodb entry %v", kind, item)
+					log.Errorf("invalid label: %v", err)
 					continue
 				}
-				v := []digest.Digest{d}
-				mappingHandler.HandleMapping(ctx, k, v, kind, time.Unix(itemAccessTime, 0), labels)
 			}
+
+			mappingHandler.HandleMapping(ctx, k, v, time.Unix(itemAccessTime, 0), labels)
 		}
 		return nil
 	}))
