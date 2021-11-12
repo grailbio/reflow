@@ -708,27 +708,34 @@ func TestRunsTimeBucketQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := len(mockdb.qinputs), 2; got != want {
+	queries := mockdb.qinputs
+	if got, want := len(queries), 2; got != want {
 		t.Fatalf("expected %v sub queries, got %v", want, got)
 	}
-	//	log.Printf("before: %v", mockdb.qinputs)
-	sort.Slice(mockdb.qinputs, func(i, j int) bool {
-		di, _ := time.Parse(dateLayout, *mockdb.qinputs[i].ExpressionAttributeValues[":date"].S)
-		dj, _ := time.Parse(dateLayout, *mockdb.qinputs[j].ExpressionAttributeValues[":date"].S)
+	// We expect this test to generate two different queries when we call:
+	// taskb.Tasks(context.Background(), query)
+	// The queries are issued concurrently to dynamodb (and we use mockDynamodbQueryTasks for tests).
+	// `mockDynamodbQueryTasks` simply adds the queries it sees to a list, and hence can be in unpredictable order.
+
+	// For the purpose of testing, the assertions below expect to iterate over the queries in time order
+	// and hence we sort the queries here.
+	sort.Slice(queries, func(i, j int) bool {
+		di, _ := time.Parse(dateLayout, *queries[i].ExpressionAttributeValues[":date"].S)
+		dj, _ := time.Parse(dateLayout, *queries[j].ExpressionAttributeValues[":date"].S)
 		if di.Before(dj) {
 			return true
 		}
-		_, ok1 := mockdb.qinputs[i].ExpressionAttributeValues[":ka"]
-		_, ok2 := mockdb.qinputs[j].ExpressionAttributeValues[":ka"]
+		_, ok1 := queries[i].ExpressionAttributeValues[":ka"]
+		_, ok2 := queries[j].ExpressionAttributeValues[":ka"]
 		if ok1 && ok2 {
-			hi, _ := time.Parse(timeLayout, *mockdb.qinputs[i].ExpressionAttributeValues[":ka"].S)
-			hj, _ := time.Parse(timeLayout, *mockdb.qinputs[j].ExpressionAttributeValues[":ka"].S)
+			hi, _ := time.Parse(timeLayout, *queries[i].ExpressionAttributeValues[":ka"].S)
+			hj, _ := time.Parse(timeLayout, *queries[j].ExpressionAttributeValues[":ka"].S)
 			return hi.Before(hj)
 		}
 		return i < j
 	})
 	dt := date(since).Format(dateLayout)
-	for _, qinput := range mockdb.qinputs {
+	for i, qinput := range queries {
 		for _, test := range []struct {
 			name     string
 			actual   string
@@ -738,16 +745,27 @@ func TestRunsTimeBucketQuery(t *testing.T) {
 			{"index", *qinput.IndexName, dateKeepaliveIndex},
 			{"type", *qinput.ExpressionAttributeValues[":type"].S, "run"},
 			{"date", *qinput.ExpressionAttributeValues[":date"].S, dt},
-			{"keepalive", *mockdb.qinput.ExpressionAttributeValues[":ka"].S, since.Format(timeLayout)},
-			{"key condition", *mockdb.qinput.KeyConditionExpression, "#Date = :date and " + colKeepalive + " > :ka"},
 			{"filter expression", *qinput.FilterExpression, "#Type = :type and #User = :user"},
-			{"attribute name user", *mockdb.qinput.ExpressionAttributeNames["#User"], colUser},
-			{"attribute name date", *mockdb.qinput.ExpressionAttributeNames["#Date"], colDate},
-			{"attribute name type", *mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
+			{"attribute name user", *qinput.ExpressionAttributeNames["#User"], colUser},
+			{"attribute name date", *qinput.ExpressionAttributeNames["#Date"], colDate},
+			{"attribute name type", *qinput.ExpressionAttributeNames["#Type"], colType},
 		} {
 			if test.expected != test.actual {
 				t.Errorf("%s: expected %s, got %v", test.name, test.expected, test.actual)
 			}
+		}
+		// We expect to have generated two different queries with variations only
+		// in the keepalive field and the KeyConditionExpression (while the rest of the fields are the same).
+		// The queries are also expected to be in sorted order  (see `sort.Slice` above)
+		wantKa, wantKeyCond := since.Format(timeLayout), "#Date = :date and " + colKeepalive + " > :ka"
+		if i == 1 {
+			wantKa, wantKeyCond = until.Format(timeLayout), "#Date = :date and " + colKeepalive + " < :ka"
+		}
+		if got := *qinput.ExpressionAttributeValues[":ka"].S; got != wantKa {
+			t.Errorf("[%d] keepalive: got %s, want %s", i, got, wantKa)
+		}
+		if got := *qinput.KeyConditionExpression; got != wantKeyCond {
+			t.Errorf("[%d] key condition: got %s, want %s", i, got, wantKeyCond)
 		}
 		dt = date(since.Add(time.Hour * 24)).Format(dateLayout)
 	}
@@ -798,6 +816,9 @@ type mockEntry struct {
 type mockDynamodbQueryTasks struct {
 	dynamodbiface.DynamoDBAPI
 	mu          sync.Mutex
+	// TODO(swami):  Remove `qinput` since it is redundant.
+	// However, if multiple queries are being issued in a test, the presence of both can cause
+	// flakiness in tests merely due to typos or copy-paste errors.
 	qinput      dynamodb.QueryInput
 	qinputs     []dynamodb.QueryInput
 	id          digest.Digest
@@ -1126,26 +1147,34 @@ func TestTasksTimeBucketQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := len(mockdb.qinputs), 2; got != want {
+	queries := mockdb.qinputs
+	if got, want := len(queries), 2; got != want {
 		t.Fatalf("expected %v sub queries, got %v", want, got)
 	}
-	sort.Slice(mockdb.qinputs, func(i, j int) bool {
-		di, _ := time.Parse(dateLayout, *mockdb.qinputs[i].ExpressionAttributeValues[":date"].S)
-		dj, _ := time.Parse(dateLayout, *mockdb.qinputs[j].ExpressionAttributeValues[":date"].S)
+	// We expect this test to generate two different queries when we call:
+	// taskb.Tasks(context.Background(), query)
+	// The queries are issued concurrently to dynamodb (and we use mockDynamodbQueryTasks for tests).
+	// `mockDynamodbQueryTasks` simply adds the queries it sees to a list, and hence can be in unpredictable order.
+
+	// For the purpose of testing, the assertions below expect to iterate over the queries in time order
+	// and hence we sort the queries here.
+	sort.Slice(queries, func(i, j int) bool {
+		di, _ := time.Parse(dateLayout, *queries[i].ExpressionAttributeValues[":date"].S)
+		dj, _ := time.Parse(dateLayout, *queries[j].ExpressionAttributeValues[":date"].S)
 		if di.Before(dj) {
 			return true
 		}
-		_, ok1 := mockdb.qinputs[i].ExpressionAttributeValues[":ka"]
-		_, ok2 := mockdb.qinputs[j].ExpressionAttributeValues[":ka"]
+		_, ok1 := queries[i].ExpressionAttributeValues[":ka"]
+		_, ok2 := queries[j].ExpressionAttributeValues[":ka"]
 		if ok1 && ok2 {
-			hi, _ := time.Parse(timeLayout, *mockdb.qinputs[i].ExpressionAttributeValues[":ka"].S)
-			hj, _ := time.Parse(timeLayout, *mockdb.qinputs[j].ExpressionAttributeValues[":ka"].S)
+			hi, _ := time.Parse(timeLayout, *queries[i].ExpressionAttributeValues[":ka"].S)
+			hj, _ := time.Parse(timeLayout, *queries[j].ExpressionAttributeValues[":ka"].S)
 			return hi.Before(hj)
 		}
 		return i < j
 	})
 	dt := date(since).Format(dateLayout)
-	for _, qinput := range mockdb.qinputs {
+	for i, qinput := range queries {
 		for _, test := range []struct {
 			name     string
 			actual   string
@@ -1155,15 +1184,26 @@ func TestTasksTimeBucketQuery(t *testing.T) {
 			{"index", *qinput.IndexName, dateKeepaliveIndex},
 			{"type", *qinput.ExpressionAttributeValues[":type"].S, "task"},
 			{"date", *qinput.ExpressionAttributeValues[":date"].S, dt},
-			{"keepalive", *mockdb.qinput.ExpressionAttributeValues[":ka"].S, since.Format(timeLayout)},
-			{"key condition", *mockdb.qinput.KeyConditionExpression, "#Date = :date and " + colKeepalive + " > :ka"},
 			{"filter expression", *qinput.FilterExpression, "#Type = :type"},
-			{"attribute name date", *mockdb.qinput.ExpressionAttributeNames["#Date"], colDate},
-			{"attribute name type", *mockdb.qinput.ExpressionAttributeNames["#Type"], colType},
+			{"attribute name date", *qinput.ExpressionAttributeNames["#Date"], colDate},
+			{"attribute name type", *qinput.ExpressionAttributeNames["#Type"], colType},
 		} {
 			if test.expected != test.actual {
 				t.Errorf("%s: expected %s, got %v", test.name, test.expected, test.actual)
 			}
+		}
+		// We expect to have generated two different queries with variations only
+		// in the keepalive field and the KeyConditionExpression (while the rest of the fields are the same).
+		// The queries are also expected to be in sorted order  (see `sort.Slice` above)
+		wantKa, wantKeyCond := since.Format(timeLayout), "#Date = :date and " + colKeepalive + " > :ka"
+		if i == 1 {
+			wantKa, wantKeyCond = until.Format(timeLayout), "#Date = :date and " + colKeepalive + " < :ka"
+		}
+		if got := *qinput.ExpressionAttributeValues[":ka"].S; got != wantKa {
+			t.Errorf("[%d] keepalive: got %s, want %s", i, got, wantKa)
+		}
+		if got := *qinput.KeyConditionExpression; got != wantKeyCond {
+			t.Errorf("[%d] key condition: got %s, want %s", i, got, wantKeyCond)
 		}
 		dt = date(since.Add(time.Hour * 24)).Format(dateLayout)
 	}
