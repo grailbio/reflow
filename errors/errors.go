@@ -30,6 +30,7 @@ import (
 	"sync"
 
 	"github.com/grailbio/base/digest"
+	baseerrors "github.com/grailbio/base/errors"
 )
 
 // Separator is inserted between chained errors while rendering.
@@ -343,6 +344,23 @@ func Recover(err error) *Error {
 	return E(err).(*Error)
 }
 
+// RecoverError recovers a *Error from the given error, and if is of type:
+// - *Error, it is returned as-is.
+// - *baseerrors.Error, a *Error is returned with a translated Kind.
+// RecoverError returns whether the given error was successfully recovered.
+func RecoverError(err error) (*Error, bool) {
+	if err == nil {
+		return nil, false
+	}
+	if er, ok := err.(*Error); ok {
+		return er, true
+	}
+	if bErr, ok := err.(*baseerrors.Error); ok {
+		return E(BaseToReflow(bErr.Kind, bErr.Severity), bErr.Error()).(*Error), true
+	}
+	return E(err).(*Error), false
+}
+
 // Copy creates a shallow copy of Error e.
 func (e *Error) Copy() *Error {
 	f := new(Error)
@@ -503,8 +521,33 @@ func Transient(err error) bool {
 // Restartable determines if the provided error is restartable.
 // Restartable errors include transient errors and network errors.
 // The passed in error must not be nil.
+// Restartable treats errors of kind `Eval` as a special case in the following ways:
+// - if the given err is of type `Eval`, then it's root causes are traversed and
+//   checked if any of the underlying causes are transient or network errors.
+// - when traversing causes, any "github.com/grailbio/base/errors" error is recovered
+//   into "github.com/grailbio/reflow/errors" with its kind derived from base kind and severity.
 func Restartable(err error) bool {
-	return Transient(err) || Is(Net, err)
+	if !Is(Eval, err) {
+		return Transient(err) || Is(Net, err)
+	}
+	var (
+		e         = Recover(err)
+		recovered bool
+	)
+	for e.Err != nil {
+		if e, recovered = RecoverError(e.Err); !recovered {
+			break
+		}
+		switch e.Kind {
+		case Canceled, Fatal, NotSupported, NotAllowed:
+			// Interpret these error kinds as not transient, regardless of underlying cause.
+			return false
+		}
+		if Transient(e) || Is(Net, e) {
+			return true
+		}
+	}
+	return false
 }
 
 // NonRetryable tells whether error err is likely fatal, and thus not
@@ -592,4 +635,54 @@ func (e *Multi) Combined() error {
 	}
 	sort.Strings(errStrs)
 	return fmt.Errorf("[%d errs]: %s", len(e.errors), strings.Join(errStrs, ", "))
+}
+
+// BaseToReflow interprets base error Kind and Severity to reflow error Kind.
+func BaseToReflow(baseKind baseerrors.Kind, baseSeverity baseerrors.Severity) Kind {
+	switch baseKind {
+	case baseerrors.Canceled:
+		return Canceled
+	case baseerrors.Integrity:
+		return Integrity
+	case baseerrors.Invalid:
+		return Invalid
+	case baseerrors.Net:
+		return Net
+	case baseerrors.NotAllowed, baseerrors.Exists:
+		return NotAllowed
+	case baseerrors.NotSupported:
+		return NotSupported
+	case baseerrors.Precondition:
+		return Precondition
+	case baseerrors.Timeout:
+		return Timeout
+	case baseerrors.TooManyTries:
+		return TooManyTries
+	case baseerrors.Unavailable:
+		return Unavailable
+	case baseerrors.ResourcesExhausted:
+		return ResourcesExhausted
+	case baseerrors.NotExist:
+		if k := kindFromBaseSeverity(baseSeverity); k == Temporary {
+			return Temporary
+		}
+		return NotExist
+	case baseerrors.Other:
+		if k := kindFromBaseSeverity(baseSeverity); k == Temporary {
+			return Temporary
+		}
+	}
+	return Other
+}
+
+func kindFromBaseSeverity(severity baseerrors.Severity) Kind {
+	switch severity {
+	case baseerrors.Unknown:
+		return Other
+	case baseerrors.Fatal:
+		return Fatal
+	case baseerrors.Temporary, baseerrors.Retriable:
+		return Temporary
+	}
+	return Other
 }

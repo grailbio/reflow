@@ -11,6 +11,8 @@ import (
 	"os"
 	"sync"
 	"testing"
+
+	baseerrors "github.com/grailbio/base/errors"
 )
 
 func roundtripJSON(in interface{}, out interface{}) error {
@@ -96,7 +98,7 @@ func TestError(t *testing.T) {
 
 func TestErrorUnsupportedArg(t *testing.T) {
 	e := E("open", "x://google.com", 10, New(`scheme "x" not recognized`))
-	if got, want := e.Error(), `open x://google.com illegal (int 10 from errors_test.go:98): scheme "x" not recognized`; got != want {
+	if got, want := e.Error(), `open x://google.com illegal (int 10 from errors_test.go:100): scheme "x" not recognized`; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
@@ -119,6 +121,34 @@ func TestIs(t *testing.T) {
 	}
 	if got, want := Is(OOM, nil), false; got != want {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestRestartable(t *testing.T) {
+	for _, tc := range []struct {
+		err         error
+		transient   bool
+		restartable bool
+	}{
+		{New("some error"), false, false},
+		{E(Timeout, "some timeout error"), true, true},
+		{E(TooManyTries, "some too many tries error"), true, true},
+		{E(Eval, E(Timeout, "some timeout error")), true, true},
+		{E(Eval, E(TooManyTries, "some too many tries error")), true, true},
+		{E(Eval, E(Integrity, "some integrity error")), false, false},
+		{E(Fatal, E(Timeout, "some timeout error")), false, false},
+		{E(Eval, E(OOM, "some oom error")), false, false},
+		{E(OOM, "some oom error"), false, false},
+		{E(NotAllowed, E(Timeout, "some timeout error")), false, false},
+		{E(Net, "some network error"), false, true},
+		{E(Eval, baseerrors.E(baseerrors.TooManyTries, "some too many tries error")), true, true},
+	} {
+		if got, want := Restartable(tc.err), tc.restartable; got != want {
+			t.Errorf("Restartable(): got %v, want %v: for error %v", got, want, tc.err)
+		}
+		if got, want := Restartable(Recover(tc.err)), tc.restartable; got != want {
+			t.Errorf("Restartable(Recover()): got %v, want %v: for error %v", got, want, tc.err)
+		}
 	}
 }
 

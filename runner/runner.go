@@ -22,7 +22,7 @@ import (
 
 //go:generate stringer -type=Phase
 
-const maxTries = 10
+const maxAttempts = 3
 
 // Phase enumerates the possible phases of a run.
 type Phase int
@@ -60,9 +60,8 @@ type State struct {
 	Result string
 	// Err contains runtime errors.
 	Err *errors.Error
-	// NumTries is the number of evaluation attempts
-	// that have been made.
-	NumTries int
+	// AttemptNumber is the evaluation attempt number.
+	AttemptNumber int
 	// LastTry is the timestamp of the last evaluation attempt.
 	LastTry time.Time
 	// Created is the time of the run's creation.
@@ -81,7 +80,7 @@ func (s *State) Reset() {
 	s.Phase = Init
 	s.Result = ""
 	s.Err = nil
-	s.NumTries = 0
+	s.AttemptNumber = 0
 	s.LastTry = time.Time{}
 	s.Created = time.Time{}
 	s.Completion = time.Time{}
@@ -95,7 +94,7 @@ func (s State) String() string {
 	case Eval:
 		return fmt.Sprintf("eval")
 	case Retry:
-		return fmt.Sprintf("retry error %v try %d/%d last %v", s.Err, s.NumTries+1, maxTries, s.LastTry)
+		return fmt.Sprintf("retry (last attempt at: %s) due to: %v", s.LastTry.Format(time.RFC3339), s.Err)
 	case Done:
 		if s.Err != nil {
 			return fmt.Sprintf("done error %v", s.Err)
@@ -175,9 +174,9 @@ func (r *Runner) Do(ctx context.Context) bool {
 		// retry budget). We could measure this by the number of evaluation
 		// steps that take place. We'll retry as long as they are
 		// monotonically increasing.
-		r.NumTries++
-		if r.NumTries > maxTries {
-			r.Err = errors.Recover(errors.E(errors.TooManyTries, r.Err))
+		r.AttemptNumber++
+		if r.AttemptNumber >= maxAttempts {
+			r.Log.Debugf("marking run done after exhausting %d/%d attempts: %v", r.AttemptNumber, maxAttempts, r.Err)
 			r.Completion = time.Now()
 			r.Phase = Done
 			break
@@ -186,6 +185,8 @@ func (r *Runner) Do(ctx context.Context) bool {
 		if d := time.Since(r.LastTry); d < time.Minute {
 			w = time.Minute - d
 		}
+		// TODO(swami): Why do we need this short wait before retrying evaluation ?
+		r.Log.Debugf("retrying run in %s", w)
 		time.Sleep(w)
 		r.Phase = Init
 		r.Err = nil

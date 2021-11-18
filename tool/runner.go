@@ -388,7 +388,7 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 	for ok := true; ok; {
 		ok = run.Do(ctx)
 		if run.State.Phase == runner.Retry {
-			r.Log.Printf("retrying error %v", run.State.Err)
+			r.Log.Printf("runner state 'Retry': %s", run.State)
 		}
 		if err = stateFile.Marshal(run.State); err != nil {
 			r.Log.Errorf("failed to marshal state: %v", err)

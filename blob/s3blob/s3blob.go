@@ -612,7 +612,7 @@ func (b *Bucket) copyObject(ctx context.Context, key string, src *Bucket, srcKey
 	if err != nil {
 		// convert from base to reflow error.
 		baseErr := baseerrors.Recover(err)
-		err = errors.E(baseErr.Message, baseToReflow(baseErr.Kind, baseErr.Severity), baseErr.Err)
+		err = errors.E(baseErr.Message, errors.BaseToReflow(baseErr.Kind, baseErr.Severity), baseErr.Err)
 	}
 	return err
 }
@@ -632,60 +632,10 @@ func (b *Bucket) getObjectInput(key, etag string) *s3.GetObjectInput {
 func kind(err error) errors.Kind {
 	if aerr, ok := err.(awserr.Error); ok {
 		k, s := s3util.KindAndSeverity(aerr)
-		return baseToReflow(k, s)
+		return errors.BaseToReflow(k, s)
 	}
 	if re := errors.Recover(err); re != nil {
 		return re.Kind
-	}
-	return errors.Other
-}
-
-// baseToReflow interprets base error Kind and Severity to reflow error Kind.
-func baseToReflow(baseKind baseerrors.Kind, baseSeverity baseerrors.Severity) errors.Kind {
-	switch baseKind {
-	case baseerrors.Canceled:
-		return errors.Canceled
-	case baseerrors.Integrity:
-		return errors.Integrity
-	case baseerrors.Invalid:
-		return errors.Invalid
-	case baseerrors.Net:
-		return errors.Net
-	case baseerrors.NotAllowed, baseerrors.Exists:
-		return errors.NotAllowed
-	case baseerrors.NotSupported:
-		return errors.NotSupported
-	case baseerrors.Precondition:
-		return errors.Precondition
-	case baseerrors.Timeout:
-		return errors.Timeout
-	case baseerrors.TooManyTries:
-		return errors.TooManyTries
-	case baseerrors.Unavailable:
-		return errors.Unavailable
-	case baseerrors.ResourcesExhausted:
-		return errors.ResourcesExhausted
-	case baseerrors.NotExist:
-		if k := kindFromBaseSeverity(baseSeverity); k == errors.Temporary {
-			return errors.Temporary
-		}
-		return errors.NotExist
-	case baseerrors.Other:
-		if k := kindFromBaseSeverity(baseSeverity); k == errors.Temporary {
-			return errors.Temporary
-		}
-	}
-	return errors.Other
-}
-
-func kindFromBaseSeverity(severity baseerrors.Severity) errors.Kind {
-	switch severity {
-	case baseerrors.Unknown:
-		return errors.Other
-	case baseerrors.Fatal:
-		return errors.Fatal
-	case baseerrors.Temporary, baseerrors.Retriable:
-		return errors.Temporary
 	}
 	return errors.Other
 }
