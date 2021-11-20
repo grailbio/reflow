@@ -168,6 +168,16 @@ func (r *InmemoryRepository) Copy() *InmemoryRepository {
 	return rNew
 }
 
+// Vacuum moves all objects from the given repository to this one.
+func (r *InmemoryRepository) Vacuum(ctx context.Context, repo *InmemoryRepository) {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	for k, v := range repo.files {
+		r.set(k, v)
+	}
+	repo.files = nil
+}
+
 // InmemoryLocatorRepository is an in-memory repository used for testing which also implements scheduler.blobLocator.
 type InmemoryLocatorRepository struct {
 	*InmemoryRepository

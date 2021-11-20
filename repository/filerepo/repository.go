@@ -321,13 +321,17 @@ func (r *Repository) Materialize(root string, binds map[string]digest.Digest) er
 func (r *Repository) Vacuum(ctx context.Context, repo *Repository) error {
 	var w walker
 	w.Init(repo)
+	var errs errors.Multi
 	for w.Scan() {
 		if err := r.InstallDigest(w.Digest(), w.Path()); err != nil {
-			return err
+			errs.Add(errors.E("vacuum", w.Digest(), err))
 		}
 	}
-	repo.Collect(ctx, nil) // ignore errors
-	return w.Err()
+	if err := w.Err(); err != nil {
+		errs.Add(err)
+	}
+	_ = repo.Collect(ctx, nil) // ignore errors
+	return errs.Combined()
 }
 
 // Scan invokes handler for each object in the repository.

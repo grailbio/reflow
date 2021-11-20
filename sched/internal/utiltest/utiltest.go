@@ -322,6 +322,7 @@ func (a *TestAlloc) Load(ctx context.Context, url *url.URL, fs reflow.Fileset) (
 		resolved = make(map[digest.Digest]reflow.File)
 		id       digest.Digest
 		res      reflow.File
+		tempRepo = testutil.NewInmemoryRepository("")
 	)
 	for _, file := range fs.Files() {
 		if file.IsRef() {
@@ -338,13 +339,13 @@ func (a *TestAlloc) Load(ctx context.Context, url *url.URL, fs reflow.Fileset) (
 			if rc, err = repo.Get(ctx, id); err != nil {
 				return reflow.Fileset{}, err
 			}
-			if _, err = a.repository.Put(ctx, rc); err != nil {
+			if _, err = tempRepo.Put(ctx, rc); err != nil {
 				return reflow.Fileset{}, err
 			}
 			if err = rc.Close(); err != nil {
 				return reflow.Fileset{}, err
 			}
-			res, err = a.repository.Stat(ctx, id)
+			res, err = tempRepo.Stat(ctx, id)
 			if err != nil {
 				return reflow.Fileset{}, err
 			}
@@ -355,11 +356,11 @@ func (a *TestAlloc) Load(ctx context.Context, url *url.URL, fs reflow.Fileset) (
 			if err != nil {
 				return reflow.Fileset{}, err
 			}
-			id, err = a.repository.Put(ctx, r)
+			id, err = tempRepo.Put(ctx, r)
 			if err != nil {
 				return reflow.Fileset{}, err
 			}
-			res, err = a.repository.Stat(ctx, id)
+			res, err = tempRepo.Stat(ctx, id)
 			if err != nil {
 				return reflow.Fileset{}, err
 			}
@@ -367,6 +368,7 @@ func (a *TestAlloc) Load(ctx context.Context, url *url.URL, fs reflow.Fileset) (
 		a.refCount[res.ID]++
 		resolved[file.Digest()] = res
 	}
+	a.repository.Vacuum(ctx, tempRepo)
 	out, ok := fs.Subst(resolved)
 	if !ok {
 		return reflow.Fileset{}, errors.New("unresolved files")

@@ -965,6 +965,45 @@ func TestSchedulerLoadFailRetryTask(t *testing.T) {
 	}
 }
 
+// TestSchedulerFailedLoadSuccessfulUnload tests whether the scheduler
+// is able to do a successful unload even if it fails to load some files.
+// In this test, the exec will not run (due to failed load), but we verify
+// whether the unload prevents a panic and if other loaded data is unloaded.
+func TestSchedulerFailedLoadSuccessfulUnload(t *testing.T) {
+	scheduler, cluster, shutdown := newTestScheduler(t)
+	defer shutdown()
+	ctx := context.Background()
+	repo := testutil.NewInmemoryRepository("")
+	in1 := utiltest.RandomFileset(repo)
+	expectExists(t, repo, in1)
+	in2 := utiltest.RandomFileset(repo)
+	expectExists(t, repo, in2)
+
+	// Add a non-existent source to in2.
+	in2.Map["file_x"] = reflow.File{Source: fmt.Sprintf("%s/%s", repo.URL(), reflow.Digester.Rand(nil))}
+
+	task := utiltest.NewTask(10, 10<<30, 0).WithRepo(repo)
+	task.Config.Args = []reflow.Arg{{Fileset: &in1}, {Fileset: &in2}}
+
+	scheduler.Submit(task)
+	req := <-cluster.Req()
+	if got, want := req.Requirements, utiltest.NewRequirements(10, 10<<30, 0); !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	alloc := utiltest.NewTestAlloc(reflow.Resources{"cpu": 25, "mem": 20 << 30})
+	req.Reply <- utiltest.TestClusterAllocReply{Alloc: alloc, Err: nil}
+
+	// We expect the task to have completed (eith task.Err set).
+	if err := task.Wait(ctx, sched.TaskDone); err != nil {
+		t.Fatal(err)
+	}
+	if task.Err == nil {
+		t.Errorf("task must have failed with an error")
+	}
+	// We expect that `in1` which should've been successfully loaded to no longer exist in the alloc repository.
+	expectNotExists(t, alloc.Repository(), in1)
+}
+
 func TestSchedulerLoadUnloadFiles(t *testing.T) {
 	scheduler, cluster, shutdown := newTestScheduler(t)
 	defer shutdown()

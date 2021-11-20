@@ -395,6 +395,7 @@ func (e *Executor) unload(ctx context.Context, fs reflow.Fileset) (done <-chan s
 		r := e.refCounts[d]
 		e.refCounts[d] = refCount{count: r.count - 1, lastAccessTime: r.lastAccessTime}
 		if e.refCounts[d].count < 0 {
+			e.refCountsMu.Unlock()
 			panic(fmt.Sprintf("unload: negative ref count: %v", f.Digest()))
 		}
 		if e.refCounts[d].count == 0 {

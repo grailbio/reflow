@@ -456,7 +456,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 		state          internal.ExecState
 		tcancel        context.CancelFunc
 		tctx           context.Context
-		loadedData     sync.Map
+		loadedData     sync.Map // map[int]bool - where int is the index of task.Config.Args.
 		resultUnloaded bool
 	)
 	task.TaskDB = s.TaskDB
@@ -638,7 +638,11 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 func unload(ctx context.Context, task *Task, taskLogger *log.Logger, loadedData *sync.Map, alloc *alloc, resultUnloaded *bool) error {
 	g, gctx := errgroup.WithContext(ctx)
 	loadedData.Range(func(key, value interface{}) bool {
-		i := key.(int)
+		i, loaded := key.(int), value.(bool)
+		if !loaded {
+			// Don't unload data that wasn't loaded.
+			return true
+		}
 		fs := *task.Config.Args[i].Fileset
 		g.Go(func() error {
 			taskLogger.Debugf("unloading %v", fs.Short())
