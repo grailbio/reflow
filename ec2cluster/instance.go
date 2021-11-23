@@ -84,8 +84,9 @@ const (
 // the smallest acceptable disk sizes (GiB) per EBS volume type.
 var minDiskSizes = map[string]uint64{
 	// EBS does not allow you to create ST1 volumes smaller than 500GiB.
-	"st1": 500,
-	"gp2": 1,
+	ec2.VolumeTypeSt1: 500,
+	ec2.VolumeTypeGp2: 1,
+	ec2.VolumeTypeGp3: 1,
 }
 
 // instanceConfig represents a instance configuration.
@@ -570,7 +571,7 @@ func (i *instance) configureEBS() {
 	}
 	if min, ok := minDiskSizes[i.EBSType]; ok {
 		perEBS := i.EBSSize / uint64(i.NEBS)
-		if i.EBSType == "gp2" && perEBS > gp2PerEBSThresholdGiB {
+		if i.EBSType == ec2.VolumeTypeGp2 && perEBS > gp2PerEBSThresholdGiB {
 			min = gp2MaxThroughputMinSizeGiB
 		}
 		if perEBS < min {
@@ -1145,7 +1146,7 @@ func (i *instance) ebsDeviceMappings() []*ec2.BlockDeviceMapping {
 			Ebs: &ec2.EbsBlockDevice{
 				DeleteOnTermination: aws.Bool(true),
 				VolumeSize:          aws.Int64(200),
-				VolumeType:          aws.String("gp2"),
+				VolumeType:          aws.String(i.EBSType),
 			},
 		},
 	}

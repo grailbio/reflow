@@ -51,6 +51,7 @@ var (
 	defaultRetrier = retry.MaxRetries(retry.Backoff(5*time.Second, 30*time.Second, 1.5), maxRetries)
 	minMaxByType   = map[string]struct{ min, max data.Size }{
 		ec2.VolumeTypeGp2: {data.GiB, 16 * data.TiB},
+		ec2.VolumeTypeGp3: {data.GiB, 16 * data.TiB},
 		ec2.VolumeTypeIo1: {4 * data.GiB, 16 * data.TiB},
 	}
 )

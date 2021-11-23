@@ -114,8 +114,6 @@ type Cluster struct {
 	SecurityGroup string `yaml:"securitygroup,omitempty"`
 	// Subnet is the id of the EC2 subnet to use for cluster instances.
 	Subnet string `yaml:"subnet,omitempty"`
-	// AvailabilityZone defines which AZ to spawn instances into.
-	AvailabilityZone string `yaml:"availabilityzone,omitempty"`
 	// Region is the AWS availability region to use for launching new EC2 instances.
 	Region string `yaml:"region,omitempty"`
 	// InstanceTypesMap stores the set of admissible instance types.

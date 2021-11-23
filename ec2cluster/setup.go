@@ -14,7 +14,7 @@ import (
 // Setup sets defaults for any unset ec2 configuration values.
 func (c *Cluster) Setup(sess *session.Session) error {
 	if c.DiskType == "" {
-		c.DiskType = "gp2"
+		c.DiskType = ec2.VolumeTypeGp2
 	}
 	if c.DiskSpace == 0 {
 		c.DiskSpace = 250
