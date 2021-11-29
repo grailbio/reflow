@@ -383,11 +383,7 @@ func (p *Pool) newAlloc(id string, keepalive time.Duration) *alloc {
 	}
 	if p.Session != nil {
 		cwlclient := cloudwatchlogs.New(p.Session)
-		remoteStream, err := newCloudWatchLogs(cwlclient, remoteStreamCWLogGroupName)
-		if err != nil {
-			log.Errorf("create remote logger: %v", err)
-		}
-		e.remoteStream = remoteStream
+		e.remoteStream = newCloudWatchLogs(cwlclient, remoteStreamCWLogGroupName)
 	}
 	var taskDBAllocId reflow.StringDigest
 	if p.TaskDBPoolId.IsValid() {

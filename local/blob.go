@@ -174,6 +174,7 @@ type blobExec struct {
 	mu      sync.Mutex
 	cond    *sync.Cond
 	logfile *os.File
+	stderr  remoteLogsOutputter
 	log     *log.Logger
 
 	// Manifest stores the serializable state of the exec.
@@ -272,6 +273,9 @@ func (e *blobExec) Go(ctx context.Context) {
 		if err == nil {
 			err = e.save(state)
 		}
+	}
+	if e.stderr != nil {
+		e.stderr.Close()
 	}
 	e.log = nil
 	if e.logfile != nil {

@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-// +build !unit integration
+//go:build !unit || integration
 
 package local
 
@@ -62,8 +62,9 @@ func newTestExecutorOrSkip(t *testing.T, creds *credentials.Credentials) (*Execu
 
 type MockRemoteStream struct{}
 
-func (m MockRemoteStream) NewStream(prefix string, sType streamType) (remoteLogsOutputter, error) {
-	return &cloudWatchLogsStream{client: &cloudWatchLogs{group: "test"}, name: prefix + "/" + string(sType)}, nil
+func (m MockRemoteStream) NewStream(prefix string, sType streamType) remoteLogsOutputter {
+	client := NewMockCloudWatch()
+	return newLogStream(&cloudWatchLogs{group: "test", client: &client}, prefix+"/"+string(sType))
 }
 
 func (m MockRemoteStream) Close() error {

@@ -619,6 +619,12 @@ func (e *dockerExec) Go(ctx context.Context) {
 			err = e.save(state)
 		}
 		if state == execComplete {
+			if e.stdout != nil {
+				e.stdout.Close()
+			}
+			if e.stderr != nil {
+				e.stderr.Close()
+			}
 			if err := e.client.ContainerRemove(context.Background(), e.containerName(), types.ContainerRemoveOptions{}); err != nil {
 				e.Log.Errorf("failed to remove container %s: %s", e.containerName(), err)
 			}

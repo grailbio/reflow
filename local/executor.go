@@ -215,6 +215,7 @@ func (e *Executor) Start() error {
 			blobx := &blobExec{
 				ExecID:       id,
 				transferType: m.Config.Type,
+				stderr:       stderr,
 				log:          e.Log.Tee(stderr, ""),
 				x:            e,
 			}
@@ -257,19 +258,12 @@ func (e *Executor) getRemoteStreams(id digest.Digest, wantStdout, wantStderr boo
 	if e.remoteStream == nil {
 		return
 	}
-	var err error
 	instanceID := strings.Join([]string{e.RunID, e.URI(), id.Hex()}, "/")
 	if wantStdout {
-		so, err = e.remoteStream.NewStream(instanceID, stdout)
-		if err != nil {
-			e.Log.Errorf("creating remote logger stream: %v", err)
-		}
+		so = e.remoteStream.NewStream(instanceID, stdout)
 	}
 	if wantStderr {
-		se, err = e.remoteStream.NewStream(instanceID, stderr)
-		if err != nil {
-			e.Log.Errorf("creating remote logger stream: %v", err)
-		}
+		se = e.remoteStream.NewStream(instanceID, stderr)
 	}
 	return
 }
@@ -321,6 +315,7 @@ func (e *Executor) Put(ctx context.Context, id digest.Digest, cfg reflow.ExecCon
 			blob := &blobExec{
 				ExecID:       id,
 				transferType: cfg.Type,
+				stderr:       stderr,
 				log:          e.Log.Tee(stderr, ""),
 				x:            e,
 			}
