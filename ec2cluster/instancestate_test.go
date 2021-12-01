@@ -2,6 +2,7 @@ package ec2cluster
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -82,6 +83,29 @@ func TestInstanceStateCheapest(t *testing.T) {
 		1*time.Second, "us-west-2", nil)
 	if got, want := instances.Cheapest().Type, "c5.9xlarge"; got != want {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestInstanceStateUnavailable(t *testing.T) {
+	const sleepTime = 200 * time.Millisecond
+	instances := newInstanceState(
+		[]instanceConfig{instanceTypes["c5.2xlarge"]},
+		sleepTime, "us-west-2", nil)
+	cfg, _ := instances.Type("c5.2xlarge")
+	gotCfg, gotAvail := instances.MinAvailable(reflow.Resources{"mem": 2 << 30, "cpu": 1}, true, 100.0)
+	if wantCfg, wantAvail := cfg, true; !reflect.DeepEqual(gotCfg, wantCfg) || gotAvail != wantAvail {
+		t.Errorf("Instance type: got %v, want %v, available: got %v, want %v ", gotCfg, wantCfg, gotAvail, wantAvail)
+	}
+	instances.Unavailable(cfg)
+	zeroCfg := instanceConfig{}
+	gotCfg, gotAvail = instances.MinAvailable(reflow.Resources{"mem": 2 << 30, "cpu": 1}, true, 100.0)
+	if wantCfg, wantAvail := zeroCfg, false; !reflect.DeepEqual(gotCfg, wantCfg) || gotAvail != wantAvail {
+		t.Errorf("Instance type: got %v, want %v, available: got %v, want %v ", gotCfg, wantCfg, gotAvail, wantAvail)
+	}
+	time.Sleep(sleepTime)
+	gotCfg, gotAvail = instances.MinAvailable(reflow.Resources{"mem": 2 << 30, "cpu": 1}, true, 100.0)
+	if wantCfg, wantAvail := cfg, true; !reflect.DeepEqual(gotCfg, wantCfg) || gotAvail != wantAvail {
+		t.Errorf("Instance type: got %v, want %v, available: got %v, want %v ", gotCfg, wantCfg, gotAvail, wantAvail)
 	}
 }
 

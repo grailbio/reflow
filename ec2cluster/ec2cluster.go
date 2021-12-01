@@ -64,6 +64,10 @@ const (
 	defaultMaxHourlyCostUSD    = 10.0
 	defaultMaxPendingInstances = 5
 
+	// unavailableInstanceTypeTtl is the ttl duration for which an instance type discovered
+	// to be unavailable, remains so.
+	unavailableInstanceTypeTtl = time.Hour
+
 	// Cluster identification keys.  That is, the following are keys into Cluster.InstanceTags
 	// which determine which set of instances belong to the "current" cluster.
 	userKey        = "user"
@@ -333,7 +337,7 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 		return errors.New("no configured instance types")
 	}
 	adv, _ := sa.NewSpotAdvisor(c.Log, context.Background().Done())
-	c.instanceState = newInstanceState(configs, 5*time.Minute, c.Region, adv)
+	c.instanceState = newInstanceState(configs, unavailableInstanceTypeTtl, c.Region, adv)
 	c.manager = NewManager(c, c.MaxHourlyCostUSD, c.MaxPendingInstances, c.Log)
 	c.spotProber = NewSpotProber(
 		func(ctx context.Context, instanceType string, depth int) (bool, error) {
