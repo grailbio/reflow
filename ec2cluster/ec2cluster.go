@@ -543,6 +543,7 @@ func (c *Cluster) newInstance(config instanceConfig) *instance {
 		Subnet:                  c.Subnet,
 		InstanceProfile:         c.InstanceProfile,
 		SecurityGroup:           c.SecurityGroup,
+		Region:                  c.Region,
 		BootstrapImage:          c.BootstrapImage,
 		BootstrapExpiry:         c.BootstrapExpiry,
 		Price:                   config.Price[c.Region],

@@ -10,10 +10,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"strings"
 	"text/template"
@@ -890,10 +890,33 @@ field_length = 1024
 		return "", errors.New(fmt.Sprintf("size of userdata > 16384: %v ", ctr.count))
 	}
 	i.userData = gb.String()
-	if i.Spot {
-		return i.ec2RunSpotInstance(ctx)
+	if !i.Spot {
+		return i.ec2RunInstance()
 	}
-	return i.ec2RunInstance()
+	// TODO(swami): Use spot placement score to determine best availability zone instead of cycling through.
+	// The spot placement score API is only available in aws-sdk-go-v2: v1.22.0
+	// https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/ec2@v1.22.0
+	// As of this change, we are still at: aws-sdk-go v1.38.24
+	var azs []string
+	if azs, err = availabilityZones(i.EC2, i.Region); err != nil {
+		i.Log.Debugf("instance launch: unable to determine AZs (will try without specifying AZ): %v", err)
+	}
+
+	// We shuffle the AZs so that we start with a random one before cycling through them (if unavailable).
+	rand.Shuffle(len(azs), func(i, j int) { azs[i], azs[j] = azs[j], azs[i] })
+	if len(azs) == 0 {
+		azs = append(azs, "")
+	}
+	var id string
+	for _, az := range azs {
+		id, err = i.ec2RunSpotInstance(ctx, az)
+		// In case of Unavailable errors alone, we cycle through the AZs.
+		if err == nil || !errors.Is(errors.Unavailable, err) {
+			break
+		}
+		i.Log.Debugf("spot instance unavailable in AZ %s: %v", az, err)
+	}
+	return id, err
 }
 
 type byteCounter struct {
@@ -915,7 +938,7 @@ const (
 	spotReqRetryLim = 5
 )
 
-func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
+func (i *instance) ec2RunSpotInstance(ctx context.Context, az string) (string, error) {
 	i.Log.Debugf("generating ec2 spot instance request for instance type %v", i.Config.Type)
 	// First make a spot instance request.
 	params := &ec2.RequestSpotInstancesInput{
@@ -934,6 +957,10 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context) (string, error) {
 			},
 			SecurityGroupIds: []*string{aws.String(i.SecurityGroup)},
 		},
+	}
+	if az != "" {
+		// Use an availability zone only if specified.
+		params.LaunchSpecification.Placement = &ec2.SpotPlacement{AvailabilityZone: aws.String(az)}
 	}
 	var (
 		policy = retry.MaxRetries(retry.Jitter(retry.Backoff(5*time.Second, 10*time.Second, 1.2), 0.2), spotReqRetryLim)
