@@ -114,6 +114,14 @@ type Cluster struct {
 	SecurityGroup string `yaml:"securitygroup,omitempty"`
 	// Subnet is the id of the EC2 subnet to use for cluster instances.
 	Subnet string `yaml:"subnet,omitempty"`
+	// VpcId is the id of the EC2 VPC based on which an appropriate subnet (for each AZ) will be determined.
+	// That is, when VpcId is specified, the ec2.DescribeSubnets API will use it to query for subnets.
+	// If exactly one subnet is available for a particular Availability Zone Name, then that subnet will
+	// override the value set in Subnet when a instance is requested in that AZ.
+	// If there's none or more than one, the value specified in Subnet will be used.
+	// (Note however, that if in this case, only spot instance requests that use the AZ which matches the subnet
+	// will succeed and other AZ requests will fail)
+	VpcId string `yaml:"vpcid,omitempty"`
 	// Region is the AWS availability region to use for launching new EC2 instances.
 	Region string `yaml:"region,omitempty"`
 	// InstanceTypesMap stores the set of admissible instance types.
@@ -368,6 +376,11 @@ func (c *Cluster) verifyAndInitialize() error {
 		c.Log.Debugf("cluster taskdb: %v", err)
 	}
 	c.EC2 = ec2.New(c.Session, &aws.Config{MaxRetries: aws.Int(13)})
+	if c.VpcId != "" {
+		if err := subnetsByVpc(c.EC2, c.VpcId, c.Log); err != nil {
+			c.Log.Errorf("subnetsByVpc: %v", err)
+		}
+	}
 	c.descInstLimiter = limiter.NewBatchLimiter(
 		&descInstBatchApi{api: c.EC2, log: c.Log, maxPerBatch: 100},
 		/* 5 qps */ rate.NewLimiter(rate.Every(time.Second), 5))

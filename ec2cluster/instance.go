@@ -891,6 +891,7 @@ field_length = 1024
 	}
 	i.userData = gb.String()
 	if !i.Spot {
+		// TODO(swami): Support cycling AZs using appropriate subnets for on-demand instances also.
 		return i.ec2RunInstance()
 	}
 	// TODO(swami): Use spot placement score to determine best availability zone instead of cycling through.
@@ -961,6 +962,10 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context, az string) (string, e
 	if az != "" {
 		// Use an availability zone only if specified.
 		params.LaunchSpecification.Placement = &ec2.SpotPlacement{AvailabilityZone: aws.String(az)}
+		// And if an availability zone is specified, determine if a specific subnet is known for it.
+		if subnet := subnetForAZ(az); subnet != "" {
+			params.LaunchSpecification.SubnetId = aws.String(subnet)
+		}
 	}
 	var (
 		policy = retry.MaxRetries(retry.Jitter(retry.Backoff(5*time.Second, 10*time.Second, 1.2), 0.2), spotReqRetryLim)
