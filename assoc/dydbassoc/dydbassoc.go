@@ -511,7 +511,6 @@ func (a *Assoc) BatchGet(ctx context.Context, batch assoc.Batch) error {
 				return nil
 			}
 		}
-		return nil
 	})
 	if err != nil {
 		return err

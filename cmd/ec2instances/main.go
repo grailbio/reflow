@@ -280,7 +280,7 @@ func main() {
 			log.Fatal(err)
 		}
 		if *verified {
-			vgen := instances.VerifiedSrcGenerator{filepath.Base(dir), instances.VerifiedByRegion}
+			vgen := instances.VerifiedSrcGenerator{Package: filepath.Base(dir), VerifiedByRegion: instances.VerifiedByRegion}
 			vsrc, err := vgen.AddTypes(acceptedTypes).Source()
 			if err != nil {
 				log.Fatal(err)

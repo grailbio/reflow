@@ -99,7 +99,8 @@ func TestS3WalkerWithPolicy(t *testing.T) {
 	if err := policy.Acquire(context.Background(), 10); err != nil {
 		t.Errorf("acquire failed!")
 	}
-	ctx, _ := context.WithTimeout(context.Background(), time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
 	// all tokens in use, so must get false
 	if want, got := false, w.Scan(ctx); got != want {
 		t.Fatalf("got %v, want %v", got, want)

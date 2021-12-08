@@ -180,7 +180,7 @@ func Assertions(f reflow.File) *reflow.Assertions {
 	if f.Source == "" {
 		return nil
 	}
-	gk := reflow.AssertionKey{f.Source, reflow.BlobAssertionsNamespace}
+	gk := reflow.AssertionKey{Subject: f.Source, Namespace: reflow.BlobAssertionsNamespace}
 	m := make(map[string]string, 3)
 	if f.ETag != "" {
 		m[reflow.BlobAssertionPropertyETag] = f.ETag
