@@ -39,3 +39,20 @@ dydbassoc_op_latency_seconds:
   help: "Dydbassoc operation latency in seconds."
   buckets: [0.001, 0.01, 0.1, 1, 10]
   labels: ["operation"]
+
+# system resources
+memstats_stack_inuse_bytes:
+  type: "gauge"
+  help: "Bytes of memory used for stack spans."
+memstats_stack_sys_bytes:
+  type: "gauge"
+  help: "Bytes of stack memory obtained from the OS."
+memstats_heap_inuse_bytes:
+  type: "gauge"
+  help: "Bytes of memory used by in use heap spans."
+memstats_heap_sys_bytes:
+  type: "gauge"
+  help: "Bytes of heap memory obtained from the OS."
+memstats_heap_objects:
+  type: "gauge"
+  help: "Current number of allocated heap objects."

@@ -43,7 +43,23 @@ var (
 			Help: "Size of submitted tasks.",
 		},
 	}
-	Gauges     = map[string]gaugeOpts{}
+	Gauges = map[string]gaugeOpts{
+		"memstats_heap_inuse_bytes": {
+			Help: "Bytes of memory used by in use heap spans.",
+		},
+		"memstats_heap_objects": {
+			Help: "Current number of allocated heap objects.",
+		},
+		"memstats_heap_sys_bytes": {
+			Help: "Bytes of heap memory obtained from the OS.",
+		},
+		"memstats_stack_inuse_bytes": {
+			Help: "Bytes of memory used for stack spans.",
+		},
+		"memstats_stack_sys_bytes": {
+			Help: "Bytes of stack memory obtained from the OS.",
+		},
+	}
 	Histograms = map[string]histogramOpts{
 		"dydbassoc_op_latency_seconds": {
 			Help:    "Dydbassoc operation latency in seconds.",
@@ -101,6 +117,31 @@ func GetTasksSubmittedCountCounter(ctx context.Context) Counter {
 // GetTasksSubmittedSizeCounter returns a Counter to set metric tasks_submitted_size (size of submitted tasks).
 func GetTasksSubmittedSizeCounter(ctx context.Context) Counter {
 	return getCounter(ctx, "tasks_submitted_size", nil)
+}
+
+// GetMemstatsHeapInuseBytesGauge returns a Gauge to set metric memstats_heap_inuse_bytes (bytes of memory used by in use heap spans).
+func GetMemstatsHeapInuseBytesGauge(ctx context.Context) Gauge {
+	return getGauge(ctx, "memstats_heap_inuse_bytes", nil)
+}
+
+// GetMemstatsHeapObjectsGauge returns a Gauge to set metric memstats_heap_objects (current number of allocated heap objects).
+func GetMemstatsHeapObjectsGauge(ctx context.Context) Gauge {
+	return getGauge(ctx, "memstats_heap_objects", nil)
+}
+
+// GetMemstatsHeapSysBytesGauge returns a Gauge to set metric memstats_heap_sys_bytes (bytes of heap memory obtained from the OS).
+func GetMemstatsHeapSysBytesGauge(ctx context.Context) Gauge {
+	return getGauge(ctx, "memstats_heap_sys_bytes", nil)
+}
+
+// GetMemstatsStackInuseBytesGauge returns a Gauge to set metric memstats_stack_inuse_bytes (bytes of memory used for stack spans).
+func GetMemstatsStackInuseBytesGauge(ctx context.Context) Gauge {
+	return getGauge(ctx, "memstats_stack_inuse_bytes", nil)
+}
+
+// GetMemstatsStackSysBytesGauge returns a Gauge to set metric memstats_stack_sys_bytes (bytes of stack memory obtained from the OS).
+func GetMemstatsStackSysBytesGauge(ctx context.Context) Gauge {
+	return getGauge(ctx, "memstats_stack_sys_bytes", nil)
 }
 
 // GetDydbassocOpLatencySecondsHistogram returns a Histogram to set metric dydbassoc_op_latency_seconds (dydbassoc operation latency in seconds).
