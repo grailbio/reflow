@@ -909,13 +909,24 @@ field_length = 1024
 		azs = append(azs, "")
 	}
 	var id string
+	var errs errors.Multi
 	for _, az := range azs {
 		id, err = i.ec2RunSpotInstance(ctx, az)
-		// In case of Unavailable errors alone, we cycle through the AZs.
-		if err == nil || !errors.Is(errors.Unavailable, err) {
+		// In case of any error, we cycle through the AZs.
+		if err == nil {
 			break
 		}
-		i.Log.Debugf("spot instance unavailable in AZ %s: %v", az, err)
+		if errors.Is(errors.Unavailable, err) {
+			i.Log.Debugf("spot instance (type: %s) seems to be unavailable in AZ %s: %v", az, i.Config.Type, err)
+		} else {
+			i.Log.Debugf("spot instance (type: %s) failed to launch in AZ %s: %v", az, i.Config.Type, err)
+		}
+		errs.Add(err)
+	}
+	// If we still have an error, we've exhausted all AZs, so we explicitly consider the instance type unavailable.
+	if err != nil {
+		i.Log.Debugf("spot instance (type: %s) seems to be unavailable in AZs (%s)", i.Config.Type, strings.Join(azs, ", "))
+		err = errors.E(errors.Unavailable, errs.Combined())
 	}
 	return id, err
 }
@@ -966,6 +977,8 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context, az string) (string, e
 		if subnet := subnetForAZ(az); subnet != "" {
 			params.LaunchSpecification.SubnetId = aws.String(subnet)
 		}
+		// TODO(swami): Check whether the default subnet `i.Subnet` is compatible with `az`
+		// and if not, return an error without making a spot request API call.
 	}
 	var (
 		policy = retry.MaxRetries(retry.Jitter(retry.Backoff(5*time.Second, 10*time.Second, 1.2), 0.2), spotReqRetryLim)
@@ -1017,7 +1030,7 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context, az string) (string, e
 		// We were unable to fulfill by our deadline, or we were unable to get the instance ID after (supposed) fulfillment.
 		// Since we consider the spot instance unavailable, cleanup the request.
 		ec2CleanupSpotRequest(context.Background(), i.DescSpotLimiter, i.EC2, spotID, spotLogger)
-		// Boot this up to the caller so they can pick a different instance types.
+		// Boot this up to the caller so they can pick a different instance type.
 		return "", errors.E(errors.Unavailable, fmt.Errorf("spot request %s", spotID))
 	}
 	i.print(id, fmt.Sprintf("spot request %s fulfilled, instance: %s state: %s", spotID, id, state))
