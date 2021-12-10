@@ -131,6 +131,7 @@ type instance struct {
 	Labels                  pool.Labels
 	Spot                    bool
 	Subnet                  string
+	SubnetAZ                string
 	InstanceProfile         string
 	SecurityGroup           string
 	Region                  string
@@ -917,9 +918,9 @@ field_length = 1024
 			break
 		}
 		if errors.Is(errors.Unavailable, err) {
-			i.Log.Debugf("spot instance (type: %s) seems to be unavailable in AZ %s: %v", az, i.Config.Type, err)
+			i.Log.Debugf("spot instance (type: %s) seems to be unavailable in AZ %s: %v", i.Config.Type, az, err)
 		} else {
-			i.Log.Debugf("spot instance (type: %s) failed to launch in AZ %s: %v", az, i.Config.Type, err)
+			i.Log.Debugf("spot instance (type: %s) failed to launch in AZ %s: %v", i.Config.Type, az, err)
 		}
 		errs.Add(err)
 	}
@@ -976,9 +977,10 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context, az string) (string, e
 		// And if an availability zone is specified, determine if a specific subnet is known for it.
 		if subnet := subnetForAZ(az); subnet != "" {
 			params.LaunchSpecification.SubnetId = aws.String(subnet)
+		} else if i.Subnet != "" && i.SubnetAZ != az {
+			// If a default subnet was provided, return if the current AZ doesn't match it.
+			return "", errors.E(errors.Unavailable, fmt.Sprintf("Subnet (%s) is for AZ (%s) and cannot be used for AZ (%s)", i.Subnet, i.SubnetAZ, az))
 		}
-		// TODO(swami): Check whether the default subnet `i.Subnet` is compatible with `az`
-		// and if not, return an error without making a spot request API call.
 	}
 	var (
 		policy = retry.MaxRetries(retry.Jitter(retry.Backoff(5*time.Second, 10*time.Second, 1.2), 0.2), spotReqRetryLim)

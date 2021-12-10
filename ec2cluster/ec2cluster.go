@@ -208,6 +208,9 @@ type Cluster struct {
 	// refreshLimiter limits the rate of cluster refresh.
 	refreshLimiter *rate.Limiter
 
+	// subnetAZ is the availability zone name corresponding to the Subnet (if specified)
+	subnetAZ string
+
 	initOnce once.Task
 	stats    *statsImpl
 }
@@ -379,6 +382,13 @@ func (c *Cluster) verifyAndInitialize() error {
 	if c.VpcId != "" {
 		if err := subnetsByVpc(c.EC2, c.VpcId, c.Log); err != nil {
 			c.Log.Errorf("subnetsByVpc: %v", err)
+		}
+	}
+	if c.Subnet != "" {
+		var err error
+		c.subnetAZ, err = azForSubnetId(c.EC2, c.Subnet)
+		if err != nil {
+			c.Log.Errorf("azForSubnetId %s: %v", c.Subnet, err)
 		}
 	}
 	c.descInstLimiter = limiter.NewBatchLimiter(
@@ -554,6 +564,7 @@ func (c *Cluster) newInstance(config instanceConfig) *instance {
 		Labels:                  c.Labels,
 		Spot:                    c.Spot,
 		Subnet:                  c.Subnet,
+		SubnetAZ:                c.subnetAZ,
 		InstanceProfile:         c.InstanceProfile,
 		SecurityGroup:           c.SecurityGroup,
 		Region:                  c.Region,

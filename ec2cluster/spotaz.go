@@ -1,6 +1,7 @@
 package ec2cluster
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -83,6 +84,20 @@ func subnetsByVpc(api ec2iface.EC2API, vpcid string, log *log.Logger) error {
 		}
 		return nil
 	})
+}
+
+// azForSubnetId returns availability-zone name for the given subnet id.
+func azForSubnetId(api ec2iface.EC2API, subnetId string) (string, error) {
+	resp, err := api.DescribeSubnets(&ec2.DescribeSubnetsInput{SubnetIds: aws.StringSlice([]string{subnetId})})
+	var az string
+	switch {
+	case err != nil:
+	case len(resp.Subnets) != 1:
+		err = fmt.Errorf("did not yield exactly one result (got %d)", len(resp.Subnets))
+	default:
+		az = *resp.Subnets[0].AvailabilityZone
+	}
+	return az, err
 }
 
 // subnetForAZ returns an appropriate subnet for the given availability-zone name.
