@@ -28,27 +28,53 @@ The columns displayed by the instance listing are:
 	type    the name of the instance type
 	mem     the amount of instance memory (GiB)
 	cpu     the number of instance VCPUs
-    ebs_max	the max EBS throughput available for an EBS instance	
+	ebs_max	the max EBS throughput available for an EBS instance
 	price   the hourly on-demand price of the instance in the selected region
+	interrupt prob
+		the probability that a spot instance of this type will be interrupted
 	cpu features
 		a set of CPU features supported by this instance type
 	flags   a set of flags:
 	            ebs    when the instance supports EBS optimization
-	            old    when the instance is not of the current generation
-	 interrupt prob
-		the probability that a spot instance of this type will be interrupted`
+	            old    when the instance is not of the current generation`
 	regionFlag := flags.String("region", "us-west-2", "region for which to show prices")
 	sortFlag := flags.String("sort", "type", "sorting field (type, cpu, mem, price)")
 	minCpuFlag := flags.Int("mincpu", 0, "mininum CPU (will filter out smaller instance types)")
+	maxCpuFlag := flags.Int("maxcpu", 1000, "maximum CPU (will filter out larger instance types)")
 	minMemFlag := flags.Int("minmem", 0, "mininum Memory GiB (will filter out smaller instance types)")
+	maxMemFlag := flags.Int("maxmem", 10000, "maximum Memory GiB (will filter out smaller instance types)")
+	minProbFlag := flags.Int("minprob", int(spotadvisor.Any), fmt.Sprintf("mininum interrupt probability (int in the range [%d, %d])", int(spotadvisor.LessThanFivePct), int(spotadvisor.Any)))
+	filterTypesFlag := flags.String("filtertypes", "", "filter instance types to show only the given comma-separated ones (if any)")
 	c.Parse(flags, args, help, "ec2instances")
 	if flags.NArg() != 0 {
 		flags.Usage()
 	}
+	var filterTypes map[string]bool
+	if typesCsv := *filterTypesFlag; typesCsv != "" {
+		parts := strings.Split(typesCsv, ",")
+		filterTypes = make(map[string]bool, len(parts))
+		for _, p := range parts {
+			filterTypes[strings.TrimSpace(p)] = true
+		}
+	}
+	// best effort to include spot advisor data; if error, "N/A" will be shown in printed output
+	sa, _ = spotadvisor.NewSpotAdvisor(c.Log, ctx.Done())
 	var types []instances.Type
 	for _, t := range instances.Types {
-		if int(t.VCPU) < *minCpuFlag || int(t.Memory) < *minMemFlag {
+		if int(t.VCPU) < *minCpuFlag || int(t.VCPU) > *maxCpuFlag {
 			continue
+		}
+		if int(t.Memory) < *minMemFlag || int(t.Memory) > *maxMemFlag {
+			continue
+		}
+		if len(filterTypes) > 0 && !filterTypes[t.Name] {
+			continue
+		}
+		if sa != nil {
+			tProb, err := sa.GetMaxInterruptProbability(spotadvisor.Linux, spotadvisor.AwsRegion(*regionFlag), spotadvisor.InstanceType(t.Name))
+			if err == nil && int(tProb) > *minProbFlag {
+				continue
+			}
 		}
 		types = append(types, t)
 	}
@@ -69,13 +95,6 @@ The columns displayed by the instance listing are:
 			panic("notreached")
 		}
 	})
-
-	// TODO(swami): Get region from config
-	// Unfortunately, this is not trivial.
-	region := "us-west-2"
-
-	// best effort to include spot advisor data; if error, "N/A" will be shown in printed output
-	sa, _ = spotadvisor.NewSpotAdvisor(c.Log, ctx.Done())
 	var tw tabwriter.Writer
 	tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 	defer tw.Flush()
@@ -97,11 +116,16 @@ The columns displayed by the instance listing are:
 		}
 		sort.Strings(features)
 
-		verifiedStatus := instances.VerifiedByRegion[region][typ.Name]
-		if !verifiedStatus.Verified {
-			continue
+		var vs instances.VerifiedStatus
+		if forRegion := instances.VerifiedByRegion[*regionFlag]; len(forRegion) > 0 {
+			if vs = instances.VerifiedByRegion[*regionFlag][typ.Name]; !vs.Verified {
+				continue
+			}
 		}
-		usableMem := data.Size(verifiedStatus.ExpectedMemoryBytes())
+		usableMem := "UNKNOWN"
+		if m := data.Size(vs.ExpectedMemoryBytes()); m > 0 {
+			usableMem = m.String()
+		}
 		fmt.Fprintf(&tw, "%s\t\t%s\t%s\t%d\t%.2f\t%.2f\t%s\t{%s}\t{%s}\n",
 			typ.Name, usableMem, data.Size(typ.Memory) * data.GiB,
 			typ.VCPU, typ.EBSThroughput, typ.Price[*regionFlag],
