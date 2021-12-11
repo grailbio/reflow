@@ -2,9 +2,6 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-//go:build !darwin
-// +build !darwin
-
 package volume
 
 import (
@@ -26,17 +23,18 @@ var testWatcherParams = infra.VolumeWatcher{
 }
 
 type testVolume struct {
-	size                          data.Size
-	ready                         bool
-	reason                        string
-	duPct                         float64
-	sizeErr, setSizeErr, readyErr error
-	duErr, rfsErr                 error
-	ngs, nss, nm, ndu, nrfs       int
+	size                              data.Size
+	ready                             bool
+	reason                            string
+	duPct                             float64
+	sizeErr, setSizeErr, readyErr     error
+	duErr, rfsErr                     error
+	nGetSize, nSetSize                int
+	nReadyToModify, nUsage, nResizeFS int
 }
 
 func (v *testVolume) GetSize(ctx context.Context) (size data.Size, err error) {
-	v.ngs++
+	v.nGetSize++
 	if v.sizeErr != nil {
 		return -1, v.sizeErr
 	}
@@ -44,7 +42,7 @@ func (v *testVolume) GetSize(ctx context.Context) (size data.Size, err error) {
 }
 
 func (v *testVolume) ReadyToModify(ctx context.Context) (ready bool, reason string, err error) {
-	v.nm++
+	v.nReadyToModify++
 	if v.readyErr != nil {
 		return false, "", v.readyErr
 	}
@@ -52,7 +50,7 @@ func (v *testVolume) ReadyToModify(ctx context.Context) (ready bool, reason stri
 }
 
 func (v *testVolume) SetSize(ctx context.Context, newSize data.Size) error {
-	v.nss++
+	v.nSetSize++
 	if v.setSizeErr != nil {
 		return v.setSizeErr
 	}
@@ -62,7 +60,7 @@ func (v *testVolume) SetSize(ctx context.Context, newSize data.Size) error {
 }
 
 func (v *testVolume) Usage() (float64, error) {
-	v.ndu++
+	v.nUsage++
 	if v.duErr != nil {
 		return -1.0, v.duErr
 	}
@@ -70,7 +68,7 @@ func (v *testVolume) Usage() (float64, error) {
 }
 
 func (v *testVolume) ResizeFS() error {
-	v.nrfs++
+	v.nResizeFS++
 	return v.rfsErr
 }
 
@@ -85,57 +83,56 @@ func TestWatcher_initError(t *testing.T) {
 
 func TestWatcher(t *testing.T) {
 	for _, tt := range []struct {
-		v *testVolume
-		// wants
-		vSz                     data.Size
-		ngs, nss, nm, ndu, nrfs int
+		v                        *testVolume
+		vSz                      data.Size
+		nGetSizeMin, nSetSizeMin int
+		nModifyMin, nUsageMin    int
+		nResizeFSMin             int
 	}{
-		/*
-			{
-				&testVolume{size: data.GiB, duPct: 40.0},
-				data.GiB, 2, 0, 0, 4, 0,
-			},
-			{
-				&testVolume{size: data.GiB, duPct: 80.0, ready: false, reason: "test"},
-				data.GiB, 2, 0, 3, 3, 0,
-			},
-			{
-				&testVolume{size: data.GiB, duPct: 80.0, ready: true, rfsErr: errTest},
-				2 * data.GiB, 4, 1, 1, 3, 2,
-			},
-			{
-				&testVolume{size: data.GiB, duPct: 80.0, ready: true},
-				2 * data.GiB, 5, 1, 1, 3, 1,
-			},
-		*/
+		{
+			&testVolume{size: data.GiB, duPct: 40.0},
+			data.GiB, 2, 0, 0, 10, 0,
+		},
+		{
+			&testVolume{size: data.GiB, duPct: 80.0, ready: false, reason: "test"},
+			data.GiB, 2, 0, 15, 3, 0,
+		},
+		{
+			&testVolume{size: data.GiB, duPct: 80.0, ready: true, rfsErr: errTest},
+			2 * data.GiB, 4, 1, 1, 3, 10,
+		},
+		{
+			&testVolume{size: data.GiB, duPct: 80.0, ready: true},
+			2 * data.GiB, 5, 1, 1, 10, 1,
+		},
 	} {
 		w, err := NewWatcher(tt.v, testWatcherParams, log.Std)
 		if err != nil {
 			t.Error(err)
 			continue
 		}
-		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(275*time.Millisecond))
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		go w.Watch(ctx)
 		// Wait till watch routine is done
 		<-ctx.Done()
 		cancel()
 		if got, want := tt.v.size, tt.vSz; got != want {
-			t.Errorf("got %v, want %v", got, want)
+			t.Errorf("size: got %v, want %v", got, want)
 		}
-		if got, want := tt.v.ngs, tt.ngs; got != want {
-			t.Errorf("got %v, want %v", got, want)
+		if got, want := tt.v.nGetSize, tt.nGetSizeMin; got < want {
+			t.Errorf("nGetSize: got %v, want >= %v", got, want)
 		}
-		if got, want := tt.v.nss, tt.nss; got != want {
-			t.Errorf("got %v, want %v", got, want)
+		if got, want := tt.v.nSetSize, tt.nSetSizeMin; got != want {
+			t.Errorf("nSetSize: got %v, want %v", got, want)
 		}
-		if got, want := tt.v.nm, tt.nm; got != want {
-			t.Errorf("got %v, want %v", got, want)
+		if got, want := tt.v.nReadyToModify, tt.nModifyMin; got < want {
+			t.Errorf("nReadyToModify: got %v, want >= %v", got, want)
 		}
-		if got, want := tt.v.ndu, tt.ndu; got != want {
-			t.Errorf("got %v, want %v", got, want)
+		if got, want := tt.v.nUsage, tt.nUsageMin; got < want {
+			t.Errorf("nUsage: got %v, want >= %v", got, want)
 		}
-		if got, want := tt.v.nrfs, tt.nrfs; got != want {
-			t.Errorf("got %v, want %v", got, want)
+		if got, want := tt.v.nResizeFS, tt.nResizeFSMin; got < want {
+			t.Errorf("nResizeFS: got %v, want >= %v", got, want)
 		}
 	}
 }
