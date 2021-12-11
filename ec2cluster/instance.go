@@ -1017,6 +1017,8 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context, az string) (string, e
 	i.Task.Printf("awaiting fulfillment of spot request %s", spotID)
 	spotLogger := i.Log.Tee(nil, fmt.Sprintf("[%s, %s]: ", spotID, i.Config.Type))
 	spotLogger.Debugf("waiting for spot fullfillment")
+	ctx, cancel := context.WithTimeout(ctx, spotReqTtl)
+	defer cancel()
 	sir, waitErr := waitUntilFulfilled(ctx, i.DescSpotLimiter, spotID, spotLogger)
 	var id, state string
 	switch {

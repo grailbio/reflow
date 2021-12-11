@@ -71,21 +71,28 @@ func (a *descSpotBatchApi) Do(m map[limiter.ID]*limiter.Result) {
 	return
 }
 
+// maxAttemptsLowCapacity is the max number of attempts for which
+// we tolerate a spot instance status indicating low capacity.
+const maxAttemptsLowCapacity = 3
+
 // waitUntilFulfilled waits until the given spot instance request is fulfilled.
 // It is expected that this is a newly initiated spot instance request and hence
 // it starts with an initial delay and uses a very liberal retry policy and a long timeout.
-// The retry policy used is mostly similar to what's used in EC2API.WaitUntilSpotInstanceRequestFulfilled, except
-// it starts with an initial wait of 10s (compared to 15s) and uses backoff and a small jitter.
+// The retry policy used is mostly similar to what's used in EC2API.WaitUntilSpotInstanceRequestFulfilled,
+// except it starts with a lower initial wait and uses backoff and a small jitter.
 func waitUntilFulfilled(ctx context.Context, l *limiter.BatchLimiter, spotId string, log *log.Logger) (*ec2.SpotInstanceRequest, error) {
 	// A single spot instance request hitting consistency errors results in an error for the whole batch.
 	// Since we just created the spot instance, we'll sleep for a bit to allow for the SpotID to propagate within AWS.
 	// Due to the eventual consistency model, this helps us reduce the likelihood of hitting consistency errors.
 	// See: https://docs.aws.amazon.com/AWSEC2/latest/APIReference/query-api-troubleshooting.html#eventual-consistency
 	time.Sleep(2 * time.Second)
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-	defer cancel()
-	var policy = retry.MaxRetries(retry.Jitter(retry.Backoff(10*time.Second, 30*time.Second, 1.2), 0.2), 40)
-	sir, err := pollSpotRequest(ctx, l, policy, spotId, log, func(sir *ec2.SpotInstanceRequest) bool {
+	var policy = retry.MaxRetries(retry.Jitter(retry.Backoff(5*time.Second, 30*time.Second, 1.2), 0.2), 40)
+	sir, err := pollSpotRequest(ctx, l, policy, spotId, log, func(sir *ec2.SpotInstanceRequest, attempts int) bool {
+		if sir != nil && sir.Status != nil && *sir.Status.Code == "capacity-not-available" && attempts > maxAttemptsLowCapacity {
+			// Accept "low capacity" code as terminal. This allows us to move on quickly
+			// to either a different availability zone or a different instance type altogether.
+			return true
+		}
 		terminal, _ := interpretStatusCode(sir)
 		return terminal
 	})
@@ -102,7 +109,7 @@ var spotReqStatusPolicy = retry.MaxRetries(retry.Backoff(2*time.Second, 5*time.S
 
 // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-request-status.html
 func spotReqStatus(ctx context.Context, l *limiter.BatchLimiter, spotID string, log *log.Logger) (id, state string, err error) {
-	sir, err := pollSpotRequest(ctx, l, spotReqStatusPolicy, spotID, log, func(sir *ec2.SpotInstanceRequest) bool {
+	sir, err := pollSpotRequest(ctx, l, spotReqStatusPolicy, spotID, log, func(sir *ec2.SpotInstanceRequest, _ int) bool {
 		if state := aws.StringValue(sir.State); state == ec2.SpotInstanceStateCancelled || state == ec2.SpotInstanceStateClosed {
 			return true
 		}
@@ -130,7 +137,7 @@ func getInstanceIdStateFromSir(sir *ec2.SpotInstanceRequest) (string, string, er
 	return iid, state, nil
 }
 
-func pollSpotRequest(ctx context.Context, l *limiter.BatchLimiter, policy retry.Policy, spotId string, log *log.Logger, accept func(*ec2.SpotInstanceRequest) bool) (*ec2.SpotInstanceRequest, error) {
+func pollSpotRequest(ctx context.Context, l *limiter.BatchLimiter, policy retry.Policy, spotId string, log *log.Logger, accept func(sir *ec2.SpotInstanceRequest, attempt int) bool) (*ec2.SpotInstanceRequest, error) {
 	var (
 		sir               *ec2.SpotInstanceRequest
 		statusCode, state string
@@ -157,7 +164,7 @@ func pollSpotRequest(ctx context.Context, l *limiter.BatchLimiter, policy retry.
 		case err != nil:
 			// Upon any other error, we return the error
 			return nil, err
-		case accept(sir) == true:
+		case accept(sir, retries):
 			return sir, nil
 		}
 		log.Debugf("pollSpotRequest state: %s status.Code: %s (attempt %d)", state, statusCode, retries)
