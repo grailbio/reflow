@@ -10,10 +10,15 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"text/tabwriter"
 
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/grailbio/base/cloud/spotadvisor"
 	"github.com/grailbio/base/data"
+	"github.com/grailbio/base/traverse"
+	"github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/ec2cluster/instances"
 )
 
@@ -32,6 +37,9 @@ The columns displayed by the instance listing are:
 	price   the hourly on-demand price of the instance in the selected region
 	interrupt prob
 		the probability that a spot instance of this type will be interrupted
+	spot placement scores
+		spot placement scores (by AZ), ie, the likelihood of a spot fulfillment as of now.
+		Low scores indicate less likelihood (and scores are based on a target capacity of 10).
 	cpu features
 		a set of CPU features supported by this instance type
 	flags   a set of flags:
@@ -45,6 +53,7 @@ The columns displayed by the instance listing are:
 	maxMemFlag := flags.Int("maxmem", 10000, "maximum Memory GiB (will filter out smaller instance types)")
 	minProbFlag := flags.Int("minprob", int(spotadvisor.Any), fmt.Sprintf("mininum interrupt probability (int in the range [%d, %d])", int(spotadvisor.LessThanFivePct), int(spotadvisor.Any)))
 	filterTypesFlag := flags.String("filtertypes", "", "filter instance types to show only the given comma-separated ones (if any)")
+	spotScoresFlag := flags.Bool("spotscores", false, "whether to fetch spot placement scores for each instance type")
 	c.Parse(flags, args, help, "ec2instances")
 	if flags.NArg() != 0 {
 		flags.Usage()
@@ -95,10 +104,12 @@ The columns displayed by the instance listing are:
 			panic("notreached")
 		}
 	})
+
+	spotScores, _ := c.spotScores(ctx, *spotScoresFlag, *regionFlag, types)
 	var tw tabwriter.Writer
 	tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 	defer tw.Flush()
-	fmt.Fprint(&tw, "type\t\tusable mem\tinstance mem\tcpu\tebs_max\tprice\tinterrupt prob\tcpu features\tflags\n")
+	_, _ = fmt.Fprint(&tw, "type\t\tusable mem\tinstance mem\tcpu\tebs_max\tprice\tinterrupt prob\tspot placement scores\tcpu features\tflags\n")
 	for _, typ := range types {
 		var flags []string
 		if typ.EBSOptimized {
@@ -126,13 +137,42 @@ The columns displayed by the instance listing are:
 		if m := data.Size(vs.ExpectedMemoryBytes()); m > 0 {
 			usableMem = m.String()
 		}
-		fmt.Fprintf(&tw, "%s\t\t%s\t%s\t%d\t%.2f\t%.2f\t%s\t{%s}\t{%s}\n",
+		_, _ = fmt.Fprintf(&tw, "%s\t\t%s\t%s\t%d\t%.2f\t%.2f\t%s\t%v\t{%s}\t{%s}\n",
 			typ.Name, usableMem, data.Size(typ.Memory) * data.GiB,
 			typ.VCPU, typ.EBSThroughput, typ.Price[*regionFlag],
 			getSpotInterruptRange(*regionFlag, typ.Name),
+			spotScores[typ.Name],
 			strings.Join(features, ","),
 			strings.Join(flags, ","))
 	}
+}
+
+func (c *Cmd) spotScores(ctx context.Context, fetch bool, region string, instanceTypes []instances.Type) (results map[string]map[string]int, err error) {
+	var resultsMu sync.Mutex
+	results = make(map[string]map[string]int)
+	for _, it := range instanceTypes {
+		results[it.Name] = make(map[string]int)
+	}
+	if !fetch {
+		return
+	}
+	var sess *session.Session
+	if err = c.Config.Instance(&sess); err != nil {
+		return
+	}
+	api := ec2.New(sess)
+	_ = traverse.Each(len(instanceTypes), func(i int) error {
+		instanceType := instanceTypes[i].Name
+		if scores, err := ec2cluster.GetSpotPlacementScores(ctx, api, region, instanceType); err != nil {
+			c.Log.Debug(err)
+		} else {
+			resultsMu.Lock()
+			results[instanceType] = scores
+			resultsMu.Unlock()
+		}
+		return nil
+	})
+	return
 }
 
 func getSpotInterruptRange(region string, name string) string {

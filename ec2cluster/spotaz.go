@@ -1,8 +1,12 @@
 package ec2cluster
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
+
+	"golang.org/x/time/rate"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
@@ -21,6 +25,8 @@ var (
 	azNameToSubnetOnce once.Task
 	// azNameToSubnet maps Availability Zone names to subnets.
 	azNameToSubnet = make(map[string]string)
+
+	spotScoreLimiter = rate.NewLimiter(rate.Every(time.Second), 10) // 10 qps
 )
 
 // availabilityZones returns a list of availability zone names for the given region.
@@ -105,4 +111,37 @@ func azForSubnetId(api ec2iface.EC2API, subnetId string) (string, error) {
 // otherwise, it will always return empty strings.
 func subnetForAZ(azName string) string {
 	return azNameToSubnet[azName]
+}
+
+// GetSpotPlacementScores returns spot placement scores for the given instance type in the given region.
+// GetSpotPlacementScores returns a map of each Availability Zone name (within the given region) to the score.
+// Note that the region is stripped from the AZ names
+// (for eg: if region is "us-west-2", then AZ name "us-west-2a" is trimmed to "a").
+func GetSpotPlacementScores(ctx context.Context, api ec2iface.EC2API, region, instanceType string) (map[string]int, error) {
+	if _, err := availabilityZones(api, region); err != nil {
+		return nil, err
+	}
+	if err := spotScoreLimiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("getSpotPlacementScores rate limiter: %v", err)
+	}
+	req := &ec2.GetSpotPlacementScoresInput{
+		InstanceTypes:          aws.StringSlice([]string{instanceType}),
+		RegionNames:            aws.StringSlice([]string{region}),
+		SingleAvailabilityZone: aws.Bool(true),
+		TargetCapacity:         aws.Int64(10),
+		TargetCapacityUnitType: aws.String("units"),
+	}
+	resp, err := api.GetSpotPlacementScores(req)
+	if err != nil {
+		return nil, fmt.Errorf("getSpotPlacementScores ec2.GetSpotPlacementScores: %v", err)
+	}
+	azScores := make(map[string]int, len(resp.SpotPlacementScores))
+	for _, s := range resp.SpotPlacementScores {
+		az := *s.AvailabilityZoneId
+		if azName, ok := azIdToName[az]; ok {
+			az = strings.TrimPrefix(azName, region)
+		}
+		azScores[az] = int(*s.Score)
+	}
+	return azScores, nil
 }
