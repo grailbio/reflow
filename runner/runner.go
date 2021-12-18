@@ -161,10 +161,10 @@ func (r *Runner) Do(ctx context.Context) bool {
 		// We retry potentially transient errors here: there is no harm
 		// beyond extra resource usage.
 		if errors.Restartable(r.Err) {
-			r.Log.Debugf("marking run for retry after restartable error %v", r.Err)
+			r.Log.Printf("marking run for retry after restartable error %v", r.Err)
 			r.Phase = Retry
 		} else {
-			r.Log.Debugf("marking run done after nonrecoverable error %v", r.Err)
+			r.Log.Errorf("marking run done after nonrecoverable error %v", r.Err)
 			r.Completion = time.Now()
 			r.Phase = Done
 		}

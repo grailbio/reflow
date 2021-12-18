@@ -324,7 +324,7 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 	} else {
 		fmt.Fprintf(&b, "\n\t(no arguments)")
 	}
-	r.Log.Debug(b.String())
+	r.Log.Print(b.String())
 
 	tctx, tcancel := context.WithCancel(ctx)
 	defer tcancel()
@@ -422,23 +422,15 @@ func (r *Runner) GetRunID() taskdb.RunID {
 
 func (r *Runner) setRunComplete(ctx context.Context, tdb taskdb.TaskDB, endTime time.Time) error {
 	var (
-		execLog, sysLog, dotFile, trace digest.Digest
-		rc                              io.ReadCloser
+		runLog, dotFile, trace digest.Digest
+		rc                     io.ReadCloser
 	)
 	runbase, err := r.Runbase()
 	if err == nil {
-		if rc, err = os.Open(runbase + ".execlog"); err == nil {
+		if rc, err = os.Open(runbase + ".runlog"); err == nil {
 			pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			if execLog, err = r.repo.Put(pctx, rc); err != nil {
-				r.Log.Debugf("put execlog in repo %s: %v", r.repo.URL(), err)
-			}
-			cancel()
-			_ = rc.Close()
-		}
-		if rc, err = os.Open(runbase + ".syslog"); err == nil {
-			pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			if sysLog, err = r.repo.Put(pctx, rc); err != nil {
-				r.Log.Debugf("put syslog in repo %s: %v", r.repo.URL(), err)
+			if runLog, err = r.repo.Put(pctx, rc); err != nil {
+				r.Log.Debugf("put runlog in repo %s: %v", r.repo.URL(), err)
 			}
 			cancel()
 			_ = rc.Close()
@@ -463,14 +455,11 @@ func (r *Runner) setRunComplete(ctx context.Context, tdb taskdb.TaskDB, endTime 
 	} else {
 		r.Log.Debugf("unable to determine runbase: %v", err)
 	}
-	err = tdb.SetRunComplete(ctx, r.RunID, execLog, sysLog, dotFile, trace, endTime)
+	err = tdb.SetRunComplete(ctx, r.RunID, runLog, dotFile, trace, endTime)
 	if err == nil {
 		var ds []string
-		if !execLog.IsZero() {
-			ds = append(ds, fmt.Sprintf("execLog: %s", execLog.Short()))
-		}
-		if !sysLog.IsZero() {
-			ds = append(ds, fmt.Sprintf("sysLog: %s", sysLog.Short()))
+		if !runLog.IsZero() {
+			ds = append(ds, fmt.Sprintf("runLog: %s", runLog.Short()))
 		}
 		if !dotFile.IsZero() {
 			ds = append(ds, fmt.Sprintf("evalGraph: %s", dotFile.Short()))

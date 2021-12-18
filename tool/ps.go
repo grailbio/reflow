@@ -50,8 +50,9 @@ var (
 		{"start", "start time of the run"},
 		{"end", "(if completed) end time of the run"},
 		{"cost", "cost of the run"},
-		{"ExecLog", "(if completed) ID of the run's exec logs"},
-		{"SysLog", "(if completed) ID of the run's sys logs"},
+		{"RunLog", "(if completed) ID of the run's log"},
+		{"ExecLog", "(if completed) ID of the run's execlog"},
+		{"SysLog", "(if completed) ID of the run's syslog"},
 		{"EvalGraph", "(if completed) ID of the run's evaluation graph (in dot format)"},
 		{"Trace", "(if completed) ID of the run's trace'"},
 	}
@@ -631,8 +632,10 @@ func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing, fullIds bool) {
 		for _, t := range run.taskInfo {
 			cost.Add(t.cost)
 		}
-		exec := getShort(run.Run.ExecLog)
-		sys := getShort(run.Run.SysLog)
+		runlog := getShort(run.Run.RunLog)
+		// TODO(awissmann): remove execlog/syslog after transition to runlog
+		execlog := getShort(run.Run.ExecLog)
+		syslog := getShort(run.Run.SysLog)
 		graph := getShort(run.Run.EvalGraph)
 		trace := getShort(run.Run.Trace)
 		runId := run.Run.ID.IDShort()
@@ -641,7 +644,7 @@ func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing, fullIds bool) {
 		}
 		fmt.Fprint(w, header(runCols), "\n")
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s", runId, run.Run.User, st, et, cost)
-		fmt.Fprintf(w, "\t%s\t%s\t%s\t%s", exec, sys, graph, trace)
+		fmt.Fprintf(w, "\t%s\t%s\t%s\t%s\t%s", runlog, execlog, syslog, graph, trace)
 		fmt.Fprintf(w, "\n\n")
 		printTaskHeader(w, longListing)
 		for _, task := range run.taskInfo {

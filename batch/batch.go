@@ -130,18 +130,6 @@ func (r *Run) Go(ctx context.Context, initWG *sync.WaitGroup) error {
 	}
 	defer batchLogFile.Close()
 	var w io.Writer = batchLogFile
-	// Also tee the output to the standard runlog location.
-	// TODO(marius): this should be handled in a standard way.
-	// (And run state management generally.)
-	runLogPath := filepath.Join(r.batch.Rundir, digest.Digest(r.RunID).Hex()+".execlog")
-	os.MkdirAll(filepath.Dir(runLogPath), 0777)
-	runLogFile, err := os.Create(runLogPath)
-	if err != nil {
-		r.log.Errorf("create %s: %v", runLogPath, err)
-	} else {
-		defer runLogFile.Close()
-		w = io.MultiWriter(w, runLogFile)
-	}
 	r.log = log.New(
 		golog.New(w, "", golog.LstdFlags),
 		// We always use debug-level logging for execution transcripts,

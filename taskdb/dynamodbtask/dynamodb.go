@@ -83,6 +83,7 @@ const (
 	Bundle
 	Args
 	EndTime
+	RunLog
 	ExecLog
 	SysLog
 	EvalGraph
@@ -147,6 +148,7 @@ const (
 	colDate          = "Date"
 	colBundle        = "Bundle"
 	colArgs          = "Args"
+	colRunLog        = "RunLog"
 	colExecLog       = "ExecLog"
 	colSysLog        = "Syslog"
 	colEvalGraph     = "EvalGraph"
@@ -183,6 +185,7 @@ var colmap = map[taskdb.Kind]string{
 	Date:          colDate,
 	Bundle:        colBundle,
 	Args:          colArgs,
+	RunLog:        colRunLog,
 	ExecLog:       colExecLog,
 	SysLog:        colSysLog,
 	EvalGraph:     colEvalGraph,
@@ -378,7 +381,7 @@ func (t *TaskDB) SetRunAttrs(ctx context.Context, id taskdb.RunID, bundle digest
 }
 
 // SetRunComplete sets the result of the run post completion.
-func (t *TaskDB) SetRunComplete(ctx context.Context, id taskdb.RunID, execLog, sysLog, evalGraph, trace digest.Digest, end time.Time) error {
+func (t *TaskDB) SetRunComplete(ctx context.Context, id taskdb.RunID, runlog, evalGraph, trace digest.Digest, end time.Time) error {
 	if end.IsZero() {
 		end = time.Now()
 	}
@@ -388,13 +391,9 @@ func (t *TaskDB) SetRunComplete(ctx context.Context, id taskdb.RunID, execLog, s
 			":endtime": {S: aws.String(end.UTC().Format(timeLayout))},
 		}
 	)
-	if !execLog.IsZero() {
-		updates = append(updates, fmt.Sprintf("%s = :execlog", colExecLog))
-		values[":execlog"] = &dynamodb.AttributeValue{S: aws.String(execLog.String())}
-	}
-	if !sysLog.IsZero() {
-		updates = append(updates, fmt.Sprintf("%s = :syslog", colSysLog))
-		values[":syslog"] = &dynamodb.AttributeValue{S: aws.String(sysLog.String())}
+	if !runlog.IsZero() {
+		updates = append(updates, fmt.Sprintf("%s = :runlog", colRunLog))
+		values[":runlog"] = &dynamodb.AttributeValue{S: aws.String(runlog.String())}
 	}
 	if !evalGraph.IsZero() {
 		updates = append(updates, fmt.Sprintf("%s = :evalgraph", colEvalGraph))
@@ -1170,11 +1169,15 @@ func (t *TaskDB) Runs(ctx context.Context, runQuery taskdb.RunQuery) ([]taskdb.R
 		}
 		setTimeFields(it, &r.TimeFields, &errs)
 
-		if v := parseAttr(it, ExecLog, parseDigestFunc, &errs); v != nil {
-			r.ExecLog = v.(digest.Digest)
-		}
-		if v := parseAttr(it, SysLog, parseDigestFunc, &errs); v != nil {
-			r.SysLog = v.(digest.Digest)
+		if v := parseAttr(it, RunLog, parseDigestFunc, &errs); v != nil {
+			r.RunLog = v.(digest.Digest)
+		} else {
+			if d := parseAttr(it, ExecLog, parseDigestFunc, &errs); d != nil {
+				r.ExecLog = d.(digest.Digest)
+			}
+			if d := parseAttr(it, SysLog, parseDigestFunc, &errs); d != nil {
+				r.SysLog = d.(digest.Digest)
+			}
 		}
 		if v := parseAttr(it, EvalGraph, parseDigestFunc, &errs); v != nil {
 			r.EvalGraph = v.(digest.Digest)

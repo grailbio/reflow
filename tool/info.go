@@ -219,8 +219,8 @@ func (c *Cmd) printLocalRunInfo(w io.Writer, id digest.Digest) bool {
 	if state.Result != "" {
 		fmt.Fprintf(w, "\tresult:\t%s\n", state.Result)
 	}
-	if _, err := os.Stat(base + ".execlog"); err == nil {
-		fmt.Fprintf(w, "\tlog:\t%s.execlog\n", base)
+	if _, err := os.Stat(base + ".runlog"); err == nil {
+		fmt.Fprintf(w, "\tlog:\t%s.runlog\n", base)
 	}
 	return true
 }

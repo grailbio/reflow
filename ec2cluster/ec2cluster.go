@@ -533,7 +533,7 @@ probe:
 		if clnt, err := client.New(baseurl, c.HTTPClient, nil); err != nil {
 			c.Log.Errorf("client %s: %v", baseurl, err)
 		} else {
-			c.Log.Printf("discovered instance %s (%s) %s", iid, instanceType, dns)
+			c.Log.Debugf("discovered instance %s (%s) %s", iid, instanceType, dns)
 			offers, oerr := clnt.Offers(ctx)
 			switch {
 			case oerr != nil:
@@ -648,7 +648,7 @@ func (c *Cluster) Refresh(ctx context.Context) (map[string]string, error) {
 				c.Log.Errorf("client %s: %v", baseurl, cerr)
 				continue
 			}
-			c.Log.Printf("discovered instance %s (%s) %s", iid, typ, dns)
+			c.Log.Debugf("discovered instance %s (%s) %s", iid, typ, dns)
 			// Add instance to the pool.
 			c.pools[iid] = reflowletPool{inst, clnt}
 		}

@@ -74,6 +74,19 @@ func TestLevels(t *testing.T) {
 	}
 }
 
+func TestLevelPrefix(t *testing.T) {
+	var b outputBuffer
+	l := log.NewWithLevelPrefix(&b)
+	pl := l.Tee(nil, "prefix: ")
+	l.Print("1")
+	l.Debug("2")
+	l.Error("3")
+	pl.Error("4")
+	if got, want := b.messages, []string{"[INFO] 1", "[DEBUG] 2", "[ERROR] 3", "[ERROR] prefix: 4"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
 func TestMultiOutputter(t *testing.T) {
 	var b1, b2 outputBuffer
 	l := log.New(log.MultiOutputter(&b1, &b2), log.InfoLevel)

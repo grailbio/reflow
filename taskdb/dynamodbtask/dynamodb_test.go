@@ -307,14 +307,13 @@ func TestSetRunComplete(t *testing.T) {
 		mockdb    = mockDynamoDBUpdate{}
 		taskb     = &TaskDB{DB: &mockdb}
 		runID     = taskdb.NewRunID()
-		execLog   = reflow.Digester.Rand(nil)
-		sysLog    = reflow.Digester.Rand(nil)
+		runLog    = reflow.Digester.Rand(nil)
 		evalGraph = reflow.Digester.Rand(nil)
 		trace     = reflow.Digester.Rand(nil)
 		end       = time.Now()
 	)
 	taskb.TableName = mockTableName
-	err := taskb.SetRunComplete(context.Background(), runID, execLog, sysLog, evalGraph, trace, end)
+	err := taskb.SetRunComplete(context.Background(), runID, runLog, evalGraph, trace, end)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,13 +323,12 @@ func TestSetRunComplete(t *testing.T) {
 		{*mockdb.uInput.TableName, "mockdynamodb"},
 		{*mockdb.uInput.Key[colID].S, runID.ID()},
 		{*mockdb.uInput.ExpressionAttributeValues[":endtime"].S, end.UTC().Format(timeLayout)},
-		{*mockdb.uInput.ExpressionAttributeValues[":execlog"].S, execLog.String()},
-		{*mockdb.uInput.ExpressionAttributeValues[":syslog"].S, sysLog.String()},
+		{*mockdb.uInput.ExpressionAttributeValues[":runlog"].S, runLog.String()},
 		{*mockdb.uInput.ExpressionAttributeValues[":evalgraph"].S, evalGraph.String()},
 		{*mockdb.uInput.ExpressionAttributeValues[":trace"].S, trace.String()},
 		{
 			*mockdb.uInput.UpdateExpression,
-			"SET EndTime = :endtime, ExecLog = :execlog, Syslog = :syslog, EvalGraph = :evalgraph, Trace = :trace",
+			"SET EndTime = :endtime, RunLog = :runlog, EvalGraph = :evalgraph, Trace = :trace",
 		},
 	} {
 		if test.want != test.got {
@@ -757,9 +755,9 @@ func TestRunsTimeBucketQuery(t *testing.T) {
 		// We expect to have generated two different queries with variations only
 		// in the keepalive field and the KeyConditionExpression (while the rest of the fields are the same).
 		// The queries are also expected to be in sorted order  (see `sort.Slice` above)
-		wantKa, wantKeyCond := since.Format(timeLayout), "#Date = :date and " + colKeepalive + " > :ka"
+		wantKa, wantKeyCond := since.Format(timeLayout), "#Date = :date and "+colKeepalive+" > :ka"
 		if i == 1 {
-			wantKa, wantKeyCond = until.Format(timeLayout), "#Date = :date and " + colKeepalive + " < :ka"
+			wantKa, wantKeyCond = until.Format(timeLayout), "#Date = :date and "+colKeepalive+" < :ka"
 		}
 		if got := *qinput.ExpressionAttributeValues[":ka"].S; got != wantKa {
 			t.Errorf("[%d] keepalive: got %s, want %s", i, got, wantKa)
@@ -815,7 +813,7 @@ type mockEntry struct {
 
 type mockDynamodbQueryTasks struct {
 	dynamodbiface.DynamoDBAPI
-	mu          sync.Mutex
+	mu sync.Mutex
 	// TODO(swami):  Remove `qinput` since it is redundant.
 	// However, if multiple queries are being issued in a test, the presence of both can cause
 	// flakiness in tests merely due to typos or copy-paste errors.
@@ -1195,9 +1193,9 @@ func TestTasksTimeBucketQuery(t *testing.T) {
 		// We expect to have generated two different queries with variations only
 		// in the keepalive field and the KeyConditionExpression (while the rest of the fields are the same).
 		// The queries are also expected to be in sorted order  (see `sort.Slice` above)
-		wantKa, wantKeyCond := since.Format(timeLayout), "#Date = :date and " + colKeepalive + " > :ka"
+		wantKa, wantKeyCond := since.Format(timeLayout), "#Date = :date and "+colKeepalive+" > :ka"
 		if i == 1 {
-			wantKa, wantKeyCond = until.Format(timeLayout), "#Date = :date and " + colKeepalive + " < :ka"
+			wantKa, wantKeyCond = until.Format(timeLayout), "#Date = :date and "+colKeepalive+" < :ka"
 		}
 		if got := *qinput.ExpressionAttributeValues[":ka"].S; got != wantKa {
 			t.Errorf("[%d] keepalive: got %s, want %s", i, got, wantKa)

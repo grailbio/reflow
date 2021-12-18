@@ -161,13 +161,9 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 	base := c.Runbase(r.RunID)
 	c.must(os.MkdirAll(filepath.Dir(base), 0777))
 	var (
-		execfile, logfile, dotfile *os.File
+		logfile, dotfile *os.File
 	)
-	if execfile, err = os.Create(base + ".execlog"); err != nil {
-		c.Fatal(err)
-	}
-	defer execfile.Close()
-	if logfile, err = os.Create(base + ".syslog"); err != nil {
+	if logfile, err = os.Create(base + ".runlog"); err != nil {
 		c.Fatal(err)
 	}
 	defer logfile.Close()
@@ -179,28 +175,18 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 		defer dotfile.Close()
 	}
 
-	// execLogger is the target for exec status; we also output
-	// this to the main logger's outputter. The file-based log always
-	// gets debug logs.
-	execLogger := c.Log.Tee(golog.New(execfile, "", golog.LstdFlags), "")
-	execLogger.Level = log.DebugLevel
-
-	// Additionally, save logs to the run's log file.
-	saveOut := c.Log.Outputter
-	syslog := golog.New(logfile, "", golog.LstdFlags)
-	c.Log.Outputter = log.MultiOutputter(saveOut, syslog)
-	defer func() {
-		c.Log.Outputter = saveOut
-	}()
+	runlog := golog.New(logfile, "", golog.LstdFlags)
+	// Use a special logger which includes the log level for each log in the run file
+	runLogger := log.NewWithLevelPrefix(runlog)
+	runLogger.Parent = c.Log
 
 	if !r.runConfig.RunFlags.Local {
 		// make sure cluster logs go to the syslog.
 		var ec *ec2cluster.Cluster
 		if err = c.Config.Instance(&ec); err == nil {
-			saveOut := ec.Log
-			ec.Log = ec.Log.Tee(syslog, "")
+			ec.Log.Parent = runLogger
 			defer func() {
-				ec.Log = saveOut
+				ec.Log.Parent = nil
 			}()
 		}
 		c.onexit(func() {
@@ -209,8 +195,7 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 			}
 		})
 	}
-	// Tee the exec logs in a separate (.execlog) file.
-	r.Log = execLogger
+	r.Log = runLogger
 	if dotfile != nil {
 		r.DotWriter = dotfile
 	}

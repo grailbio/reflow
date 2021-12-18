@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 )
 
 // Level defines the level of logging. Higher levels are more
@@ -28,6 +29,36 @@ const (
 	// DebugLevel outputs detailed debugging output.
 	DebugLevel
 )
+
+func (l Level) String() string {
+	switch l {
+	default:
+		return "unknown"
+	case OffLevel:
+		return "OFF"
+	case ErrorLevel:
+		return "ERROR"
+	case InfoLevel:
+		return "INFO"
+	case DebugLevel:
+		return "DEBUG"
+	}
+}
+
+func LevelFromString(level string) Level {
+	switch strings.ToLower(level) {
+	default:
+		panic(fmt.Sprintf("invalid level %s", level))
+	case "off":
+		return OffLevel
+	case "error":
+		return ErrorLevel
+	case "info":
+		return InfoLevel
+	case "debug":
+		return DebugLevel
+	}
+}
 
 // An Outputter receives published log messages. Go's
 // *log.Logger implements Outputter.
@@ -64,8 +95,9 @@ type Logger struct {
 	// Level defines the publishing level of this Logger.
 	Level Level
 
-	parent *Logger
-	prefix string
+	Parent   *Logger
+	prefix   string
+	addLevel bool
 }
 
 // New creates a new Logger that publishes messsages at or below the
@@ -77,6 +109,16 @@ func New(out Outputter, level Level) *Logger {
 	return &Logger{
 		Outputter: out,
 		Level:     level,
+	}
+}
+
+// NewWithLevelPrefix creates a new Logger that prefixes each log with the logging level it was output with. Logs
+// at all levels are output.
+func NewWithLevelPrefix(out Outputter) *Logger {
+	return &Logger{
+		Outputter: out,
+		Level:     DebugLevel,
+		addLevel:  true,
 	}
 }
 
@@ -126,10 +168,10 @@ func (l *Logger) print(calldepth int, level Level, prefix string, v ...interface
 		return
 	}
 	if l.Outputter != nil && level <= l.Level {
-		l.Output(calldepth+1, prefix+fmt.Sprint(v...))
+		_ = l.Output(calldepth+1, l.getPrefix(level, prefix)+fmt.Sprint(v...))
 	}
-	if l.parent != nil {
-		l.parent.print(calldepth+1, level, l.prefix+prefix, v...)
+	if l.Parent != nil {
+		l.Parent.print(calldepth+1, level, l.prefix+prefix, v...)
 	}
 }
 
@@ -138,17 +180,24 @@ func (l *Logger) printf(calldepth int, level Level, prefix, format string, args 
 		return
 	}
 	if l.Outputter != nil && level <= l.Level {
-		l.Output(calldepth+1, prefix+fmt.Sprintf(format, args...))
+		_ = l.Output(calldepth+1, l.getPrefix(level, prefix)+fmt.Sprintf(format, args...))
 	}
-	if l.parent != nil {
-		l.parent.printf(calldepth+1, level, l.prefix+prefix, format, args...)
+	if l.Parent != nil {
+		l.Parent.printf(calldepth+1, level, l.prefix+prefix, format, args...)
 	}
 }
 
+func (l *Logger) getPrefix(level Level, prefix string) string {
+	if l.addLevel {
+		return fmt.Sprintf("[%s] %s", level, prefix)
+	}
+	return prefix
+}
+
 // Tee constructs a new logger that tees its output to the provided
-// outputter and parent logger. Messages sent to the parent are
+// outputter and Parent logger. Messages sent to the Parent are
 // prefixed with the provided prefix string. Out may be nil, in which
-// cases messages are published to the parent only.
+// cases messages are published to the Parent only.
 func (l *Logger) Tee(out Outputter, prefix string) *Logger {
 	if l == nil {
 		return nil
@@ -156,7 +205,7 @@ func (l *Logger) Tee(out Outputter, prefix string) *Logger {
 	return &Logger{
 		Outputter: out,
 		Level:     l.Level,
-		parent:    l,
+		Parent:    l,
 		prefix:    prefix,
 	}
 }
@@ -210,13 +259,13 @@ func At(level Level) bool {
 // Fatal formats a message in the manner of fmt.Print, outputs it to
 // the standard outputter (always), and then calls os.Exit(1).
 func Fatal(v ...interface{}) {
-	Std.Output(2, fmt.Sprint(v...))
+	_ = Std.Output(2, fmt.Sprint(v...))
 	os.Exit(1)
 }
 
 // Fatalf formats a message in the manner of fmt.Printf, outputs it to
 // the standard outputter (always), and then calls os.Exit(1).
 func Fatalf(format string, v ...interface{}) {
-	Std.Output(2, fmt.Sprintf(format, v...))
+	_ = Std.Output(2, fmt.Sprintf(format, v...))
 	os.Exit(1)
 }

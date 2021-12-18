@@ -215,22 +215,10 @@ func (c *Cmd) Main() {
 		flags.Usage()
 	}
 	var (
-		level     log.Level
 		logflags  int
 		logprefix = "reflow: "
 	)
-	switch c.logFlag {
-	case "off":
-		level = log.OffLevel
-	case "error":
-		level = log.ErrorLevel
-	case "info":
-		level = log.InfoLevel
-	case "debug":
-		level = log.DebugLevel
-	default:
-		c.Fatalf("unrecognized log level %v", c.logFlag)
-	}
+	level := log.LevelFromString(c.logFlag)
 	if level > log.InfoLevel {
 		logflags = golog.LstdFlags
 		logprefix = ""

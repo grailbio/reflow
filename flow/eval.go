@@ -403,7 +403,7 @@ func (e *Eval) Do(ctx context.Context) error {
 			}
 		}
 	}()
-	e.Log.Debugf("evaluating with configuration: %s", e.EvalConfig)
+	e.Log.Printf("evaluating with configuration: %s", e.EvalConfig)
 	e.begin = time.Now()
 	defer func() {
 		e.totalTime = time.Since(e.begin)
@@ -863,7 +863,7 @@ func (e *Eval) valid(f *Flow) bool {
 	}
 	invalid := e.Invalidate(f)
 	if invalid {
-		e.Log.Debugf("invalidated %v", f)
+		e.Log.Printf("invalidated %v", f)
 	}
 	return !invalid
 }
@@ -1221,7 +1221,7 @@ func (e *Eval) getFileset(ctx context.Context, f *Flow, keys []digest.Digest, ba
 		}
 		err = unmarshal(ctx, e.Repository, res.Digest, &fs, kind)
 		if err == nil {
-			e.Log.Debugf("cache.Lookup flow: %s (%s) result from (key, kind): (%s, %s), value: %s\n", f.Digest().Short(), f.Ident, key.Short(), kind.String(), res.Digest)
+			e.Log.Printf("cache.Lookup flow: %s (%s) result from (key, kind): (%s, %s), value: %s\n", f.Digest().Short(), f.Ident, key.Short(), kind.String(), res.Digest)
 			fsid = res.Digest
 			break
 		}
@@ -1869,11 +1869,7 @@ func (e *Eval) LogFlow(ctx context.Context, f *Flow) {
 			pr.debug(newPrefixWriter(&b, "\t"), f)
 		}
 	}
-	if f.Err != nil {
-		e.Log.Print(b.String())
-	} else {
-		e.Log.Debug(b.String())
-	}
+	e.Log.Print(b.String())
 
 	// We perform debug logging for successful flows with a debug
 	// printer and also for cache transfers, where having extra
@@ -1902,11 +1898,7 @@ func (e *Eval) LogFlow(ctx context.Context, f *Flow) {
 	if pr.debug != nil {
 		pr.debug(newPrefixWriter(&b, "\t"), f)
 	}
-	if f.Err != nil {
-		e.Log.Print(b.String())
-	} else {
-		e.Log.Debug(b.String())
-	}
+	e.Log.Print(b.String())
 }
 
 // taskWait waits for a task to finish running and updates the flow, cache, and taskdb accordingly.

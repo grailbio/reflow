@@ -263,8 +263,10 @@ func (s *Scheduler) Do(ctx context.Context) error {
 			default:
 				panic("illegal task state")
 			case TaskLost:
+				old := task.ID().IDShort()
 				// Reset the task (which also assigns it a new task identifier)
 				task.Reset()
+				task.Log.Printf("task %s (flow %s) has been lost, will retry (attempt %d) as task %s", old, task.FlowID.Short(), 1+task.Attempt(), task.ID().IDShort())
 				heap.Push(&todo, task)
 			case TaskDone:
 				// In this case we're done, and we can forget about the task.
@@ -295,7 +297,7 @@ func (s *Scheduler) Do(ctx context.Context) error {
 
 		assigned := s.assign(&todo, &live, s.Stats)
 		for _, task := range assigned {
-			task.Log.Debugf("task %s (flow %s) assigning to alloc %v", task.ID().IDShort(), task.FlowID.Short(), task.alloc)
+			task.Log.Printf("task %s (flow %s) assigning to alloc %v", task.ID().IDShort(), task.FlowID.Short(), task.alloc)
 			nrunning++
 			go s.run(task, returnc)
 		}

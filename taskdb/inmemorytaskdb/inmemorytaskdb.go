@@ -47,10 +47,10 @@ func (t *TaskDB) Flags(flags *flag.FlagSet) {
 type InmemoryTaskDB struct {
 	taskdb.TaskDB
 	tableName string
-	repo     reflow.Repository
-	mu       sync.Mutex
-	numCalls map[string]int
-	tasks    map[taskdb.TaskID]taskdb.Task
+	repo      reflow.Repository
+	mu        sync.Mutex
+	numCalls  map[string]int
+	tasks     map[taskdb.TaskID]taskdb.Task
 }
 
 type tableRepo struct {
@@ -71,9 +71,9 @@ func NewInmemoryTaskDB(tableName, repoName string) *InmemoryTaskDB {
 	}
 	tdb := &InmemoryTaskDB{
 		tableName: tableName,
-		repo:     testutil.NewInmemoryRepository(repoName),
-		numCalls: make(map[string]int),
-		tasks:    make(map[taskdb.TaskID]taskdb.Task),
+		repo:      testutil.NewInmemoryRepository(repoName),
+		numCalls:  make(map[string]int),
+		tasks:     make(map[taskdb.TaskID]taskdb.Task),
 	}
 	tdbs[tr] = tdb
 	return tdb
@@ -106,7 +106,7 @@ func (t *InmemoryTaskDB) SetRunAttrs(ctx context.Context, id taskdb.RunID, bundl
 	return nil
 }
 
-func (t *InmemoryTaskDB) SetRunComplete(ctx context.Context, id taskdb.RunID, execLog, sysLog, evalGraph, trace digest.Digest, end time.Time) error {
+func (t *InmemoryTaskDB) SetRunComplete(ctx context.Context, id taskdb.RunID, runlog, evalGraph, trace digest.Digest, end time.Time) error {
 	// TODO(swami): Implement, ie, store and allow retrieval.
 	return nil
 }

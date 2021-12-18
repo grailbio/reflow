@@ -5,21 +5,28 @@
 package tool
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
-
-	"github.com/grailbio/reflow/errors"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/errors"
+	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/taskdb"
+	"github.com/grailbio/reflow/taskdb/noptaskdb"
 )
 
 const (
@@ -31,37 +38,40 @@ const (
 func (c *Cmd) logs(ctx context.Context, args ...string) {
 	var (
 		flags         = flag.NewFlagSet("logs", flag.ExitOnError)
-		stdoutFlag    = flags.Bool("stdout", false, "display stdout instead of stderr")
-		followFlag    = flags.Bool("f", false, "follows the logs until exec completion (full exec URI must be specified e.g. ec2-35-165-199-174.us-west-2.compute.amazonaws.com:9000/bb97e35db4101030/9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49)")
+		stdoutFlag    = flags.Bool("stdout", false, "for exec logs, display stdout instead of stderr")
+		followFlag    = flags.Bool("f", false, "for exec logs, follows until exec completion (full exec URI must be specified e.g. ec2-35-165-199-174.us-west-2.compute.amazonaws.com:9000/bb97e35db4101030/9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49)")
 		reflowletFlag = flags.Bool("reflowlet", false, "if true, then streams the logs of the reflowlet")
-		help          = `Logs displays logs from execs or the alloc (ie, reflowlet).
+		runLevelFlag  = flags.String("level", "info", "for a run log, this is the minimum log level for logs returned from the runlog")
+		help          = `Logs displays logs from reflow runs, execs, or reflowlets.
 
-Acceptable argument types are:
-` + objNameExamples + `
+The valid arguments are:
+  RunId
+	Fetches a reflow run log filtered to a certain logging level. First checks local reflow run logs, then taskdb.
+		  Options:
+			  -level=info
+				   one of (debug,info,error), this specifies the minimum log level for logs returned
 
-If the passed argument is an exec URI:
-- the exec logs will be retrieved from the executor (assuming it's still accessible)
-- in this case, the -f flag can also be provided to follow the exec logs until the exec completes.
-- if the executor is not available, then the exec logs are streamed from cloudwatch.
-
-If the passed argument is a hostname or alloc URI 
-- if -reflowlet is set, then the logs of the reflowlet are streamed from cloudwatch.
-- otherwise, it is an error
-
-If the passed argument argument is a digest (short or long):
-- the location of the exec logs is determined (using taskdb)
-- then the exec logs are streamed from cloudwatch (if available, otherwise, the location of the logs is printed)
-
-If the passed argument is an exec URI or a digest (short or long) and -reflowlet is set:
-- the start/end times of the relevant exec are determined (using taskdb)
-- the task URI is determined from taskdb  
-- the relevant reflowlet logs (ie, around the task's execution time) are streamed from cloudwatch.
-- the task's start and end time is marked (chronologically) within the streamed logs.
-
-When printing exec logs, if -stdout is set, then the standard output of the exec is returned instead of standard error (default)
+  TaskId / Exec URI / Alloc URI / Hostname
+	Fetches a log produced by a reflow exec. Argument may be a TaskId or Exec URI. If -reflowlet is set, you may also provide an Alloc URI or just a hostname.
+		  Options:
+			  -stdout
+				   if set, will retrieve exec's stdout log instead of stderr.
+			  -f
+				   if the argument provided is an exec URI, follow the exec log until the exec completes.
+			 -reflowlet
+				   stream reflowlet logs instead of exec logs
+Examples:
+  $ reflow logs 9909853c                                                                            (RunId or TaskId, requires taskdb)
+  $ reflow logs 9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49                    (RunId or TaskId, requires taskdb)
+  $ reflow logs sha256:9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49             (RunId or TaskId, requires taskdb)
+  $ reflow logs -level=debug 5c902b1c                                                               (RunId, requires taskdb)
+  $ reflow logs -stdout 71444f1a                                                                    (TaskId, requires taskdb)
+  $ reflow logs -f ec2-35-165-199-174.us-west-2.compute.amazonaws.com:9000/bb97e35db4101030/71444f1a8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49
+  $ reflow logs -reflowlet ec2-35-165-199-174.us-west-2.compute.amazonaws.com                       (requires -reflowlet to be set)
+  $ reflow logs -reflowlet ec2-35-165-199-174.us-west-2.compute.amazonaws.com:9000/bb97e35db4101030 (requires -reflowlet to be set)
 `
 	)
-	c.Parse(flags, args, help, "logs [-f] [-stdout] [-reflowlet] arg")
+	c.Parse(flags, args, help, "logs [OPTIONS] ARG")
 	if flags.NArg() != 1 {
 		flags.Usage()
 	}
@@ -74,58 +84,98 @@ When printing exec logs, if -stdout is set, then the standard output of the exec
 		flags.Usage()
 		return
 	}
-	switch {
-	case n.Kind == execName && !*reflowletFlag:
-		if err = c.execLogsFromAlloc(ctx, n, *stdoutFlag, *followFlag); err != nil {
-			c.execLogsCloudWatch(ctx, execPath(n), *stdoutFlag)
-		}
-		return
-	case (n.Kind == hostName || n.Kind == allocName):
+	switch n.Kind {
+	default:
+		c.Fatalf("argument has invalid kind %s. An exec URI or task ID is required", n.Kind)
+	case execName:
 		if *reflowletFlag {
 			c.reflowletLogsCw(ctx, n.Hostname, st, et, nil)
-			return
-		}
-		c.Printf("invalid argument '%s' (must set -reflowlet)\n%s", arg, help)
-		flags.Usage()
-	}
-	var tdb taskdb.TaskDB
-	err = c.Config.Instance(&tdb)
-	if err != nil {
-		c.Printf("invalid argument '%s' (requires taskdb)\n%s", arg, help)
-		flags.Usage()
-	}
-	var task *taskdb.Task
-	if task, err = c.taskFromArg(ctx, tdb, n.ID); err != nil {
-		c.Fatal(err)
-	}
-
-	if !*reflowletFlag {
-		d := task.Stderr
-		if *stdoutFlag {
-			d = task.Stdout
-		}
-		if !d.IsZero() {
-			rlogs := c.remoteLogsFromTaskRepo(ctx, tdb.Repository(), d)
-			if rlogs.Type != reflow.RemoteLogsTypeCloudwatch {
-				c.Printf("log location: %s\n", rlogs)
-				return
-			}
-			c.must(c.writeCwLogs(c.Stdout, rlogs.LogGroupName, rlogs.LogStreamName, st, et, func(w io.Writer, event *cloudwatchlogs.OutputLogEvent) {
-				_, _ = fmt.Fprintln(w, *event.Message)
-			}))
-			return
-		}
-		if n, err = parseName(task.URI); err != nil {
-			c.Fatalf("missing reference to logs for task '%s' and and unable to parse task URI '%s': %v", task.ID.IDShort(), task.URI, err)
 		} else {
-			c.execLogsCloudWatch(ctx, execPath(n), *stdoutFlag)
+			if err = c.execLogsFromAlloc(ctx, n, *stdoutFlag, *followFlag); err != nil {
+				c.execLogsCloudWatch(ctx, execPath(n), *stdoutFlag)
+			}
+		}
+	case idName:
+		if c.tryLocalRunLog(n, log.LevelFromString(*runLevelFlag)) {
 			return
 		}
-	}
-	if n.Hostname == "" {
-		if n, err = parseName(task.URI); err != nil {
-			c.Fatalf("invalid argument '%s' (need hostname with -reflowlet) and unable to parse task URI '%s': %v\n%s", arg, task.URI, err, help)
+		var tdb taskdb.TaskDB
+		err = c.Config.Instance(&tdb)
+		if _, nop := tdb.(noptaskdb.NopTaskDB); nop || err != nil {
+			c.Printf("invalid argument '%s' (requires taskdb)\n%s", arg, help)
+			flags.Usage()
 		}
+		runq := taskdb.RunQuery{ID: taskdb.RunID(n.ID)}
+		runs, rerr := tdb.Runs(ctx, runq)
+		if rerr != nil {
+			c.Fatal(rerr)
+		}
+		taskq := taskdb.TaskQuery{ID: taskdb.TaskID(n.ID)}
+		tasks, terr := tdb.Tasks(ctx, taskq)
+		if terr != nil {
+			c.Fatal(terr)
+		}
+		switch len(tasks) + len(runs) {
+		case 0:
+			c.Fatalf("unable to resolve id %s", arg)
+		case 1:
+			if len(runs) == 1 {
+				c.runLogAtLevel(ctx, runs[0], log.LevelFromString(*runLevelFlag))
+			} else {
+				if *reflowletFlag {
+					c.reflowletLogsForTask(ctx, tasks[0])
+				} else {
+					c.execLogsForTaskId(ctx, tdb, tasks[0], *stdoutFlag)
+				}
+			}
+		default:
+			var matches []string
+			for _, t := range tasks {
+				matches = append(matches, fmt.Sprintf("TaskId %s", t.ID.ID()))
+			}
+			for _, r := range runs {
+				matches = append(matches, fmt.Sprintf("RunId %s", r.ID.ID()))
+			}
+			c.Fatalf("Found multiple matches for the given ID. Matches are [%s]", strings.Join(matches, ", "))
+		}
+	case hostName, allocName:
+		if *reflowletFlag {
+			c.reflowletLogsCw(ctx, n.Hostname, st, et, nil)
+		} else {
+			c.Fatal("alloc URI and hostnames require -reflowlet to be set")
+		}
+	}
+}
+
+func (c *Cmd) execLogsForTaskId(ctx context.Context, tdb taskdb.TaskDB, task taskdb.Task, stdout bool) {
+	d := task.Stderr
+	if stdout {
+		d = task.Stdout
+	}
+	if !d.IsZero() {
+		rlogs := c.remoteLogsFromTaskRepo(ctx, tdb.Repository(), d)
+		if rlogs.Type != reflow.RemoteLogsTypeCloudwatch {
+			c.Printf("log location: %s\n", rlogs)
+			return
+		}
+		var st, et time.Time
+		c.must(c.writeCwLogs(c.Stdout, rlogs.LogGroupName, rlogs.LogStreamName, st, et, func(w io.Writer, event *cloudwatchlogs.OutputLogEvent) {
+			_, _ = fmt.Fprintln(w, *event.Message)
+		}))
+		return
+	}
+	if n, err := parseName(task.URI); err != nil {
+		c.Fatalf("missing reference to logs for task '%s' and and unable to parse task URI '%s': %v", task.ID.IDShort(), task.URI, err)
+	} else {
+		c.execLogsCloudWatch(ctx, execPath(n), stdout)
+	}
+	return
+}
+
+func (c *Cmd) reflowletLogsForTask(ctx context.Context, task taskdb.Task) {
+	n, err := parseName(task.URI)
+	if err != nil {
+		c.Fatalf("unable to parse task URI '%s': %v\n%s", task.URI, err, help)
 	}
 	taskEnd := task.End
 	if taskEnd.IsZero() {
@@ -207,7 +257,7 @@ func (c *Cmd) taskFromArg(ctx context.Context, tdb taskdb.TaskDB, d digest.Diges
 		return nil, err
 	}
 	if len(tasks) == 0 {
-		return nil, fmt.Errorf("no tasks matched id: %v", d)
+		return nil, nil
 	}
 	if len(tasks) > 1 {
 		return nil, fmt.Errorf("more than one task matched id: %v", d)
@@ -225,6 +275,76 @@ func (c *Cmd) remoteLogsFromTaskRepo(ctx context.Context, repo reflow.Repository
 		c.Fatalf("failed to decode remote logs location: %v", derr)
 	}
 	return
+}
+
+// runLogAtLevel prints the runlog for runId d, filtered for logs at or above the provided level
+func (c *Cmd) runLogAtLevel(ctx context.Context, run taskdb.Run, level log.Level) {
+	var (
+		rc   io.ReadCloser
+		repo reflow.Repository
+		err  error
+	)
+	if run.RunLog.IsZero() {
+		c.Fatalf("run log digest for run %s is empty", run.ID.IDShort())
+	}
+	c.must(c.Config.Instance(&repo))
+	if rc, err = repo.Get(ctx, run.RunLog); err != nil {
+		c.Fatalf("get %s: %v", run.RunLog, err)
+	}
+	defer rc.Close()
+	c.printRunLog(rc, level)
+}
+
+// printRunLog prints the runlog from rc, filtered for logs at or above the provided level
+func (c *Cmd) printRunLog(rc io.ReadCloser, level log.Level) {
+	r, _ := regexp.Compile(`(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} )\[([^\]]*)\] (.*)`)
+	scanner := bufio.NewScanner(rc)
+	levelAllowed := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		matches := r.FindStringSubmatch(line)
+		if len(matches) == 4 {
+			currentLevel := log.LevelFromString(matches[2])
+			if currentLevel <= level {
+				levelAllowed = true
+				c.Println(matches[1] + matches[3])
+			} else {
+				levelAllowed = false
+			}
+		} else if levelAllowed {
+			// Assume logs with no level are continuations from the previous line
+			c.Println(line)
+		}
+	}
+}
+
+// tryLocalRunLog checks for local runlogs which match the given ID, then prints. Returns true if a file was found and printed.
+func (c *Cmd) tryLocalRunLog(n name, level log.Level) bool {
+	var logName string
+	if n.ID.IsShort() {
+		logName = fmt.Sprintf("%s*.runlog", n.ID.Short())
+	} else {
+		logName = fmt.Sprintf("%s.runlog", n.ID.Hex())
+	}
+	localMatches, gerr := filepath.Glob(path.Join(c.rundir(), logName))
+	if gerr != nil {
+		return false
+	}
+	switch len(localMatches) {
+	case 0:
+		return false
+	case 1:
+		f, err := os.Open(localMatches[0])
+		if f == nil || err != nil {
+			return false
+		}
+		defer f.Close()
+		c.Printf("Using local runlog file %s\n", localMatches[0])
+		c.printRunLog(f, level)
+		return true
+	default:
+		return false
+	}
 }
 
 // messageWriter writes the given event to the writer

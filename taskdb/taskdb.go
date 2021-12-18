@@ -146,7 +146,7 @@ type TaskDB interface {
 	// SetRunAttrs sets the reflow bundle and corresponding args for this run.
 	SetRunAttrs(ctx context.Context, id RunID, bundle digest.Digest, args []string) error
 	// SetRunComplete marsk the run as complete.
-	SetRunComplete(ctx context.Context, id RunID, execLog, sysLog, evalGraph, trace digest.Digest, end time.Time) error
+	SetRunComplete(ctx context.Context, id RunID, runLog, evalGraph, trace digest.Digest, end time.Time) error
 	// KeepRunAlive updates the keepalive timer for the specified run id. Updating the keepalive timer
 	// allows the querying methods (Runs, Tasks) to see which runs/tasks are active and which are dead/complete.
 	KeepRunAlive(ctx context.Context, id RunID, keepalive time.Time) error
@@ -236,7 +236,10 @@ type Run struct {
 	// User is the specified config.User()
 	User string
 	// Various logs and other run info generated for the run.
-	ExecLog, SysLog, EvalGraph, Trace digest.Digest
+	RunLog, EvalGraph, Trace digest.Digest
+	// For backwards compatibility
+	// TODO(awissmann): Remove these after transition to runlog
+	ExecLog, SysLog digest.Digest
 }
 
 func (r Run) String() string {
