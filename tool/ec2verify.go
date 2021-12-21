@@ -46,7 +46,7 @@ Example usage:
 	} else {
 		ec.Status = c.Status.Group("ec2verify")
 	}
-	existing := instances.VerifiedByRegion[ec.Region]
+	existing := instances.VerifiedByRegion[ec.Region()]
 	verified, toverify := instancesToVerify(ec.InstanceTypes, existing, *retry)
 	if len(toverify) == 0 {
 		if _, err := c.Stdout.Write([]byte("no instance types to be verified\n")); err != nil {
@@ -94,7 +94,7 @@ Example usage:
 
 	if *pkgPath != "" {
 		dir := *pkgPath
-		instances.VerifiedByRegion[ec.Region] = final
+		instances.VerifiedByRegion[ec.Region()] = final
 		vgen := instances.VerifiedSrcGenerator{filepath.Base(dir), instances.VerifiedByRegion}
 		src, err := vgen.Source()
 		c.must(err)

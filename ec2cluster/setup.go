@@ -36,9 +36,6 @@ func (c *Cluster) Setup(sess *session.Session) error {
 	if c.KeyName == "" {
 		c.Log.Debug("EC2 key pair not configured")
 	}
-	if c.Region == "" {
-		c.Region = "us-west-2"
-	}
 	if c.SecurityGroup == "" {
 		svc := ec2.New(sess)
 		var err error

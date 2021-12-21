@@ -122,8 +122,6 @@ type Cluster struct {
 	// (Note however, that if in this case, only spot instance requests that use the AZ which matches the subnet
 	// will succeed and other AZ requests will fail)
 	VpcId string `yaml:"vpcid,omitempty"`
-	// Region is the AWS availability region to use for launching new EC2 instances.
-	Region string `yaml:"region,omitempty"`
 	// InstanceTypesMap stores the set of admissible instance types.
 	// If nil, all instance types are permitted.
 	InstanceTypesMap map[string]bool `yaml:"-"`
@@ -255,9 +253,14 @@ func (c *Cluster) Config() interface{} {
 func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	bootstrapimage *infra2.BootstrapImage, reflowVersion *infra2.ReflowVersion, id *infra2.User, logger *log.Logger,
 	ssh infra2.Ssh, mclient metrics.Client) error {
+	c.Session = sess
+	if c.Region() == "" {
+		return errors.New("missing region parameter")
+	}
+
 	// If InstanceTypes are not defined, include built-in verified instance types.
 	if len(c.InstanceTypes) == 0 {
-		verified := instances.VerifiedByRegion[c.Region]
+		verified := instances.VerifiedByRegion[c.Region()]
 		for _, typ := range instances.Types {
 			if !verified[typ.Name].Attempted || verified[typ.Name].Verified {
 				c.InstanceTypes = append(c.InstanceTypes, typ.Name)
@@ -290,7 +293,6 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	if pclient, ok := mclient.(*prometrics.Client); ok {
 		c.NodeExporterMetricsPort = pclient.NodeExporterPort
 	}
-	c.Session = sess
 
 	if c.MaxPendingInstances == 0 {
 		c.MaxPendingInstances = defaultMaxPendingInstances
@@ -320,9 +322,6 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	if c.AMI == "" {
 		return errors.New("missing AMI parameter")
 	}
-	if c.Region == "" {
-		return errors.New("missing region parameter")
-	}
 	if c.SecurityGroup == "" {
 		return errors.New("missing EC2 security group")
 	}
@@ -346,7 +345,7 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 		return errors.New("no configured instance types")
 	}
 	adv, _ := sa.NewSpotAdvisor(c.Log, context.Background().Done())
-	c.instanceState = newInstanceState(configs, unavailableInstanceTypeTtl, c.Region, adv)
+	c.instanceState = newInstanceState(configs, unavailableInstanceTypeTtl, c.Region(), adv)
 	c.manager = NewManager(c, c.MaxHourlyCostUSD, c.MaxPendingInstances, c.Log)
 	c.spotProber = NewSpotProber(
 		func(ctx context.Context, instanceType string, depth int) (bool, error) {
@@ -402,6 +401,14 @@ func (c *Cluster) verifyAndInitialize() error {
 	c.SetCaching(true)
 	c.manager.Start()
 	return nil
+}
+
+// Region is the AWS region to use for launching new EC2 instances.
+func (c *Cluster) Region() string {
+	if c.Session == nil {
+		panic("ec2cluster Session must be set")
+	}
+	return aws.StringValue(c.Session.Config.Region)
 }
 
 // CanAllocate returns whether this cluster can allocate the given amount of resources.
@@ -567,10 +574,10 @@ func (c *Cluster) newInstance(config instanceConfig) *instance {
 		SubnetAZ:                c.subnetAZ,
 		InstanceProfile:         c.InstanceProfile,
 		SecurityGroup:           c.SecurityGroup,
-		Region:                  c.Region,
+		Region:                  c.Region(),
 		BootstrapImage:          c.BootstrapImage,
 		BootstrapExpiry:         c.BootstrapExpiry,
-		Price:                   config.Price[c.Region],
+		Price:                   config.Price[c.Region()],
 		EBSType:                 c.DiskType,
 		EBSSize:                 uint64(config.Resources["disk"]) >> 30,
 		NEBS:                    c.DiskSlices,
@@ -608,7 +615,7 @@ func (c *Cluster) Launch(ctx context.Context, spec InstanceSpec) ManagedInstance
 	switch {
 	case i.err == nil:
 	case errors.Is(errors.Unavailable, i.err):
-		c.Log.Debugf("instance type %s unavailable in region %s: %v", i.Config.Type, c.Region, i.err)
+		c.Log.Debugf("instance type %s unavailable in region %s: %v", i.Config.Type, c.Region(), i.err)
 		c.instanceState.Unavailable(i.Config)
 		fallthrough
 	// TODO(swami): Deal with Fatal errors appropriately by propagating them up the stack.
@@ -708,7 +715,7 @@ func (c *Cluster) getEC2State(ctx context.Context) (map[string]*reflowletInstanc
 
 func (c *Cluster) InstancePriceUSD(typ string) float64 {
 	config := c.instanceConfigs[typ]
-	return config.Price[c.Region]
+	return config.Price[c.Region()]
 }
 
 func (c *Cluster) CheapestInstancePriceUSD() float64 {
@@ -734,7 +741,7 @@ func (c *Cluster) printState(suffix string) {
 		var r reflow.Resources
 		r.Scale(config.Resources, float64(ntyp))
 		total.Add(total, r)
-		totalPrice += config.Price[c.Region] * float64(ntyp)
+		totalPrice += config.Price[c.Region()] * float64(ntyp)
 		n += ntyp
 	}
 	sort.Strings(counts)

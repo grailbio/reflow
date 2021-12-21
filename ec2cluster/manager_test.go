@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/reflow"
@@ -161,6 +163,7 @@ func TestManagerStart(t *testing.T) {
 	}
 	c := &Cluster{
 		EC2:            &mockEC2Client{output: dio},
+		Session:        &session.Session{Config: &aws.Config{Region: aws.String("someregion")}},
 		stats:          newStats(),
 		pools:          make(map[string]reflowletPool),
 		instanceState:  newInstanceState(configs, time.Minute, "us-west-2", nil),

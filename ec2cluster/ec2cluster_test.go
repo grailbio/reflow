@@ -63,7 +63,8 @@ func TestRefresh(t *testing.T) {
 	}
 	dio := &ec2.DescribeInstancesOutput{Reservations: []*ec2.Reservation{{Instances: ec2Is}}}
 	mockEC2 := mockEC2Client{output: dio}
-	c := &Cluster{EC2: &mockEC2, stats: newStats(), pools: make(map[string]reflowletPool)}
+	c := &Cluster{EC2: &mockEC2, Session: &session.Session{Config: &aws.Config{Region: aws.String("someregion")}},
+		stats: newStats(), pools: make(map[string]reflowletPool)}
 	c.refreshLimiter = rate.NewLimiter(rate.Every(time.Millisecond), 1)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	if _, err := c.Refresh(ctx); err != nil {
@@ -168,7 +169,7 @@ func TestClusterInfra(t *testing.T) {
         labels: kv
         tls: tls,file=/tmp/ca
         logger: logger
-        session: fakesession
+        session: fakesession,region=us-west-2
         user: user
         bootstrap: bootstrapimage,uri=` + bootstrapImage + `
         reflow: reflowversion,version=abcdef
@@ -178,7 +179,6 @@ func TestClusterInfra(t *testing.T) {
             disktype: dt
             diskspace: 10
             ami: foo
-            region: bar
             securitygroup: blah
         sshkey: key
         metrics: nopmetrics
@@ -265,7 +265,7 @@ func getEC2ClusterWithRestrictedInstanceTypes() (*Cluster, error) {
         labels: kv
         tls: tls,file=/tmp/ca
         logger: logger
-        session: fakesession
+        session: fakesession,region=us-west-2
         user: user
         bootstrap: bootstrapimage,uri=https://some_s3_path
         reflow: reflowversion,version=abcdef
@@ -275,7 +275,6 @@ func getEC2ClusterWithRestrictedInstanceTypes() (*Cluster, error) {
             disktype: dt
             diskspace: 10
             ami: foo
-            region: us-west-2
             securitygroup: blah
             instancetypes:
             - c5.large
