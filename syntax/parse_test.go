@@ -32,8 +32,8 @@ func TestParseTypeOk(t *testing.T) {
 		{"dir", types.Dir},
 		{"[string]", types.List(types.String)},
 		{"[string:dir]", types.Map(types.String, types.Dir)},
-		{"(int, dir)", types.Tuple(&types.Field{"", types.Int}, &types.Field{"", types.Dir})},
-		{"func(int, dir) dir", types.Func(types.Dir, &types.Field{"", types.Int}, &types.Field{"", types.Dir})},
+		{"(int, dir)", types.Tuple(&types.Field{Name: "", T: types.Int}, &types.Field{Name: "", T: types.Dir})},
+		{"func(int, dir) dir", types.Func(types.Dir, &types.Field{Name: "", T: types.Int}, &types.Field{Name: "", T: types.Dir})},
 		{
 			"#One | #Two | #Three | #String(string)",
 			types.Sum(
@@ -57,25 +57,25 @@ func TestParseTypeOk(t *testing.T) {
 		{
 			"{r1 file, r2 file, stats dir}",
 			types.Struct(
-				&types.Field{"r1", types.File},
-				&types.Field{"r2", types.File},
-				&types.Field{"stats", types.Dir},
+				&types.Field{Name: "r1", T: types.File},
+				&types.Field{Name: "r2", T: types.File},
+				&types.Field{Name: "stats", T: types.Dir},
 			),
 		},
 		{
 			"{r1, r2 file, x string}",
 			types.Struct(
-				&types.Field{"r1", types.File},
-				&types.Field{"r2", types.File},
-				&types.Field{"x", types.String},
+				&types.Field{Name: "r1", T: types.File},
+				&types.Field{Name: "r2", T: types.File},
+				&types.Field{Name: "x", T: types.String},
 			),
 		},
 		{
 			"{x t1, y, z t3.x}",
 			types.Struct(
-				&types.Field{"x", types.Ref("t1")},
-				&types.Field{"y", types.Ref("t3", "x")},
-				&types.Field{"z", types.Ref("t3", "x")},
+				&types.Field{Name: "x", T: types.Ref("t1")},
+				&types.Field{Name: "y", T: types.Ref("t3", "x")},
+				&types.Field{Name: "z", T: types.Ref("t3", "x")},
 			),
 		},
 	} {
@@ -180,15 +180,15 @@ func TestParseModule(t *testing.T) {
 			foo = "ok"
 			bar (int, string) = (1, "ok")
 		)
-		
+
 		val Xyz = {
 			a: "x",
 			b: 123,
 			c: (1,2,3,4),
 		}
-		
+
 		val Blah = {x, y, z, Xyz}
-		
+
 		val fun = func(x, y, z int) => 123
 		func fun(x, y, z int, zz string) = {
 			zzz := zz+"ok"
@@ -198,9 +198,9 @@ func TestParseModule(t *testing.T) {
 		val tuple = (1, "ok", ("nested", fun))
 
 		val s = {r1: "ok", r2: "blah"}
-		
+
 		val test = if s.r1 == "ok" { "yep" } else { "nope" }
-		
+
 		val compr = [{x, y, z} | (x, y, z) <- l]
 	`))}
 
@@ -218,7 +218,7 @@ func TestParseComments(t *testing.T) {
 		// Foo computes 123
 		// Line two
 		val Foo = 123
-		
+
 		// A comment before an annotation.
 		@requires(cpu := 1)
 		val Bar = "ok"`))}

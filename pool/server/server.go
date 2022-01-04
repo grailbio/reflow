@@ -149,7 +149,7 @@ func (n allocNode) Walk(ctx context.Context, call *rest.Call, path string) rest.
 		if repo == nil {
 			return nil
 		}
-		return repositoryserver.Node{repo}
+		return repositoryserver.Node{Repository: repo}
 	case "load":
 		return rest.DoFunc(func(ctx context.Context, call *rest.Call) {
 			if !call.Allow("POST") {
@@ -332,7 +332,7 @@ func (n execNode) logNode(loc, stdout, stderr bool, follow string) rest.Node {
 			call.Error(err)
 			return
 		}
-		_, err = io.Copy(&rest.StreamingCall{call}, rc)
+		_, err = io.Copy(&rest.StreamingCall{Call: call}, rc)
 		if err != nil {
 			call.Error(err)
 			return
@@ -356,7 +356,7 @@ func (n execNode) shellNode() rest.Node {
 			io.Copy(rwc, call.Body())
 		}()
 
-		_, err = io.Copy(&rest.StreamingCall{call}, rwc)
+		_, err = io.Copy(&rest.StreamingCall{Call: call}, rwc)
 		if err != nil {
 			call.Error(err)
 			return

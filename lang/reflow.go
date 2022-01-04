@@ -85,7 +85,6 @@ func (s *Stmt) Type(env TypeEnv) Type {
 		env.Errorf(s.Pos(), "illegal statement type %s", s.op)
 		return typeError
 	}
-	return typeError
 }
 
 // Expr implements expressions in reflow. They contain the

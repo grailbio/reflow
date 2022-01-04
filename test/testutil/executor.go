@@ -75,9 +75,9 @@ func (e *Exec) Inspect(ctx context.Context, repo *url.URL) (resp reflow.InspectR
 	r, err := e.result(ctx)
 	if repo != nil {
 		runInfo := r.Inspect.RunInfo()
-		runInfo.InspectDigest = reflow.RepoObjectRef{repo, reflow.Digester.Rand(rand.New(rand.NewSource(0)))}
-		runInfo.Stdout = reflow.RepoObjectRef{repo, reflow.Digester.Rand(rand.New(rand.NewSource(1)))}
-		runInfo.Stderr = reflow.RepoObjectRef{repo, reflow.Digester.Rand(rand.New(rand.NewSource(2)))}
+		runInfo.InspectDigest = reflow.RepoObjectRef{RepoURL: repo, Digest: reflow.Digester.Rand(rand.New(rand.NewSource(0)))}
+		runInfo.Stdout = reflow.RepoObjectRef{RepoURL: repo, Digest: reflow.Digester.Rand(rand.New(rand.NewSource(1)))}
+		runInfo.Stderr = reflow.RepoObjectRef{RepoURL: repo, Digest: reflow.Digester.Rand(rand.New(rand.NewSource(2)))}
 		resp.RunInfo = &runInfo
 	} else {
 		resp.Inspect = &r.Inspect

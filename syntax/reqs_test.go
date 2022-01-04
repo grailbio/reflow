@@ -16,10 +16,10 @@ import (
 )
 
 var requirementsType = types.Struct(
-	&types.Field{"mem", types.Int},
-	&types.Field{"cpu", types.Float},
-	&types.Field{"disk", types.Int},
-	&types.Field{"wide", types.Bool})
+	&types.Field{Name: "mem", T: types.Int},
+	&types.Field{Name: "cpu", T: types.Float},
+	&types.Field{Name: "disk", T: types.Int},
+	&types.Field{Name: "wide", T: types.Bool})
 
 func TestRequirements(t *testing.T) {
 	sess := NewSession(nil)

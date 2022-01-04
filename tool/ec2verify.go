@@ -32,7 +32,7 @@ Example usage:
 `
 		probeFlag = flags.Bool("probe", false, "whether to actually probe and verify instance types or just do a dry run")
 		limitFlag = flags.Int("limit", 10, "number of instance types to probe concurrently (default 10)")
-		maxFlag = flags.Int("max", -1, "max number of instance types of those that need to be verified to actually verify (ignored if <=0)")
+		maxFlag   = flags.Int("max", -1, "max number of instance types of those that need to be verified to actually verify (ignored if <=0)")
 		retry     = flags.Bool("retry", false, "whether to retry previously attempted but unverified instance types")
 		pkgPath   = flags.String("package", "", "if specified, the result of verification will be saved in a file verified.go in this Go package")
 	)
@@ -69,14 +69,14 @@ Example usage:
 	for _, it := range ec.InstanceTypes {
 		vs, ok := existing[it]
 		if !ok {
-			vs = instances.VerifiedStatus{false, false, -1, 0}
+			vs = instances.VerifiedStatus{Attempted: false, Verified: false, ApproxETASeconds: -1, MemoryBytes: 0}
 		}
 		final[it] = vs
 	}
 	if *probeFlag {
 		results := probe(ctx, ec, toverify, *limitFlag)
 		for _, r := range results {
-			final[r.ec2Type] = instances.VerifiedStatus{true, r.err == nil, int64(r.duration.Seconds()), r.memBytes}
+			final[r.ec2Type] = instances.VerifiedStatus{Attempted: true, Verified: r.err == nil, ApproxETASeconds: int64(r.duration.Seconds()), MemoryBytes: r.memBytes}
 			if r.err == nil {
 				c.Log.Printf("Successfully verified instance type: %s (took %s)\n", r.ec2Type, r.duration)
 				verified = append(verified, r.ec2Type)
@@ -95,7 +95,7 @@ Example usage:
 	if *pkgPath != "" {
 		dir := *pkgPath
 		instances.VerifiedByRegion[ec.Region()] = final
-		vgen := instances.VerifiedSrcGenerator{filepath.Base(dir), instances.VerifiedByRegion}
+		vgen := instances.VerifiedSrcGenerator{Package: filepath.Base(dir), VerifiedByRegion: instances.VerifiedByRegion}
 		src, err := vgen.Source()
 		c.must(err)
 		c.must(os.MkdirAll(dir, 0777))
@@ -105,10 +105,10 @@ Example usage:
 }
 
 type probeResult struct {
-	ec2Type   string
-	memBytes  int64
-	duration  time.Duration
-	err       error
+	ec2Type  string
+	memBytes int64
+	duration time.Duration
+	err      error
 }
 
 // probe is a helper function to probe many instance types concurrently.

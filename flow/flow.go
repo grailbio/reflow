@@ -346,7 +346,11 @@ type Flow struct {
 
 // Copy performs a shallow copy of the Flow.
 func (f *Flow) Copy() *Flow {
-	c := *f
+	// This is a copylock violation since Flow contains a sync.Once (which, in
+	// turn, contains a mutex), but it's harmless since we negate the sync.Once
+	// copy on the next line.  (We can add an all-but-digest sub-struct to
+	// cleanly avoid the violation.)
+	c := *f // nolint: govet
 	c.digestOnce = sync.Once{}
 	c.Deps = make([]*Flow, len(f.Deps))
 	for i := range f.Deps {

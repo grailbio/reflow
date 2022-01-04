@@ -71,7 +71,7 @@ func TestPool(t *testing.T, p pool.Pool) {
 	r["cpu"] = 0
 	r["mem"] /= 2
 	r["disk"] /= 2
-	alloc, err := o.Accept(ctx, pool.AllocMeta{r, "test", nil})
+	alloc, err := o.Accept(ctx, pool.AllocMeta{Want: r, Owner: "test", Labels: nil})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestPool(t *testing.T, p pool.Pool) {
 	if got, want := o.Available(), orig; !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	alloc1, err := o.Accept(ctx, pool.AllocMeta{o.Available(), "test", nil})
+	alloc1, err := o.Accept(ctx, pool.AllocMeta{Want: o.Available(), Owner: "test", Labels: nil})
 	if err != nil {
 		t.Fatal(err)
 	}

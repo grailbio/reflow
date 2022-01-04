@@ -240,7 +240,7 @@ func defaultValidateBootstrap(burl string, h header) error {
 }
 
 // Help implements infra.Provider
-func (Cluster) Help() string {
+func (*Cluster) Help() string {
 	return "configure a cluster using AWS EC2 compute nodes"
 }
 

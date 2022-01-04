@@ -125,7 +125,7 @@ func Stdlib() (*types.Env, *values.Env) {
 	funcs := []SystemFunc{
 		{
 			Id:   "file",
-			Type: types.Flow(types.Func(types.File, &types.Field{"url", types.String})),
+			Type: types.Flow(types.Func(types.File, &types.Field{Name: "url", T: types.String})),
 			Do: func(loc values.Location, vs []values.T) (values.T, error) {
 				rawurl := strings.TrimRight(vs[0].(string), "/")
 				u, err := url.Parse(rawurl)
@@ -183,7 +183,7 @@ func Stdlib() (*types.Env, *values.Env) {
 		},
 		{
 			Id:   "dir",
-			Type: types.Flow(types.Func(types.Dir, &types.Field{"url", types.String})),
+			Type: types.Flow(types.Func(types.Dir, &types.Field{Name: "url", T: types.String})),
 			Do: func(loc values.Location, vs []values.T) (values.T, error) {
 				rawurl := strings.TrimRight(vs[0].(string), "/") + "/"
 				u, err := url.Parse(rawurl)

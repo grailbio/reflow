@@ -79,7 +79,7 @@ func (t *testGenerator) Generate(ctx context.Context, key reflow.AssertionKey) (
 	defer t.mu.Unlock()
 	t.countsByKey[key] = t.countsByKey[key] + 1
 	return reflow.AssertionsFromEntry(
-		reflow.AssertionKey{key.Subject, key.Namespace},
+		reflow.AssertionKey{Subject: key.Subject, Namespace: key.Namespace},
 		map[string]string{"etag": t.valuesBySubject[key.Subject]}), nil
 }
 
@@ -419,7 +419,7 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 	// Write a cached result with same value returned by the generator.
 	fs := testutil.WriteFiles(eval.Repository, "c")
 	_ = fs.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{"c", "blob"}, map[string]string{"etag": "v1"}))
+		reflow.AssertionKey{Subject: "c", Namespace: "blob"}, map[string]string{"etag": "v1"}))
 	testutil.WriteCacheFileset(eval, extern.Digest(), fs)
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -448,7 +448,7 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 	// Write a cached result with different value returned by the generator.
 	fs = testutil.WriteFiles(eval.Repository, "c")
 	_ = fs.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{"c", "blob"}, map[string]string{"etag": "v2"}))
+		reflow.AssertionKey{Subject: "c", Namespace: "blob"}, map[string]string{"etag": "v2"}))
 	testutil.WriteCacheFileset(eval, extern.Digest(), fs)
 	ctx, cancel = context.WithTimeout(context.Background(), timeout)
 	rc = testutil.EvalAsync(ctx, eval)
@@ -485,7 +485,7 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 	// Write a cached result with an assertion for which the generator will return an error.
 	fs = testutil.WriteFiles(eval.Repository, "c")
 	_ = fs.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{"c", "error"}, map[string]string{"etag": "v"}))
+		reflow.AssertionKey{Subject: "c", Namespace: "error"}, map[string]string{"etag": "v"}))
 	testutil.WriteCacheFileset(eval, extern.Digest(), fs)
 
 	ctx, cancel = context.WithTimeout(context.Background(), timeout)
@@ -673,15 +673,15 @@ func TestCacheLookupBottomupWithAssertions(t *testing.T) {
 	fsA, fsB, fsC := testutil.Files("a"), testutil.Files("b"), testutil.Files("c")
 	// "a" has "v1" and will get "v1" from the generator, so the cache hit will be accepted.
 	_ = fsA.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{"a", "blob"}, map[string]string{"etag": "v1"}))
+		reflow.AssertionKey{Subject: "a", Namespace: "blob"}, map[string]string{"etag": "v1"}))
 	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("a")).Digest(), fsA)
 	// "b" has "v2" but will get "v1" from the generator, so the cache hit will be rejected.
 	_ = fsB.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{"b", "blob"}, map[string]string{"etag": "v2"}))
+		reflow.AssertionKey{Subject: "b", Namespace: "blob"}, map[string]string{"etag": "v2"}))
 	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("b")).Digest(), fsB)
 	// "c" has "error" in the namespace so the generator will error out, so the cache hit will be rejected.
 	_ = fsC.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{"c", "error"}, map[string]string{"etag": "v"}))
+		reflow.AssertionKey{Subject: "c", Namespace: "error"}, map[string]string{"etag": "v"}))
 	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("c")).Digest(), fsC)
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -724,11 +724,11 @@ func TestCacheLookupBottomupWithAssertExact(t *testing.T) {
 	fsA, fsB, fsC := testutil.Files("a"), testutil.Files("b"), testutil.Files("c")
 	// All three will be cache-hits.
 	_ = fsA.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{"a", "blob"}, map[string]string{"etag": "va"}))
+		reflow.AssertionKey{Subject: "a", Namespace: "blob"}, map[string]string{"etag": "va"}))
 	_ = fsB.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{"b", "blob"}, map[string]string{"etag": "vb"}))
+		reflow.AssertionKey{Subject: "b", Namespace: "blob"}, map[string]string{"etag": "vb"}))
 	_ = fsC.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{"c", "blob"}, map[string]string{"etag": "vc"}))
+		reflow.AssertionKey{Subject: "c", Namespace: "blob"}, map[string]string{"etag": "vc"}))
 	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("a")).Digest(), fsA)
 	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("b")).Digest(), fsB)
 	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("c")).Digest(), fsC)
@@ -766,7 +766,7 @@ func TestCacheLookupBottomupWithAssertNever(t *testing.T) {
 
 	fs := testutil.Files("e")
 	_ = fs.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{"e", "blob"}, map[string]string{"etag": "invalid"}))
+		reflow.AssertionKey{Subject: "e", Namespace: "blob"}, map[string]string{"etag": "invalid"}))
 	testutil.WriteCacheFileset(eval, extern.Digest(), fs)
 
 	testutil.WriteCache(eval, extern.Digest())
@@ -802,11 +802,11 @@ func TestCacheLookupBottomupWithAssertNever(t *testing.T) {
 	fsA, fsB, fsC := testutil.Files("a"), testutil.Files("b"), testutil.Files("c")
 	// All three will be cache-hits.
 	_ = fsA.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{"a", "blob"}, map[string]string{"etag": "invalid"}))
+		reflow.AssertionKey{Subject: "a", Namespace: "blob"}, map[string]string{"etag": "invalid"}))
 	_ = fsB.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{"b", "blob"}, map[string]string{"etag": "invalid"}))
+		reflow.AssertionKey{Subject: "b", Namespace: "blob"}, map[string]string{"etag": "invalid"}))
 	_ = fsC.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{"c", "blob"}, map[string]string{"etag": "invalid"}))
+		reflow.AssertionKey{Subject: "c", Namespace: "blob"}, map[string]string{"etag": "invalid"}))
 	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("a")).Digest(), fsA)
 	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("b")).Digest(), fsB)
 	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("c")).Digest(), fsC)
@@ -1300,15 +1300,15 @@ func TestRefreshAssertionBatchCache(t *testing.T) {
 	torefresh := make([]*reflow.Assertions, 100)
 	for i := 0; i < len(torefresh); i++ {
 		torefresh[i] = reflow.AssertionsFromMap(map[reflow.AssertionKey]map[string]string{
-			{"a", "blob"}: {"etag": fmt.Sprintf("vaold%d", i)},
-			{"b", "blob"}: {"etag": fmt.Sprintf("vbold%d", i)},
-			{"c", "blob"}: {"etag": fmt.Sprintf("vcold%d", i)},
+			{Subject: "a", Namespace: "blob"}: {"etag": fmt.Sprintf("vaold%d", i)},
+			{Subject: "b", Namespace: "blob"}: {"etag": fmt.Sprintf("vbold%d", i)},
+			{Subject: "c", Namespace: "blob"}: {"etag": fmt.Sprintf("vcold%d", i)},
 		})
 	}
 	want := []*reflow.Assertions{reflow.AssertionsFromMap(map[reflow.AssertionKey]map[string]string{
-		{"a", "blob"}: {"etag": "vanew"},
-		{"b", "blob"}: {"etag": "vbnew"},
-		{"c", "blob"}: {"etag": "vcnew"},
+		{Subject: "a", Namespace: "blob"}: {"etag": "vanew"},
+		{Subject: "b", Namespace: "blob"}: {"etag": "vbnew"},
+		{Subject: "c", Namespace: "blob"}: {"etag": "vcnew"},
 	})}
 
 	tests := []struct {
@@ -1342,7 +1342,7 @@ func TestRefreshAssertionBatchCache(t *testing.T) {
 		emptyA := reflow.NewRWAssertions(reflow.NewAssertions())
 		_, keys := emptyA.Filter(want[0])
 		for _, k := range keys {
-			if got, want := tt.g.countsByKey[reflow.AssertionKey{k.Subject, k.Namespace}], tt.want; got != want {
+			if got, want := tt.g.countsByKey[reflow.AssertionKey{Subject: k.Subject, Namespace: k.Namespace}], tt.want; got != want {
 				t.Errorf("got %d, want %d", got, want)
 			}
 		}

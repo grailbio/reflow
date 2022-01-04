@@ -28,8 +28,8 @@ func TestPretty(t *testing.T) {
 		{
 			Struct{"a": NewInt(123), "b": Tuple{"ok", NewInt(321)}},
 			types.Struct(
-				&types.Field{"a", types.Int},
-				&types.Field{"b", types.Tuple(&types.Field{T: types.String}, &types.Field{T: types.Int})}),
+				&types.Field{Name: "a", T: types.Int},
+				&types.Field{Name: "b", T: types.Tuple(&types.Field{T: types.String}, &types.Field{T: types.Int})}),
 			`{a: 123, b: ("ok", 321)}`,
 		},
 		{

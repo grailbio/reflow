@@ -156,7 +156,7 @@ func TestDigest(t *testing.T) {
 			reflow.File{
 				ID:         reflow.Digester.FromString("contents"),
 				Size:       54321,
-				Assertions: reflow.AssertionsFromEntry(reflow.AssertionKey{"subject", "namespace"}, map[string]string{"object": "value"}),
+				Assertions: reflow.AssertionsFromEntry(reflow.AssertionKey{Subject: "subject", Namespace: "namespace"}, map[string]string{"object": "value"}),
 			},
 			"sha256:cf2f6c9da27487304271965d77439ea161575f87d0202867f1c099234fbbc219",
 		},

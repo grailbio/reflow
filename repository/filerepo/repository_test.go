@@ -140,7 +140,7 @@ func TestReadFromDigestMismatch(t *testing.T) {
 	r, cleanup := newTestRepository(t)
 	defer cleanup()
 	er := testutil.NewExpectRepository(t, "src://foobar")
-	src := &testutil.ExpectGetFilerRepository{er}
+	src := &testutil.ExpectGetFilerRepository{ExpectRepository: er}
 	repository.RegisterScheme("src", func(u *url.URL) (reflow.Repository, error) { return src, nil })
 	defer repository.UnregisterScheme("src")
 

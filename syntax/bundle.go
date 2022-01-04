@@ -70,7 +70,7 @@ func (b *Bundle) Entrypoint() (source []byte, args []string, path string, err er
 
 // WriteTo writes an archive (ZIP formatted) of this bundle to the provided
 // io.Writer. Archives written by Write can be opened by OpenBundleModule.
-func (b *Bundle) WriteTo(w io.Writer) error {
+func (b *Bundle) WriteTo(w io.Writer) error { // "go vet" complaint expected
 	z := zip.NewWriter(w)
 	digests := make([]digest.Digest, 0, len(b.files))
 	for d := range b.files {

@@ -14,9 +14,9 @@ import (
 func TestFilterInstanceTypes(t *testing.T) {
 	instanceTypes := []string{"a", "b", "c", "d"}
 	existing := map[string]instances.VerifiedStatus{
-		"a": {true, true, 10, 0},
-		"b": {true, false, 70, 0},
-		"c": {false, false, -1, 0},
+		"a": {Attempted: true, Verified: true, ApproxETASeconds: 10, MemoryBytes: 0},
+		"b": {Attempted: true, Verified: false, ApproxETASeconds: 70, MemoryBytes: 0},
+		"c": {Attempted: false, Verified: false, ApproxETASeconds: -1, MemoryBytes: 0},
 	}
 	for _, tt := range []struct {
 		instanceTypes      []string
@@ -47,10 +47,10 @@ func TestFilterInstanceTypes(t *testing.T) {
 }
 
 func TestExpectedMemoryBytes(t *testing.T) {
-	for _, tt := range []struct{
+	for _, tt := range []struct {
 		instanceType string
 		expectedMem  int64
-	} {
+	}{
 		{"c3.large", 3654045523},
 		{"m5.large", 7563137260},
 		{"c5.4xlarge", 30567888547},

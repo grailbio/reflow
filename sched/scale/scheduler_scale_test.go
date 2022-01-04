@@ -434,7 +434,7 @@ func (a *allocator) Available(need reflow.Resources, maxPrice float64) (ec2clust
 	if typ == "" || r.Equal(nil) || maxPrice < testInstancePrice {
 		return ec2cluster.InstanceSpec{}, false
 	}
-	return ec2cluster.InstanceSpec{typ, r}, true
+	return ec2cluster.InstanceSpec{Type: typ, Resources: r}, true
 }
 
 func (a *allocator) Notify(waiting, pending reflow.Resources) {

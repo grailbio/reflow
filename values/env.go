@@ -34,7 +34,7 @@ type Env struct {
 	next   *Env
 
 	// digests maps ids to computed/cached digest values.
-	mu      sync.Mutex
+	mu      *sync.Mutex
 	digests map[string]digest.Digest
 }
 
@@ -160,6 +160,7 @@ func (e *Env) Push() *Env {
 		symtab:  make(Symtab),
 		digests: make(map[string]digest.Digest),
 		next:    e,
+		mu:      &sync.Mutex{},
 	}
 }
 

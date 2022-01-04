@@ -53,7 +53,7 @@ func TestClientServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	repo := client.Client{rest.NewClient(nil, u, nil), "test"}
+	repo := client.Client{Client: rest.NewClient(nil, u, nil), Short: "test"}
 	ctx := context.Background()
 
 	const hello = "hello, world!"
@@ -99,7 +99,7 @@ func TestClientServerFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	repo := client.Client{rest.NewClient(nil, u, nil), "test"}
+	repo := client.Client{Client: rest.NewClient(nil, u, nil), Short: "test"}
 	ctx := context.Background()
 
 	b1, id1 := newBlob()
@@ -138,7 +138,7 @@ func TestClientServerCollect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	repo := client.Client{rest.NewClient(nil, u, nil), "test"}
+	repo := client.Client{Client: rest.NewClient(nil, u, nil), Short: "test"}
 	ctx := context.Background()
 
 	b1, id1 := newBlob()
