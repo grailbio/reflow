@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -55,12 +56,11 @@ func (r *Repository) Setup(sess *session.Session, log *log.Logger) error {
 
 func CreateS3Bucket(sess *session.Session, bucketName string, log *log.Logger) error {
 	log.Printf("creating s3 bucket %s", bucketName)
-	_, err := s3.New(sess).CreateBucket(&s3.CreateBucketInput{
-		Bucket: aws.String(bucketName),
-		CreateBucketConfiguration: &s3.CreateBucketConfiguration{
-			LocationConstraint: aws.String(*sess.Config.Region),
-		},
-	})
+	req := &s3.CreateBucketInput{Bucket: aws.String(bucketName)}
+	if region := *sess.Config.Region; region != "us-east-1" {
+		req.CreateBucketConfiguration = &s3.CreateBucketConfiguration{LocationConstraint: aws.String(region)}
+	}
+	_, err := s3.New(sess).CreateBucket(req)
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
@@ -71,10 +71,10 @@ func CreateS3Bucket(sess *session.Session, bucketName string, log *log.Logger) e
 				log.Printf("s3 bucket %s already exists; not created", bucketName)
 				return nil
 			default:
-				return err
+				return fmt.Errorf("request: %v failed: %v", req, err)
 			}
 		} else {
-			return err
+			return fmt.Errorf("request: %v failed: %v", req, err)
 		}
 	}
 	log.Printf("created s3 bucket %s", bucketName)

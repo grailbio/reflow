@@ -46,19 +46,5 @@ The resulting configuration can be examined with "reflow config"`
 		c.Log.Printf("repository already set up; updating schemas")
 	}
 	c.SchemaKeys["repository"] = fmt.Sprintf("%s,bucket=%v", pkgPath, bucket)
-	c.Config, err = c.Schema.Make(c.SchemaKeys)
-	if err != nil {
-		c.Fatal(err)
-	}
-
-	if err = c.Config.Setup(); err != nil {
-		c.Fatal(err)
-	}
-	b, err = c.Config.Marshal(true)
-	if err != nil {
-		c.Fatal(err)
-	}
-	if err := ioutil.WriteFile(c.ConfigFile, b, 0666); err != nil {
-		c.Fatal(err)
-	}
+	setupAndSaveConfig(c)
 }

@@ -45,7 +45,7 @@ The columns displayed by the instance listing are:
 	flags   a set of flags:
 	            ebs    when the instance supports EBS optimization
 	            old    when the instance is not of the current generation`
-	regionFlag := flags.String("region", "us-west-2", "region for which to show prices")
+	regionFlag := flags.String("region", "", "region for which to show prices (by default the region of the AWS session is used")
 	sortFlag := flags.String("sort", "type", "sorting field (type, cpu, mem, price)")
 	minCpuFlag := flags.Int("mincpu", 0, "mininum CPU (will filter out smaller instance types)")
 	maxCpuFlag := flags.Int("maxcpu", 1000, "maximum CPU (will filter out larger instance types)")
@@ -57,6 +57,10 @@ The columns displayed by the instance listing are:
 	c.Parse(flags, args, help, "ec2instances")
 	if flags.NArg() != 0 {
 		flags.Usage()
+	}
+	region := *regionFlag
+	if region == "" {
+		region = c.getRegionFromSession()
 	}
 	var filterTypes map[string]bool
 	if typesCsv := *filterTypesFlag; typesCsv != "" {
@@ -80,7 +84,7 @@ The columns displayed by the instance listing are:
 			continue
 		}
 		if sa != nil {
-			tProb, err := sa.GetMaxInterruptProbability(spotadvisor.Linux, spotadvisor.AwsRegion(*regionFlag), spotadvisor.InstanceType(t.Name))
+			tProb, err := sa.GetMaxInterruptProbability(spotadvisor.Linux, spotadvisor.AwsRegion(region), spotadvisor.InstanceType(t.Name))
 			if err == nil && int(tProb) > *minProbFlag {
 				continue
 			}
@@ -98,14 +102,14 @@ The columns displayed by the instance listing are:
 		case "ebs_max":
 			return types[i].EBSThroughput < types[j].EBSThroughput
 		case "price":
-			return types[i].Price[*regionFlag] < types[j].Price[*regionFlag]
+			return types[i].Price[region] < types[j].Price[region]
 		default:
 			flags.Usage()
 			panic("notreached")
 		}
 	})
 
-	spotScores, _ := c.spotScores(ctx, *spotScoresFlag, *regionFlag, types)
+	spotScores, _ := c.spotScores(ctx, *spotScoresFlag, region, types)
 	var tw tabwriter.Writer
 	tw.Init(c.Stdout, 4, 4, 1, ' ', 0)
 	defer tw.Flush()
@@ -128,8 +132,8 @@ The columns displayed by the instance listing are:
 		sort.Strings(features)
 
 		var vs instances.VerifiedStatus
-		if forRegion := instances.VerifiedByRegion[*regionFlag]; len(forRegion) > 0 {
-			if vs = instances.VerifiedByRegion[*regionFlag][typ.Name]; !vs.Verified {
+		if forRegion := instances.VerifiedByRegion[region]; len(forRegion) > 0 {
+			if vs = instances.VerifiedByRegion[region][typ.Name]; !vs.Verified {
 				continue
 			}
 		}
@@ -139,8 +143,8 @@ The columns displayed by the instance listing are:
 		}
 		_, _ = fmt.Fprintf(&tw, "%s\t\t%s\t%s\t%d\t%.2f\t%.2f\t%s\t%v\t{%s}\t{%s}\n",
 			typ.Name, usableMem, data.Size(typ.Memory) * data.GiB,
-			typ.VCPU, typ.EBSThroughput, typ.Price[*regionFlag],
-			getSpotInterruptRange(*regionFlag, typ.Name),
+			typ.VCPU, typ.EBSThroughput, typ.Price[region],
+			getSpotInterruptRange(region, typ.Name),
 			spotScores[typ.Name],
 			strings.Join(features, ","),
 			strings.Join(flags, ","))
@@ -173,6 +177,12 @@ func (c *Cmd) spotScores(ctx context.Context, fetch bool, region string, instanc
 		return nil
 	})
 	return
+}
+
+func (c *Cmd) getRegionFromSession() string {
+	var sess *session.Session
+	c.must(c.Config.Instance(&sess))
+	return *sess.Config.Region
 }
 
 func getSpotInterruptRange(region string, name string) string {

@@ -319,6 +319,9 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	if c.DiskSpace == 0 {
 		return errors.New("missing disk space parameter")
 	}
+	if c.AMI, err = GetAMI(sess); err != nil {
+		return err
+	}
 	if c.AMI == "" {
 		return errors.New("missing AMI parameter")
 	}
