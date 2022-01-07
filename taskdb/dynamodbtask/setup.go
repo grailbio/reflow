@@ -166,18 +166,16 @@ func (t *TaskDB) Setup(sess *session.Session, log *log.Logger) error {
 			indexExists[*index.IndexName] = true
 		}
 	}
-	exists := true
+	var existing, missing []string
 	for name := range indexes {
-		if !indexExists[name] {
-			exists = false
+		if indexExists[name] {
+			existing = append(existing, name)
+			continue
 		}
+		missing = append(missing, name)
 	}
-	if exists {
-		var keys []string
-		for k := range indexes {
-			keys = append(keys, k)
-		}
-		log.Printf("dynamodb indexes [%s] already exist", strings.Join(keys, ","))
+	log.Printf("dynamodb indexes existing: [%s], missing: [%s]", strings.Join(existing, ","), strings.Join(missing, ","))
+	if len(missing) == 0 {
 		return nil
 	}
 	for index, config := range indexes {
@@ -273,14 +271,15 @@ func waitForActiveTable(db dynamodbiface.DynamoDBAPI, table string, log *log.Log
 		if status != "ACTIVE" {
 			log.Printf("waiting for table to become active; current status: %v", status)
 		} else {
-			active := true
+			indicesUsable := true
 			for _, i := range describe.Table.GlobalSecondaryIndexes {
-				if *i.IndexStatus != "ACTIVE" {
-					log.Printf("waiting for index %v to become active; current status: %v", *i.IndexName, *i.IndexStatus)
-					active = false
+				if s := *i.IndexStatus; s == "CREATING" || s == "DELETING" {
+					log.Printf("waiting for index %v to become usable; current status: %v (back filling: %v)", *i.IndexName, *i.IndexStatus, *i.Backfilling)
+					indicesUsable = false
+					break
 				}
 			}
-			if active {
+			if indicesUsable {
 				break
 			}
 		}
