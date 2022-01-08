@@ -11,6 +11,7 @@ var (
 	// For example, using an API call like this:
 	//   cloudkey eng/dev aws ec2 describe-images --region us-west-2 --owners "075585003325" --filters "[{\"Name\":\"name\", \"Values\": [\"Flatcar-stable*\"] }, { \"Name\": \"virtualization-type\", \"Values\": [\"hvm\"]}, { \"Name\": \"architecture\", \"Values\": [\"x86_64\"]}]" --output json
 	// AMI of "Flatcar-stable-2765.2.6-hvm" in each region.
+	// Or ALTERNATELY, fetch from: https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_ami_all.json
 	flatcarAmiByRegion = map[string]string{
 		"us-east-1": "ami-0fd66875fa1ef8395",
 		"us-west-2": "ami-019657181ea76e880",

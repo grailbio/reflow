@@ -30,6 +30,33 @@ func (v VerifiedStatus) ExpectedMemoryBytes() int64 {
 var VerifiedByRegion = make(map[string]map[string]VerifiedStatus)
 
 func init() {
+	VerifiedByRegion["us-east-1"] = map[string]VerifiedStatus{
+		"c3.2xlarge":    {true, true, 79, 14938849894},
+		"c3.4xlarge":    {true, true, 65, 29948356198},
+		"c3.8xlarge":    {true, true, 106, 60119495270},
+		"c3.large":      {true, true, 109, 3728617881},
+		"c3.xlarge":     {true, true, 74, 7423942656},
+		"c4.2xlarge":    {true, true, 57, 14938888806},
+		"c4.4xlarge":    {true, true, 75, 29952426393},
+		"c4.8xlarge":    {true, true, 60, 60119709286},
+		"c4.large":      {true, true, 101, 3728625664},
+		"c4.xlarge":     {true, true, 92, 7423950438},
+		"c5.12xlarge":   {true, true, 52, 94061518438},
+		"c5.18xlarge":   {true, true, 60, 140213633024},
+		"c5.24xlarge":   {true, true, 73, 188406145024},
+		"c5.2xlarge":    {true, true, 45, 15486166630},
+		"c5.4xlarge":    {true, true, 71, 31191723008},
+		"c5.9xlarge":    {true, true, 43, 69965258547},
+		"c5.large":      {true, true, 52, 3679098470},
+		"c5.xlarge":     {true, true, 42, 7577598361},
+		"c5a.12xlarge":  {true, true, 72, 95175211008},
+		"c5a.16xlarge":  {true, true, 62, 126966855884},
+		"c5a.24xlarge":  {true, true, 75, 190458216038},
+		"c5a.2xlarge":   {true, true, 43, 15763095552},
+		"c5a.4xlarge":   {true, true, 51, 31636004659},
+		"c5a.8xlarge":   {true, true, 42, 63381822873},
+		"c5a.large":     {true, true, 51, 3858404966},
+	}
 	VerifiedByRegion["us-west-2"] = map[string]VerifiedStatus{
 		"c3.2xlarge":    {true, true, 67, 14938849894},
 		"c3.4xlarge":    {true, true, 68, 29948344524},

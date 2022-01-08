@@ -41,6 +41,9 @@ type spotValue struct {
 // the given maxProbeDepth as the depth to start probing at and uses the ttl as expiration of
 // previously cached probing result.
 func NewSpotProber(capacityFunc capacityFunc, maxProbeDepth int, ttl time.Duration) *spotProber {
+	if maxProbeDepth == 0 {
+		maxProbeDepth = 5 // Use a default minimum if not specified.
+	}
 	return &spotProber{capacityFunc: capacityFunc, maxDepth: maxProbeDepth, ttl: ttl}
 }
 

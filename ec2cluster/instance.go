@@ -1153,7 +1153,6 @@ func (i *instance) ec2RunInstance() (string, error) {
 		MaxCount:              aws.Int64(int64(1)),
 		MinCount:              aws.Int64(int64(1)),
 		BlockDeviceMappings:   i.ebsDeviceMappings(),
-		ClientToken:           aws.String(newID()),
 		DisableApiTermination: aws.Bool(false),
 		DryRun:                aws.Bool(false),
 		EbsOptimized:          aws.Bool(i.Config.EBSOptimized),
