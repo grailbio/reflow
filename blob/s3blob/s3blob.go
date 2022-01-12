@@ -162,6 +162,7 @@ func (s *Store) newBucket(ctx context.Context, bucket string) (*Bucket, error) {
 	config := aws.Config{
 		MaxRetries: aws.Int(10),
 		Region:     aws.String(region),
+		Endpoint:   aws.String(fmt.Sprintf("s3.%s.amazonaws.com", region)),
 	}
 	return NewBucket(bucket, s3.New(s.sess, &config)), nil
 }
