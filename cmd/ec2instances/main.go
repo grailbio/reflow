@@ -23,9 +23,11 @@ import (
 )
 
 var (
-	url      = flag.String("url", "https://instances.vantage.sh/instances.json", "the URL from which to fetch instances.json")
-	stdout   = flag.Bool("stdout", false, "print the package to stdout instead of materializing it")
-	verified = flag.Bool("verified", false, "whether to generate verified.go")
+	instancesUrl = flag.String("instancesUrl", "https://instances.vantage.sh/instances.json", "the URL from which to fetch instances.json")
+	amisUrl      = flag.String("amisUrl", "https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_ami_all.json", "the URL from which to fetch flatcar_production_ami_all.json")
+	amisDir      = flag.String("amisDir", "", "if given, will create/update amis.go in amisDir with latest Flatcar stable AMIs")
+	stdout       = flag.Bool("stdout", false, "print the package to stdout instead of materializing it")
+	verified     = flag.Bool("verified", false, "whether to generate verified.go")
 )
 
 // nitroBasedInstanceTypes contain a list of instance type classes that are nitro-based
@@ -40,8 +42,9 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `usage: ec2instances dir
 
 ec2instances generates a Go package with EC2 instance metadata
-by pulling data from http://ec2instances.info/.
-It includes only x86_64 instances with Linux HVM support.
+by pulling data from http://ec2instances.info/ and fetches AMIs 
+for the latest stable Flatcar release. It includes only x86_64 
+instances with Linux HVM support.
 `)
 	flag.PrintDefaults()
 	os.Exit(2)
@@ -57,12 +60,21 @@ func main() {
 	}
 	dir := flag.Arg(0)
 
+	generateInstances(dir)
+	if len(*amisDir) > 0 {
+		generateAmis(*amisDir)
+	}
+}
+
+// generateInstances produces an instances.go file in the given dir, containing
+// instance type information.
+func generateInstances(dir string) {
 	for i, t := range nitroInstanceTypePrefixes {
 		nitroInstanceTypePrefixes[i] = strings.ToLower(t)
 	}
 	var body io.Reader
-	if strings.HasPrefix(*url, "file://") {
-		path := strings.TrimPrefix(*url, "file://")
+	if strings.HasPrefix(*instancesUrl, "file://") {
+		path := strings.TrimPrefix(*instancesUrl, "file://")
 		f, err := os.Open(path)
 		if err != nil {
 			log.Fatal(err)
@@ -70,7 +82,7 @@ func main() {
 		defer f.Close()
 		body = f
 	} else {
-		resp, err := http.Get(*url)
+		resp, err := http.Get(*instancesUrl)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -272,9 +284,13 @@ func main() {
 	src := g.Gofmt()
 
 	if *stdout {
-		os.Stdout.Write(src)
+		if _, err := os.Stdout.Write(src); err != nil {
+			log.Fatal(err)
+		}
 	} else {
-		os.MkdirAll(dir, 0777)
+		if err := os.MkdirAll(dir, 0777); err != nil {
+			log.Fatal(err)
+		}
 		path := filepath.Join(dir, "instances.go")
 		if err := ioutil.WriteFile(path, src, 0644); err != nil {
 			log.Fatal(err)
@@ -291,6 +307,91 @@ func main() {
 			}
 		}
 	}
+}
+
+// generateAmis produces an amis.go file in the given dir, containing a mapping
+// of AWS regions to Flatcar Stable AMIs and a getter method.
+func generateAmis(dir string) {
+	resp, err := http.Get(*amisUrl)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body := resp.Body
+	dec := json.NewDecoder(body)
+	var entries amiEntries
+	if err := dec.Decode(&entries); err != nil {
+		log.Fatal(err)
+	}
+
+	vb := strings.Builder{}
+	versionUrl := strings.Split(*amisUrl, "flatcar_production_ami_all.json")[0] + "/version.txt"
+	vresp, verr := http.Get(versionUrl)
+	if verr != nil {
+		log.Fatal(verr)
+	}
+	defer vresp.Body.Close()
+	b, rerr := ioutil.ReadAll(vresp.Body)
+	if rerr != nil {
+		log.Fatal(rerr)
+	}
+	for _, s := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		vb.WriteString(fmt.Sprintf("// %s\n", s))
+	}
+
+	var g generator
+	g.Printf(`// THIS FILE WAS AUTOMATICALLY GENERATED. DO NOT EDIT.
+	// Generated from URL: %s
+	%s
+
+	package %s
+
+	import (
+	   "fmt"
+
+	   "github.com/aws/aws-sdk-go/aws/session"
+	)
+
+	var flatcarAmiByRegion = map[string]string{
+	`, *amisUrl, vb.String(), filepath.Base(dir))
+
+	for _, entry := range entries["amis"] {
+		g.Printf("\t\"%s\": \"%s\",\n", entry.Region, entry.Ami)
+	}
+
+	g.Println(`}
+
+	// GetAMI gets the AMI ID for the AWS region derived from the given AWS session.
+	func GetAMI(sess *session.Session) (string, error) {
+		region := *sess.Config.Region
+		ami, ok := flatcarAmiByRegion[region]
+		if !ok {
+		   return "", fmt.Errorf("no AMI defined for region (derived from AWS session): %s", region)
+		   }
+		return ami, nil
+	}`)
+
+	src := g.Gofmt()
+	if *stdout {
+		if _, err := os.Stdout.Write(src); err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		if err := os.MkdirAll(dir, 0777); err != nil {
+			log.Fatal(err)
+		}
+		path := filepath.Join(dir, "amis.go")
+		if err := ioutil.WriteFile(path, src, 0644); err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+type amiEntries map[string][]ami
+
+type ami struct {
+	Region string `json:"name"`
+	Ami    string `json:"hvm"`
 }
 
 type entry struct {
@@ -324,6 +425,10 @@ type generator struct {
 
 func (g *generator) Printf(format string, args ...interface{}) {
 	fmt.Fprintf(&g.buf, format, args...)
+}
+
+func (g *generator) Println(s string) {
+	fmt.Fprintln(&g.buf, s)
 }
 
 func (g *generator) Gofmt() []byte {
