@@ -1705,16 +1705,25 @@ var statusPrinters = [maxOp]struct {
 				fmt.Fprintln(w, "   ", line)
 			}
 			fmt.Fprintln(w, "where:")
+			seen := make(map[string]bool)
 			for i, arg := range f.Argstrs {
-				if f.ExecArg(i).Out {
+				earg := f.ExecArg(i)
+				if earg.Out || seen[arg] {
 					continue
 				}
 				fmt.Fprintf(w, "    %s = \n", arg)
-				if fs, ok := f.Deps[f.ExecArg(i).Index].Value.(reflow.Fileset); ok {
+				var fs reflow.Fileset
+				if len(f.resolvedFs) > earg.Index {
+					fs = f.resolvedFs[earg.Index]
+				}
+				if !fs.Empty() {
+					printFileset(w, "        ", fs)
+				} else if fs, ok := f.Deps[earg.Index].Value.(reflow.Fileset); ok {
 					printFileset(w, "        ", fs)
 				} else {
 					fmt.Fprintln(w, "        (cached)")
 				}
+				seen[arg] = true
 			}
 			if f.State != Done {
 				return
@@ -1908,6 +1917,19 @@ func (e *Eval) taskWait(ctx context.Context, f *Flow, task *sched.Task) error {
 	}
 	// Grab the task's exec so that it can be logged properly.
 	f.Exec = task.Exec
+	if f.Op == Exec && f.Argmap != nil {
+		// If this is an Exec and f.Argmap is defined, then
+		// update the flow's resolved filesets.
+		n := f.NExecArg()
+		f.resolvedFs = make([]reflow.Fileset, n)
+		for i := 0; i < n; i++ {
+			earg, arg := f.ExecArg(i), task.Config.Args[i]
+			if earg.Out {
+				continue
+			}
+			f.resolvedFs[earg.Index] = *arg.Fileset
+		}
+	}
 	e.LogFlow(ctx, f)
 	if err := task.Wait(ctx, sched.TaskDone); err != nil {
 		return err
