@@ -403,7 +403,14 @@ func (i *instance) Go(ctx context.Context) {
 			err = clnt.InstallImage(ctx2, reflowletimage)
 			cancel()
 			if err != nil && !errors.Is(errors.Net, err) {
-				i.err = errors.E(errors.Fatal, err)
+				if strings.Contains(err.Error(), common.ExecImageErrPrefix) {
+					i.err = errors.E(errors.Temporary, err)
+					// This indicates that for some reason, we were unable to install the image.
+					// 'Reset'ing 'reflowletOnce' eliminates errors due to a missing/corrupted image.
+					reflowletOnce.Reset()
+				} else {
+					i.err = errors.E(errors.Fatal, err)
+				}
 				break
 			}
 		case stateWaitReflowlet:

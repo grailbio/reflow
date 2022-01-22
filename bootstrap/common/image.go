@@ -13,6 +13,8 @@ import (
 	"syscall"
 )
 
+const ExecImageErrPrefix = "bootstrap execimage"
+
 // Image is an image binary to be installed and executed on the bootstrap.
 type Image struct {
 	Path string   `json:"path"`

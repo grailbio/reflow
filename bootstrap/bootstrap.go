@@ -184,12 +184,11 @@ func newExecImageNode(m *blob.Mux) rest.DoFunc {
 		}
 		rc, _, err := m.Get(ctx, image.Path, "")
 		if err != nil {
-			call.Error(fmt.Errorf("bootstrap execimage POST %v: %v", image, err))
+			call.Error(fmt.Errorf("%s POST %v: %v", common.ExecImageErrPrefix, image, err))
 			return
 		}
-
 		if err := common.InstallImage(rc, image.Args, image.Name); err != nil {
-			call.Error(fmt.Errorf("bootstrap execimage POST %v: %v", image, err))
+			call.Error(fmt.Errorf("%s POST %v: %v", common.ExecImageErrPrefix, image, err))
 			return
 		}
 
