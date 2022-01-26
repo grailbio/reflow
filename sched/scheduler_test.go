@@ -560,20 +560,28 @@ func TestTaskErrors(t *testing.T) {
 			// holding up the unit tests forever if there is a problem
 			waitCtx, waitCancel := context.WithTimeout(ctx, 1*time.Second)
 			if e := task.Wait(waitCtx, tt.wantTaskState); e != nil {
-				t.Fatalf("did not reach desired state: %v, instead task state is: %v; error: %v", tt.wantTaskState, task.State(), e)
+				if tt.wantTaskState == sched.TaskLost && task.State() == sched.TaskRunning {
+					// If we expected to observe task state "lost", "running" is an acceptable alternate state
+					// because we expect "lost" tasks to be retried.
+					t.Logf("cannot confirm if desired state: %v was reached, task state is: %v; error: %v", tt.wantTaskState, task.State(), e)
+				} else {
+					t.Fatalf("did not reach desired state: %v, instead task state is: %v; error: %v", tt.wantTaskState, task.State(), e)
+				}
 			}
 			waitCancel()
 			if got, want := errors.Recover(task.Err).Kind, tt.wantTaskError; got != want {
 				t.Errorf("got error: %v, want: %v", got, want)
 			}
 
-			// check that the input fileset got unloaded
-			gotRefCounts = 0
-			for _, v := range alloc.RefCount() {
-				gotRefCounts += v
-			}
-			if gotRefCounts != 0 {
-				t.Errorf("got unloaded ref count: %v, want: 0", gotRefCounts)
+			if task.State() == sched.TaskDone {
+				// If the task is done, check that the input fileset got unloaded
+				gotRefCounts = 0
+				for _, v := range alloc.RefCount() {
+					gotRefCounts += v
+				}
+				if gotRefCounts != 0 {
+					t.Errorf("got unloaded ref count: %v, want: 0", gotRefCounts)
+				}
 			}
 		})
 	}
