@@ -183,6 +183,7 @@ func TestManagerBasic(t *testing.T) {
 	})
 	m := NewManager(c, 250, 5, log.Std)
 	m.refreshInterval = 50 * time.Millisecond
+	m.launchTimeout = 100 * time.Millisecond
 	m.Start()
 	defer m.Shutdown()
 
@@ -218,7 +219,7 @@ func TestManagerBasicWide(t *testing.T) {
 	})
 	m := NewManager(c, 5, 5, log.Std)
 	m.refreshInterval = 50 * time.Millisecond
-	m.launchTimeout = 500 * time.Millisecond
+	m.launchTimeout = 100 * time.Millisecond
 	m.Start()
 	defer m.Shutdown()
 
@@ -280,7 +281,7 @@ func TestManagerMultipleAllocsEnormous(t *testing.T) {
 	testCluster(t, newCluster([]testConfig{
 		{"type-b", 0.5, reflow.Resources{"cpu": 3, "mem": 6 * float64(data.GiB)}},
 		{"type-c", 2.5, reflow.Resources{"cpu": 20, "mem": 100 * float64(data.GiB)}},
-	}), 200, 20, 2000)
+	}), 200, 20, 1000)
 }
 
 func testCluster(t *testing.T, c *testManagedCluster, maxHourlyCostUSD float64, maxPendingInstances int, numAllocs int) {
@@ -288,7 +289,7 @@ func testCluster(t *testing.T, c *testManagedCluster, maxHourlyCostUSD float64, 
 	defer cancel()
 	m := NewManager(c, maxHourlyCostUSD, maxPendingInstances, log.Std)
 	m.refreshInterval = 50 * time.Millisecond
-	m.launchTimeout = 500 * time.Millisecond
+	m.launchTimeout = 100 * time.Millisecond
 	m.drainTimeout = 0 // time.Millisecond
 	m.Start()
 	defer m.Shutdown()
