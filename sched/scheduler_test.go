@@ -608,8 +608,6 @@ func TestLostTasksSwitchAllocs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		scheduler, cluster, shutdown := newTestScheduler(t)
-		defer shutdown()
-
 		repo := testutil.NewInmemoryRepository("")
 		tasks := []*sched.Task{utiltest.NewTask(1, 1, 0).WithRepo(repo)}
 		scheduler.Submit(tasks...)
@@ -625,14 +623,16 @@ func TestLostTasksSwitchAllocs(t *testing.T) {
 			t.Fatal(err)
 		}
 		cancel()
-		// Let the alloc's keepalive fail with an error in a bit.
-		if tt.allocErr != nil {
-			allocs[0].Error(tt.allocErr)
-		}
-		// Fail the task
 		exec := allocs[0].Exec(digest.Digest(tasks[0].ID()))
-		if tt.taskErr != nil {
+		switch {
+		case tt.allocErr != nil:
+			// Let the alloc's keepalive fail with an error in a bit.
+			allocs[0].Error(tt.allocErr)
+		case tt.taskErr != nil:
+			// Fail the task
 			exec.Complete(reflow.Result{}, tt.taskErr)
+		default:
+			panic("either allocErr or taskErr must be non-nil")
 		}
 		// The task should be considered lost and then re-initialized resulting
 		// in another cluster allocation request.
@@ -647,6 +647,7 @@ func TestLostTasksSwitchAllocs(t *testing.T) {
 			t.Fatal(err)
 		}
 		cancel()
+		shutdown()
 	}
 }
 
