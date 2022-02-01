@@ -6,13 +6,10 @@ package tool
 
 import (
 	"fmt"
-	"net/http"
 
-	"github.com/grailbio/base/status"
-	"github.com/grailbio/infra/tls"
 	"github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/runner"
-	"golang.org/x/net/http2"
+	"github.com/grailbio/reflow/runtime"
 )
 
 // Cluster returns a configured cluster and sets up repository
@@ -25,8 +22,8 @@ import (
 // such global registration altogether. The current way of doing this
 // also ties the binary to specific implementations (e.g., s3), which
 // should be avoided.
-func (c *Cmd) Cluster(status *status.Status) runner.Cluster {
-	cluster, err := clusterInstance(c.Config, status)
+func (c *Cmd) Cluster() runner.Cluster {
+	cluster, err := runtime.ClusterInstance(c.Config)
 	if err != nil {
 		c.Fatalf("Cluster: %v", err)
 	}
@@ -38,21 +35,4 @@ func (c *Cmd) Cluster(status *status.Status) runner.Cluster {
 		c.Log.Printf("not a ec2cluster - %s %T", cluster.GetName(), cluster)
 	}
 	return cluster
-}
-
-func (c *Cmd) httpClient() (*http.Client, error) {
-	var ca tls.Certs
-	err := c.Config.Instance(&ca)
-	if err != nil {
-		c.Fatal(err)
-	}
-	clientConfig, _, err := ca.HTTPS()
-	if err != nil {
-		c.Fatal(err)
-	}
-	transport := &http.Transport{TLSClientConfig: clientConfig}
-	if err := http2.ConfigureTransport(transport); err != nil {
-		c.Fatal(err)
-	}
-	return &http.Client{Transport: transport}, nil
 }

@@ -93,17 +93,17 @@ Exact costs are shown (if available) only for runs.
 					c.Fatalf("error inspecting exec %q: %s", arg, err)
 				}
 			} else {
-				alloc, err := c.Cluster(nil).Alloc(ctx, n.AllocID)
-				if err != nil {
-					c.Fatal(err)
+				alloc, aerr := c.Cluster().Alloc(ctx, n.AllocID)
+				if aerr != nil {
+					c.Fatal(aerr)
 				}
-				exec, err := alloc.Get(ctx, n.ID)
-				if err != nil {
-					c.Fatalf("failed to fetch exec for %q: %s", arg, err)
+				exec, eerr := alloc.Get(ctx, n.ID)
+				if eerr != nil {
+					c.Fatalf("failed to fetch exec for %q: %s", arg, eerr)
 				}
-				resp, err := exec.Inspect(ctx, nil)
-				if err != nil {
-					c.Fatalf("error inspecting exec %q: %s", arg, err)
+				resp, rerr := exec.Inspect(ctx, nil)
+				if rerr != nil {
+					c.Fatalf("error inspecting exec %q: %s", arg, rerr)
 				}
 				inspect = *resp.Inspect
 			}
@@ -127,7 +127,7 @@ Exact costs are shown (if available) only for runs.
 				execs, err = c.allocExecs(ctx, n)
 				c.must(err)
 			} else {
-				alloc, err := c.Cluster(nil).Alloc(ctx, n.AllocID)
+				alloc, err := c.Cluster().Alloc(ctx, n.AllocID)
 				c.must(err)
 				inspect, err = alloc.Inspect(ctx)
 				c.must(err)

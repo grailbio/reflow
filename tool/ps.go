@@ -197,7 +197,7 @@ To get the exact cost for pools, add -exact_cost.
 	var tdb taskdb.TaskDB
 	err := c.Config.Instance(&tdb)
 	if tdb == nil {
-		cluster := c.Cluster(nil)
+		cluster := c.Cluster()
 		allocsCtx, allocsCancel := context.WithTimeout(ctx, 5*time.Second)
 		allocs := pool.Allocs(allocsCtx, cluster, c.Log)
 		allocsCancel()
@@ -356,7 +356,7 @@ To get the exact cost for pools, add -exact_cost.
 	}
 	c.Log.Debugf("ps since: %s, until: %s", since.Format(time.RFC3339), until.Format(time.RFC3339))
 	if *poolsFlag {
-		cluster := c.Cluster(nil)
+		cluster := c.Cluster()
 		ec2c, ok := cluster.(*ec2cluster.Cluster)
 		if !ok {
 			c.Fatalf("poolInfo: not applicable for non-ec2 cluster %T", cluster)

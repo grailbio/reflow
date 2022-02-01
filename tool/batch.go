@@ -26,11 +26,13 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/batch"
+	"github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/runner"
+	"github.com/grailbio/reflow/runtime"
 	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/types"
 	"github.com/grailbio/reflow/wg"
@@ -121,8 +123,11 @@ The flag -parallelism controls the number of runs in the batch to run concurrent
 	c.must(c.Config.Instance(&cache))
 	blobMux, err := blobMux(c.Config)
 	c.must(err)
-	cluster, err := clusterInstance(c.Config, c.Status)
+	cluster, err := runtime.ClusterInstance(c.Config)
 	c.must(err)
+	if ec, ok := cluster.(*ec2cluster.Cluster); ok && c.Status != nil {
+		ec.Status = c.Status.Group("ec2cluster")
+	}
 	scheduler, err := NewScheduler(c.Config, cluster, c.Log)
 	c.must(err)
 	setTransfererStatus(scheduler.Transferer, c.Status)

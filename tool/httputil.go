@@ -10,6 +10,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/pool"
+	"github.com/grailbio/reflow/runtime"
 )
 
 const defaultHTTPTimeout = 2 * time.Second
@@ -18,7 +19,7 @@ const defaultHTTPTimeout = 2 * time.Second
 // and httputil can use.
 
 func (c *Cmd) allocInspect(ctx context.Context, n name) (pool.AllocInspect, error) {
-	httpClient, err := c.httpClient()
+	httpClient, err := runtime.HttpClient(c.Config)
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -45,7 +46,7 @@ func (c *Cmd) allocInspect(ctx context.Context, n name) (pool.AllocInspect, erro
 }
 
 func (c *Cmd) allocExecs(ctx context.Context, n name) ([]reflow.Exec, error) {
-	httpClient, err := c.httpClient()
+	httpClient, err := runtime.HttpClient(c.Config)
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -72,7 +73,7 @@ func (c *Cmd) allocExecs(ctx context.Context, n name) ([]reflow.Exec, error) {
 }
 
 func (c *Cmd) liveExecInspect(ctx context.Context, n name) (reflow.ExecInspect, error) {
-	httpClient, err := c.httpClient()
+	httpClient, err := runtime.HttpClient(c.Config)
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -99,7 +100,7 @@ func (c *Cmd) liveExecInspect(ctx context.Context, n name) (reflow.ExecInspect, 
 }
 
 func (c *Cmd) liveExecResult(ctx context.Context, n name) (reflow.Result, error) {
-	httpClient, err := c.httpClient()
+	httpClient, err := runtime.HttpClient(c.Config)
 	if err != nil {
 		c.Fatal(err)
 	}

@@ -26,6 +26,7 @@ import (
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/metrics"
 	"github.com/grailbio/reflow/runner"
+	"github.com/grailbio/reflow/runtime"
 	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/taskdb"
@@ -140,9 +141,11 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 		Args:     args,
 		RunFlags: runFlags,
 	}
-	cluster, err = clusterInstance(c.Config, c.Status)
+	cluster, err = runtime.ClusterInstance(c.Config)
 	c.must(err)
-
+	if ec, ok := cluster.(*ec2cluster.Cluster); ok && c.Status != nil {
+		ec.Status = c.Status.Group("ec2cluster")
+	}
 	scheduler, err = NewScheduler(c.Config, cluster, c.Log)
 	if err != nil {
 		c.Fatal(fmt.Errorf("can't initialize scheduler: %s", err))

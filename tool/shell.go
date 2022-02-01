@@ -34,7 +34,7 @@ Note that exec URIs are of the form host:port/alloc/exec.`
 		c.Fatalf("%s: not an exec URI", arg)
 	}
 
-	cluster := c.Cluster(nil)
+	cluster := c.Cluster()
 	alloc, err := cluster.Alloc(ctx, allocURI(n))
 	if err != nil {
 		c.Fatalf("alloc %s: %s", allocURI(n), err)

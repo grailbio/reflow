@@ -8,6 +8,8 @@ import (
 	"context"
 	"flag"
 	"io"
+
+	"github.com/grailbio/reflow/runtime"
 )
 
 func (c *Cmd) http(ctx context.Context, args ...string) {
@@ -23,7 +25,7 @@ func (c *Cmd) http(ctx context.Context, args ...string) {
 	}
 	arg := flags.Arg(0)
 
-	httpClient, err := c.httpClient()
+	httpClient, err := runtime.HttpClient(c.Config)
 	c.must(err)
 	resp, err := httpClient.Get(arg)
 	c.must(err)

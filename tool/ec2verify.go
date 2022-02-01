@@ -40,7 +40,7 @@ Example usage:
 
 	var ec *ec2cluster.Cluster
 	var ok bool
-	cluster := c.Cluster(nil)
+	cluster := c.Cluster()
 	if ec, ok = cluster.(*ec2cluster.Cluster); !ok {
 		c.Fatalf("not a ec2cluster! - %T", cluster)
 	} else {

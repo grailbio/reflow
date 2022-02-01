@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -24,12 +23,10 @@ import (
 	"github.com/grailbio/base/state"
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/infra"
-	"github.com/grailbio/infra/tls"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/blob/s3blob"
-	"github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
 	infra2 "github.com/grailbio/reflow/infra"
@@ -37,14 +34,11 @@ import (
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/predictor"
 	"github.com/grailbio/reflow/repository"
-	"github.com/grailbio/reflow/repository/blobrepo"
-	repositoryhttp "github.com/grailbio/reflow/repository/http"
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/wg"
-	"golang.org/x/net/http2"
 )
 
 // TransferLimit returns the configured transfer limit.
@@ -72,48 +66,6 @@ func blobMux(config infra.Config) (blob.Mux, error) {
 	} else {
 		return blob.Mux{"s3": s3blob.New(sess)}, nil
 	}
-}
-
-func httpClient(config infra.Config) (*http.Client, error) {
-	var ca tls.Certs
-	err := config.Instance(&ca)
-	if err != nil {
-		return nil, err
-	}
-	clientConfig, _, err := ca.HTTPS()
-	if err != nil {
-		return nil, err
-	}
-	transport := &http.Transport{TLSClientConfig: clientConfig}
-	if err := http2.ConfigureTransport(transport); err != nil {
-		return nil, err
-	}
-	return &http.Client{Transport: transport}, nil
-}
-
-func clusterInstance(config infra.Config, status *status.Status) (runner.Cluster, error) {
-	var cluster runner.Cluster
-	err := config.Instance(&cluster)
-	if err != nil {
-		return nil, err
-	}
-	if ec, ok := cluster.(*ec2cluster.Cluster); ok {
-		if status != nil {
-			ec.Status = status.Group("ec2cluster")
-		}
-		ec.Configuration = config
-	}
-	var sess *session.Session
-	err = config.Instance(&sess)
-	if err != nil {
-		return nil, err
-	}
-	blobrepo.Register("s3", s3blob.New(sess))
-	repositoryhttp.HTTPClient, err = httpClient(config)
-	if err != nil {
-		return nil, err
-	}
-	return cluster, nil
 }
 
 // NewScheduler returns a new scheduler with the specified configuration.
