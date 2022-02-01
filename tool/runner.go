@@ -7,7 +7,6 @@ package tool
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -113,20 +112,6 @@ func clusterInstance(config infra.Config, status *status.Status) (runner.Cluster
 	repositoryhttp.HTTPClient, err = httpClient(config)
 	if err != nil {
 		return nil, err
-	}
-	if n, ok := cluster.(needer); ok {
-		http.HandleFunc("/clusterneed", func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != "GET" {
-				http.Error(w, "bad method", http.StatusMethodNotAllowed)
-				return
-			}
-			need := n.Need()
-			enc := json.NewEncoder(w)
-			if err := enc.Encode(need); err != nil {
-				http.Error(w, fmt.Sprintf("internal error: %v", err), http.StatusInternalServerError)
-				return
-			}
-		})
 	}
 	return cluster, nil
 }

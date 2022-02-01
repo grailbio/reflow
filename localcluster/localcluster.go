@@ -12,7 +12,6 @@ import (
 	"math"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 
 	"docker.io/go-docker"
@@ -48,31 +47,7 @@ type Cluster struct {
 	Session *session.Session
 
 	total     reflow.Resources
-	available reflow.Resources
 	dir       string
-	mu        sync.Mutex
-	// needed indicates the resources that are currently needed by the localcluster client
-	needed reflow.Resources
-}
-
-// Need reflects the current set of resources that are pending
-// allocation.
-func (c *Cluster) Need() reflow.Resources {
-	c.mu.Lock()
-	need := c.needed
-	c.mu.Unlock()
-	return need
-}
-
-func (c *Cluster) updateNeed(req reflow.Requirements) (cancel func()) {
-	c.mu.Lock()
-	c.needed.Add(c.needed, req.Min)
-	c.mu.Unlock()
-	return func() {
-		c.mu.Lock()
-		c.needed.Sub(c.needed, req.Min)
-		c.mu.Unlock()
-	}
 }
 
 // Init implements infra.Provider
@@ -81,7 +56,6 @@ func (c *Cluster) Init(tls tls.Certs, session *session.Session, logger *log.Logg
 	if c.Client, c.total, err = dockerClient(); err != nil {
 		return err
 	}
-	c.available = c.total
 	clientConfig, _, err := tls.HTTPS()
 	if err != nil {
 		return err
@@ -139,8 +113,6 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 	if ok, err := c.CanAllocate(req.Min); !ok {
 		return nil, err
 	}
-	cancel := c.updateNeed(req)
-	defer cancel()
 	tick := time.NewTicker(allocatePoolInterval)
 	defer tick.Stop()
 	for ctx.Err() == nil {

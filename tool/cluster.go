@@ -10,15 +10,10 @@ import (
 
 	"github.com/grailbio/base/status"
 	"github.com/grailbio/infra/tls"
-	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/runner"
 	"golang.org/x/net/http2"
 )
-
-type needer interface {
-	Need() reflow.Resources
-}
 
 // Cluster returns a configured cluster and sets up repository
 // credentials so that remote repositories can be dialed.
