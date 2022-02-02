@@ -625,10 +625,7 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 	switch {
 	case err == nil:
 		task.Set(TaskDone)
-	case errors.Is(errors.Canceled, err):
-		task.Config.Args = savedArgs
-		task.Set(TaskLost)
-	case errors.Restartable(err):
+	case errors.Is(errors.Canceled, err), errors.Is(errors.Net, err), errors.Is(errors.Timeout, err), errors.Is(errors.Unavailable, err):
 		task.Config.Args = savedArgs
 		task.Set(TaskLost)
 	default:

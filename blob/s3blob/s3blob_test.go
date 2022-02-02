@@ -104,7 +104,7 @@ func TestSnapshot(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := bucket.Snapshot(ctx, "foobar")
-	want := fmt.Errorf("s3blob.Snapshot testbucket foobar:\n\ts3blob.File testbucket foobar: gave up after 3 tries: too many tries")
+	want := fmt.Errorf("s3blob.Snapshot testbucket foobar: too many tries:\n\ts3blob.File testbucket foobar:\n\tgave up after 3 tries")
 	if err.Error() != want.Error() {
 		t.Errorf("got %v, want %s", err, want)
 	}
@@ -262,7 +262,7 @@ func TestDownload(t *testing.T) {
 
 	b := aws.NewWriteAtBuffer(nil)
 	_, err := bucket.Download(ctx, "notexist", "", 0, b)
-	want := fmt.Errorf("s3blob.Download testbucket notexist: gave up after 3 tries: too many tries")
+	want := fmt.Errorf("s3blob.Download testbucket notexist: too many tries:\n\tgave up after 3 tries")
 	if err.Error() != want.Error() {
 		t.Errorf("got %v, want %s", err, want)
 	}
@@ -322,9 +322,9 @@ func TestFileErrors(t *testing.T) {
 			cancelCtx bool
 			wantE     error
 		}{
-			{"key_nosuchkey", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_nosuchkey: gave up after 3 tries: too many tries")},
-			{"key_deadlineexceeded", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_deadlineexceeded: gave up after 3 tries: too many tries")},
-			{"key_awsrequesttimeout", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_awsrequesttimeout: gave up after 3 tries: too many tries")},
+			{"key_nosuchkey", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_nosuchkey: too many tries:\n\tgave up after 3 tries")},
+			{"key_deadlineexceeded", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_deadlineexceeded: too many tries:\n\tgave up after 3 tries")},
+			{"key_awsrequesttimeout", errors.Other, false, fmt.Errorf("s3blob.File errorbucket key_awsrequesttimeout: too many tries:\n\tgave up after 3 tries")},
 			{"key_canceled", errors.Canceled, true, nil},
 			{"key_awscanceled", errors.Canceled, false, nil},
 		} {

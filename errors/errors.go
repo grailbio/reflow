@@ -230,6 +230,8 @@ func E(args ...interface{}) error {
 		case *Error:
 			copy := *arg
 			e.Err = &copy
+		case *baseerrors.Error:
+			e.Err = &Error{Kind: BaseToReflow(arg.Kind, arg.Severity), Op: arg.Message}
 		case error:
 			e.Err = arg
 		// or: alloc, exec independently.
