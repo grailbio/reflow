@@ -30,14 +30,6 @@ var (
 	verified     = flag.Bool("verified", false, "whether to generate verified.go")
 )
 
-// nitroBasedInstanceTypes contain a list of instance type classes that are nitro-based
-// (and hence expose the EBS volumes as NVMe) as per:
-// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-types.html#ec2-nitro-instances
-// Note: www.ec2instances.info doesn't capture this correctly.
-var nitroInstanceTypePrefixes = []string{"A1", "C5", "C5a", "C5d", "C5n", "G4", "I3en", "Inf1", "M5", "M5a", "M5ad", "M5d", "M5dn", "M5n", "M6g", "M6gd", "M6i", "p3dn.24xlarge", "R5", "R5a", "R5ad", "R5d", "R5dn", "R5n", "T3", "T3a", "z1d"}
-
-var avx512InstanceTypePrefixes = []string{"m5", "c5", "r5", "m6i"}
-
 func usage() {
 	fmt.Fprintf(os.Stderr, `usage: ec2instances dir
 
@@ -69,9 +61,6 @@ func main() {
 // generateInstances produces an instances.go file in the given dir, containing
 // instance type information.
 func generateInstances(dir string) {
-	for i, t := range nitroInstanceTypePrefixes {
-		nitroInstanceTypePrefixes[i] = strings.ToLower(t)
-	}
 	var body io.Reader
 	if strings.HasPrefix(*instancesUrl, "file://") {
 		path := strings.TrimPrefix(*instancesUrl, "file://")
@@ -254,14 +243,7 @@ func generateInstances(dir string) {
 		g.Printf("	},\n")
 		g.Printf("	Generation: %q,\n", e.Generation)
 		g.Printf("	Virt: %q,\n", virt)
-		nvme := false
-		for _, prefix := range nitroInstanceTypePrefixes {
-			if strings.HasPrefix(e.Type, prefix) {
-				nvme = true
-				break
-			}
-		}
-		g.Printf("	NVMe: %v,\n", nvme)
+		g.Printf("	NVMe: %v,\n", e.EbsAsNvme)
 		g.Printf("	CPUFeatures: map[string]bool{\n")
 		if e.IntelAVX {
 			// TODO: This seems wrong (false negative) for many instances.
@@ -270,12 +252,11 @@ func generateInstances(dir string) {
 		if e.IntelAVX2 {
 			g.Printf("		%q: true,\n", "intel_avx2")
 		}
-		// AVX512 isn't yet exported by the data provided by AWS/ec2instances.info.
-		for _, prefix := range avx512InstanceTypePrefixes {
-			if strings.HasPrefix(e.Type, prefix) {
-				g.Printf("		%q: true,\n", "intel_avx512")
-				break
-			}
+		if e.IntelAVX512 {
+			g.Printf("		%q: true,\n", "intel_avx512")
+		}
+		if e.IntelTurbo {
+			g.Printf("		%q: true,\n", "intel_turbo")
 		}
 		g.Printf("	},\n")
 		g.Printf("},\n")
@@ -408,8 +389,11 @@ type entry struct {
 	Storage       storage                           `json:"storage"`
 	Generation    string                            `json:"generation"`
 	LinuxVirtType []string                          `json:"linux_virtualization_types"`
+	EbsAsNvme     bool                              `json:"ebs_as_nvme"`
 	IntelAVX      bool                              `json:"intel_avx"`
 	IntelAVX2     bool                              `json:"intel_avx2"`
+	IntelAVX512   bool                              `json:"intel_avx512"`
+	IntelTurbo    bool                              `json:"intel_turbo"`
 }
 
 type storage struct {
