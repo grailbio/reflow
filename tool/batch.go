@@ -26,7 +26,6 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/batch"
-	"github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
 	"github.com/grailbio/reflow/infra"
@@ -123,19 +122,17 @@ The flag -parallelism controls the number of runs in the batch to run concurrent
 	c.must(c.Config.Instance(&cache))
 	blobMux, err := blobMux(c.Config)
 	c.must(err)
-	cluster, err := runtime.ClusterInstance(c.Config)
-	c.must(err)
-	if ec, ok := cluster.(*ec2cluster.Cluster); ok && c.Status != nil {
-		ec.Status = c.Status.Group("ec2cluster")
-	}
-	scheduler, err := NewScheduler(c.Config, cluster, c.Log)
-	c.must(err)
-	setTransfererStatus(scheduler.Transferer, c.Status)
-	scheduler.ExportStats()
 
-	schedCtx, schedCancel := context.WithCancel(ctx)
-	go func() { _ = scheduler.Do(schedCtx) }()
-	defer schedCancel()
+	rr, err := runtime.NewRuntime(runtime.RuntimeParams{
+		Config: c.Config,
+		Logger: c.Log,
+		Status: c.Status,
+	})
+	c.must(err)
+
+	rrCtx, rrCancel := context.WithCancel(ctx)
+	rr.Start(rrCtx)
+	defer rrCancel()
 
 	b := &batch.Batch{
 		EvalConfig: flow.EvalConfig{
@@ -145,7 +142,7 @@ The flag -parallelism controls the number of runs in the batch to run concurrent
 			Assoc:              assoc,
 			AssertionGenerator: assertionGenerator(blobMux),
 			CacheMode:          cache.CacheMode,
-			Scheduler:          scheduler,
+			Scheduler:          rr.Scheduler(),
 		},
 		Args:    flags.Args(),
 		Rundir:  c.rundir(),

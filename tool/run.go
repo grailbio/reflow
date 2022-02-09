@@ -27,7 +27,6 @@ import (
 	"github.com/grailbio/reflow/metrics"
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/runtime"
-	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/trace"
@@ -132,8 +131,6 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 	defer cancel()
 	var (
 		result    runner.State
-		scheduler *sched.Scheduler
-		cluster   runner.Cluster
 		err       error
 	)
 	runConfig := RunConfig{
@@ -141,22 +138,19 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 		Args:     args,
 		RunFlags: runFlags,
 	}
-	cluster, err = runtime.ClusterInstance(c.Config)
-	c.must(err)
-	if ec, ok := cluster.(*ec2cluster.Cluster); ok && c.Status != nil {
-		ec.Status = c.Status.Group("ec2cluster")
-	}
-	scheduler, err = NewScheduler(c.Config, cluster, c.Log)
-	if err != nil {
-		c.Fatal(fmt.Errorf("can't initialize scheduler: %s", err))
-	}
-	setTransfererStatus(scheduler.Transferer, c.Status)
-	scheduler.ExportStats()
-	schedCtx, schedCancel := context.WithCancel(ctx)
-	go func() { _ = scheduler.Do(schedCtx) }()
-	defer schedCancel()
 
-	r, err := NewRunner(c.Config, runConfig, c.Log, scheduler)
+	rr, err := runtime.NewRuntime(runtime.RuntimeParams{
+		Config: c.Config,
+		Logger: c.Log,
+		Status: c.Status,
+	})
+	c.must(err)
+
+	rrCtx, rrCancel := context.WithCancel(ctx)
+	rr.Start(rrCtx)
+	defer rrCancel()
+
+	r, err := NewRunner(c.Config, runConfig, c.Log, rr.Scheduler())
 	c.must(err)
 	r.status = c.Status
 
@@ -192,11 +186,6 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 				ec.Log.Parent = nil
 			}()
 		}
-		c.onexit(func() {
-			if err = cluster.Shutdown(); err != nil {
-				r.Log.Errorf("cluster shutdown: %v", err)
-			}
-		})
 	}
 	r.Log = runLogger
 	if dotfile != nil {
