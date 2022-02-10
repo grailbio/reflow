@@ -9,7 +9,6 @@ import (
 
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
-	"github.com/grailbio/reflow/runner"
 )
 
 const defaultFlowDir = "/tmp/flow"
@@ -196,9 +195,6 @@ type RunFlags struct {
 	// BackgroundTimeout is the duration to wait for background tasks (such as cache writes, etc) to complete.
 	// ie, this is the amount of time we wait after the user's program execution finishes but before reflow exits.
 	BackgroundTimeout time.Duration
-
-	// Cluster is the externally specified cluster provider. If non-nil, this cluster provider overrides the one specified in the reflow config.
-	Cluster runner.Cluster
 }
 
 // flags adds all run flags to the provided flagset (including localflags).

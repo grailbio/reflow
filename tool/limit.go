@@ -12,9 +12,6 @@ const (
 	// The number of concurrent stat operations that can
 	// be performed against a repository.
 	statLimit = 200
-
-	// The number of concurrent cache operations allowed.
-	cacheOpConcurrency = 512
 )
 
 // TransferLimit returns the configured transfer limit.
