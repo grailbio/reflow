@@ -193,7 +193,8 @@ func (c *ClientCall) DoFileset(ctx context.Context, fs reflow.Fileset) (int, err
 		_ = w.CloseWithError(streamErr)
 	}()
 	code, err := c.Do(ctx, r)
-	if streamErr != nil {
+	// favor err over streamErr; it's more useful for debugging
+	if err == nil && streamErr != nil {
 		return 0, streamErr
 	}
 	return code, err

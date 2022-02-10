@@ -625,12 +625,16 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 	switch {
 	case err == nil:
 		task.Set(TaskDone)
+	case alloc.Context.Err() != nil:
+		task.Config.Args = savedArgs
+		task.Set(TaskLost)
 	case errors.Is(errors.Canceled, err), errors.Is(errors.Net, err), errors.Is(errors.Timeout, err), errors.Is(errors.Unavailable, err):
 		task.Config.Args = savedArgs
 		task.Set(TaskLost)
 	default:
 		task.Set(TaskDone)
 	}
+	taskLogger.Debugf("returning task with state: %s", task.State())
 	returnc <- task
 }
 
