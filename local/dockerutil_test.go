@@ -2,6 +2,7 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
+//go:build !unit || integration
 // +build !unit integration
 
 package local
@@ -80,7 +81,7 @@ func TestPullImageErrors(t *testing.T) {
 	}{
 		{"image not found", "invalid-test-image", "manifest for ... not found", errors.NotExist, 1},
 		{"network error", "grailbio/awstool", "net/http: TLS handshake timeout", errors.Net, 1},
-		{"other error", "grailbio/awstool", "some other error", errors.Other, 6},
+		{"other error", "grailbio/awstool", "some other error", errors.TooManyTries, 6},
 	}
 
 	for _, tt := range tests {

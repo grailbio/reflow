@@ -119,15 +119,15 @@ func (z *zombie) Execs(ctx context.Context) ([]reflow.Exec, error) {
 }
 
 func (z *zombie) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) (reflow.Fileset, error) {
-	return reflow.Fileset{}, errors.E("load", errors.NotSupported, errZombieExec)
+	return reflow.Fileset{}, errors.E("load", errors.NotSupported, errZombieAlloc)
 }
 
 func (z *zombie) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) error {
-	return errors.E("verify", errors.NotSupported, errZombieExec)
+	return errors.E("verify", errors.NotSupported, errZombieAlloc)
 }
 
 func (z *zombie) Unload(ctx context.Context, fs reflow.Fileset) error {
-	return errors.E("unload", errors.NotSupported, errZombieExec)
+	return errors.E("unload", errors.NotSupported, errZombieAlloc)
 }
 
 type zombieExec struct {
