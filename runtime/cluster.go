@@ -25,6 +25,9 @@ func ClusterInstance(config infra.Config) (runner.Cluster, error) {
 	if ec, ok := cluster.(*ec2cluster.Cluster); ok {
 		ec.Configuration = config
 		ec.ExportStats()
+		if err = ec.Verify(); err != nil {
+			return nil, err
+		}
 	} else {
 		return cluster, nil
 	}

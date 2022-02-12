@@ -13,7 +13,7 @@ import (
 	"github.com/grailbio/reflow/runtime"
 )
 
-const defaultHTTPTimeout = 2 * time.Second
+const defaultHTTPTimeout = 10 * time.Second
 
 // TODO(pgopal) - Move all the url construction logic to a common library that pool/client
 // and httputil can use.
@@ -87,13 +87,13 @@ func (c *Cmd) liveExecInspect(ctx context.Context, n name) (reflow.ExecInspect, 
 			return reflow.ExecInspect{}, err
 		}
 		defer resp.Body.Close()
-		var inspect reflow.ExecInspect
-		err = json.NewDecoder(resp.Body).Decode(&inspect)
+		var ir reflow.InspectResponse
+		err = json.NewDecoder(resp.Body).Decode(&ir)
 		if err != nil {
 			c.Log.Errorf("error decoding exec %q: %s", url, err)
 			return reflow.ExecInspect{}, err
 		}
-		return inspect, nil
+		return *ir.Inspect, nil
 	default:
 		return reflow.ExecInspect{}, fmt.Errorf("not an exec id: %v", n)
 	}

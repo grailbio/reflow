@@ -93,7 +93,7 @@ Exact costs are shown (if available) only for runs.
 					c.Fatalf("error inspecting exec %q: %s", arg, err)
 				}
 			} else {
-				alloc, aerr := c.Cluster().Alloc(ctx, n.AllocID)
+				alloc, aerr := c.CurrentPool(ctx).Alloc(ctx, n.AllocID)
 				if aerr != nil {
 					c.Fatal(aerr)
 				}
@@ -127,7 +127,7 @@ Exact costs are shown (if available) only for runs.
 				execs, err = c.allocExecs(ctx, n)
 				c.must(err)
 			} else {
-				alloc, err := c.Cluster().Alloc(ctx, n.AllocID)
+				alloc, err := c.CurrentPool(ctx).Alloc(ctx, n.AllocID)
 				c.must(err)
 				inspect, err = alloc.Inspect(ctx)
 				c.must(err)

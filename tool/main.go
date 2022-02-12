@@ -25,11 +25,15 @@ import (
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/must"
 	"github.com/grailbio/base/status"
+	"github.com/grailbio/base/sync/once"
 	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/flow"
 	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
+	"github.com/grailbio/reflow/pool"
+	reflowruntime "github.com/grailbio/reflow/runtime"
 	"gopkg.in/yaml.v2"
 )
 
@@ -83,6 +87,9 @@ type Cmd struct {
 	onexits          []func()
 
 	flags *flag.FlagSet
+
+	pool     pool.Pool
+	poolOnce once.Task
 
 	Log *log.Logger
 }
@@ -506,4 +513,25 @@ func (c *Cmd) logMemStats(ctx context.Context, log *log.Logger, freq time.Durati
 		}
 		readAndPrint("")
 	}
+}
+
+// CurrentPool returns the current underlying pool of an ec2cluster.
+// The returned pool reflects the current state of the remote ec2cluster as long as the provided ctx is not done.
+// Note that any existing allocs in the current pool are not "kept alive",
+// so it is only useful for tools performing introspection of the state of the pool.
+func (c *Cmd) CurrentPool(ctx context.Context) pool.Pool {
+	c.must(c.poolOnce.Do(func() error {
+		cluster, err := reflowruntime.ClusterInstance(c.Config)
+		if err != nil {
+			return err
+		}
+		if ec, ok := cluster.(*ec2cluster.Cluster); ok {
+			ec.Start(ctx)
+			c.pool = ec
+		} else {
+			c.Fatalf("not an ec2cluster - %s %T", cluster.GetName(), cluster)
+		}
+		return nil
+	}))
+	return c.pool
 }

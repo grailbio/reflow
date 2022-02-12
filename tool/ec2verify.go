@@ -17,6 +17,7 @@ import (
 	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/ec2cluster/instances"
+	"github.com/grailbio/reflow/runtime"
 )
 
 func (c *Cmd) ec2verify(ctx context.Context, args ...string) {
@@ -38,13 +39,17 @@ Example usage:
 	)
 	c.Parse(flags, args, help, "ec2verify")
 
-	var ec *ec2cluster.Cluster
-	var ok bool
-	cluster := c.Cluster()
-	if ec, ok = cluster.(*ec2cluster.Cluster); !ok {
-		c.Fatalf("not a ec2cluster! - %T", cluster)
-	} else {
+	cluster, err := runtime.ClusterInstance(c.Config)
+	c.must(err)
+	var (
+		ec *ec2cluster.Cluster
+		ok bool
+	)
+	if ec, ok = cluster.(*ec2cluster.Cluster); ok {
 		ec.Status = c.Status.Group("ec2verify")
+		ec.Start(ctx)
+	} else {
+		c.Fatalf("not an ec2cluster - %s %T", cluster.GetName(), cluster)
 	}
 	existing := instances.VerifiedByRegion[ec.Region()]
 	verified, toverify := instancesToVerify(ec.InstanceTypes, existing, *retry)

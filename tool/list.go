@@ -37,7 +37,7 @@ The columns displayed by list are:
 	)
 	c.Parse(flags, args, help, "list [-a] [[-n] alloc]")
 	args = flags.Args()
-	cluster := c.Cluster()
+	cluster := c.CurrentPool(ctx)
 	var entries []interface{}
 
 	if len(args) == 0 {

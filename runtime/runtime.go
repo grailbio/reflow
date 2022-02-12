@@ -135,15 +135,17 @@ func (r *runtime) doStart(ctx context.Context) {
 	var wg sync.WaitGroup
 	r.rtLog.Printf("===== started =====")
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		// TODO(swami): Start the cluster with the same ctx instead.
-		select {
-		case <-ctx.Done():
-			_ = r.cluster.Shutdown()
-		}
-	}()
+	if ec, ok := r.cluster.(*ec2cluster.Cluster); ok {
+		ec.Start(ctx)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case <-ctx.Done():
+				ec.Shutdown()
+			}
+		}()
+	}
 
 	wg.Add(1)
 	go func() {

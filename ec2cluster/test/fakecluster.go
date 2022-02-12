@@ -34,8 +34,6 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 	return nil, nil
 }
 
-func (c *Cluster) Shutdown() error { return nil }
-
 // GetName implements runner.Cluster
 func (c *Cluster) GetName() string { return "fakecluster" }
 

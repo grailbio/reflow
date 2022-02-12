@@ -231,7 +231,7 @@ func (c *Cmd) execLogsCloudWatch(ctx context.Context, p string, stdout bool) {
 }
 
 func (c *Cmd) execLogsFromAlloc(ctx context.Context, n name, stdout, follow bool) error {
-	cluster := c.Cluster()
+	cluster := c.CurrentPool(ctx)
 	alloc, err := cluster.Alloc(ctx, n.AllocID)
 	if err != nil {
 		return errors.E("execLogsFromAlloc", n.AllocID, err)

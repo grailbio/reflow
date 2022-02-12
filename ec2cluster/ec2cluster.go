@@ -209,8 +209,8 @@ type Cluster struct {
 	// subnetAZ is the availability zone name corresponding to the Subnet (if specified)
 	subnetAZ string
 
-	initOnce once.Task
-	stats    *statsImpl
+	startOnce once.Task
+	stats     *statsImpl
 }
 
 type header interface {
@@ -365,12 +365,17 @@ func (c *Cluster) ExportStats() {
 	c.stats.publish()
 }
 
-// VerifyAndInitialize verifies any configuration settings and runs the maintenance goroutines.
-func (c *Cluster) verifyAndInitialize() error {
-	if err := validateBootstrap(c.BootstrapImage, http.DefaultClient); err != nil {
+// Verify verifies configuration settings.
+func (c *Cluster) Verify() error {
+	err := validateBootstrap(c.BootstrapImage, http.DefaultClient)
+	if err != nil {
 		err = errors.E(errors.Fatal, fmt.Sprintf("bootstrap image: %s", c.BootstrapImage), err)
-		return err
 	}
+	return err
+}
+
+// initialize initializes the cluster by starting maintenance goroutines.
+func (c *Cluster) initialize(ctx context.Context) {
 	if c.BootstrapExpiry == 0 {
 		var rc *infra2.ReflowletConfig
 		if rcerr := c.Configuration.Instance(&rc); rcerr == nil {
@@ -402,8 +407,7 @@ func (c *Cluster) verifyAndInitialize() error {
 	c.reqSpotLimiter = rate.NewLimiter(rate.Every(time.Second), 5) // 5 qps
 	c.refreshLimiter = rate.NewLimiter(rate.Every(time.Second), 1) // 1 qps
 	c.SetCaching(true)
-	c.manager.Start()
-	return nil
+	c.manager.Start() // TODO(swami): Pass ctx here.
 }
 
 // Region is the AWS region to use for launching new EC2 instances.
@@ -429,8 +433,8 @@ func (c *Cluster) CanAllocate(r reflow.Resources) (bool, error) {
 // the request, it is returned immediately; otherwise new instance(s)
 // are spun up to handle the allocation.
 func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels pool.Labels) (alloc pool.Alloc, err error) {
-	if err = c.VerifyAndInit(); err != nil {
-		return
+	if !c.startOnce.Done() {
+		panic("uninitialized ec2cluster - Start() not called ?")
 	}
 	if ok, er := c.CanAllocate(req.Min); !ok {
 		return nil, er
@@ -479,15 +483,22 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 
 // Shutdown will instruct the manager to clear out any pending instances.
 // But we don't bring down any existing reflowlet instances (they are designed to expire and terminate after a while)
-func (c *Cluster) Shutdown() error {
+func (c *Cluster) Shutdown() {
 	c.manager.Shutdown()
-	return nil
 }
 
-// VerifyAndInit verifies and initializes the cluster.  This should be called
-// before any `pool.Pool` operations are performed on the cluster.
-func (c *Cluster) VerifyAndInit() error {
-	return c.initOnce.Do(func() error { return c.verifyAndInitialize() })
+// Start initializes the cluster and it should be called before any `pool.Pool` operations are performed on the cluster.
+// Start uses the provided context to maintain the cluster and upon cancellation, the cluster will shutdown.
+// Start can be called multiple times, but only the first call's ctx is relevant.
+func (c *Cluster) Start(ctx context.Context) {
+	_ = c.startOnce.Do(func() error {
+		if err := c.Verify(); err != nil {
+			// panic if Verify() hasn't already been called (and if it throws an error).
+			panic(fmt.Sprintf("unexpected ec2cluster.Verify: %v", err))
+		}
+		c.initialize(ctx)
+		return nil
+	})
 }
 
 // QueryTags returns the list of tags to use to query for instances belonging to this cluster.
@@ -512,10 +523,10 @@ func (c *Cluster) QueryTags() map[string]string {
 // A non-nil error means that the reflowlet failed to come up on this instance type.
 // The error could be due to context deadline, in case we gave up waiting for it to come up.
 func (c *Cluster) Probe(ctx context.Context, instanceType string) (reflow.Resources, time.Duration, error) {
-	var r reflow.Resources
-	if err := c.VerifyAndInit(); err != nil {
-		return r, time.Duration(0), err
+	if !c.startOnce.Done() {
+		panic("uninitialized ec2cluster - Start() not called ?")
 	}
+	var r reflow.Resources
 	config := c.instanceConfigs[instanceType]
 	i := c.newInstance(config)
 probe:

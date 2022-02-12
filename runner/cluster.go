@@ -25,10 +25,6 @@ type Cluster interface {
 	// CanAllocate returns whether this cluster can allocate the given amount of resources.
 	CanAllocate(reflow.Resources) (bool, error)
 
-	// Shutdown instructs the cluster to perform any shutting-down operations.
-	// Implementations are allowed to (but not required to) bring down all the allocs.
-	Shutdown() error
-
 	// GetName returns the name of the cluster
 	GetName() string
 }
