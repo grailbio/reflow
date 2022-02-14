@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/grailbio/base/traverse"
@@ -47,7 +48,8 @@ Example usage:
 	)
 	if ec, ok = cluster.(*ec2cluster.Cluster); ok {
 		ec.Status = c.Status.Group("ec2verify")
-		ec.Start(ctx)
+		var wg sync.WaitGroup
+		ec.Start(ctx, &wg)
 	} else {
 		c.Fatalf("not an ec2cluster - %s %T", cluster.GetName(), cluster)
 	}

@@ -151,11 +151,7 @@ func testSchedScale(t *testing.T, drainTimeout time.Duration, tasks []*taskNode,
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var submitter = newTaskSubmitter(scheduler, tasks)
-	allocator.start()
-	go func() {
-		<-ctx.Done()
-		allocator.m.Shutdown()
-	}()
+	allocator.start(ctx)
 	go submitter.start()
 	submitter.wg.Wait()
 	pds := allocator.inspect()
@@ -341,11 +337,12 @@ func (a *allocator) inspect() []poolDetails {
 	return pds
 }
 
-func (a *allocator) start() {
+func (a *allocator) start(ctx context.Context) {
 	a.started = time.Now()
 	a.m = ec2cluster.NewManager(a, 50, 5, a.logger.Tee(nil, "manager: "))
 	a.m.SetTimeouts(10*time.Millisecond, 10*time.Millisecond, 5*time.Second)
-	a.m.Start()
+	var wg sync.WaitGroup
+	a.m.Start(ctx, &wg)
 }
 
 func (a *allocator) CanAllocate(r reflow.Resources) (bool, error) {

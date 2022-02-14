@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"sort"
+	"sync"
 	"syscall"
 	"time"
 
@@ -526,7 +527,8 @@ func (c *Cmd) CurrentPool(ctx context.Context) pool.Pool {
 			return err
 		}
 		if ec, ok := cluster.(*ec2cluster.Cluster); ok {
-			ec.Start(ctx)
+			var wg sync.WaitGroup
+			ec.Start(ctx, &wg)
 			c.pool = ec
 		} else {
 			c.Fatalf("not an ec2cluster - %s %T", cluster.GetName(), cluster)

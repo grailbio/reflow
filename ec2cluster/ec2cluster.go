@@ -375,7 +375,7 @@ func (c *Cluster) Verify() error {
 }
 
 // initialize initializes the cluster by starting maintenance goroutines.
-func (c *Cluster) initialize(ctx context.Context) {
+func (c *Cluster) initialize(ctx context.Context, wg *sync.WaitGroup) {
 	if c.BootstrapExpiry == 0 {
 		var rc *infra2.ReflowletConfig
 		if rcerr := c.Configuration.Instance(&rc); rcerr == nil {
@@ -407,7 +407,7 @@ func (c *Cluster) initialize(ctx context.Context) {
 	c.reqSpotLimiter = rate.NewLimiter(rate.Every(time.Second), 5) // 5 qps
 	c.refreshLimiter = rate.NewLimiter(rate.Every(time.Second), 1) // 1 qps
 	c.SetCaching(true)
-	c.manager.Start() // TODO(swami): Pass ctx here.
+	c.manager.Start(ctx, wg)
 }
 
 // Region is the AWS region to use for launching new EC2 instances.
@@ -481,22 +481,18 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 	}
 }
 
-// Shutdown will instruct the manager to clear out any pending instances.
-// But we don't bring down any existing reflowlet instances (they are designed to expire and terminate after a while)
-func (c *Cluster) Shutdown() {
-	c.manager.Shutdown()
-}
-
 // Start initializes the cluster and it should be called before any `pool.Pool` operations are performed on the cluster.
 // Start uses the provided context to maintain the cluster and upon cancellation, the cluster will shutdown.
-// Start can be called multiple times, but only the first call's ctx is relevant.
-func (c *Cluster) Start(ctx context.Context) {
+// Start can be called multiple times, but only parameters passed to the first call (which started the cluster)
+// are relevant.
+// Start takes a WaitGroup whose counter is updated to reflect background goroutines.
+func (c *Cluster) Start(ctx context.Context, wg *sync.WaitGroup) {
 	_ = c.startOnce.Do(func() error {
 		if err := c.Verify(); err != nil {
 			// panic if Verify() hasn't already been called (and if it throws an error).
 			panic(fmt.Sprintf("unexpected ec2cluster.Verify: %v", err))
 		}
-		c.initialize(ctx)
+		c.initialize(ctx, wg)
 		return nil
 	})
 }

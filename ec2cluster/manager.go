@@ -95,8 +95,6 @@ type Manager struct {
 	log *log.Logger
 
 	waitc  chan *waiter
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
 
 	mu   sync.Mutex
 	cond *ctxsync.Cond
@@ -127,9 +125,7 @@ func NewManager(c ManagedCluster, maxHourlyCostUSD float64, maxPendingInstances 
 }
 
 // Start initializes and starts the cluster manager (and its management goroutines)
-func (m *Manager) Start() {
-	var ctx context.Context
-	ctx, m.cancel = context.WithCancel(context.Background())
+func (m *Manager) Start(ctx context.Context, wg *sync.WaitGroup) {
 	m.waitc = make(chan *waiter)
 	m.sync = make(chan struct{})
 	m.cond = ctxsync.NewCond(&m.mu)
@@ -137,13 +133,19 @@ func (m *Manager) Start() {
 
 	// This go-routine maintains the state of the cluster by periodically `Refresh`ing it.
 	// Refreshing the cluster (periodic/forced-immediate) is achieved by communicating with this go-routine.
-	m.wg.Add(1)
-	go m.maintain(ctx)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		m.maintain(ctx)
+	}()
 	// Sync forces an immediate syncing of cluster state (and will block until its complete)
 	m.forceSync()
 	// This go-routine services requests to expand cluster capacity
-	m.wg.Add(1)
-	go m.loop(ctx)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		m.loop(ctx)
+	}()
 }
 
 // SetTimeouts sets the various timeout durations (primarily used for integration testing).
@@ -151,15 +153,6 @@ func (m *Manager) SetTimeouts(refreshInterval, drainTimeout, launchTimeout time.
 	m.refreshInterval = refreshInterval
 	m.drainTimeout = drainTimeout
 	m.launchTimeout = launchTimeout
-}
-
-// Shutdown shuts down the manager and waits for all its go-routines to finish.
-func (m *Manager) Shutdown() {
-	if m.cancel == nil { // Start was never called
-		return
-	}
-	m.cancel()
-	m.wg.Wait()
 }
 
 // Allocate requests the Manager to allocate an instance for the given requirements
@@ -292,11 +285,9 @@ func (m *Manager) loop(pctx context.Context) {
 		t        = time.NewTimer(time.Minute)
 	)
 	t.Stop() // stop the timer immediately, we don't need it yet.
-	defer func() {
-		// Before we exit, we cancel all launchers (make sure they are done) and notify all waiters.
-		launched.Wait()
-		m.wg.Done()
-	}()
+
+	// Before we exit, we cancel all launchers (make sure they are done) and notify all waiters.
+	defer launched.Wait()
 
 	launch := func(spec InstanceSpec) {
 		defer launched.Done()
@@ -484,7 +475,6 @@ func (m *Manager) forceSync() {
 // maintain periodically refreshes the managed cluster. Also services requests
 // (through calls to `forceSync` or `wait`) to refresh the managed cluster's state.
 func (m *Manager) maintain(ctx context.Context) {
-	defer m.wg.Done()
 	tick := time.NewTicker(m.refreshInterval)
 	defer tick.Stop()
 	for {

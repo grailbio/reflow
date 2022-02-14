@@ -170,8 +170,13 @@ func TestManagerStart(t *testing.T) {
 		refreshLimiter: rate.NewLimiter(rate.Every(time.Millisecond), 1),
 	}
 	m := &Manager{cluster: c, refreshInterval: time.Millisecond}
-	m.Start()
-	defer m.Shutdown()
+
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	mctx, mcancel := context.WithCancel(context.Background())
+	defer mcancel()
+	m.Start(mctx, &wg)
+
 	checkState(t, c, "i-running")
 }
 
@@ -184,8 +189,12 @@ func TestManagerBasic(t *testing.T) {
 	m := NewManager(c, 250, 5, log.Std)
 	m.refreshInterval = 50 * time.Millisecond
 	m.launchTimeout = 100 * time.Millisecond
-	m.Start()
-	defer m.Shutdown()
+
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	mctx, mcancel := context.WithCancel(context.Background())
+	defer mcancel()
+	m.Start(mctx, &wg)
 
 	// req should be met
 	<-m.Allocate(ctx, reflow.Requirements{Min: reflow.Resources{"cpu": 1, "mem": 2 * float64(data.GiB)}})
@@ -220,8 +229,12 @@ func TestManagerBasicWide(t *testing.T) {
 	m := NewManager(c, 5, 5, log.Std)
 	m.refreshInterval = 50 * time.Millisecond
 	m.launchTimeout = 100 * time.Millisecond
-	m.Start()
-	defer m.Shutdown()
+
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	mctx, mcancel := context.WithCancel(context.Background())
+	defer mcancel()
+	m.Start(mctx, &wg)
 
 	// req should be met
 	var req reflow.Requirements
@@ -291,8 +304,12 @@ func testCluster(t *testing.T, c *testManagedCluster, maxHourlyCostUSD float64, 
 	m.refreshInterval = 50 * time.Millisecond
 	m.launchTimeout = 100 * time.Millisecond
 	m.drainTimeout = 0 // time.Millisecond
-	m.Start()
-	defer m.Shutdown()
+
+	var mwg sync.WaitGroup
+	defer mwg.Wait()
+	mctx, mcancel := context.WithCancel(context.Background())
+	defer mcancel()
+	m.Start(mctx, &mwg)
 
 	maxInstanceCost := -1.0
 	for _, config := range c.activeConfigs {
