@@ -21,7 +21,6 @@ func TestRunFlags(t *testing.T) {
 			CommonRunFlags: CommonRunFlags{
 				EvalStrategy: "topdown",
 				Assert:       "never",
-				Sched:        true,
 			},
 			DotGraph:          true,
 			BackgroundTimeout: 10 * time.Minute,
@@ -30,7 +29,6 @@ func TestRunFlags(t *testing.T) {
 			CommonRunFlags: CommonRunFlags{
 				EvalStrategy: "topdown",
 				Assert:       "never",
-				Sched:        true,
 			},
 			Pred:              true,
 			DotGraph:          true,
@@ -40,7 +38,6 @@ func TestRunFlags(t *testing.T) {
 			CommonRunFlags: CommonRunFlags{
 				EvalStrategy: "topdown",
 				Assert:       "never",
-				Sched:        true,
 			},
 			DotGraph:          true,
 			BackgroundTimeout: 10 * time.Minute,
@@ -49,7 +46,6 @@ func TestRunFlags(t *testing.T) {
 			CommonRunFlags: CommonRunFlags{
 				EvalStrategy: "topdown",
 				Assert:       "never",
-				Sched:        true,
 			},
 			Pred:              true,
 			DotGraph:          true,

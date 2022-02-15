@@ -312,7 +312,7 @@ command is run. (See reflow runbatch -help for details.) Programs
 generates by reflow genbatch should be run with the scalable
 scheduler:
 
-	$ reflow run -sched batch.rf
+	$ reflow run batch.rf
 `
 	)
 	bc.Flags(flags)

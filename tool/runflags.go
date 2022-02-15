@@ -24,7 +24,6 @@ const (
 	FlagNameNoCacheExtern   FlagName = "nocacheextern"
 	FlagNamePostUseChecksum FlagName = "postusechecksum"
 	FlagNameRecomputeEmpty  FlagName = "recomputeempty"
-	FlagNameSched           FlagName = "sched"
 	// RunFlags flag names
 	FlagNameBackgroundTimeout FlagName = "backgroundtimeout"
 	FlagNameDotGraph          FlagName = "dotgraph"
@@ -46,8 +45,6 @@ type CommonRunFlags struct {
 	PostUseChecksum bool
 	// RecomputeEmpty indicates if cache results with empty filesets be automatically recomputed.
 	RecomputeEmpty bool
-	// Use scalable scheduler instead of the work stealer mode.
-	Sched bool
 }
 
 // Flags adds the common run flags to the provided flagset.
@@ -58,8 +55,6 @@ func (r *CommonRunFlags) flags(flags *flag.FlagSet) {
 // flagsLimited adds flags to the provided flagset with the given prefix but,
 // limited by the set of flag names defined in names.
 func (r *CommonRunFlags) flagsLimited(flags *flag.FlagSet, prefix string, names map[FlagName]bool) {
-	var vacuum bool
-	flags.BoolVar(&vacuum, prefix+"gc", false, "(DEPRECATED) enable garbage collection during evaluation")
 	if names == nil || names[FlagNameAssert] {
 		flags.StringVar(&r.Assert, prefix+string(FlagNameAssert), "never", `values: "never", "exact"
 
@@ -133,16 +128,10 @@ of an exec is empty or contains any empty values. This flag was added in D7592
 to address a Docker related bug. Generally users should not need to set this 
 flag and it may be removed soon.`)
 	}
-	if names == nil || names[FlagNameSched] {
-		flags.BoolVar(&r.Sched, prefix+string(FlagNameSched), true, "(DEPRECATED: cannot be set to false) use scalable scheduler instead of work stealing")
-	}
 }
 
 // Err checks if the flag values are consistent and valid.
 func (r *CommonRunFlags) Err() error {
-	if !r.Sched {
-		return fmt.Errorf("non-scheduler mode is not supported (must have -sched)")
-	}
 	switch r.EvalStrategy {
 	case "topdown", "bottomup":
 	default:
@@ -289,9 +278,6 @@ func (r *RunFlags) Override(overrides map[string]string) (err error) {
 func (r *RunFlags) Err() error {
 	if err := r.CommonRunFlags.Err(); err != nil {
 		return err
-	}
-	if !r.Sched && r.Pred {
-		return errors.New("-pred cannot be used without -sched")
 	}
 	return nil
 }
