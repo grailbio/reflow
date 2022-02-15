@@ -68,57 +68,6 @@ func blobMux(config infra.Config) (blob.Mux, error) {
 	}
 }
 
-// NewScheduler returns a new scheduler with the specified configuration.
-// Cancelling the returned context.CancelFunc stops the scheduler.
-func NewScheduler(config infra.Config, cluster runner.Cluster, logger *log.Logger) (*sched.Scheduler, error) {
-	if cluster == nil {
-		panic(fmt.Sprintf("NewScheduler must have cluster"))
-	}
-	var (
-		err   error
-		tdb   taskdb.TaskDB
-		repo  reflow.Repository
-		limit int
-	)
-	if logger == nil {
-		if err = config.Instance(&logger); err != nil {
-			return nil, err
-		}
-	}
-	if err = config.Instance(&tdb); err != nil {
-		if !strings.HasPrefix(err.Error(), "no providers for type taskdb.TaskDB") {
-			return nil, err
-		}
-		logger.Debug(err)
-	}
-	if err = config.Instance(&repo); err != nil {
-		return nil, err
-	}
-	if limit, err = transferLimit(config); err != nil {
-		return nil, err
-	}
-	transferer := &repository.Manager{
-		Status:           new(status.Status).Group("transfers"),
-		PendingTransfers: repository.NewLimits(limit),
-		Stat:             repository.NewLimits(statLimit),
-		Log:              logger,
-	}
-	if repo != nil {
-		transferer.PendingTransfers.Set(repo.URL().String(), int(^uint(0)>>1))
-	}
-	scheduler := sched.New()
-	scheduler.Cluster = cluster
-	scheduler.Transferer = transferer
-	scheduler.Log = logger.Tee(nil, "scheduler: ")
-	scheduler.TaskDB = tdb
-	mux, err := blobMux(config)
-	if err != nil {
-		return nil, err
-	}
-	scheduler.Mux = mux
-	return scheduler, nil
-}
-
 // NewRunner returns a new runner that can run the given run config. If scheduler is non nil,
 // it will be used for scheduling tasks.
 func NewRunner(infraRunConfig infra.Config, runConfig RunConfig, logger *log.Logger, scheduler *sched.Scheduler) (r *Runner, err error) {
