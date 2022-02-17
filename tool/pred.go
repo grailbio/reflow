@@ -14,6 +14,7 @@ import (
 	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/predictor"
+	"github.com/grailbio/reflow/runtime"
 	"github.com/grailbio/reflow/taskdb"
 )
 
@@ -54,7 +55,7 @@ Valid values for -name are "mem" and "duration".
 		flags.Usage()
 	}
 
-	cfg, err := getPredictorConfig(c.Config, false)
+	cfg, err := runtime.PredictorConfig(c.Config)
 	if err != nil {
 		c.Fatal(err)
 	}

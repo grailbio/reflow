@@ -12,9 +12,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/infra"
+	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/taskdb"
-	"github.com/grailbio/reflow/tool"
 	"github.com/grailbio/reflow/trace"
 )
 
@@ -34,12 +35,12 @@ type LocalTracer struct {
 // Init implements infra.Provider and gets called when an instance of LocalTracer
 // is created with infra.Config.Instance(...)
 func (lt *LocalTracer) Init(runID *taskdb.RunID) error {
-	dir, err := tool.Rundir()
-	if err == nil {
-		base := tool.Runbase(dir, *runID)
-		lt.tracefilepath = base + ".trace"
+	base, err := reflow.Runbase(digest.Digest(*runID))
+	if err != nil {
+		return err
 	}
-	return err
+	lt.tracefilepath = base + ".trace"
+	return nil
 }
 
 // New returns a new LocalTracer instance. This function is intended for cases

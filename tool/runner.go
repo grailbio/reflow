@@ -9,15 +9,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
-	aws2 "github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/base/state"
@@ -49,7 +46,7 @@ func NewRunner(infraRunConfig infra.Config, runConfig RunConfig, logger *log.Log
 	// Configure the Predictor.
 	var pred *predictor.Predictor
 	if runConfig.RunFlags.Pred {
-		if cfg, cerr := getPredictorConfig(infraRunConfig, false); cerr != nil {
+		if cfg, cerr := runtime.PredictorConfig(infraRunConfig); cerr != nil {
 			logger.Errorf("error while configuring predictor: %s", cerr)
 		} else {
 			pred = predictor.New(scheduler.TaskDB, logger.Tee(nil, "predictor: "), cfg.MinData, cfg.MaxInspect, cfg.MemPercentile)
@@ -283,8 +280,7 @@ func (r *Runner) setRunComplete(ctx context.Context, tdb taskdb.TaskDB, endTime 
 		runLog, dotFile, trace digest.Digest
 		rc                     io.ReadCloser
 	)
-	runbase, err := r.Runbase()
-	if err == nil {
+	if runbase, err := r.Runbase(); err == nil {
 		if rc, err = os.Open(runbase + ".runlog"); err == nil {
 			pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			if runLog, err = r.repo.Put(pctx, rc); err != nil {
@@ -313,7 +309,7 @@ func (r *Runner) setRunComplete(ctx context.Context, tdb taskdb.TaskDB, endTime 
 	} else {
 		r.Log.Debugf("unable to determine runbase: %v", err)
 	}
-	err = tdb.SetRunComplete(ctx, r.RunID, runLog, dotFile, trace, endTime)
+	err := tdb.SetRunComplete(ctx, r.RunID, runLog, dotFile, trace, endTime)
 	if err == nil {
 		var ds []string
 		if !runLog.IsZero() {
@@ -384,80 +380,6 @@ func (r Runner) waitForBackgroundTasks(timeout time.Duration) {
 	}
 }
 
-// Runbase returns the base path for the run
 func (r Runner) Runbase() (string, error) {
-	rundir, err := Rundir()
-	if err != nil {
-		return "", err
-	}
-	return Runbase(rundir, r.RunID), nil
-}
-
-func Rundir() (string, error) {
-	var rundir string
-	if home, ok := os.LookupEnv("HOME"); ok {
-		rundir = filepath.Join(home, ".reflow", "runs")
-		if err := os.MkdirAll(rundir, 0777); err != nil {
-			return "", err
-		}
-	} else {
-		var err error
-		rundir, err = ioutil.TempDir("", "prefix")
-		if err != nil {
-			return "", errors.E("failed to create temporary directory: %v", err)
-		}
-	}
-	return rundir, nil
-}
-
-func Runbase(rundir string, runID taskdb.RunID) string {
-	return filepath.Join(rundir, runID.Hex())
-}
-
-// getPredictorConfig gets a PredictorConfig and/or an error (if any).
-func getPredictorConfig(cfg infra.Config, nonEC2ok bool) (*infra2.PredictorConfig, error) {
-	var (
-		predConfig *infra2.PredictorConfig
-		repo       reflow.Repository
-		sess       *session.Session
-		tdb        taskdb.TaskDB
-	)
-	if err := cfg.Instance(&tdb); err != nil {
-		return nil, errors.E("predictor config: no taskdb", err)
-	}
-	if err := cfg.Instance(&repo); err != nil {
-		return nil, errors.E("predictor config: no repo", err)
-	}
-	if err := cfg.Instance(&predConfig); err != nil {
-		return nil, errors.E("predictor config: no predconfig", err)
-	}
-	if err := cfg.Instance(&sess); err != nil || sess == nil {
-		return nil, errors.E("predictor config: no session", err)
-	}
-	return predConfig, validatePredictorConfig(sess, repo, tdb, predConfig, nonEC2ok)
-}
-
-// validatePredictorConfig validates if the Predictor can be used by reflow.
-// The Predictor can only be used if the following conditions are true:
-// 1. A repo is provided for retrieving cached ExecInspects.
-// 2. A taskdb is present in the provided config, for querying tasks.
-// 3. Reflow is being run from an ec2 instance OR either the Predictor config (using NonEC2Ok)
-//    or the flag nonEC2ok gives explicit permission to run the Predictor non-ec2-instance machines.
-//    This is because the Predictor is network-intensive and its performance will be hampered by poor network.
-func validatePredictorConfig(sess *session.Session, repo reflow.Repository, tdb taskdb.TaskDB, predConfig *infra2.PredictorConfig, nonEC2ok bool) error {
-	if tdb == nil {
-		return fmt.Errorf("validatePredictorConfig: no taskdb")
-	}
-	if repo == nil {
-		return fmt.Errorf("validatePredictorConfig: no repo")
-	}
-	if predConfig == nil {
-		return fmt.Errorf("validatePredictorConfig: no predconfig")
-	}
-	if !predConfig.NonEC2Ok && !nonEC2ok {
-		if md := ec2metadata.New(sess, &aws2.Config{MaxRetries: aws2.Int(3)}); !md.Available() {
-			return fmt.Errorf("not running on ec2 instance (and nonEc2Ok is not true)")
-		}
-	}
-	return nil
+	return reflow.Runbase(digest.Digest(r.RunID))
 }

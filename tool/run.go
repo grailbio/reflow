@@ -26,7 +26,6 @@ import (
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/runtime"
 	"github.com/grailbio/reflow/syntax"
-	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/trace"
 	"github.com/grailbio/reflow/wg"
 )
@@ -130,7 +129,8 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, file string, arg
 	r.status = c.Status
 
 	// Set up run transcript and log files.
-	base := c.Runbase(r.RunID)
+	base, err := r.Runbase()
+	c.must(err)
 	c.must(os.MkdirAll(filepath.Dir(base), 0777))
 	var (
 		logfile, dotfile *os.File
@@ -191,16 +191,11 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, file string, arg
 
 // rundir returns the directory that stores run state, creating it if necessary.
 func (c *Cmd) rundir() string {
-	rundir, err := Rundir()
+	rundir, err := reflow.Rundir()
 	if err != nil {
 		c.Fatalf("failed to create temporary directory: %v", err)
 	}
 	return rundir
-}
-
-// Runbase returns the base path for the run with the provided name
-func (c Cmd) Runbase(runID taskdb.RunID) string {
-	return Runbase(c.rundir(), runID)
 }
 
 // WaitForBackgroundTasks waits until all background tasks complete, or if the provided
