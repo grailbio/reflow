@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/grailbio/base/limiter"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
@@ -45,8 +46,9 @@ supplied via a CSV batch file as in "reflow runbatch".`
 	default:
 		flags.Usage()
 	}
-	sess, err := awsSession(c.Config)
-	c.must(err)
+
+	var sess *session.Session
+	c.must(c.Config.Instance(&sess))
 	var assoc assoc.Assoc
 	c.must(c.Config.Instance(&assoc))
 	var repo reflow.Repository

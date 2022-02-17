@@ -17,8 +17,6 @@ import (
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
-	"github.com/grailbio/reflow/assoc"
-	"github.com/grailbio/reflow/blob"
 	"github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
@@ -77,23 +75,19 @@ retriable.`
 	}
 	_, err := e.Run(false)
 	c.must(err)
-	sess, err := awsSession(c.Config)
-	c.must(err)
-	c.must(e.ResolveImages(sess))
-
 	if e.Main() == nil {
 		c.Fatal("module has no Main")
 	}
-	c.runCommon(ctx, config, e, file, args)
-}
-
-// runCommon is the helper function used by run commands.
-func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file string, args []string) {
 	// In the case where a flow is immediate, we print the result and quit.
 	if e.Main().Op == flow.Val {
 		c.Println(sprintval(e.Main().Value, e.MainType()))
 		c.Exit(0)
 	}
+	c.runCommon(ctx, config, file, args)
+}
+
+// runCommon is the helper function used by run commands.
+func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, file string, args []string) {
 	if runFlags.Local {
 		dir := runFlags.LocalDir
 		if runFlags.Dir != "" {
@@ -105,37 +99,6 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 		c.must(err)
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
-	var tracer trace.Tracer
-	c.must(c.Config.Instance(&tracer))
-	ctx = trace.WithTracer(ctx, tracer)
-	var mc metrics.Client
-	c.must(c.Config.Instance(&mc))
-	ctx = metrics.WithClient(ctx, mc)
-
-	var cache *reflowinfra.CacheProvider
-	c.must(c.Config.Instance(&cache))
-
-	var ass assoc.Assoc
-	if err := c.Config.Instance(&ass); runFlags.needAssocAndRepo() {
-		c.must(err)
-	}
-	var repo reflow.Repository
-	if err := c.Config.Instance(&repo); runFlags.needAssocAndRepo() {
-		c.must(err)
-	}
-
-	defer cancel()
-	var (
-		result    runner.State
-		err       error
-	)
-	runConfig := RunConfig{
-		Program:  file,
-		Args:     args,
-		RunFlags: runFlags,
-	}
-
 	rr, err := runtime.NewRuntime(runtime.RuntimeParams{
 		Config: c.Config,
 		Logger: c.Log,
@@ -143,11 +106,26 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 	})
 	c.must(err)
 
-	rrCtx, rrCancel := context.WithCancel(ctx)
-	rr.Start(rrCtx)
-	defer rrCancel()
+	var (
+		tracer trace.Tracer
+		mc metrics.Client
+	)
+	c.must(c.Config.Instance(&tracer))
+	c.must(c.Config.Instance(&mc))
 
-	r, err := NewRunner(c.Config, runConfig, c.Log, rr.Scheduler())
+	ctx, cancel := context.WithCancel(ctx)
+	ctx = metrics.WithClient(trace.WithTracer(ctx, tracer), mc)
+	rr.Start(ctx)
+
+	defer cancel()
+
+	runConfig := RunConfig{
+		Program:  file,
+		Args:     args,
+		RunFlags: runFlags,
+	}
+
+	r, err := NewRunner(c.Config, runConfig, c.Log, rr)
 	c.must(err)
 	r.status = c.Status
 
@@ -190,6 +168,8 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, e Eval, file str
 	}
 
 	r.Log.Printf("reflow version: %s", c.version())
+
+	var result runner.State
 	result, err = r.Go(ctx)
 	if err != nil {
 		c.Errorln(err)
@@ -241,14 +221,6 @@ func (c Cmd) WaitForBackgroundTasks(wg *wg.WaitGroup, timeout time.Duration) {
 			c.Log.Errorf("some cache writes still pending after timeout %v", timeout)
 		}
 	}
-}
-
-// AssertionGenerator returns the configured AssertionGenerator mux.
-func assertionGenerator(bmux blob.Mux) reflow.AssertionGeneratorMux {
-	if bmux == nil {
-		panic(fmt.Sprintf("assertionGenerator got nil blob.Mux"))
-	}
-	return reflow.AssertionGeneratorMux{reflow.BlobAssertionsNamespace: bmux}
 }
 
 // asserter returns a reflow.Assert based on the given name.

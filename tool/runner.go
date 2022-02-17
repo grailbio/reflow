@@ -25,52 +25,24 @@ import (
 	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
-	"github.com/grailbio/reflow/blob"
-	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/flow"
 	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/predictor"
-	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/runner"
+	"github.com/grailbio/reflow/runtime"
 	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/wg"
 )
 
-// TransferLimit returns the configured transfer limit.
-func transferLimit(config infra.Config) (int, error) {
-	lim := config.Value("transferlimit")
-	if lim == nil {
-		return defaultTransferLimit, nil
-	}
-	v, ok := lim.(int)
-	if !ok {
-		return 0, errors.New(fmt.Sprintf("non-integer limit %v", lim))
-	}
-	return v, nil
-}
-
-func awsSession(config infra.Config) (sess *session.Session, err error) {
-	err = config.Instance(&sess)
-	return
-}
-
-// blobMux returns the configured blob muxer.
-func blobMux(config infra.Config) (blob.Mux, error) {
-	if sess, err := awsSession(config); err != nil {
-		return nil, errors.E(errors.Fatal, err)
-	} else {
-		return blob.Mux{"s3": s3blob.New(sess)}, nil
-	}
-}
-
 // NewRunner returns a new runner that can run the given run config. If scheduler is non nil,
 // it will be used for scheduling tasks.
-func NewRunner(infraRunConfig infra.Config, runConfig RunConfig, logger *log.Logger, scheduler *sched.Scheduler) (r *Runner, err error) {
+func NewRunner(infraRunConfig infra.Config, runConfig RunConfig, logger *log.Logger, rt runtime.ReflowRuntime) (r *Runner, err error) {
+	scheduler := rt.Scheduler()
 	if scheduler == nil {
 		panic(fmt.Sprintf("NewRunner must have scheduler"))
 	}
@@ -91,30 +63,31 @@ func NewRunner(infraRunConfig infra.Config, runConfig RunConfig, logger *log.Log
 	if err = infraRunConfig.Instance(&user); err != nil {
 		return
 	}
-	var repo reflow.Repository
-	if err = infraRunConfig.Instance(&repo); err != nil {
-		return
-	}
 	r = &Runner{
 		runConfig: runConfig,
 		RunID:     *runID,
 		scheduler: scheduler,
 		predictor: pred,
 		Log:       logger,
-		repo:      repo,
 		user:      user.User(),
 		status:    new(status.Status),
 	}
-	if r.sess, err = awsSession(infraRunConfig); err != nil {
+	if err = infraRunConfig.Instance(&r.sess); err != nil {
 		return
 	}
 	if err = infraRunConfig.Instance(&r.assoc); err != nil {
-		return
+		if runConfig.RunFlags.needAssocAndRepo() {
+			return
+		}
+		logger.Debug("assoc missing but was not needed")
+	}
+	if err = infraRunConfig.Instance(&r.repo); err != nil {
+		if runConfig.RunFlags.needAssocAndRepo() {
+			return
+		}
+		logger.Debug("repo missing but was not needed")
 	}
 	if err = infraRunConfig.Instance(&r.cache); err != nil {
-		return
-	}
-	if r.mux, err = blobMux(infraRunConfig); err != nil {
 		return
 	}
 	if err = infraRunConfig.Instance(&r.labels); err != nil {
@@ -156,7 +129,6 @@ type Runner struct {
 	cache  *infra2.CacheProvider
 	labels pool.Labels
 
-	mux    blob.Mux
 	status *status.Status
 	user   string
 }
@@ -231,9 +203,9 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 		EvalConfig: flow.EvalConfig{
 			Log:                r.Log,
 			Repository:         r.repo,
-			Snapshotter:        r.mux,
+			Snapshotter:        r.scheduler.Mux,
 			Assoc:              r.assoc,
-			AssertionGenerator: assertionGenerator(r.mux),
+			AssertionGenerator: reflow.AssertionGeneratorMux{reflow.BlobAssertionsNamespace: r.scheduler.Mux},
 			CacheMode:          r.cache.CacheMode,
 			Status:             r.status.Group(r.RunID.IDShort()),
 			Scheduler:          r.scheduler,
@@ -488,10 +460,4 @@ func validatePredictorConfig(sess *session.Session, repo reflow.Repository, tdb 
 		}
 	}
 	return nil
-}
-
-func setTransfererStatus(t reflow.Transferer, s *status.Status) {
-	if m, ok := t.(*repository.Manager); ok {
-		m.Status = s.Group("transfers")
-	}
 }

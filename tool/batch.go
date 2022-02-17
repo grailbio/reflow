@@ -120,8 +120,6 @@ The flag -parallelism controls the number of runs in the batch to run concurrent
 	}
 	var cache *infra.CacheProvider
 	c.must(c.Config.Instance(&cache))
-	blobMux, err := blobMux(c.Config)
-	c.must(err)
 
 	rr, err := runtime.NewRuntime(runtime.RuntimeParams{
 		Config: c.Config,
@@ -134,13 +132,14 @@ The flag -parallelism controls the number of runs in the batch to run concurrent
 	rr.Start(rrCtx)
 	defer rrCancel()
 
+	blobMux := rr.Scheduler().Mux
 	b := &batch.Batch{
 		EvalConfig: flow.EvalConfig{
 			Log:                c.Log,
 			Snapshotter:        blobMux,
 			Repository:         repo,
 			Assoc:              assoc,
-			AssertionGenerator: assertionGenerator(blobMux),
+			AssertionGenerator: reflow.AssertionGeneratorMux{reflow.BlobAssertionsNamespace: blobMux},
 			CacheMode:          cache.CacheMode,
 			Scheduler:          rr.Scheduler(),
 		},
