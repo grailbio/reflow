@@ -77,6 +77,10 @@ const (
 	Precondition
 	// OOM indicates a out-of-memory error.
 	OOM
+	// Module indicates a reflow module error.
+	Module
+	// DockerExec indicates a reflow exec error.
+	DockerExec
 
 	maxKind
 )
@@ -118,6 +122,10 @@ func (k Kind) String() string {
 		return "precondition was not met"
 	case OOM:
 		return "OOM error"
+	case Module:
+		return "module"
+	case DockerExec:
+		return "docker exec"
 	}
 }
 
@@ -139,6 +147,8 @@ var kind2string = [maxKind]string{
 	Net:                "Net",
 	Precondition:       "Precondition",
 	OOM:                "OOM",
+	Module:             "Module",
+	DockerExec:         "DockerExec",
 }
 
 var string2kind = map[string]Kind{
@@ -159,6 +169,8 @@ var string2kind = map[string]Kind{
 	"Net":                Net,
 	"Precondition":       Precondition,
 	"OOM":                OOM,
+	"Module":             Module,
+	"DockerExec":         DockerExec,
 }
 
 // Error defines a Reflow error. It is used to indicate an error
@@ -520,33 +532,31 @@ func Transient(err error) bool {
 	}
 }
 
-// Restartable determines if the provided error is restartable.
+// Restartable determines if the provided error (must be non-nil) is restartable.
 // Restartable errors include transient errors and network errors.
-// The passed in error must not be nil.
-// Restartable treats errors of kind `Eval` as a special case in the following ways:
-// - if the given err is of type `Eval`, then it's root causes are traversed and
-//   checked if any of the underlying causes are transient or network errors.
-// - when traversing causes, any "github.com/grailbio/base/errors" error is recovered
-//   into "github.com/grailbio/reflow/errors" with its kind derived from base kind and severity.
+// Restartable traverses root causes and checks if any of the underlying causes
+// are transient or network errors. Additionally, when traversing causes,
+// any "github.com/grailbio/base/errors" error is recovered into "github.com/grailbio/reflow/errors"
+// with its kind derived from base kind and severity.
 func Restartable(err error) bool {
-	if !Is(Eval, err) {
-		return Transient(err) || Is(Net, err)
-	}
 	var (
-		e         = Recover(err)
+		e *Error
 		recovered bool
 	)
-	for e.Err != nil {
-		if e, recovered = RecoverError(e.Err); !recovered {
+	for {
+		if e, recovered = RecoverError(err); !recovered {
 			break
 		}
 		switch e.Kind {
-		case Canceled, Fatal, NotSupported, NotAllowed:
+		case Canceled, Fatal, NotSupported, NotAllowed, Module, DockerExec:
 			// Interpret these error kinds as not transient, regardless of underlying cause.
 			return false
 		}
 		if Transient(e) || Is(Net, e) {
 			return true
+		}
+		if err = e.Err; err == nil {
+			break
 		}
 	}
 	return false
@@ -560,7 +570,7 @@ func Restartable(err error) bool {
 // don't belong to either category.
 func NonRetryable(err error) bool {
 	switch Recover(err).Kind {
-	case NotSupported, Invalid, NotExist, Fatal:
+	case NotSupported, Invalid, NotExist, Fatal, Module, DockerExec:
 		return true
 	default:
 		return false

@@ -19,6 +19,7 @@ import (
 func init() {
 	builtins = map[string]bool{
 		"delay":   true,
+		"error":   true,
 		"fold":    true,
 		"flatten": true,
 		"len":     true,
@@ -908,6 +909,13 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 			arg0 := e.Fields[0].Expr
 			if arg0.Type.Kind != types.StringKind {
 				e.Type = types.Errorf("panic expects a string, not %s", arg0.Type)
+			} else {
+				e.Type = types.Bottom
+			}
+		case "error":
+			arg0, arg1 := e.Fields[0].Expr, e.Fields[1].Expr
+			if arg0.Type.Kind != types.IntKind || arg1.Type.Kind != types.StringKind {
+				e.Type = types.Errorf("error expects an int and string, not %s and %s ", arg0.Type, arg1.Type)
 			} else {
 				e.Type = types.Bottom
 			}

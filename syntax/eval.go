@@ -697,6 +697,10 @@ func (e *Expr) eval(sess *Session, env *values.Env, ident string) (val values.T,
 			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
 				return nil, fmt.Errorf("%v: panic: %s", e.Position, vs[0].(string))
 			}, e.Fields[0].Expr)
+		case "error":
+			return e.k(sess, env, ident, func(vs []values.T) (values.T, error) {
+				return nil, errors.E("module error", errors.Module, fmt.Sprintf("code %d", vs[0].(*big.Int)), fmt.Errorf("%s: %s", e.Position, vs[1].(string)))
+			}, e.Fields[0].Expr, e.Fields[1].Expr)
 		case "delay":
 			// Delay deliberately introduces delayed evaluation, which is
 			// useful for testing and debugging. It is handled specially in

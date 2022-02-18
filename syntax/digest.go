@@ -209,7 +209,7 @@ func (e *Expr) digest(w io.Writer, env *values.Env) {
 		switch e.Op {
 		default:
 			panic("bad builtin " + e.Op)
-		case "len", "unzip", "panic", "map", "list", "flatten", "delay", "trace":
+		case "len", "unzip", "panic", "map", "list", "flatten", "delay", "trace", "error":
 			e.Fields[0].Expr.digest(w, env)
 		case "zip", "range":
 			// To retain digest backwards compatibility with a previous AST representation for builtins,

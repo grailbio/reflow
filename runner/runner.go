@@ -221,7 +221,10 @@ func (r *Runner) Eval(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if err := eval.Err(); err != nil {
-		return "", errors.E(errors.Eval, err)
+	   if re, ok := errors.RecoverError(err); !ok || re.Kind == errors.Other {
+		   err = errors.E(errors.Eval, err)
+	   }
+	   return "", err
 	}
 	if r.Type == nil {
 		return eval.Value().(reflow.Fileset).String(), nil

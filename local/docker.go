@@ -462,7 +462,7 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.Temporary,
 			errors.Errorf("exec returned exit code %d (considered temporary)", temporaryExecErrorExitCode)))
 	default:
-		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.Errorf("exited with code %d", code)))
+		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.DockerExec, errors.Errorf("exited with code %d", code)))
 	}
 
 	// Clean up args. TODO(marius): replace these with symlinks to sha256s also?

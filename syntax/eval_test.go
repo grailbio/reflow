@@ -582,6 +582,8 @@ func TestTypeErr(t *testing.T) {
 		{"testdata/typerr17.rf", `testdata/typerr17.rf:2:14: fold expects a list as its second argument, got {a int}`},
 		{"testdata/typerr18.rf", `testdata/typerr18.rf:2:14: fold expects first argument of type func\({a int}, {a int}\) {a int}, got func\(i, j {a, b int}\) {a, b int}`},
 		{"testdata/typerr19.rf", `testdata/typerr19.rf:2:7: nondeterministic must be a bool`},
+		{"testdata/typerr20.rf", `typerr20.rf:1:17: error expects an int and string, not string and string`},
+		{"testdata/typerr21.rf", `typerr21.rf:2:17: error expects an int and string, not int and int`},
 	} {
 		_, terr := sess.Open(c.file)
 		if terr == nil {

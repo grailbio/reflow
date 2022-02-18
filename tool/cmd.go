@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime"
 )
 
 // Parse parses the provided FlagSet from the provided arguments. It
@@ -39,6 +40,7 @@ func (c *Cmd) Parse(fs *flag.FlagSet, args []string, help, usage string) {
 
 func (c Cmd) must(err error) {
 	if err != nil {
-		c.Fatal(err)
+		_, file, line, _ := runtime.Caller(1)
+		c.Fatalf("%s:%d: %v", file, line, err)
 	}
 }
