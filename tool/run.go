@@ -8,14 +8,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io"
-	"io/ioutil"
+	"github.com/grailbio/base/digest"
 	golog "log"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/errors"
@@ -25,8 +23,9 @@ import (
 	"github.com/grailbio/reflow/metrics"
 	"github.com/grailbio/reflow/runner"
 	"github.com/grailbio/reflow/runtime"
-	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/trace"
+	"github.com/grailbio/reflow/types"
+	"github.com/grailbio/reflow/values"
 	"github.com/grailbio/reflow/wg"
 )
 
@@ -57,8 +56,8 @@ Run exits with an error code according to evaluation status. Exit
 code 10 indicates a transient runtime error. Exit codes greater than
 10 indicate errors during program evaluation, which are likely not
 retriable.`
-	var config RunFlags
-	config.flags(flags)
+	var config runtime.RunFlags
+	config.Flags(flags)
 
 	c.Parse(flags, args, help, "run [-local] [flags] path [args]")
 	if err := config.Err(); err != nil {
@@ -69,7 +68,7 @@ retriable.`
 		flags.Usage()
 	}
 	file, args := flags.Arg(0), flags.Args()[1:]
-	e := Eval{
+	e := runtime.Eval{
 		InputArgs: flags.Args(),
 	}
 	_, err := e.Run(false)
@@ -86,7 +85,7 @@ retriable.`
 }
 
 // runCommon is the helper function used by run commands.
-func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, file string, args []string) {
+func (c *Cmd) runCommon(ctx context.Context, runFlags runtime.RunFlags, file string, args []string) {
 	if runFlags.Local {
 		dir := runFlags.LocalDir
 		if runFlags.Dir != "" {
@@ -118,18 +117,27 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, file string, arg
 
 	defer cancel()
 
-	runConfig := RunConfig{
+	runConfig := runtime.RunConfig{
 		Program:  file,
 		Args:     args,
 		RunFlags: runFlags,
 	}
 
-	r, err := NewRunner(c.Config, runConfig, c.Log, rr)
+	runlog := golog.New(nil, "", golog.LstdFlags)
+	// Use a special logger which includes the log level for each log in the run file
+	runLogger := log.NewWithLevelPrefix(runlog)
+	runLogger.Parent = c.Log
+
+	r, err := rr.NewRunner(runtime.RunnerParams{
+		InfraRunConfig: c.Config,
+		RunConfig: runConfig,
+		Logger: runLogger,
+		Status: c.Status,
+	})
 	c.must(err)
-	r.status = c.Status
 
 	// Set up run transcript and log files.
-	base, err := r.Runbase()
+	base, err := reflow.Runbase(digest.Digest(r.GetRunID()))
 	c.must(err)
 	c.must(os.MkdirAll(filepath.Dir(base), 0777))
 	var (
@@ -138,6 +146,7 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, file string, arg
 	if logfile, err = os.Create(base + ".runlog"); err != nil {
 		c.Fatal(err)
 	}
+	runlog.SetOutput(logfile)
 	defer logfile.Close()
 
 	if runFlags.DotGraph {
@@ -147,12 +156,7 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, file string, arg
 		defer dotfile.Close()
 	}
 
-	runlog := golog.New(logfile, "", golog.LstdFlags)
-	// Use a special logger which includes the log level for each log in the run file
-	runLogger := log.NewWithLevelPrefix(runlog)
-	runLogger.Parent = c.Log
-
-	if !r.runConfig.RunFlags.Local {
+	if !runConfig.RunFlags.Local {
 		// make sure cluster logs go to the syslog.
 		var ec *ec2cluster.Cluster
 		if err = c.Config.Instance(&ec); err == nil {
@@ -162,12 +166,11 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags RunFlags, file string, arg
 			}()
 		}
 	}
-	r.Log = runLogger
 	if dotfile != nil {
-		r.DotWriter = dotfile
+		r.SetDotWriter(dotfile)
 	}
 
-	r.Log.Printf("reflow version: %s", c.version())
+	runLogger.Printf("reflow version: %s", c.version())
 
 	var result runner.State
 	result, err = r.Go(ctx)
@@ -218,44 +221,9 @@ func (c Cmd) WaitForBackgroundTasks(wg *wg.WaitGroup, timeout time.Duration) {
 	}
 }
 
-// asserter returns a reflow.Assert based on the given name.
-func asserter(name string) (reflow.Assert, error) {
-	switch name {
-	case "never":
-		return reflow.AssertNever, nil
-	case "exact":
-		return reflow.AssertExact, nil
-	default:
-		return nil, fmt.Errorf("unknown Assert policy %s", name)
+func sprintval(v values.T, t *types.T) string {
+	if t == nil {
+		return fmt.Sprint(v)
 	}
-}
-
-func getBundle(file string) (io.ReadCloser, digest.Digest, error) {
-	dw := reflow.Digester.NewWriter()
-	f, err := os.Open(file)
-	if err != nil {
-		return nil, digest.Digest{}, err
-	}
-	if _, err = io.Copy(dw, f); err != nil {
-		return nil, digest.Digest{}, err
-	}
-	if _, err = f.Seek(0, io.SeekStart); err != nil {
-		return nil, digest.Digest{}, err
-	}
-	return f, dw.Digest(), nil
-}
-
-func makeBundle(b *syntax.Bundle) (io.ReadCloser, digest.Digest, string, error) {
-	dw := reflow.Digester.NewWriter()
-	f, err := ioutil.TempFile("", "")
-	if err != nil {
-		return nil, digest.Digest{}, "", err
-	}
-	if err = b.WriteTo(io.MultiWriter(dw, f)); err != nil {
-		return nil, digest.Digest{}, "", err
-	}
-	if _, err = f.Seek(0, io.SeekStart); err != nil {
-		return nil, digest.Digest{}, "", err
-	}
-	return f, dw.Digest(), f.Name(), nil
+	return values.Sprint(v, t)
 }

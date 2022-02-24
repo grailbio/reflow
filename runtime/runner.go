@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package tool
+package runtime
 
 import (
 	"bytes"
@@ -29,68 +29,96 @@ import (
 	"github.com/grailbio/reflow/pool"
 	"github.com/grailbio/reflow/predictor"
 	"github.com/grailbio/reflow/runner"
-	"github.com/grailbio/reflow/runtime"
 	"github.com/grailbio/reflow/sched"
 	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/wg"
 )
 
+// RunnerParams defines the set of parameters necessary to initialize a ReflowRunner.
+type RunnerParams struct {
+	// TODO(swami): Replace InfraRunConfig with a run-specific config which only takes
+	// keys that are run-specific (and the rest of the config is obtained from the runtime).
+	InfraRunConfig infra.Config
+	RunConfig RunConfig
+	Logger *log.Logger
+
+	// Optional parameters
+
+	// Status is the status object specific to a run.
+	Status *status.Status
+}
+
+// ReflowRunner supports the ability to run a reflow program.
+type ReflowRunner interface {
+	Go(context.Context) (runner.State, error)
+	GetRunID() taskdb.RunID
+
+	// TODO(swami):  Remove this.
+	SetDotWriter(io.Writer)
+}
+
 // NewRunner returns a new runner that can run the given run config. If scheduler is non nil,
 // it will be used for scheduling tasks.
-func NewRunner(infraRunConfig infra.Config, runConfig RunConfig, logger *log.Logger, rt runtime.ReflowRuntime) (r *Runner, err error) {
+func (rt *runtime) NewRunner(params RunnerParams) (ReflowRunner, error) {
 	scheduler := rt.Scheduler()
 	if scheduler == nil {
 		panic(fmt.Sprintf("NewRunner must have scheduler"))
 	}
 	// Configure the Predictor.
 	var pred *predictor.Predictor
-	if runConfig.RunFlags.Pred {
-		if cfg, cerr := runtime.PredictorConfig(infraRunConfig); cerr != nil {
-			logger.Errorf("error while configuring predictor: %s", cerr)
+	if params.RunConfig.RunFlags.Pred {
+		if cfg, cerr := PredictorConfig(params.InfraRunConfig); cerr != nil {
+			params.Logger.Errorf("error while configuring predictor: %s", cerr)
 		} else {
-			pred = predictor.New(scheduler.TaskDB, logger.Tee(nil, "predictor: "), cfg.MinData, cfg.MaxInspect, cfg.MemPercentile)
+			pred = predictor.New(scheduler.TaskDB, params.Logger.Tee(nil, "predictor: "), cfg.MinData, cfg.MaxInspect, cfg.MemPercentile)
 		}
 	}
-	var runID *taskdb.RunID
-	if err = infraRunConfig.Instance(&runID); err != nil {
-		return
+	var (
+		runID *taskdb.RunID
+		err error
+	)
+	if err = params.InfraRunConfig.Instance(&runID); err != nil {
+		return nil, err
 	}
 	var user *infra2.User
-	if err = infraRunConfig.Instance(&user); err != nil {
-		return
+	if err = params.InfraRunConfig.Instance(&user); err != nil {
+		return nil, err
 	}
-	r = &Runner{
-		runConfig: runConfig,
+	r := &runnerImpl{
+		RunConfig: params.RunConfig,
 		RunID:     *runID,
 		scheduler: scheduler,
 		predictor: pred,
-		Log:       logger,
+		Log:       params.Logger,
 		user:      user.User(),
-		status:    new(status.Status),
+		Status:    new(status.Status),
 	}
-	if err = infraRunConfig.Instance(&r.sess); err != nil {
-		return
+	if params.Status != nil {
+		r.Status = params.Status
 	}
-	if err = infraRunConfig.Instance(&r.assoc); err != nil {
-		if runConfig.RunFlags.needAssocAndRepo() {
-			return
+	if err = params.InfraRunConfig.Instance(&r.sess); err != nil {
+		return nil, err
+	}
+	if err = params.InfraRunConfig.Instance(&r.assoc); err != nil {
+		if params.RunConfig.RunFlags.needAssocAndRepo() {
+			return nil, err
 		}
-		logger.Debug("assoc missing but was not needed")
+		params.Logger.Debug("assoc missing but was not needed")
 	}
-	if err = infraRunConfig.Instance(&r.repo); err != nil {
-		if runConfig.RunFlags.needAssocAndRepo() {
-			return
+	if err = params.InfraRunConfig.Instance(&r.repo); err != nil {
+		if params.RunConfig.RunFlags.needAssocAndRepo() {
+			return nil, err
 		}
-		logger.Debug("repo missing but was not needed")
+		params.Logger.Debug("repo missing but was not needed")
 	}
-	if err = infraRunConfig.Instance(&r.cache); err != nil {
-		return
+	if err = params.InfraRunConfig.Instance(&r.cache); err != nil {
+		return nil, err
 	}
-	if err = infraRunConfig.Instance(&r.labels); err != nil {
-		return
+	if err = params.InfraRunConfig.Instance(&r.labels); err != nil {
+		return nil, err
 	}
-	return
+	return r, nil
 }
 
 // RunConfig defines all the material (configuration, program and args) for a specific run.
@@ -103,17 +131,18 @@ type RunConfig struct {
 	RunFlags RunFlags
 }
 
-// Runner defines a reflow program/bundle, args and configuration that can be
+// runnerImpl implements ReflowRunner.
+// It defines a reflow program/bundle, args and configuration that can be
 // evaluated to obtain a result.
-type Runner struct {
+type runnerImpl struct {
 	// RunID is the unique id for this run.
 	RunID taskdb.RunID
-	// Log is the logger to log to.
+	// Log is the params.Logger to log to.
 	Log *log.Logger
 	// DotWriter is the writer to write the flow evaluation graph to write to, in dot format.
 	DotWriter io.Writer
 
-	runConfig RunConfig
+	RunConfig RunConfig
 	scheduler *sched.Scheduler
 	predictor *predictor.Predictor
 	cmdline   string
@@ -126,20 +155,25 @@ type Runner struct {
 	cache  *infra2.CacheProvider
 	labels pool.Labels
 
-	status *status.Status
+	// TODO(swami): unexport this.
+	Status *status.Status
 	user   string
 }
 
+func (r *runnerImpl) SetDotWriter(w io.Writer) {
+	r.DotWriter = w
+}
+
 // Go runs the reflow program. It returns a non nil error if did not succeed.
-func (r *Runner) Go(ctx context.Context) (runner.State, error) {
+func (r *runnerImpl) Go(ctx context.Context) (runner.State, error) {
 	var err error
-	if err = r.runConfig.RunFlags.Err(); err != nil {
+	if err = r.RunConfig.RunFlags.Err(); err != nil {
 		return runner.State{}, err
 	}
 	r.Log.Printf("run ID: %s", r.RunID.IDShort())
 	e := Eval{
-		Program: r.runConfig.Program,
-		Args:    r.runConfig.Args,
+		Program: r.RunConfig.Program,
+		Args:    r.RunConfig.Args,
 	}
 	bundle, err := e.Run(true)
 	if err != nil {
@@ -192,7 +226,7 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 			r.Log.Debugf("error writing run to taskdb: %v", rerr)
 		} else {
 			go func() { _ = taskdb.KeepRunAlive(tctx, tdb, r.RunID) }()
-			go func() { _ = r.uploadBundle(tctx, tdb, r.RunID, bundle, r.runConfig.Program, r.runConfig.Args) }()
+			go func() { _ = r.uploadBundle(tctx, tdb, r.RunID, bundle, r.RunConfig.Program, r.RunConfig.Args) }()
 		}
 	}
 	run := runner.Runner{
@@ -204,7 +238,7 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 			Assoc:              r.assoc,
 			AssertionGenerator: reflow.AssertionGeneratorMux{reflow.BlobAssertionsNamespace: r.scheduler.Mux},
 			CacheMode:          r.cache.CacheMode,
-			Status:             r.status.Group(r.RunID.IDShort()),
+			Status:             r.Status.Group(r.RunID.IDShort()),
 			Scheduler:          r.scheduler,
 			Predictor:          r.predictor,
 			ImageMap:           e.ImageMap,
@@ -216,14 +250,14 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 		Cmdline: r.cmdline,
 	}
 
-	if err = r.runConfig.RunFlags.Configure(&run.EvalConfig); err != nil {
+	if err = r.RunConfig.RunFlags.Configure(&run.EvalConfig); err != nil {
 		return runner.State{}, err
 	}
 	run.ID = r.RunID
 	run.Program = e.Program
 	run.Params = e.Params
 	run.Args = e.Args
-	if r.runConfig.RunFlags.Trace {
+	if r.RunConfig.RunFlags.Trace {
 		run.Trace = r.Log
 	}
 	var base string
@@ -265,17 +299,17 @@ func (r *Runner) Go(ctx context.Context) (runner.State, error) {
 	} else {
 		r.Log.Printf("result: %s", run.Result)
 	}
-	r.waitForBackgroundTasks(r.runConfig.RunFlags.BackgroundTimeout)
+	r.waitForBackgroundTasks(r.RunConfig.RunFlags.BackgroundTimeout)
 	bgcancel()
 	return run.State, nil
 }
 
 // GetRunID is a getter for the runID associated with the runner.
-func (r *Runner) GetRunID() taskdb.RunID {
+func (r *runnerImpl) GetRunID() taskdb.RunID {
 	return r.RunID
 }
 
-func (r *Runner) setRunComplete(ctx context.Context, tdb taskdb.TaskDB, endTime time.Time) error {
+func (r *runnerImpl) setRunComplete(ctx context.Context, tdb taskdb.TaskDB, endTime time.Time) error {
 	var (
 		runLog, dotFile, trace digest.Digest
 		rc                     io.ReadCloser
@@ -328,7 +362,7 @@ func (r *Runner) setRunComplete(ctx context.Context, tdb taskdb.TaskDB, endTime 
 
 // UploadBundle generates a bundle and updates taskdb with its digest. If the bundle does not already exist in taskdb,
 // uploadBundle caches it.
-func (r *Runner) uploadBundle(ctx context.Context, tdb taskdb.TaskDB, runID taskdb.RunID, bundle *syntax.Bundle, file string, args []string) error {
+func (r *runnerImpl) uploadBundle(ctx context.Context, tdb taskdb.TaskDB, runID taskdb.RunID, bundle *syntax.Bundle, file string, args []string) error {
 	var (
 		repo     = tdb.Repository()
 		bundleId digest.Digest
@@ -362,7 +396,7 @@ func (r *Runner) uploadBundle(ctx context.Context, tdb taskdb.TaskDB, runID task
 
 // waitForBackgroundTasks waits until all background tasks complete, or if the provided
 // timeout expires.
-func (r Runner) waitForBackgroundTasks(timeout time.Duration) {
+func (r runnerImpl) waitForBackgroundTasks(timeout time.Duration) {
 	waitc := r.wg.C()
 	select {
 	case <-waitc:
@@ -380,6 +414,6 @@ func (r Runner) waitForBackgroundTasks(timeout time.Duration) {
 	}
 }
 
-func (r Runner) Runbase() (string, error) {
+func (r runnerImpl) Runbase() (string, error) {
 	return reflow.Runbase(digest.Digest(r.RunID))
 }

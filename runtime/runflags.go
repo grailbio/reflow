@@ -1,4 +1,4 @@
-package tool
+package runtime
 
 import (
 	"flag"
@@ -48,7 +48,7 @@ type CommonRunFlags struct {
 }
 
 // Flags adds the common run flags to the provided flagset.
-func (r *CommonRunFlags) flags(flags *flag.FlagSet) {
+func (r *CommonRunFlags) Flags(flags *flag.FlagSet) {
 	r.flagsLimited(flags, "", nil)
 }
 
@@ -187,7 +187,7 @@ type RunFlags struct {
 }
 
 // flags adds all run flags to the provided flagset (including localflags).
-func (r *RunFlags) flags(flags *flag.FlagSet) {
+func (r *RunFlags) Flags(flags *flag.FlagSet) {
 	r.flagsLimited(flags, "", nil)
 	r.localFlags(flags)
 }

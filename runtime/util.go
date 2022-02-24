@@ -2,13 +2,18 @@ package runtime
 
 import (
 	"fmt"
+	"io"
+	"io/ioutil"
 	"net/http"
+	"os"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/infra"
 	"github.com/grailbio/infra/tls"
+	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/errors"
@@ -16,6 +21,7 @@ import (
 	"github.com/grailbio/reflow/repository/blobrepo"
 	repositoryhttp "github.com/grailbio/reflow/repository/http"
 	"github.com/grailbio/reflow/runner"
+	"github.com/grailbio/reflow/syntax"
 	"github.com/grailbio/reflow/taskdb"
 	"golang.org/x/net/http2"
 )
@@ -114,4 +120,46 @@ func validatePredictorConfig(sess *session.Session, tdb taskdb.TaskDB, predConfi
 		}
 	}
 	return nil
+}
+
+// asserter returns a reflow.Assert based on the given name.
+func asserter(name string) (reflow.Assert, error) {
+	switch name {
+	case "never":
+		return reflow.AssertNever, nil
+	case "exact":
+		return reflow.AssertExact, nil
+	default:
+		return nil, fmt.Errorf("unknown Assert policy %s", name)
+	}
+}
+
+func getBundle(file string) (io.ReadCloser, digest.Digest, error) {
+	dw := reflow.Digester.NewWriter()
+	f, err := os.Open(file)
+	if err != nil {
+		return nil, digest.Digest{}, err
+	}
+	if _, err = io.Copy(dw, f); err != nil {
+		return nil, digest.Digest{}, err
+	}
+	if _, err = f.Seek(0, io.SeekStart); err != nil {
+		return nil, digest.Digest{}, err
+	}
+	return f, dw.Digest(), nil
+}
+
+func makeBundle(b *syntax.Bundle) (io.ReadCloser, digest.Digest, string, error) {
+	dw := reflow.Digester.NewWriter()
+	f, err := ioutil.TempFile("", "")
+	if err != nil {
+		return nil, digest.Digest{}, "", err
+	}
+	if err = b.WriteTo(io.MultiWriter(dw, f)); err != nil {
+		return nil, digest.Digest{}, "", err
+	}
+	if _, err = f.Seek(0, io.SeekStart); err != nil {
+		return nil, digest.Digest{}, "", err
+	}
+	return f, dw.Digest(), f.Name(), nil
 }

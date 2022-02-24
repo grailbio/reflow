@@ -17,6 +17,7 @@ import (
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/assoc"
 	"github.com/grailbio/reflow/flow"
+	"github.com/grailbio/reflow/runtime"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -87,7 +88,7 @@ supplied via a CSV batch file as in "reflow runbatch".`
 				for i, key := range header {
 					args = append(args, fmt.Sprintf("-%s=%s", key, record[i]))
 				}
-				e := Eval{
+				e := runtime.Eval{
 					InputArgs: args,
 				}
 				_, err := e.Run(false)
@@ -106,7 +107,7 @@ supplied via a CSV batch file as in "reflow runbatch".`
 		}
 		c.must(g.Wait())
 	} else {
-		e := Eval{
+		e := runtime.Eval{
 			InputArgs: flags.Args(),
 		}
 		_, err := e.Run(false)

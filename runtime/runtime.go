@@ -59,6 +59,9 @@ type ReflowRuntime interface {
 	// ClusterName returns the name of the underlying reflow cluster.
 	// TODO(swami) Can we work around this instead of polluting this interface ?
 	ClusterName() string
+
+	// NewRunner returns a new reflow runner.
+	NewRunner(RunnerParams) (ReflowRunner, error)
 }
 
 // runtime implements ReflowRuntime.
@@ -73,80 +76,80 @@ type runtime struct {
 }
 
 // Start implements ReflowRuntime.
-func (r *runtime) Start(ctx context.Context) {
-	_ = r.startOnce.Do(func() error {
-		r.doStart(ctx)
+func (rt *runtime) Start(ctx context.Context) {
+	_ = rt.startOnce.Do(func() error {
+		rt.doStart(ctx)
 		return nil
 	})
 }
 
 // Scheduler implements ReflowRuntime.
-func (r *runtime) Scheduler() *sched.Scheduler {
-	return r.scheduler
+func (rt *runtime) Scheduler() *sched.Scheduler {
+	return rt.scheduler
 }
 
 // ClusterName implements ReflowRuntime.
-func (r *runtime) ClusterName() string {
-	return r.cluster.GetName()
+func (rt *runtime) ClusterName() string {
+	return rt.cluster.GetName()
 }
 
-func (r *runtime) init() (err error) {
-	if r.Logger == nil {
-		if err = r.Config.Instance(&r.Logger); err != nil {
+func (rt *runtime) init() (err error) {
+	if rt.Logger == nil {
+		if err = rt.Config.Instance(&rt.Logger); err != nil {
 			return errors.E("runtime.Init", "logger", errors.Fatal, err)
 		}
 	}
-	r.rtLog = r.Logger.Tee(nil, "reflow runtime: ")
+	rt.rtLog = rt.Logger.Tee(nil, "reflow runtime: ")
 
-	if r.cluster, err = ClusterInstance(r.Config); err != nil {
+	if rt.cluster, err = ClusterInstance(rt.Config); err != nil {
 		return errors.E("runtime.Init", "cluster", errors.Fatal, err)
 	}
 
-	if r.scheduler, err = newScheduler(r.Config, r.Logger); err != nil {
+	if rt.scheduler, err = newScheduler(rt.Config, rt.Logger); err != nil {
 		return errors.E("runtime.Init", "scheduler", errors.Fatal, err)
 	}
-	r.scheduler.Cluster = r.cluster
+	rt.scheduler.Cluster = rt.cluster
 
 	var sess *session.Session
-	if err = r.Config.Instance(&sess); err != nil {
+	if err = rt.Config.Instance(&sess); err != nil {
 		return errors.E("runtime.Init", "session", errors.Fatal, err)
 	}
-	r.scheduler.Mux = blob.Mux{"s3": s3blob.New(sess)}
+	rt.scheduler.Mux = blob.Mux{"s3": s3blob.New(sess)}
 
-	r.setupStatus()
+	rt.setupStatus()
 
 	return nil
 }
 
-func (r *runtime) setupStatus() {
-	if r.Status == nil {
+func (rt *runtime) setupStatus() {
+	if rt.Status == nil {
 		return
 	}
-	if ec, ok := r.cluster.(*ec2cluster.Cluster); ok {
-		ec.Status = r.Status.Group("ec2cluster")
+	if ec, ok := rt.cluster.(*ec2cluster.Cluster); ok {
+		ec.Status = rt.Status.Group("ec2cluster")
 	}
-	t := r.scheduler.Transferer
+	t := rt.scheduler.Transferer
 	if m, ok := t.(*repository.Manager); ok {
-		m.Status = r.Status.Group("transfers")
+		m.Status = rt.Status.Group("transfers")
 	}
 }
 
-func (r *runtime) doStart(ctx context.Context) {
+func (rt *runtime) doStart(ctx context.Context) {
 	var wg sync.WaitGroup
-	r.rtLog.Printf("===== started =====")
+	rt.rtLog.Printf("===== started =====")
 
-	if ec, ok := r.cluster.(*ec2cluster.Cluster); ok {
+	if ec, ok := rt.cluster.(*ec2cluster.Cluster); ok {
 		ec.Start(ctx, &wg)
 	}
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_ = r.scheduler.Do(ctx)
+		_ = rt.scheduler.Do(ctx)
 	}()
 
 	go func() {
 		wg.Wait()
-		r.rtLog.Printf("===== shutdown =====")
+		rt.rtLog.Printf("===== shutdown =====")
 	}()
 }

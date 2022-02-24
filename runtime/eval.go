@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache 2.0
 // license that can be found in the LICENSE file.
 
-package tool
+package runtime
 
 import (
 	"bytes"
@@ -208,11 +208,4 @@ func (e *Eval) ResolveImages(sess *session.Session) (err error) {
 	r := ImageResolver{Authenticator: ec2authenticator.New(sess)}
 	e.ImageMap, err = r.ResolveImages(context.Background(), e.Images)
 	return
-}
-
-func sprintval(v values.T, t *types.T) string {
-	if t == nil {
-		return fmt.Sprint(v)
-	}
-	return values.Sprint(v, t)
 }

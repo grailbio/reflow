@@ -100,8 +100,8 @@ The flag -parallelism controls the number of runs in the batch to run concurrent
 	idsFlag := flags.String("ids", "", "comma-separated list of ids to run; an empty list runs all")
 	var bc batchConfig
 	bc.Flags(flags)
-	var config CommonRunFlags
-	config.flags(flags)
+	var config runtime.CommonRunFlags
+	config.Flags(flags)
 	c.Parse(flags, args, help, "runbatch [-parallelism=10] [-retry] [-reset] [flags]")
 
 	if err := config.Err(); err != nil {
