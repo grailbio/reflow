@@ -4,33 +4,40 @@ import (
 	"context"
 	"testing"
 
-	"docker.io/go-docker/api/types"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/grailbio/infra"
+	_ "github.com/grailbio/infra/aws"
+	"github.com/grailbio/reflow/ec2authenticator"
+	"github.com/grailbio/reflow/test/testutil"
 )
 
-type nilAuthenticator struct{}
-
-// Authenticate implements ecrauth.Interface.
-func (a nilAuthenticator) Authenticates(ctx context.Context, image string) (bool, error) {
-	return false, nil
-}
-
-// Authenticates implements ecrauth.Interface.
-func (a nilAuthenticator) Authenticate(ctx context.Context, cfg *types.AuthConfig) error {
-	return nil
-}
-
 func TestResolveImages(t *testing.T) {
-	const resolved = "index.docker.io/grailbio/awstool@sha256:b9a5e983e2de3f5319bca2fc015d279665096af20a27013c90583ac899c8b35a"
 	if testing.Short() {
 		t.Skip("requires network access")
 	}
-	r := ImageResolver{Authenticator: nilAuthenticator{}}
+	testutil.SkipIfNoCreds(t)
+	var schema = infra.Schema{
+		"session": new(session.Session),
+	}
+	config, err := schema.Make(infra.Keys{
+		"session": "awssession",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sess *session.Session
+	config.Must(&sess)
+	const (
+		repository = "619867110810.dkr.ecr.us-west-2.amazonaws.com"
+		resolved   = "619867110810.dkr.ecr.us-west-2.amazonaws.com/awstool@sha256:df811e08963f5e3ebba7efc8a003ec6fbde401ea272dd34378a9f2aa24b708db"
+	)
+	r := ImageResolver{Authenticator: ec2authenticator.New(sess)}
 	for _, img := range []string{
-		"grailbio/awstool",
-		"grailbio/awstool$aws",
-		"grailbio/awstool$docker",
-		"grailbio/awstool$aws$docker",
-		"grailbio/awstool$docker$aws",
+		repository + "/awstool",
+		repository + "/awstool$aws",
+		repository + "/awstool$docker",
+		repository + "/awstool$aws$docker",
+		repository + "/awstool$docker$aws",
 	} {
 		canonical, err := r.ResolveImages(context.Background(), []string{img})
 		if err != nil {
