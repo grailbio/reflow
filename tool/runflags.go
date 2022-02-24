@@ -276,10 +276,7 @@ func (r *RunFlags) Override(overrides map[string]string) (err error) {
 
 // Err checks if the flag values are consistent and valid.
 func (r *RunFlags) Err() error {
-	if err := r.CommonRunFlags.Err(); err != nil {
-		return err
-	}
-	return nil
+	return r.CommonRunFlags.Err()
 }
 
 // needAssocAndRepo determines whether an assoc and repo is needed based on this run flags.
