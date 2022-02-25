@@ -55,7 +55,7 @@ Valid values for -name are "mem" and "duration".
 		flags.Usage()
 	}
 
-	cfg, err := runtime.PredictorConfig(c.Config)
+	cfg, err := runtime.PredictorConfig(c.Config, true)
 	if err != nil {
 		c.Fatal(err)
 	}

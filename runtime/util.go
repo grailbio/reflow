@@ -79,7 +79,7 @@ func HttpClient(config infra.Config) (*http.Client, error) {
 }
 
 // PredictorConfig returns a PredictorConfig (possibly nil) and an error (if any).
-func PredictorConfig(cfg infra.Config) (*infra2.PredictorConfig, error) {
+func PredictorConfig(cfg infra.Config, validate bool) (*infra2.PredictorConfig, error) {
 	var (
 		predConfig *infra2.PredictorConfig
 		sess       *session.Session
@@ -91,10 +91,13 @@ func PredictorConfig(cfg infra.Config) (*infra2.PredictorConfig, error) {
 	if err := cfg.Instance(&predConfig); err != nil {
 		return nil, errors.E("predictor config: no predconfig", err)
 	}
-	if err := cfg.Instance(&sess); err != nil || sess == nil {
-		return nil, errors.E("predictor config: no session", err)
+	if err := cfg.Instance(&sess); err != nil {
+		return nil, errors.E("predictor config: session", err)
 	}
-	return predConfig, validatePredictorConfig(sess, tdb, predConfig)
+	if validate {
+		return predConfig, validatePredictorConfig(sess, tdb, predConfig)
+	}
+	return predConfig, nil
 }
 
 // validatePredictorConfig validates if the Predictor can be used by reflow.
@@ -115,6 +118,9 @@ func validatePredictorConfig(sess *session.Session, tdb taskdb.TaskDB, predConfi
 		return fmt.Errorf("validatePredictorConfig: no predconfig")
 	}
 	if !predConfig.NonEC2Ok {
+		if sess == nil {
+			return fmt.Errorf("validatePredictorConfig: no session")
+		}
 		if md := ec2metadata.New(sess, &aws.Config{MaxRetries: aws.Int(3)}); !md.Available() {
 			return fmt.Errorf("not running on ec2 instance (and nonEc2Ok is not true)")
 		}

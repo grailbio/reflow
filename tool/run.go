@@ -121,6 +121,7 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags runtime.RunFlags, file str
 		Program:  file,
 		Args:     args,
 		RunFlags: runFlags,
+		Config: c.Config,
 	}
 
 	runlog := golog.New(nil, "", golog.LstdFlags)
@@ -129,7 +130,6 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags runtime.RunFlags, file str
 	runLogger.Parent = c.Log
 
 	r, err := rr.NewRunner(runtime.RunnerParams{
-		InfraRunConfig: c.Config,
 		RunConfig: runConfig,
 		Logger: runLogger,
 		Status: c.Status,

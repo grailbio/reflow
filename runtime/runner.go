@@ -37,11 +37,8 @@ import (
 
 // RunnerParams defines the set of parameters necessary to initialize a ReflowRunner.
 type RunnerParams struct {
-	// TODO(swami): Replace InfraRunConfig with a run-specific config which only takes
-	// keys that are run-specific (and the rest of the config is obtained from the runtime).
-	InfraRunConfig infra.Config
 	RunConfig RunConfig
-	Logger *log.Logger
+	Logger    *log.Logger
 
 	// Optional parameters
 
@@ -61,64 +58,67 @@ type ReflowRunner interface {
 // NewRunner returns a new runner that can run the given run config. If scheduler is non nil,
 // it will be used for scheduling tasks.
 func (rt *runtime) NewRunner(params RunnerParams) (ReflowRunner, error) {
-	scheduler := rt.Scheduler()
-	if scheduler == nil {
-		panic(fmt.Sprintf("NewRunner must have scheduler"))
-	}
-	// Configure the Predictor.
-	var pred *predictor.Predictor
-	if params.RunConfig.RunFlags.Pred {
-		if cfg, cerr := PredictorConfig(params.InfraRunConfig); cerr != nil {
-			params.Logger.Errorf("error while configuring predictor: %s", cerr)
-		} else {
-			pred = predictor.New(scheduler.TaskDB, params.Logger.Tee(nil, "predictor: "), cfg.MinData, cfg.MaxInspect, cfg.MemPercentile)
-		}
-	}
 	var (
-		runID *taskdb.RunID
-		err error
+		infraRunConfig = params.RunConfig.Config
+		err            error
+		pred           *predictor.Predictor
+		runID          *taskdb.RunID
 	)
-	if err = params.InfraRunConfig.Instance(&runID); err != nil {
+	if params.RunConfig.RunFlags.Pred {
+		if err = validatePredictorConfig(rt.sess, rt.scheduler.TaskDB, rt.predCfg); err != nil {
+			return nil, errors.E("runtime.NewRunner", errors.Fatal, err)
+		}
+		pred = predictor.New(rt.scheduler.TaskDB, params.Logger.Tee(nil, "predictor: "),
+			rt.predCfg.MinData, rt.predCfg.MaxInspect, rt.predCfg.MemPercentile)
+	}
+	if err = infraRunConfig.Instance(&runID); err != nil {
 		return nil, err
 	}
 	var user *infra2.User
-	if err = params.InfraRunConfig.Instance(&user); err != nil {
+	if err = rt.Config.Instance(&user); err != nil {
 		return nil, err
 	}
 	r := &runnerImpl{
 		RunConfig: params.RunConfig,
 		RunID:     *runID,
-		scheduler: scheduler,
+		sess:      rt.sess,
+		scheduler: rt.scheduler,
 		predictor: pred,
 		Log:       params.Logger,
 		user:      user.User(),
-		Status:    new(status.Status),
 	}
-	if params.Status != nil {
-		r.Status = params.Status
+	r.status = params.Status
+	if r.status == nil {
+		r.status = new(status.Status)
 	}
-	if err = params.InfraRunConfig.Instance(&r.sess); err != nil {
-		return nil, err
-	}
-	if err = params.InfraRunConfig.Instance(&r.assoc); err != nil {
+	if err = infraRunConfig.Instance(&r.assoc); err != nil {
 		if params.RunConfig.RunFlags.needAssocAndRepo() {
 			return nil, err
 		}
 		params.Logger.Debug("assoc missing but was not needed")
 	}
-	if err = params.InfraRunConfig.Instance(&r.repo); err != nil {
+	if err = infraRunConfig.Instance(&r.repo); err != nil {
 		if params.RunConfig.RunFlags.needAssocAndRepo() {
 			return nil, err
 		}
 		params.Logger.Debug("repo missing but was not needed")
 	}
-	if err = params.InfraRunConfig.Instance(&r.cache); err != nil {
+	if err = infraRunConfig.Instance(&r.cache); err != nil {
 		return nil, err
 	}
-	if err = params.InfraRunConfig.Instance(&r.labels); err != nil {
+	if err = infraRunConfig.Instance(&r.labels); err != nil {
 		return nil, err
 	}
 	return r, nil
+}
+
+// RunSchema is the infra schema for a run.
+var RunSchema = infra.Schema{
+	infra2.Assoc:      new(assoc.Assoc),
+	infra2.Cache:      new(infra2.CacheProvider),
+	infra2.Labels:     make(pool.Labels),
+	infra2.Repository: new(reflow.Repository),
+	infra2.RunID:      new(taskdb.RunID),
 }
 
 // RunConfig defines all the material (configuration, program and args) for a specific run.
@@ -129,6 +129,8 @@ type RunConfig struct {
 	Args []string
 	// RunFlags is the run flags for this run.
 	RunFlags RunFlags
+	// Config is the config for this run.
+	Config infra.Config
 }
 
 // runnerImpl implements ReflowRunner.
@@ -155,8 +157,7 @@ type runnerImpl struct {
 	cache  *infra2.CacheProvider
 	labels pool.Labels
 
-	// TODO(swami): unexport this.
-	Status *status.Status
+	status *status.Status
 	user   string
 }
 
@@ -238,7 +239,7 @@ func (r *runnerImpl) Go(ctx context.Context) (runner.State, error) {
 			Assoc:              r.assoc,
 			AssertionGenerator: reflow.AssertionGeneratorMux{reflow.BlobAssertionsNamespace: r.scheduler.Mux},
 			CacheMode:          r.cache.CacheMode,
-			Status:             r.Status.Group(r.RunID.IDShort()),
+			Status:             r.status.Group(r.RunID.IDShort()),
 			Scheduler:          r.scheduler,
 			Predictor:          r.predictor,
 			ImageMap:           e.ImageMap,

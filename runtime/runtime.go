@@ -12,6 +12,7 @@ import (
 	"github.com/grailbio/reflow/blob/s3blob"
 	"github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/errors"
+	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/repository"
 	"github.com/grailbio/reflow/runner"
@@ -68,8 +69,10 @@ type ReflowRuntime interface {
 type runtime struct {
 	RuntimeParams
 
+	sess      *session.Session
 	cluster   runner.Cluster
 	scheduler *sched.Scheduler
+	predCfg   *infra2.PredictorConfig
 	rtLog     *log.Logger
 
 	startOnce once.Task
@@ -110,11 +113,17 @@ func (rt *runtime) init() (err error) {
 	}
 	rt.scheduler.Cluster = rt.cluster
 
-	var sess *session.Session
-	if err = rt.Config.Instance(&sess); err != nil {
+	if err = rt.Config.Instance(&rt.sess); err != nil {
 		return errors.E("runtime.Init", "session", errors.Fatal, err)
 	}
-	rt.scheduler.Mux = blob.Mux{"s3": s3blob.New(sess)}
+	rt.scheduler.Mux = blob.Mux{"s3": s3blob.New(rt.sess)}
+
+	// We do not validate predictor config in the runtime because
+	// - The default predictor config will not validate on non-EC2 machines (eg: laptops), preventing runs.
+	// - It may not be needed by the run (and if needed, it'll be validated in NewRunner).
+	if rt.predCfg, err = PredictorConfig(rt.Config, false /* no validation */); err != nil {
+		return errors.E("runtime.Init", "predictor_config", errors.Fatal, err)
+	}
 
 	rt.setupStatus()
 
