@@ -86,7 +86,7 @@ func TestBuildCollectInputsAndMigrate(t *testing.T) {
 
 	for i := 0; i < 2; i++ {
 		k := fuzz.Digest()
-		fs := testutil.WriteFiles(repo, fuzz.String(" "), fuzz.String(" "))
+		fs := testutil.WriteFiles(repo, fuzz.String("/1/"), fuzz.String("/2/"))
 		buf := new(bytes.Buffer)
 		wErr := fs.Write(buf, assoc.Fileset, true, true)
 		require.NoError(t, wErr)

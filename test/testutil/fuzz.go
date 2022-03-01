@@ -51,7 +51,7 @@ func (f *Fuzz) StringMinLen(minlen int, sep string) string {
 // String returns a random string comprising gene names separated
 // by the provided separator.
 func (f *Fuzz) String(sep string) string {
-	return f.StringMinLen(f.Intn(20)+1, sep)
+	return f.StringMinLen(f.Intn(20)+10, sep)
 }
 
 // Digest returns a random Reflow digest.
@@ -105,7 +105,7 @@ func (f *Fuzz) fileset(numfiles, depth, maxdepth int, refok, aok bool) (fs reflo
 	}
 	fs.Map = make(map[string]reflow.File)
 	for i := 0; i < numfiles; i++ {
-		fs.Map[f.String("/")] = f.File(refok, aok)
+		fs.Map[f.String(fmt.Sprintf("/%d/", i))] = f.File(refok, aok)
 	}
 	return
 }
