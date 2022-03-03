@@ -8,12 +8,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/grailbio/base/digest"
 	golog "log"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/ec2cluster"
 	"github.com/grailbio/reflow/errors"
@@ -121,7 +121,7 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags runtime.RunFlags, file str
 		Program:  file,
 		Args:     args,
 		RunFlags: runFlags,
-		Config: c.Config,
+		Config:   c.Config,
 	}
 
 	runlog := golog.New(nil, "", golog.LstdFlags)

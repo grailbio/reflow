@@ -57,10 +57,6 @@ type ReflowRuntime interface {
 	// TODO(swami):  Remove this.  This is exposed temporarily and shouldn't need to be eventually.
 	Scheduler() *sched.Scheduler
 
-	// ClusterName returns the name of the underlying reflow cluster.
-	// TODO(swami) Can we work around this instead of polluting this interface ?
-	ClusterName() string
-
 	// NewRunner returns a new reflow runner.
 	NewRunner(RunnerParams) (ReflowRunner, error)
 }
@@ -89,11 +85,6 @@ func (rt *runtime) Start(ctx context.Context) {
 // Scheduler implements ReflowRuntime.
 func (rt *runtime) Scheduler() *sched.Scheduler {
 	return rt.scheduler
-}
-
-// ClusterName implements ReflowRuntime.
-func (rt *runtime) ClusterName() string {
-	return rt.cluster.GetName()
 }
 
 func (rt *runtime) init() (err error) {

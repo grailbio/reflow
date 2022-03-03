@@ -119,6 +119,9 @@ var RunSchema = infra.Schema{
 	infra2.Labels:     make(pool.Labels),
 	infra2.Repository: new(reflow.Repository),
 	infra2.RunID:      new(taskdb.RunID),
+	infra2.Session:    new(session.Session),
+	infra2.Username:   new(infra2.User),
+	infra2.Log:        new(log.Logger),
 }
 
 // RunConfig defines all the material (configuration, program and args) for a specific run.
