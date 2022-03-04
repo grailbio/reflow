@@ -276,6 +276,8 @@ type Task struct {
 	Ident string
 	// Attempt stores the (zero-based) current attempt number for this task.
 	Attempt int
+	// Err stores the error for failed tasks
+	Err errors.Error
 	// Resources is the amount of resources reserved for this task.
 	// Note that this may not represent actual utilized resources necessarily.
 	Resources reflow.Resources

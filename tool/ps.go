@@ -20,6 +20,7 @@ import (
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/ec2cluster"
+	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/pool"
@@ -75,6 +76,7 @@ var (
 	taskColsType    = headerDesc{"hosttype", "(long listing only) Type of the host on which the task was completed (if available)"}
 	taskColsUri     = headerDesc{"uri/resultid", "(long listing only) URI of a running task or (if taskdb exists) ID of the result of a completed task"}
 	taskColsInspect = headerDesc{"inspect", "(long listing and if taskdb exists) ID of the inspect of a completed task"}
+	taskColsErr     = headerDesc{"error", "error message if the task failed"}
 
 	poolCols = []headerDesc{
 		{"poolid", "ID of the pool"},
@@ -96,7 +98,7 @@ The columns associated with a run are as follows:
 ` + description(runCols) + `
 
 The columns associated with a task are as follows:
-` + description(append(taskCols, taskColsType, taskColsUri, taskColsInspect)) + `
+` + description(append(taskCols, taskColsType, taskColsUri, taskColsInspect, taskColsErr)) + `
 `
 )
 
@@ -617,12 +619,12 @@ func poolInfos(prs []taskdb.PoolRow, cc *costComputer) []poolInfo {
 func printTaskHeader(w io.Writer, longListing bool) {
 	fmt.Fprint(w, "\t", header(taskCols))
 	if longListing {
-		fmt.Fprint(w, "\t", header([]headerDesc{taskColsType, taskColsUri, taskColsInspect}))
+		fmt.Fprint(w, "\t", header([]headerDesc{taskColsType, taskColsUri, taskColsInspect, taskColsErr}))
 	}
 	fmt.Fprint(w, "\n")
 }
 
-func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing, fullIds bool) {
+func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing, full bool) {
 	for _, run := range ri {
 		if len(run.taskInfo) == 0 {
 			continue
@@ -639,7 +641,7 @@ func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing, fullIds bool) {
 		graph := getShort(run.Run.EvalGraph)
 		trace := getShort(run.Run.Trace)
 		runId := run.Run.ID.IDShort()
-		if fullIds {
+		if full {
 			runId = run.Run.ID.ID()
 		}
 		fmt.Fprint(w, header(runCols), "\n")
@@ -651,7 +653,7 @@ func (c *Cmd) writeRuns(ri []runInfo, w io.Writer, longListing, fullIds bool) {
 			if !task.Task.ID.IsValid() {
 				continue
 			}
-			c.writeTask(task, w, longListing, fullIds)
+			c.writeTask(task, w, longListing, full)
 		}
 		fmt.Fprint(w, "\n")
 	}
@@ -683,7 +685,7 @@ func formatStartEnd(c taskdb.TimeFields) (st, et string) {
 	return
 }
 
-func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing, fullIds bool) {
+func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing, full bool) {
 	var (
 		procs, ident, state string
 		info                = task.ExecInspect
@@ -741,7 +743,7 @@ func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing, fullIds bool) {
 	s, e := task.StartEnd()
 	dur := e.Sub(s).Truncate(time.Second)
 	tid := task.ID.IDShort()
-	if fullIds {
+	if full {
 		tid = task.ID.ID()
 	}
 	fmt.Fprintf(w, "\t%s\t%s\t%d\t%s", tid, getShort(task.FlowID), 1+task.Attempt, ident)
@@ -757,9 +759,34 @@ func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing, fullIds bool) {
 			result = task.Task.URI
 		}
 		inspect := getShort(task.Task.Inspect)
-		fmt.Fprintf(w, "\t%s\t%s\t%s", hostType, result, inspect)
+		errstr := getErrStr(task.Err, full)
+		fmt.Fprintf(w, "\t%s\t%s\t%s\t%s", hostType, result, inspect, errstr)
 	}
 	fmt.Fprint(w, "\n")
+}
+
+func getErrStr(terr errors.Error, full bool) string {
+	if terr.Err == nil {
+		return ""
+	}
+	sb := strings.Builder{}
+	if terr.Kind != errors.Other {
+		sb.WriteString(fmt.Sprintf("kind: %s, ", terr.Kind))
+	}
+	if len(terr.Op) > 0 {
+		sb.WriteString(fmt.Sprintf("op: %s, ", terr.Op))
+	}
+	sb.WriteString("err: ")
+	errstr := terr.Err.Error()
+	if !full {
+		shortLen := 30
+		mid := shortLen / 2
+		if l := len(errstr); l > shortLen {
+			errstr = errstr[:mid] + "..." + errstr[l-mid:]
+		}
+	}
+	sb.WriteString(errstr)
+	return sb.String()
 }
 
 func (c *Cmd) writePools(w io.Writer, pis []poolInfo, longListing bool) {

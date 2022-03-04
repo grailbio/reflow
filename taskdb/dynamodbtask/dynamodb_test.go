@@ -6,6 +6,7 @@ package dynamodbtask
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"sort"
@@ -374,7 +375,7 @@ func TestSetTaskComplete(t *testing.T) {
 		{*mockdb.uInput.TableName, "mockdynamodb"},
 		{*mockdb.uInput.Key[colID].S, taskID.ID()},
 		{*mockdb.uInput.ExpressionAttributeValues[":endtime"].S, end.UTC().Format(timeLayout)},
-		{*mockdb.uInput.ExpressionAttributeValues[":error"].S, tdbErr.Error()},
+		{*mockdb.uInput.ExpressionAttributeValues[":error"].S, toJson(t, tdbErr)},
 		{*mockdb.uInput.ExpressionAttributeNames["#Err"], "Error"},
 		{*mockdb.uInput.UpdateExpression, "SET EndTime = :endtime, #Err = :error"},
 	} {
@@ -382,6 +383,14 @@ func TestSetTaskComplete(t *testing.T) {
 			t.Errorf("got %v, want %v", test.got, test.want)
 		}
 	}
+}
+
+func toJson(t *testing.T, err error) string {
+	b, jerr := json.Marshal(errors.Recover(err))
+	if jerr != nil {
+		t.Fatal(jerr)
+	}
+	return string(b)
 }
 
 func TestStartAlloc(t *testing.T) {

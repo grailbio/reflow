@@ -554,10 +554,15 @@ func (t *TaskDB) SetTaskComplete(ctx context.Context, id taskdb.TaskID, err erro
 		keys map[string]*string
 	)
 	if err != nil {
+		errstr := err.Error()
+		if b, jerr := json.Marshal(errors.Recover(err)); jerr == nil {
+			log.Debugf("warning: %s\n", jerr)
+			errstr = string(b)
+		}
 		update = aws.String(fmt.Sprintf("SET %s = :endtime, #Err = :error", colEndTime))
 		values = map[string]*dynamodb.AttributeValue{
 			":endtime": {S: aws.String(end.UTC().Format(timeLayout))},
-			":error":   {S: aws.String(err.Error())},
+			":error":   {S: aws.String(errstr)},
 		}
 		keys = map[string]*string{"#Err": aws.String(colError)}
 	}
@@ -1076,6 +1081,9 @@ func (t *TaskDB) Tasks(ctx context.Context, q taskdb.TaskQuery) ([]taskdb.Task, 
 		if v := parseAttr(it, Resources, parseResourcesFunc, &errs); v != nil {
 			t.Resources = v.(reflow.Resources)
 		}
+		if v := parseAttr(it, Error, parseTaskErrorFunc, &errs); v != nil {
+			t.Err = v.(errors.Error)
+		}
 		t.Ident = parseAttr(it, Ident, nil, &errs).(string)
 		t.URI = parseAttr(it, URI, nil, &errs).(string)
 		if v, ok := it[colAttempt]; ok {
@@ -1469,6 +1477,17 @@ var (
 		var r reflow.Resources
 		err := json.Unmarshal([]byte(s), &r)
 		return r, err
+	}
+	parseTaskErrorFunc = func(s string) (interface{}, error) {
+		if len(s) == 0 {
+			return nil, nil
+		}
+		var e errors.Error
+		if err := json.Unmarshal([]byte(s), &e); err != nil {
+			// for backwards compatibility, if we can't unmarshal into an Error, create one
+			return *errors.Recover(errors.New(s)), nil
+		}
+		return e, nil
 	}
 )
 
