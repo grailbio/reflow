@@ -556,8 +556,9 @@ func (t *TaskDB) SetTaskComplete(ctx context.Context, id taskdb.TaskID, err erro
 	if err != nil {
 		errstr := err.Error()
 		if b, jerr := json.Marshal(errors.Recover(err)); jerr == nil {
-			log.Debugf("warning: %s\n", jerr)
 			errstr = string(b)
+		} else {
+			log.Debugf("taskdb.SetTaskComplete marshal error warning: %s\n", jerr)
 		}
 		update = aws.String(fmt.Sprintf("SET %s = :endtime, #Err = :error", colEndTime))
 		values = map[string]*dynamodb.AttributeValue{
