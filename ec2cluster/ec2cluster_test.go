@@ -40,7 +40,7 @@ func TestGetEC2State(t *testing.T) {
 	i2, ri2 := create("i-run2", "running", "v1", "dig1")
 	ec2Is = append(ec2Is, i2)
 	dio := &ec2.DescribeInstancesOutput{Reservations: []*ec2.Reservation{{Instances: ec2Is}}}
-	client := mockEC2Client{output: dio}
+	client := mockEC2Client{descInstOut: dio}
 	c := &Cluster{EC2: &client}
 	c.refreshLimiter = rate.NewLimiter(rate.Every(time.Millisecond), 1)
 	instances, _ := c.getEC2State(context.Background())
@@ -62,7 +62,7 @@ func TestRefresh(t *testing.T) {
 		ec2Is = append(ec2Is, i)
 	}
 	dio := &ec2.DescribeInstancesOutput{Reservations: []*ec2.Reservation{{Instances: ec2Is}}}
-	mockEC2 := mockEC2Client{output: dio}
+	mockEC2 := mockEC2Client{descInstOut: dio}
 	c := &Cluster{EC2: &mockEC2, Session: &session.Session{Config: &aws.Config{Region: aws.String("someregion")}},
 		stats: newStats(), pools: make(map[string]reflowletPool)}
 	c.refreshLimiter = rate.NewLimiter(rate.Every(time.Millisecond), 1)
@@ -76,7 +76,7 @@ func TestRefresh(t *testing.T) {
 	i, _ := create("i-another", "running", "", "")
 	ec2Is = append(ec2Is, i)
 	dio.Reservations[0].Instances = ec2Is
-	mockEC2.output = dio
+	mockEC2.descInstOut = dio
 	if _, err := c.Refresh(ctx); err != nil {
 		t.Errorf("reconcile: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestRefresh(t *testing.T) {
 			inst.State = &ec2.InstanceState{Name: aws.String("terminated")}
 		}
 	}
-	mockEC2.output = dio
+	mockEC2.descInstOut = dio
 	if _, err := c.Refresh(ctx); err != nil {
 		t.Errorf("reconcile: %v", err)
 	}

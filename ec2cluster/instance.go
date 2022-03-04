@@ -130,8 +130,6 @@ type instance struct {
 	InstanceTags            map[string]string
 	Labels                  pool.Labels
 	Spot                    bool
-	Subnet                  string
-	SubnetAZ                string
 	InstanceProfile         string
 	SecurityGroup           string
 	Region                  string
@@ -967,7 +965,6 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context, az string) (string, e
 			ImageId:             aws.String(i.AMI),
 			EbsOptimized:        aws.Bool(i.Config.EBSOptimized),
 			InstanceType:        aws.String(i.Config.Type),
-			SubnetId:            aws.String(i.Subnet),
 			BlockDeviceMappings: i.ebsDeviceMappings(),
 			KeyName:             nonemptyString(i.KeyName),
 			UserData:            aws.String(i.userData),
@@ -984,9 +981,6 @@ func (i *instance) ec2RunSpotInstance(ctx context.Context, az string) (string, e
 		// And if an availability zone is specified, determine if a specific subnet is known for it.
 		if subnet := subnetForAZ(az); subnet != "" {
 			params.LaunchSpecification.SubnetId = aws.String(subnet)
-		} else if i.Subnet != "" && i.SubnetAZ != az {
-			// If a default subnet was provided, return if the current AZ doesn't match it.
-			return "", errors.E(errors.Unavailable, fmt.Sprintf("Subnet (%s) is for AZ (%s) and cannot be used for AZ (%s)", i.Subnet, i.SubnetAZ, az))
 		}
 	}
 	var (
@@ -1174,7 +1168,6 @@ func (i *instance) ec2RunInstance() (string, error) {
 		KeyName:          nonemptyString(i.KeyName),
 		UserData:         aws.String(i.userData),
 		SecurityGroupIds: []*string{aws.String(i.SecurityGroup)},
-		SubnetId:         aws.String(i.Subnet),
 	}
 	i.Log.Debugf("EC2RunInstances %v", params)
 	resv, err := i.EC2.RunInstances(params)

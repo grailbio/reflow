@@ -162,7 +162,7 @@ func TestManagerStart(t *testing.T) {
 		configs = append(configs, config)
 	}
 	c := &Cluster{
-		EC2:            &mockEC2Client{output: dio},
+		EC2:            &mockEC2Client{descInstOut: dio},
 		Session:        &session.Session{Config: &aws.Config{Region: aws.String("someregion")}},
 		stats:          newStats(),
 		pools:          make(map[string]reflowletPool),

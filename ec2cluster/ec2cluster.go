@@ -112,16 +112,11 @@ type Cluster struct {
 	InstanceProfile string `yaml:"instanceprofile,omitempty"`
 	// SecurityGroup is the EC2 security group to use for cluster instances.
 	SecurityGroup string `yaml:"securitygroup,omitempty"`
-	// Subnet is the id of the EC2 subnet to use for cluster instances.
-	Subnet string `yaml:"subnet,omitempty"`
-	// VpcId is the id of the EC2 VPC based on which an appropriate subnet (for each AZ) will be determined.
-	// That is, when VpcId is specified, the ec2.DescribeSubnets API will use it to query for subnets.
-	// If exactly one subnet is available for a particular Availability Zone Name, then that subnet will
-	// override the value set in Subnet when a instance is requested in that AZ.
-	// If there's none or more than one, the value specified in Subnet will be used.
-	// (Note however, that if in this case, only spot instance requests that use the AZ which matches the subnet
-	// will succeed and other AZ requests will fail)
-	VpcId string `yaml:"vpcid,omitempty"`
+	// Subnets is the list of EC2 subnets ids based on which an appropriate subnet (for each AZ) will be determined.
+	// That is, when Subnets is specified, the cluster will use ec2.DescribeSubnets API to determine AZ for each subnet.
+	// When requesting a spot instance in a particular AZ, the appropriate subnet will be used.
+	// If this list contains duplicate subnets for any AZ, behavior (of which subnet is used) is non-deterministic.
+	Subnets []string `yaml:"subnets,omitempty"`
 	// InstanceTypesMap stores the set of admissible instance types.
 	// If nil, all instance types are permitted.
 	InstanceTypesMap map[string]bool `yaml:"-"`
@@ -205,9 +200,6 @@ type Cluster struct {
 
 	// refreshLimiter limits the rate of cluster refresh.
 	refreshLimiter *rate.Limiter
-
-	// subnetAZ is the availability zone name corresponding to the Subnet (if specified)
-	subnetAZ string
 
 	startOnce once.Task
 	stats     *statsImpl
@@ -386,16 +378,9 @@ func (c *Cluster) initialize(ctx context.Context, wg *sync.WaitGroup) {
 		c.Log.Debugf("cluster taskdb: %v", err)
 	}
 	c.EC2 = ec2.New(c.Session, &aws.Config{MaxRetries: aws.Int(13)})
-	if c.VpcId != "" {
-		if err := subnetsByVpc(c.EC2, c.VpcId, c.Log); err != nil {
-			c.Log.Errorf("subnetsByVpc: %v", err)
-		}
-	}
-	if c.Subnet != "" {
-		var err error
-		c.subnetAZ, err = azForSubnetId(c.EC2, c.Subnet)
-		if err != nil {
-			c.Log.Errorf("azForSubnetId %s: %v", c.Subnet, err)
+	if len(c.Subnets) > 0 {
+		if err := computeAzSubnetMap(c.EC2, c.Subnets, c.Log); err != nil {
+			c.Log.Error(err)
 		}
 	}
 	c.descInstLimiter = limiter.NewBatchLimiter(
@@ -580,8 +565,6 @@ func (c *Cluster) newInstance(config instanceConfig) *instance {
 		InstanceTags:            c.InstanceTags,
 		Labels:                  c.Labels,
 		Spot:                    c.Spot,
-		Subnet:                  c.Subnet,
-		SubnetAZ:                c.subnetAZ,
 		InstanceProfile:         c.InstanceProfile,
 		SecurityGroup:           c.SecurityGroup,
 		Region:                  c.Region(),

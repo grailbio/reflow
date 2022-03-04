@@ -54,60 +54,31 @@ func availabilityZones(api ec2iface.EC2API, region string) ([]string, error) {
 	return zones, err
 }
 
-// subnetsByVpc computes a mapping of availability-zone name to subnet id based on the given VPC Id.
-func subnetsByVpc(api ec2iface.EC2API, vpcid string, log *log.Logger) error {
+// computeAzSubnetMap computes a mapping of availability-zone name to subnet id based on the given list of subnetIds.
+func computeAzSubnetMap(api ec2iface.EC2API, subnetIds []string, log *log.Logger) error {
 	return azNameToSubnetOnce.Do(func() error {
-		req := &ec2.DescribeSubnetsInput{Filters: []*ec2.Filter{{
-			Name: aws.String("vpc-id"), Values: aws.StringSlice([]string{vpcid})}}}
+		req := &ec2.DescribeSubnetsInput{SubnetIds: aws.StringSlice(subnetIds)}
 		resp, err := api.DescribeSubnets(req)
 		if err != nil {
 			return err
 		}
-		subnetsByAz := make(map[string][]string)
 		for _, sn := range resp.Subnets {
 			if sn.AvailabilityZone == nil || sn.SubnetId == nil {
 				continue
 			}
-			var (
-				az       = *sn.AvailabilityZone
-				subnetId = *sn.SubnetId
-				subnets  []string
-				ok       bool
-			)
-			if subnets, ok = subnetsByAz[az]; !ok {
-				subnets = []string{}
+			az, subnetId := *sn.AvailabilityZone, *sn.SubnetId
+			if old, ok := azNameToSubnet[az]; ok {
+				log.Debugf("computeAzSubnetMap: remapping subnet for AZ %s from %s to %s",
+					az, old, subnetId)
 			}
-			subnetsByAz[az] = append(subnets, subnetId)
-		}
-		for az, subnets := range subnetsByAz {
-			if len(subnets) != 1 {
-				log.Debugf("VPC Id: %s ambiguous subnets for AZ %s: %s",
-					vpcid, az, strings.Join(subnets, ","))
-				continue
-			}
-			log.Debugf("VPC Id: %s based AZ to subnet mapping %s -> %s", vpcid, az, subnets[0])
-			azNameToSubnet[az] = subnets[0]
+			azNameToSubnet[az] = subnetId
 		}
 		return nil
 	})
 }
 
-// azForSubnetId returns availability-zone name for the given subnet id.
-func azForSubnetId(api ec2iface.EC2API, subnetId string) (string, error) {
-	resp, err := api.DescribeSubnets(&ec2.DescribeSubnetsInput{SubnetIds: aws.StringSlice([]string{subnetId})})
-	var az string
-	switch {
-	case err != nil:
-	case len(resp.Subnets) != 1:
-		err = fmt.Errorf("did not yield exactly one result (got %d)", len(resp.Subnets))
-	default:
-		az = *resp.Subnets[0].AvailabilityZone
-	}
-	return az, err
-}
-
 // subnetForAZ returns an appropriate subnet for the given availability-zone name.
-// subnetForAZ must be called only subnetsByVpc has been called by the same process earlier,
+// subnetForAZ must be called only after computeAzSubnetMap has been called by the same process,
 // otherwise, it will always return empty strings.
 func subnetForAZ(azName string) string {
 	return azNameToSubnet[azName]

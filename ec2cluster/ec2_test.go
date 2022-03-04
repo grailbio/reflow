@@ -15,16 +15,26 @@ import (
 
 type mockEC2Client struct {
 	ec2iface.EC2API
-	output *ec2.DescribeInstancesOutput
+	descInstOut   *ec2.DescribeInstancesOutput
+	descSubnetOut *ec2.DescribeSubnetsOutput
 }
 
-// DescribeInstances returns e.output as DescribeInstancesOutput.
+// DescribeInstances returns e.descInstOut as DescribeInstancesOutput.
 func (e *mockEC2Client) DescribeInstances(input *ec2.DescribeInstancesInput) (*ec2.DescribeInstancesOutput, error) {
-	o := e.output
+	o := e.descInstOut
 	if o != nil {
 		return o, nil
 	}
 	return nil, fmt.Errorf("must set return value before call to mockEC2Client.DescribeInstances")
+}
+
+// DescribeSubnets returns e.descSubnetOut as DescribeSubnetsOutput.
+func (e *mockEC2Client) DescribeSubnets(input *ec2.DescribeSubnetsInput) (*ec2.DescribeSubnetsOutput, error) {
+	o := e.descSubnetOut
+	if o != nil {
+		return o, nil
+	}
+	return nil, fmt.Errorf("must set return value before call to mockEC2Client.DescribeSubnets")
 }
 
 // DescribeInstances returns e.output as DescribeInstancesOutput.
