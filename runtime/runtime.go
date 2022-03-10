@@ -53,6 +53,9 @@ type ReflowRuntime interface {
 	// upon cancellation of which, these processes are stopped and the runtime becomes unviable.
 	Start(ctx context.Context)
 
+	// WaitDone waits for the reflow runtime to be done (which happens only if ctx to `Start` was cancelled).
+	WaitDone()
+
 	// Scheduler returns the underlying scheduler.
 	// TODO(swami):  Remove this.  This is exposed temporarily and shouldn't need to be eventually.
 	Scheduler() *sched.Scheduler
@@ -72,6 +75,7 @@ type runtime struct {
 	rtLog     *log.Logger
 
 	startOnce once.Task
+	wg        sync.WaitGroup
 }
 
 // Start implements ReflowRuntime.
@@ -135,21 +139,20 @@ func (rt *runtime) setupStatus() {
 }
 
 func (rt *runtime) doStart(ctx context.Context) {
-	var wg sync.WaitGroup
 	rt.rtLog.Printf("===== started =====")
 
 	if ec, ok := rt.cluster.(*ec2cluster.Cluster); ok {
-		ec.Start(ctx, &wg)
+		ec.Start(ctx, &rt.wg)
 	}
 
-	wg.Add(1)
+	rt.wg.Add(1)
 	go func() {
-		defer wg.Done()
+		defer rt.wg.Done()
 		_ = rt.scheduler.Do(ctx)
 	}()
+}
 
-	go func() {
-		wg.Wait()
-		rt.rtLog.Printf("===== shutdown =====")
-	}()
+func (rt *runtime) WaitDone() {
+	rt.wg.Wait()
+	rt.rtLog.Printf("===== shutdown =====")
 }

@@ -112,10 +112,14 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags runtime.RunFlags, file str
 	c.must(c.Config.Instance(&mc))
 
 	ctx, cancel := context.WithCancel(ctx)
-	ctx = metrics.WithClient(trace.WithTracer(ctx, tracer), mc)
+	tctx := trace.WithTracer(ctx, tracer)
+	ctx = metrics.WithClient(tctx, mc)
 	rr.Start(ctx)
-
-	defer cancel()
+	defer func() {
+		cancel()          // cancel the runtime
+		rr.WaitDone()     // wait for the runtime to be done
+		trace.Flush(tctx) // flush to include events completed after runtime finishes.
+	}()
 
 	runConfig := runtime.RunConfig{
 		Program:  file,
