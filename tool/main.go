@@ -343,7 +343,11 @@ func (c *Cmd) Main() {
 		c.Exit(1)
 	}()
 
-	go c.logMemStats(ctx, c.Log, c.memStatsDuration)
+	if c.memStatsDuration > 0 {
+		w, err := os.Create("memstats.csv")
+		c.must(err)
+		go c.logMemStats(ctx, c.Log, w, c.memStatsDuration)
+	}
 
 	// If the command panics, we want to recover, log and exit normally.
 	var perr error
@@ -482,10 +486,11 @@ func increaseFDRlimit() error {
 	return syscall.Setrlimit(syscall.RLIMIT_NOFILE, &l)
 }
 
-func (c *Cmd) logMemStats(ctx context.Context, log *log.Logger, freq time.Duration) {
+func (c *Cmd) logMemStats(ctx context.Context, log *log.Logger, w io.WriteCloser, freq time.Duration) {
 	if freq == 0 {
 		return
 	}
+	_, _ = fmt.Fprintf(w, "Sys, StackInuse, StackSys, HeapInuse, HeapSys\n")
 	readAndPrint := func(prefix string) {
 		if c.memStatsGC {
 			runtime.GC()
@@ -500,8 +505,11 @@ func (c *Cmd) logMemStats(ctx context.Context, log *log.Logger, freq time.Durati
 			data.Size(stats.Sys),
 			data.Size(stats.StackInuse), data.Size(stats.StackSys),
 			data.Size(stats.HeapInuse), data.Size(stats.HeapSys))
+		_, _ = fmt.Fprintf(w, "%d, %d, %d, %d, %d\n", stats.Sys,
+			stats.StackInuse, stats.StackSys, stats.HeapInuse, stats.HeapSys)
 	}
 	c.onexit(func() {
+		_ = w.Close()
 		runtime.GC()
 		readAndPrint("(post GC)")
 	})
