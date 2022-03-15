@@ -203,24 +203,24 @@ func TestDigest(t *testing.T) {
 		{
 			types.Dir,
 			func() T {
-				var d Dir
-				d.Set("a", reflow.File{
+				var md MutableDir
+				md.Set("a", reflow.File{
 					ID:   reflow.Digester.FromString("a contents"),
 					Size: 2,
 				})
-				d.Set("b", reflow.File{
+				md.Set("b", reflow.File{
 					ID:   reflow.Digester.FromString("b contents"),
 					Size: 4,
 				})
-				d.Set("d", reflow.File{
+				md.Set("d", reflow.File{
 					ID:   reflow.Digester.FromString("d contents"),
 					Size: 3,
 				})
-				d.Set("c", reflow.File{
+				md.Set("c", reflow.File{
 					ID:   reflow.Digester.FromString("c contents"),
 					Size: 1,
 				})
-				return d
+				return md.Dir()
 			},
 			"sha256:06132bcc7b9dc5373e7bee046fd23eb1826e599424cff420346111bd5f2835ab",
 		},

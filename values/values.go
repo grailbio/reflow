@@ -148,40 +148,106 @@ type Struct map[string]T
 // Module is the type of module values.
 type Module map[string]T
 
-// Dir is the type of directory values. Directory values are opaque
-// and may only be accessed through its methods. This is to ensure
-// proper usage, and that the directory is always accessed in the
-// same order to provide determinism. The zero dir is a valid,
-// empty directory.
-type Dir struct {
+type MutableDir struct {
 	contents map[string]reflow.File
 }
 
-// Len returns the number of entries in the directory.
-func (d Dir) Len() int { return len(d.contents) }
-
-// Set sets the directory's entry for the provided path. Set
-// overwrites any previous file set at path.
-func (d *Dir) Set(path string, file reflow.File) {
+// Set sets the mutable directory's entry for the provided path.
+// Set overwrites any previous file set at path.
+func (d *MutableDir) Set(path string, file reflow.File) {
 	if d.contents == nil {
 		d.contents = make(map[string]reflow.File)
 	}
 	d.contents[path] = file
 }
 
+// Dir returns an immutable version of this dir.
+func (d *MutableDir) Dir() Dir {
+	contents := make(map[string]reflow.File, len(d.contents))
+	for k, v := range d.contents {
+		contents[k] = v
+	}
+	dir := Dir{}
+	dir.AddContents(contents)
+	return dir
+}
+
+// SumDir returns a dir which behaves as the sum of the given dirs.
+// ie, SumDir behaves like a map containing all the key-value mappings that exist in Dirs d and e.
+// If there is a duplicate key in d and e, the value of e will be effective - just as what would happen
+// if we created a new map and added all the mappings from d first and then from e.
+func SumDir(d Dir, e Dir) Dir {
+	dir := Dir{}
+	for _, c := range d.contentsList {
+		dir.AddContents(c)
+	}
+	for _, c := range e.contentsList {
+		dir.AddContents(c)
+	}
+	return dir
+}
+
+// Dir is an immutable type of directory values. Directory values are opaque
+// and may only be accessed through its methods. This is to ensure
+// proper usage, and that the directory is always accessed in the
+// same order to provide determinism. The zero dir is a valid,
+// empty directory.
+// Dir is immutable.
+type Dir struct {
+	sortedKeys   []string
+	contentsList []map[string]reflow.File
+}
+
+func (d *Dir) AddContents(contents map[string]reflow.File) {
+	keySet := make(map[string]bool)
+	// Add the existing sorted keys
+	for _, k := range d.sortedKeys {
+		keySet[k] = true
+	}
+	d.contentsList = append(d.contentsList, contents)
+	// Add the keys from the new contents
+	for k := range contents {
+		keySet[k] = true
+	}
+	// Create a new list of sorted keys
+	keys := make([]string, 0, len(keySet))
+	for k := range keySet {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	d.sortedKeys = keys
+}
+
+// Len returns the number of entries in the directory.
+func (d Dir) Len() int {
+	return len(d.sortedKeys)
+}
+
 // Lookup returns the entry associated with the provided path and a boolean
 // indicating whether the entry was found.
 func (d Dir) Lookup(path string) (file reflow.File, ok bool) {
-	file, ok = d.contents[path]
-	return file, ok
+	// We iterate over the list of contents in reverse because we are simulating the
+	// existence of a combined map to which key-value mappings were added from the list
+	// of maps in d.contentsList in that order.
+	for i := len(d.contentsList) - 1; i >= 0; i-- {
+		if file, ok = d.contentsList[i][path]; ok {
+			return file, ok
+		}
+	}
+	return reflow.File{}, false
+}
+
+// SortedKeys returns a list of keys from this dir in sorted order.
+func (d Dir) SortedKeys() []string {
+	return d.sortedKeys
 }
 
 // A DirScanner is a stateful scan of a directory. DirScanners should
 // be instantiated by Dir.Scan.
 type DirScanner struct {
-	path     string
-	todo     []string
-	contents map[string]reflow.File
+	path string
+	todo []string
+	dir  Dir
 }
 
 // Scan advances the scanner to the next entry (the first entry for a
@@ -203,7 +269,8 @@ func (s *DirScanner) Path() string {
 
 // File returns the file of the currently scanned entry.
 func (s *DirScanner) File() reflow.File {
-	return s.contents[s.path]
+	file, _ := s.dir.Lookup(s.path)
+	return file
 }
 
 // Scan returns a new scanner that traverses the directory in
@@ -213,12 +280,7 @@ func (s *DirScanner) File() reflow.File {
 //		fmt.Println(scan.Path(), scan.File())
 //	}
 func (d Dir) Scan() DirScanner {
-	keys := make([]string, 0, len(d.contents))
-	for k := range d.contents {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return DirScanner{todo: keys, contents: d.contents}
+	return DirScanner{todo: d.SortedKeys(), dir: d}
 }
 
 // Equal compares the file names and digests in the directory.
@@ -226,8 +288,9 @@ func (d Dir) Equal(e Dir) bool {
 	if d.Len() != e.Len() {
 		return false
 	}
-	for lk, lv := range d.contents {
-		if rv, ok := e.contents[lk]; !ok || !rv.Equal(lv) {
+	for _, lk := range d.SortedKeys() {
+		lv, _ := d.Lookup(lk)
+		if rv, ok := e.Lookup(lk); !ok || !rv.Equal(lv) {
 			return false
 		}
 	}
@@ -288,23 +351,18 @@ func Less(v, w T) bool {
 		if v.Len() != w.Len() {
 			return v.Len() < w.Len()
 		}
-		var (
-			vkeys = make([]string, 0, v.Len())
-			wkeys = make([]string, 0, w.Len())
-		)
-		for k := range v.contents {
-			vkeys = append(vkeys, k)
-		}
-		for k := range w.contents {
-			wkeys = append(wkeys, k)
-		}
-		sort.Strings(vkeys)
-		sort.Strings(wkeys)
+		vkeys, wkeys := v.SortedKeys(), w.SortedKeys()
 		for i := range vkeys {
 			if vkeys[i] != wkeys[i] {
 				return vkeys[i] < wkeys[i]
-			} else if Less(v.contents[vkeys[i]], w.contents[wkeys[i]]) {
-				return true
+			} else {
+				var viFile, wiFile reflow.File
+				viFile, _ = v.Lookup(vkeys[i])
+				wiFile, _ = w.Lookup(wkeys[i])
+				if Less(viFile, wiFile) {
+					return true
+				}
+				// TODO(swami/pboyapalli): Why don't we return false if Less() returns false ?
 			}
 		}
 		return false

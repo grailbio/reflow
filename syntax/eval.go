@@ -833,7 +833,8 @@ func (e *Expr) exec(sess *Session, env *values.Env, image string, ident string, 
 			// Immediate argument: we render it and inline it. The typechecker guarantees
 			// that only files, dirs, strings, and ints are allowed here.
 			v := varg[i]
-			switch e.Template.Args[i].Type.Kind {
+			typ := e.Template.Args[i].Type
+			switch typ.Kind {
 			case types.StringKind:
 				b.WriteString(strings.Replace(v.(string), "%", "%%", -1))
 			case types.IntKind:
@@ -850,12 +851,12 @@ func (e *Expr) exec(sess *Session, env *values.Env, image string, ident string, 
 				b.WriteString("%s")
 				deps = append(deps, &flow.Flow{
 					Op:    flow.Val,
-					Value: coerceToFileset(e.Template.Args[i].Type, v),
+					Value: coerceToFileset(typ, v),
 				})
 				earg = append(earg, flow.ExecArg{Index: len(deps) - 1})
 				argstrs = append(argstrs, fmt.Sprintf("{{%s}}", ae.Abbrev()))
 			default:
-				panic("illegal expression " + e.Template.Args[i].Type.String() + " ... " + fmt.Sprint(v))
+				panic("illegal expression " + typ.String() + " ... " + fmt.Sprint(v))
 			}
 		}
 		b.WriteString(quotequote(e.Template.Frags[i+1]))
@@ -914,11 +915,11 @@ func (e *Expr) exec(sess *Session, env *values.Env, image string, ident string, 
 						}
 						v = file
 					case types.DirKind:
-						var dir values.Dir
+						var mDir values.MutableDir
 						for k, file := range fs.Map {
-							dir.Set(k, file)
+							mDir.Set(k, file)
 						}
-						v = dir
+						v = mDir.Dir()
 					default:
 						panic("bad result type")
 					}
@@ -1211,14 +1212,7 @@ func (e *Expr) evalBinop(vs []values.T) (values.T, error) {
 			})
 			return m, nil
 		case types.DirKind:
-			var dir values.Dir
-			for scan := left.(values.Dir).Scan(); scan.Scan(); {
-				dir.Set(scan.Path(), scan.File())
-			}
-			for scan := right.(values.Dir).Scan(); scan.Scan(); {
-				dir.Set(scan.Path(), scan.File())
-			}
-			return dir, nil
+			return values.SumDir(left.(values.Dir), right.(values.Dir)), nil
 		default:
 			panic("bug")
 		}

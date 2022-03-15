@@ -13,16 +13,16 @@ import (
 )
 
 func makeDir(pathsAndFiles ...interface{}) Dir {
-	var dir Dir
+	var mDir MutableDir
 	if len(pathsAndFiles)%2 != 0 {
 		panic(pathsAndFiles)
 	}
 	for i := 0; i < len(pathsAndFiles); i += 2 {
 		path := pathsAndFiles[i].(string)
 		file := pathsAndFiles[i+1].(reflow.File)
-		dir.Set(path, file)
+		mDir.Set(path, file)
 	}
-	return dir
+	return mDir.Dir()
 }
 
 func TestLess(t *testing.T) {

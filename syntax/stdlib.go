@@ -234,14 +234,15 @@ func Stdlib() (*types.Env, *values.Env) {
 						Position:   loc.Position,
 						Ident:      loc.Ident,
 						K: func(vs []values.T) *flow.Flow {
-							var dir values.Dir
+							var mDir values.MutableDir
 							for i := range vs {
 								file, err := vs[i].(reflow.Fileset).File()
 								if err != nil {
 									panic(fmt.Sprintf("%s: %v", paths[i], err))
 								}
-								dir.Set(paths[i], file)
+								mDir.Set(paths[i], file)
 							}
+							dir := mDir.Dir()
 							return &flow.Flow{
 								Op:         flow.Val,
 								Value:      dir,
@@ -381,11 +382,11 @@ var coerceFilesetToDirDigest = reflow.Digester.FromString("grail.com/reflow/synt
 
 func coerceFilesetToDir(v values.T) (values.T, error) {
 	fs := v.(reflow.Fileset)
-	var dir values.Dir
+	var mDir values.MutableDir
 	for key, file := range fs.Map {
-		dir.Set(key, file)
+		mDir.Set(key, file)
 	}
-	return dir, nil
+	return mDir.Dir(), nil
 }
 
 var dirsDecls = []*Decl{
@@ -405,7 +406,7 @@ var dirsDecls = []*Decl{
 			if err != nil {
 				return nil, err
 			}
-			groups := map[string]values.Dir{}
+			groups := map[string]values.MutableDir{}
 			for scan := dir.Scan(); scan.Scan(); {
 				idx := re.FindStringSubmatch(scan.Path())
 				if len(idx) != 2 {
@@ -417,7 +418,7 @@ var dirsDecls = []*Decl{
 			}
 			m := new(values.Map)
 			for key, group := range groups {
-				m.Insert(values.Digest(key, types.String), key, group)
+				m.Insert(values.Digest(key, types.String), key, group.Dir())
 			}
 			return m, nil
 		},
@@ -431,11 +432,11 @@ var dirsDecls = []*Decl{
 			&types.Field{Name: "map", T: types.Map(types.String, types.File)}),
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
 			m := args[0].(*values.Map)
-			var dir values.Dir
+			var mDir values.MutableDir
 			m.Each(func(path, file values.T) {
-				dir.Set(path.(string), file.(reflow.File))
+				mDir.Set(path.(string), file.(reflow.File))
 			})
-			return dir, nil
+			return mDir.Dir(), nil
 		},
 	}.Decl(),
 	SystemFunc{
