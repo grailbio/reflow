@@ -250,7 +250,7 @@ type Flow struct {
 	// ArgMap maps exec arguments to dependencies. (OpExec).
 	Argmap []ExecArg
 	// resolvedFs maps exec arguments to resolved filesets. (OpExec).
-	resolvedFs []reflow.Fileset
+	resolvedFs []*reflow.Fileset
 	// OutputIsDir tells whether the output i is a directory.
 	OutputIsDir []bool
 

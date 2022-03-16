@@ -1714,7 +1714,7 @@ var statusPrinters = [maxOp]struct {
 				fmt.Fprintf(w, "    %s = \n", arg)
 				var fs reflow.Fileset
 				if len(f.resolvedFs) > earg.Index {
-					fs = f.resolvedFs[earg.Index]
+					fs = *f.resolvedFs[earg.Index]
 				}
 				if !fs.Empty() {
 					printFileset(w, "        ", fs)
@@ -1921,13 +1921,13 @@ func (e *Eval) taskWait(ctx context.Context, f *Flow, task *sched.Task) error {
 		// If this is an Exec and f.Argmap is defined, then
 		// update the flow's resolved filesets.
 		n := f.NExecArg()
-		f.resolvedFs = make([]reflow.Fileset, n)
+		f.resolvedFs = make([]*reflow.Fileset, n)
 		for i := 0; i < n; i++ {
 			earg, arg := f.ExecArg(i), task.Config.Args[i]
 			if earg.Out {
 				continue
 			}
-			f.resolvedFs[earg.Index] = *arg.Fileset
+			f.resolvedFs[earg.Index] = arg.Fileset
 		}
 	}
 	e.LogFlow(ctx, f)
