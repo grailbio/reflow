@@ -35,6 +35,7 @@ func TestEval(t *testing.T) {
 		"testdata/fold.rf",
 		"testdata/test_flag_dependence.rf",
 		"testdata/compr.rf",
+		"testdata/files.rf",
 	}
 	testutil.RunReflowTests(t, tests)
 }

@@ -1,0 +1,5 @@
+val test = make("$/test")
+val files = make("$/files")
+
+val Test1 = files.Create("hello\n") == file("testdata/testdir2/hello.txt")
+val Test2 = files.Create("world\n") == file("testdata/testdir2/world.txt")

@@ -528,6 +528,8 @@ func coerceFilesetToFile(v values.T) (values.T, error) {
 	return v.(reflow.Fileset).File()
 }
 
+const filesCreateSizeLimMiB = 10
+
 var filesDecls = []*Decl{
 	SystemFunc{
 		Id:     "Copy",
@@ -552,6 +554,30 @@ var filesDecls = []*Decl{
 				Ident:    loc.Ident,
 				Deps:     []*flow.Flow{{Op: flow.Val, Value: fileToFileset(file)}},
 				URL:      u,
+			}, nil
+		},
+	}.Decl(),
+	SystemFunc{
+		Id:     "Create",
+		Module: "files",
+		Doc:    fmt.Sprintf("Create creates a new file with the provided in-lined data (subject to size limit of %dMB)", filesCreateSizeLimMiB),
+		Type: types.Flow(types.Func(types.File, &types.Field{Name: "data", T: types.String})),
+		Do: func(loc values.Location, args []values.T) (values.T, error) {
+			// This is a (small) local data; we inline it as a literal.
+			data := args[0].(string)
+			if len(data) > filesCreateSizeLimMiB<<20 {
+				return nil, fmt.Errorf("%v %v: data is too large (%dMB); files.Create data may not exceed %dMB", loc.Position, loc.Ident, len(data)>>20, filesCreateSizeLimMiB)
+			}
+			return &flow.Flow{
+				Op:         flow.Coerce,
+				Deps: []*flow.Flow{{
+					Op:       flow.Data,
+					Data:     []byte(data),
+					Position: loc.Position,
+					Ident:    loc.Ident,
+				}},
+				FlowDigest: coerceFilesetToFileDigest,
+				Coerce:     coerceFilesetToFile,
 			}, nil
 		},
 	}.Decl(),
