@@ -7,4 +7,12 @@ val TestDirPick = {
 	path == "a"
 }
 
+val d2 = dir("testdata/testdir2")
 
+val d2entries = [
+	("world.txt", file("testdata/testdir/a")),          // Duplicate key, is overridden by later value.
+	("hello.txt", file("testdata/testdir2/hello.txt")),
+	("world.txt", file("testdata/testdir2/world.txt")),
+]
+
+val TestDirFromList = d2 == dirs.FromList(d2entries)

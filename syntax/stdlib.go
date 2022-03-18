@@ -440,6 +440,23 @@ var dirsDecls = []*Decl{
 		},
 	}.Decl(),
 	SystemFunc{
+		Id:     "FromList",
+		Module: "dirs",
+		Mode:   ModeForced,
+		Doc:    "FromList creates a new dir from a list of (path, file) tuples.",
+		Type: types.Func(types.Dir,
+			&types.Field{Name: "list", T: types.List(types.Tuple(&types.Field{T: types.String}, &types.Field{T: types.File}))}),
+		Do: func(loc values.Location, args []values.T) (values.T, error) {
+			l := args[0].(values.List)
+			var mDir values.MutableDir
+			for _, li := range l {
+				tuple := li.(values.Tuple)
+				mDir.Set(tuple[0].(string), tuple[1].(reflow.File))
+			}
+			return mDir.Dir(), nil
+		},
+	}.Decl(),
+	SystemFunc{
 		Id:     "Pick",
 		Module: "dirs",
 		Doc: "Pick returns the first file in a directory matching a glob pattern. " +
