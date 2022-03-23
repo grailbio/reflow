@@ -362,26 +362,28 @@ func (s *Assertions) writeDigest(w io.Writer) {
 	if s.IsEmpty() {
 		return
 	}
-	// Convert the representation into the legacy format so that digests don't change
-	var keys []assertionKey
-	m := make(map[assertionKey]string)
+	keys := make([]AssertionKey, 0, len(s.m))
 	for k, v := range s.m {
 		if v == nil {
 			continue
 		}
-		for o, ov := range v.objects {
-			key := assertionKey{k.Namespace, k.Subject, o}
-			keys = append(keys, key)
-			m[key] = ov
-		}
+		keys = append(keys, k)
 	}
-	sort.Slice(keys, func(i, j int) bool { return keys[i].less(keys[j]) })
+	sort.Slice(keys, func(i, j int) bool { return keys[i].Less(keys[j]) })
+	var okeys []string
 	for _, key := range keys {
-		v := m[key]
-		io.WriteString(w, key.Subject)
-		io.WriteString(w, key.Namespace)
-		io.WriteString(w, key.Object)
-		io.WriteString(w, v)
+		v := s.m[key]
+		for okey := range v.objects {
+			okeys = append(okeys, okey)
+		}
+		sort.Strings(okeys)
+		for _, okey := range okeys {
+			_, _ = io.WriteString(w, key.Subject)
+			_, _ = io.WriteString(w, key.Namespace)
+			_, _ = io.WriteString(w, okey)
+			_, _ = io.WriteString(w, v.objects[okey])
+		}
+		okeys = okeys[:0]
 	}
 }
 

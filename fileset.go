@@ -621,7 +621,8 @@ func (v *Fileset) encodeFilesetParts(depth, index int32, w io.Writer, b *proto.B
 
 	var err error
 	for path, file := range v.Map {
-		if _, ok := files[file.Digest()]; !ok {
+		fileDigest := file.Digest()
+		if _, ok := files[fileDigest]; !ok {
 			var assertionsGroupId int32
 			if includeAssertions {
 				if assertionsGroupId, err = encodeAssertionsParts(
@@ -665,10 +666,10 @@ func (v *Fileset) encodeFilesetParts(depth, index int32, w io.Writer, b *proto.B
 			}, b, w); err != nil {
 				return err
 			}
-			files[file.Digest()] = int32(len(files))
+			files[fileDigest] = int32(len(files))
 		}
 
-		fid := files[file.Digest()]
+		fid := files[fileDigest]
 		if err := marshalProtoWithBuffer(&FilesetPart{
 			Part: &FilesetPart_Fmp{
 				Fmp: &FileMappingPart{

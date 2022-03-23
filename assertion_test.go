@@ -7,21 +7,19 @@ package reflow_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/grailbio/base/traverse"
-	"github.com/grailbio/reflow/test/testutil"
-
-	"encoding/json"
-
-	"strings"
-
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/test/testutil"
 )
 
 var (
@@ -174,6 +172,27 @@ func TestAssertionsDigest(t *testing.T) {
 	for _, tt := range tests {
 		if gotD, wantD := tt.a.Digest(), tt.b.Digest(); tt.we != (gotD == wantD) {
 			t.Errorf("%v == %v : got %v, want %v", tt.a, tt.b, gotD == wantD, tt.we)
+		}
+	}
+}
+
+func TestAssertionsDigestParity(t *testing.T) {
+	const N = 100
+	fuzz := testutil.NewFuzz(nil)
+
+	for i := 0; i < N; i++ {
+		a := createAssertions(10 + fuzz.Intn(50))
+
+		w := reflow.Digester.NewWriter()
+		reflow.WriteDigestOld(a, w)
+		d1 := w.Digest()
+
+		w = reflow.Digester.NewWriter()
+		reflow.WriteDigest(a, w)
+		d2 := w.Digest()
+
+		if got, want := d1, d2; got != want {
+			t.Errorf("got %s, want %s", got, want)
 		}
 	}
 }
@@ -568,6 +587,28 @@ func BenchmarkSort(b *testing.B) {
 				for i := 0; i < b.N; i++ {
 					keys := allKeys[i]
 					sort.Slice(keys, func(i, j int) bool { return s.lessFn(keys[i], keys[j]) })
+				}
+			})
+		}
+	}
+}
+
+func BenchmarkDigest(b *testing.B) {
+	for _, size := range []int{100, 1000, 10000, 100000} {
+		for _, s := range []struct {
+			name   string
+			digFn func(a *reflow.Assertions, w io.Writer)
+		}{
+			{fmt.Sprintf("writeDigestOld_N%d", size), reflow.WriteDigestOld},
+			{fmt.Sprintf("writeDigestNew_N%d", size), reflow.WriteDigest},
+		} {
+			a := createAssertions(size)
+			b.Run(s.name, func(b *testing.B) {
+				b.ReportAllocs()
+				for i := 0; i < b.N; i++ {
+					w := reflow.Digester.NewWriter()
+					s.digFn(a, w)
+					w.Digest()
 				}
 			})
 		}

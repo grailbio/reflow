@@ -113,3 +113,41 @@ func digestMap(m map[string]string) digest.Digest {
 	}
 	return w.Digest()
 }
+
+func WriteDigestOld(s *Assertions, w io.Writer) {
+	s.writeDigestOld(w)
+}
+
+// WriteDigest writes the digestible material for a to w. The
+// io.Writer is assumed to be produced by a Digester, and hence
+// infallible. Errors are not checked.
+func (s *Assertions) writeDigestOld(w io.Writer) {
+	if s.IsEmpty() {
+		return
+	}
+	// Convert the representation into the legacy format so that digests don't change
+	var keys []assertionKey
+	m := make(map[assertionKey]string)
+	for k, v := range s.m {
+		if v == nil {
+			continue
+		}
+		for o, ov := range v.objects {
+			key := assertionKey{k.Namespace, k.Subject, o}
+			keys = append(keys, key)
+			m[key] = ov
+		}
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i].less(keys[j]) })
+	for _, key := range keys {
+		v := m[key]
+		_, _ = io.WriteString(w, key.Subject)
+		_, _ = io.WriteString(w, key.Namespace)
+		_, _ = io.WriteString(w, key.Object)
+		_, _ = io.WriteString(w, v)
+	}
+}
+
+func WriteDigest(s *Assertions, w io.Writer) {
+	s.writeDigest(w)
+}
