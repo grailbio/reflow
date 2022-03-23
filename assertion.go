@@ -60,7 +60,7 @@ type assertion struct {
 // newAssertion creates an assertion for a given key and object-value mappings.
 func newAssertion(objects map[string]string) *assertion {
 	a := assertion{objects: objects}
-	w := Digester.NewWriter()
+	w := Digester.NewWriterShort()
 	for _, k := range sortedKeys(objects) {
 		_, _ = io.WriteString(w, k)
 		_, _ = io.WriteString(w, objects[k])
@@ -350,7 +350,7 @@ func (s *Assertions) Digest() digest.Digest {
 
 // Digest returns the assertions' digest.
 func (s *Assertions) computeDigest() digest.Digest {
-	w := Digester.NewWriter()
+	w := Digester.NewWriterShort()
 	s.writeDigest(w)
 	return w.Digest()
 }
@@ -577,7 +577,7 @@ func (s *Assertions) unmarshal(dec *json.Decoder) error {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		w := Digester.NewWriter()
+		w := Digester.NewWriterShort()
 		for _, k := range keys {
 			_, _ = w.Write(unsafe.StringToBytes(k))
 			_, _ = w.Write(unsafe.StringToBytes(v.objects[k]))

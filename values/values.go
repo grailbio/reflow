@@ -648,7 +648,7 @@ func must(n int, err error) {
 
 // Digest computes the digest for value v, given type t.
 func Digest(v T, t *types.T) digest.Digest {
-	w := Digester.NewWriter()
+	w := Digester.NewWriterShort()
 	WriteDigest(w, v, t)
 	return w.Digest()
 }

@@ -459,7 +459,7 @@ func (p *Pat) FieldMap() map[string]*Pat {
 
 // Digest returns a digest for this pattern.
 func (p *Pat) Digest() digest.Digest {
-	w := reflow.Digester.NewWriter()
+	w := reflow.Digester.NewWriterShort()
 	p.digest(w)
 	return w.Digest()
 }
@@ -648,7 +648,7 @@ func (p Path) Match(v values.T, t *types.T) (values.T, *types.T, Path, error) {
 
 // Digest returns a digest representing this path.
 func (p Path) Digest() digest.Digest {
-	w := reflow.Digester.NewWriter()
+	w := reflow.Digester.NewWriterShort()
 	p.digest(w)
 	return w.Digest()
 }

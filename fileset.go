@@ -73,7 +73,7 @@ func (f File) Digest() digest.Digest {
 	if !f.ContentHash.IsZero() {
 		return f.ContentHash
 	}
-	w := Digester.NewWriter()
+	w := Digester.NewWriterShort()
 	var b [8]byte
 	binary.LittleEndian.PutUint64(b[:], uint64(f.Size))
 	w.Write(b[:])
@@ -442,7 +442,7 @@ func (v Fileset) String() string {
 // semantics: two values with the same digest are considered to be
 // equivalent.
 func (v Fileset) Digest() digest.Digest {
-	w := Digester.NewWriter()
+	w := Digester.NewWriterShort()
 	v.WriteDigest(w)
 	return w.Digest()
 }

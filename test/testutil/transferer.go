@@ -49,7 +49,7 @@ func (t *WaitTransferer) Init() {
 }
 
 func (t *WaitTransferer) transfer(dst, src reflow.Repository, files ...reflow.File) chan error {
-	dw := reflow.Digester.NewWriter()
+	dw := reflow.Digester.NewWriterShort()
 	fmt.Fprintf(dw, "%p%p", dst, src)
 	sort.Slice(files, func(i, j int) bool {
 		return files[i].ID.Less(files[j].ID)

@@ -1511,7 +1511,7 @@ func (k evalK) Continue(e *Expr, sess *Session, env *values.Env, ident string, k
 		depsi []int
 		vs    = make([]values.T, len(subs))
 		ts    = make([]*types.T, len(subs))
-		dw    = reflow.Digester.NewWriter()
+		dw    = reflow.Digester.NewWriterShort()
 	)
 	// TODO(marius): push down sorting of dependencies here?
 	for i, sub := range subs {

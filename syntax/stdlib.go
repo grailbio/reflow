@@ -59,7 +59,7 @@ func (s SystemFunc) Apply(loc values.Location, args []values.T) (values.T, error
 	var (
 		deps  []*flow.Flow
 		depsi []int
-		dw    = reflow.Digester.NewWriter()
+		dw    = reflow.Digester.NewWriterShort()
 	)
 	for i := range args {
 		if s.Mode == ModeForced {

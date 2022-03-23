@@ -43,7 +43,7 @@ func digestN(i int) digest.Digest {
 // the future, we could consider canonicalizing the expression tree
 // as well (e.g., by exploiting commutativity, etc.)
 func (e *Expr) Digest(env *values.Env) digest.Digest {
-	w := reflow.Digester.NewWriter()
+	w := reflow.Digester.NewWriterShort()
 	e.digest(w, env)
 	return w.Digest()
 }

@@ -101,7 +101,7 @@ type ImgCmdID digest.Digest
 // NewImgCmdID returns an ImgCmdID created
 // from an image and a cmd.
 func NewImgCmdID(image, cmd string) ImgCmdID {
-	w := idDigester.NewWriter()
+	w := idDigester.NewWriterShort()
 	_, _ = io.WriteString(w, image)
 	_, _ = io.WriteString(w, cmd)
 	return ImgCmdID(w.Digest())

@@ -829,7 +829,7 @@ func (f *Flow) Digest() digest.Digest {
 }
 
 func (f *Flow) computeDigest() {
-	w := Digester.NewWriter()
+	w := Digester.NewWriterShort()
 	f.WriteDigest(w)
 	f.digest = w.Digest()
 }
@@ -926,7 +926,7 @@ func (f *Flow) WriteDigest(w io.Writer) {
 // PhysicalDigest returns the digest for this node substituting the
 // image name in the node with the provided one, if an exec node.
 func (f *Flow) physicalDigest(image string) digest.Digest {
-	w := Digester.NewWriter()
+	w := Digester.NewWriterShort()
 	for _, dep := range f.Deps {
 		dep.Value.(reflow.Fileset).WriteDigest(w)
 	}

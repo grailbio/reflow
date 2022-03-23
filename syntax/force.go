@@ -178,7 +178,7 @@ func newResolver(v values.T, t *types.T) *resolver {
 	return &resolver{
 		v:  v,
 		t:  t,
-		dw: reflow.Digester.NewWriter(),
+		dw: reflow.Digester.NewWriterShort(),
 	}
 }
 
