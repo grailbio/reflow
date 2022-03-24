@@ -1168,7 +1168,7 @@ func (e *Expr) evalEq(sess *Session, env *values.Env, ident string, left, right 
 	case types.DirKind:
 		l := left.(values.Dir)
 		r := right.(values.Dir)
-		return l.Equal(r), nil
+		return l.Equal(&r), nil
 	default:
 		return values.Equal(left, right), nil
 	}

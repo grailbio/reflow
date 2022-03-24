@@ -1,4 +1,5 @@
 val dirs = make("$/dirs")
+val test = make("$/test")
 
 val d = dir("testdata/testdir")
 
@@ -16,3 +17,53 @@ val d2entries = [
 ]
 
 val TestDirFromList = d2 == dirs.FromList(d2entries)
+
+val dirlist = [
+	dirs.FromList([
+		("world.txt", file("testdata/testdir/a")),  // Duplicate key, is overridden by later value.
+		("hello.txt", file("testdata/testdir/d")), // Duplicate key, is overridden by later value.
+	]),
+	dirs.FromList([
+		("world.txt", file("testdata/testdir/d")),  // Duplicate key, is overridden by later value.
+		("hello.txt", file("testdata/testdir/aa")), // Duplicate key, is overridden by later value.
+	]),
+	dirs.FromList([
+		("world.txt", file("testdata/testdir2/world.txt")),
+	]),
+	dirs.FromList([
+		("hello.txt", file("testdata/testdir2/hello.txt")),
+	]),
+]
+val TestDirSum = d2 == dirs.Sum(dirlist)
+val TestDirReduce = d2 == reduce(func(d1, d2 dir) => d1 + d2, dirlist)
+
+val dirlist2 = [
+	dirs.Make([
+		"a": file("testdata/testdir/a"),
+		"d": file("testdata/testdir/aa"), // Duplicate key, is overridden by later value.
+	]),
+	dirs.Make([
+		"b": file("testdata/testdir/b"),
+		"c": file("testdata/testdir/a"), // Duplicate key, is overridden by later value.
+	]),
+	dirs.Make([
+		"d": file("testdata/testdir/d"),
+		"c": file("testdata/testdir/c"),
+		"f": file("testdata/testdir/f"),
+	]),
+	dirs.Make([
+		"ac": file("testdata/testdir/ac"),
+		"ab": file("testdata/testdir/ab"),
+	]),
+	dirs.Make([
+		"e": file("testdata/testdir/e"),
+	]),
+]
+
+val wantDir = dirs.FromList([(k, file("testdata/testdir/" + k)) | k <- ["a", "b", "c", "d", "e", "f", "ab", "ac"]])
+
+val dirlist2Sum = dirs.Sum(dirlist2)
+val dirlist2SumReduce = reduce(func(d1, d2 dir) => d1 + d2, dirlist2)
+val TestDir2Values = test.All(
+		[dirlist2Sum == wantDir, dirlist2SumReduce == wantDir] +
+		[map(dirlist2Sum)[k] == map(dirlist2SumReduce)[k] | k <- ["a", "b", "c", "d", "e"]])

@@ -15,6 +15,7 @@ package values
 
 import (
 	"crypto" // The SHA-256 implementation is required for this package's
+	"sync"
 	// Digester.
 	_ "crypto/sha256"
 	"encoding/binary"
@@ -149,12 +150,19 @@ type Struct map[string]T
 type Module map[string]T
 
 type MutableDir struct {
+	mu sync.Mutex
 	contents map[string]reflow.File
+	done bool
 }
 
 // Set sets the mutable directory's entry for the provided path.
 // Set overwrites any previous file set at path.
 func (d *MutableDir) Set(path string, file reflow.File) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.done {
+		panic("cannot call MutableDir.Set after calling MutableDir.Dir")
+	}
 	if d.contents == nil {
 		d.contents = make(map[string]reflow.File)
 	}
@@ -163,12 +171,15 @@ func (d *MutableDir) Set(path string, file reflow.File) {
 
 // Dir returns an immutable version of this dir.
 func (d *MutableDir) Dir() Dir {
-	contents := make(map[string]reflow.File, len(d.contents))
-	for k, v := range d.contents {
-		contents[k] = v
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	keys := make([]string, 0, len(d.contents))
+	for k := range d.contents {
+		keys = append(keys, k)
 	}
-	dir := Dir{}
-	dir.AddContents(contents)
+	sort.Strings(keys)
+	dir := Dir{sortedKeys: keys, contentsList: []map[string]reflow.File{d.contents}}
+	d.done = true
 	return dir
 }
 
@@ -178,12 +189,77 @@ func (d *MutableDir) Dir() Dir {
 // if we created a new map and added all the mappings from d first and then from e.
 func SumDir(d Dir, e Dir) Dir {
 	dir := Dir{}
-	for _, c := range d.contentsList {
-		dir.AddContents(c)
+	// Append contents of d and e to dir.
+	dir.contentsList = make([]map[string]reflow.File, 0, len(d.contentsList) + len(e.contentsList))
+	dir.contentsList = append(dir.contentsList, d.contentsList...)
+	dir.contentsList = append(dir.contentsList, e.contentsList...)
+	dir.sortedKeys = mergeSortedDedup(d.sortedKeys, e.sortedKeys)
+	return dir
+}
+
+// ReduceUsingSumDir reduces the given list of dirs into a Dir by successively calling SumDir.
+func ReduceUsingSumDir(dirs []Dir) (sumD Dir) {
+	sumD = dirs[0]
+	for i := 1; i < len(dirs); i++ {
+		sumD = SumDir(sumD, dirs[i])
 	}
-	for _, c := range e.contentsList {
-		dir.AddContents(c)
+	return
+}
+
+// mergeSortedDedup merges two sorted string slices and dedups the elements.
+// mergeSortedDedup assumes that a and b are sorted (and may even be deduped)
+func mergeSortedDedup(a, b []string) []string {
+	merged := make([]string, len(a) + len(b))
+	var i, j, k int
+	for i < len(a) && j < len(b) {
+		var picked string
+		if a[i] < b[j] {
+			picked, i = a[i], i+1
+		} else {
+			picked, j = b[j], j+1
+		}
+		if k == 0 || picked != merged[k-1] {
+			merged[k], k = picked, k+1
+		}
 	}
+	var rest []string
+	if i < len(a) {
+		rest = a[i:]
+	} else {
+		rest = b[j:]
+	}
+	for i = 0; i < len(rest); i++ {
+		if picked := rest[i]; k == 0 || picked != merged[k-1] {
+			merged[k], k = picked, k+1
+		}
+	}
+	return merged[:k:k] // reduce capacity
+}
+
+// SumDirs returns a dir which behaves as the sum of the given dirs.
+// SumDirs is a generalized version of SumDir.
+func SumDirs(dirs []Dir) (dir Dir) {
+	nDirs, nKeys := 0, 0
+	for _, d := range dirs {
+		nDirs += len(d.contentsList)
+		nKeys += len(d.sortedKeys)
+	}
+	dir.contentsList = make([]map[string]reflow.File, 0, nDirs)
+	dKeyset := make(map[string]bool, nKeys)
+	for _, d := range dirs {
+		// Append contents of d to dir.
+		dir.contentsList = append(dir.contentsList, d.contentsList...)
+		// Add all keys of d to the keyset.
+		for _, k := range d.sortedKeys {
+			dKeyset[k] = true
+		}
+	}
+	keys := make([]string, 0, len(dKeyset))
+	for k := range dKeyset {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	dir.sortedKeys = keys
 	return dir
 }
 
@@ -198,34 +274,23 @@ type Dir struct {
 	contentsList []map[string]reflow.File
 }
 
-func (d *Dir) AddContents(contents map[string]reflow.File) {
-	keySet := make(map[string]bool)
-	// Add the existing sorted keys
-	for _, k := range d.sortedKeys {
-		keySet[k] = true
-	}
-	d.contentsList = append(d.contentsList, contents)
-	// Add the keys from the new contents
-	for k := range contents {
-		keySet[k] = true
-	}
-	// Create a new list of sorted keys
-	keys := make([]string, 0, len(keySet))
-	for k := range keySet {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	d.sortedKeys = keys
+// Len returns the number of entries in the directory.
+func (d *Dir) Len() int {
+	return len(d.sortedKeys)
 }
 
-// Len returns the number of entries in the directory.
-func (d Dir) Len() int {
-	return len(d.sortedKeys)
+func (d *Dir) DebugString() string {
+	nc := len(d.contentsList)
+	sizeC := 0
+	for _, c := range d.contentsList {
+		sizeC += len(c)
+	}
+	return fmt.Sprintf("sortedKeys: %d, nContents: %d, sizeContents: %d", d.Len(), nc, sizeC)
 }
 
 // Lookup returns the entry associated with the provided path and a boolean
 // indicating whether the entry was found.
-func (d Dir) Lookup(path string) (file reflow.File, ok bool) {
+func (d *Dir) Lookup(path string) (file reflow.File, ok bool) {
 	// We iterate over the list of contents in reverse because we are simulating the
 	// existence of a combined map to which key-value mappings were added from the list
 	// of maps in d.contentsList in that order.
@@ -238,7 +303,7 @@ func (d Dir) Lookup(path string) (file reflow.File, ok bool) {
 }
 
 // SortedKeys returns a list of keys from this dir in sorted order.
-func (d Dir) SortedKeys() []string {
+func (d *Dir) SortedKeys() []string {
 	return d.sortedKeys
 }
 
@@ -247,7 +312,7 @@ func (d Dir) SortedKeys() []string {
 type DirScanner struct {
 	path string
 	todo []string
-	dir  Dir
+	dir  *Dir
 }
 
 // Scan advances the scanner to the next entry (the first entry for a
@@ -279,12 +344,12 @@ func (s *DirScanner) File() reflow.File {
 //	for scan := dir.Scan(); scan.Scan(); {
 //		fmt.Println(scan.Path(), scan.File())
 //	}
-func (d Dir) Scan() DirScanner {
+func (d *Dir) Scan() DirScanner {
 	return DirScanner{todo: d.SortedKeys(), dir: d}
 }
 
 // Equal compares the file names and digests in the directory.
-func (d Dir) Equal(e Dir) bool {
+func (d *Dir) Equal(e *Dir) bool {
 	if d.Len() != e.Len() {
 		return false
 	}

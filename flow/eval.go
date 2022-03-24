@@ -571,6 +571,7 @@ func (e *Eval) Do(ctx context.Context) error {
 		if len(lookupFlows) > 0 {
 			go e.batchLookup(ctx, lookupFlows...)
 		}
+		e.Log.Debugf("pending: tasks %d (yet to submit), lookup %d, running %d", len(tasks), e.pending.NState(Lookup), e.pending.NState(Running))
 		// Delay task submission until we have gathered all potential tasks
 		// that can be scheduled concurrently. This is represented by the
 		// set of tasks that are currently either performing cache lookups

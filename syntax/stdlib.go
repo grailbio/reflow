@@ -457,6 +457,36 @@ var dirsDecls = []*Decl{
 		},
 	}.Decl(),
 	SystemFunc{
+		Id:     "Sum",
+		Module: "dirs",
+		Mode:   ModeForced,
+		Doc: "Sum sums the given list of directories into one dir.",
+		Type: types.Func(types.Dir,
+			&types.Field{Name: "dirlist", T: types.List(types.Dir)}),
+		Do: func(loc values.Location, args []values.T) (values.T, error) {
+			list := args[0].(values.List)
+			// Handle some special cases more efficiently
+			switch {
+			case len(list) == 1:
+				return list[0].(values.Dir), nil
+			case len(list) == 2:
+				// SumDir is significantly faster than SumDirs when there's only two dirs.
+				// See benchmarks in values/dir_test.go
+				return values.SumDir(list[0].(values.Dir), list[1].(values.Dir)), nil
+			}
+			dirs := make([]values.Dir, len(list))
+			for i, li := range list {
+				dirs[i] = li.(values.Dir)
+			}
+			if len(dirs) <= 10 {
+				// It is faster to reduce this given list of dirs by "reduce"ing using SumDir
+				// than to use SumDirs. See benchmarks in values/dir_test.go
+				return values.ReduceUsingSumDir(dirs), nil
+			}
+			return values.SumDirs(dirs), nil
+		},
+	}.Decl(),
+	SystemFunc{
 		Id:     "Pick",
 		Module: "dirs",
 		Doc: "Pick returns the first file in a directory matching a glob pattern. " +
