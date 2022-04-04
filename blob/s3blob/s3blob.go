@@ -13,6 +13,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3iface"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/grailbio/base/admit"
 	"github.com/grailbio/base/data"
 	"github.com/grailbio/base/digest"
@@ -25,13 +31,6 @@ import (
 	"github.com/grailbio/reflow/errors"
 	"github.com/grailbio/reflow/internal/s3walker"
 	"github.com/grailbio/reflow/log"
-
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3iface"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
 const (
@@ -169,7 +168,7 @@ func (s *Store) newBucket(ctx context.Context, bucket string) (*Bucket, error) {
 
 // NewS3RetryPolicy returns a default retry.Policy useful for S3 operations.
 func newS3RetryPolicy() retry.Policy {
-	return retry.MaxRetries(retry.Jitter(retry.Backoff(1*time.Second, time.Minute, 2), 0.25), defaultMaxRetries)
+	return retry.MaxRetries(retry.Jitter(retry.Backoff(2*time.Second, time.Minute, 4), 0.25), defaultMaxRetries)
 }
 
 // NewS3AimdPolicy returns a default admit.RetryPolicy backed by an AIMD admission controller.
