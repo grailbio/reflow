@@ -447,6 +447,9 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 		if err := e.install(ctx); err != nil {
 			return execInit, err
 		}
+	case code == temporaryExecErrorExitCode:
+		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.Temporary,
+			errors.Errorf("exec returned exit code %d (considered temporary)", temporaryExecErrorExitCode)))
 	case e.Docker.State.OOMKilled:
 		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.OOM, errors.New("killed by OOM killer (docker)")))
 	case oomSys:
@@ -458,9 +461,6 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 			errors.Errorf("docker returned possible OOM exit code %d", possibleOOMExitCode)))
 	case oomNode:
 		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.OOM, oomNodeReason))
-	case code == temporaryExecErrorExitCode:
-		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.Temporary,
-			errors.Errorf("exec returned exit code %d (considered temporary)", temporaryExecErrorExitCode)))
 	default:
 		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.DockerExec, errors.Errorf("exited with code %d", code)))
 	}
