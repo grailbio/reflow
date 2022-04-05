@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/grailbio/base/digest"
 	"github.com/grailbio/reflow"
@@ -724,6 +725,44 @@ var stringsDecls = []*Decl{
 				list[i] = strs[i]
 			}
 			return list, nil
+		},
+	}.Decl(),
+	SystemFunc{
+		Id:     "Chunk",
+		Module: "strings",
+		Doc:    fmt.Sprintf("Chunk chunks the string s into valid strings of upto length maxlen such that " +
+			"the splits occur at rune boundaries.  Since runes can be of length upto %d bytes, " +
+			"maxlen cannot be less than %d.", utf8.UTFMax, utf8.UTFMax),
+		Type: types.Func(types.List(types.String),
+			&types.Field{Name: "s", T: types.String},
+			&types.Field{Name: "maxlen", T: types.Int}),
+		Do: func(loc values.Location, args []values.T) (values.T, error) {
+			var (
+				s, bi  = args[0].(string), args[1].(*big.Int)
+				maxLen = int(bi.Int64())
+			)
+			if maxLen < utf8.UTFMax {
+				return nil, errors.Errorf("strings.Chunks: maxLen %d must be >= %d", maxLen, utf8.UTFMax)
+			}
+			if len(s) <= maxLen {
+				return values.List{s}, nil
+			}
+			var (
+				i int
+				b strings.Builder
+				list   = make(values.List, 0, 1 + (len(s)-1)/maxLen)
+			)
+			for _, r := range s {
+				if b.Len() + utf8.RuneLen(r) > maxLen {
+					list, i = append(list, b.String()), i+1
+					b.Reset()
+				}
+				b.WriteRune(r)
+			}
+			if b.Len() > 0 {
+				list, i = append(list, b.String()), i+1
+			}
+			return list[:i:i] /* reduce capacity */, nil
 		},
 	}.Decl(),
 	SystemFunc{

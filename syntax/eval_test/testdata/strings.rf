@@ -35,3 +35,29 @@ val TestHasSuffix = strings.HasSuffix("hello world", "orld")
 val TestHasPrefix = strings.HasPrefix("hello world", "hell")
 val TestJoin = strings.Join(["a", "b", "c"], ",") == "a,b,c"
 val TestJoin2 = strings.Join([delay("a")], ",") == "a"
+
+val chunksSize100 = strings.Chunk("hello\tworld!!", 100)
+val TestChunks100 = test.All([len(chunksSize100) == 1,
+		len(chunksSize100[0]) == 13, chunksSize100[0] == "hello\tworld!!",
+])
+
+val chunksSize4 = strings.Chunk("hello\tworld!!", 4)
+val TestChunks4 = test.All([len(chunksSize4) == 4,
+		len(chunksSize4[0]) == 4, chunksSize4[0] == "hell",
+		len(chunksSize4[1]) == 4, chunksSize4[1] == "o\two",
+		len(chunksSize4[2]) == 4, chunksSize4[2] == "rld!",
+		len(chunksSize4[3]) == 1, chunksSize4[3] == "!",
+])
+
+val chunksSize6 = strings.Chunk("这 \t a是否适用于 \t 复杂ef的 \n 字符串", 6)
+val TestChunks6 = test.All([len(chunksSize6) == 9,
+		len(chunksSize6[0]) == 6, chunksSize6[0] == "这 \t ",
+		len(chunksSize6[1]) == 4, chunksSize6[1] == "a是",
+		len(chunksSize6[2]) == 6, chunksSize6[2] == "否适",
+		len(chunksSize6[3]) == 6, chunksSize6[3] == "用于",
+		len(chunksSize6[4]) == 6, chunksSize6[4] == " \t 复",
+		len(chunksSize6[5]) == 5, chunksSize6[5] == "杂ef",
+		len(chunksSize6[6]) == 6, chunksSize6[6] == "的 \n ",
+		len(chunksSize6[7]) == 6, chunksSize6[7] == "字符",
+		len(chunksSize6[8]) == 3, chunksSize6[8] == "串",
+])
