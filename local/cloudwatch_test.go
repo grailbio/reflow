@@ -16,10 +16,11 @@ import (
 
 type MockCloudWatchClient struct {
 	cloudwatchlogsiface.CloudWatchLogsAPI
-	PutLogInputs []*cloudwatchlogs.PutLogEventsInput
-	PutLogTimes  []time.Time
-	PutErr       error
-	CreateErr    error
+	PutLogInputs      []*cloudwatchlogs.PutLogEventsInput
+	PutLogTimes       []time.Time
+	CreateStreamTimes []time.Time
+	PutErr            error
+	CreateErr         error
 
 	mu      sync.Mutex
 	Streams map[string]cloudwatchlogs.DescribeLogStreamsOutput
@@ -39,6 +40,7 @@ func (mc *MockCloudWatchClient) CreateLogStream(input *cloudwatchlogs.CreateLogS
 	if mc.CreateErr != nil {
 		return nil, mc.CreateErr
 	}
+	mc.CreateStreamTimes = append(mc.CreateStreamTimes, time.Now())
 	describeOutput := cloudwatchlogs.DescribeLogStreamsOutput{
 		LogStreams: []*cloudwatchlogs.LogStream{{LogStreamName: input.LogStreamName}},
 	}
@@ -128,6 +130,31 @@ func TestCloudWatchConcurrent(t *testing.T) {
 
 	if got, want := len(allLogEvents), numCallers*numLogs; got != want {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestCloudWatchCreateRateLimit(t *testing.T) {
+	client := NewMockCloudWatch()
+	numStreams := 5
+	for i := 0; i < numStreams; i++ {
+		cwlogs := newCloudWatchLogs(&client, "test")
+		stdoutLog := cwlogs.NewStream(fmt.Sprintf("testprefix%d", i), stdout)
+		err := stdoutLog.Output(0, "test log")
+		if err != nil {
+			t.Error(err)
+		}
+		err = cwlogs.Close()
+		if err != nil {
+			t.Error(err)
+		}
+	}
+	if got, want := len(client.CreateStreamTimes), numStreams; got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	requestsDuration := client.CreateStreamTimes[len(client.CreateStreamTimes)-1].Sub(client.CreateStreamTimes[0])
+	qps := float64(len(client.CreateStreamTimes)-1) / requestsDuration.Seconds()
+	if qps > 2.0 {
+		t.Error("CreateLogStream queries are not properly rate limited")
 	}
 }
 
@@ -281,16 +308,14 @@ func TestCloudWatchErrorHandling(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	client.PutErr = &cloudwatchlogs.ServiceUnavailableException{}
-	// Re-add to buffer twice
-	stdoutLog.sendBufferToCw()
-	if got, want := len(stdoutLog.buffer.buffer), 15001; got != want {
-		t.Errorf("got %v, want %v", got, want)
+	// Re-add to buffer for 2 retries
+	for i := 0; i < 2; i++ {
+		stdoutLog.sendBufferToCw()
+		if got, want := len(stdoutLog.buffer.buffer), 15001; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
 	}
-	stdoutLog.sendBufferToCw()
-	if got, want := len(stdoutLog.buffer.buffer), 15001; got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	// Then finally drop after 3rd attempt
+	// Then finally drop after 3th attempt
 	stdoutLog.sendBufferToCw()
 
 	if got, want := len(stdoutLog.buffer.buffer), 15000; got != want {

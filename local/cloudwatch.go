@@ -5,6 +5,7 @@
 package local
 
 import (
+	"context"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs/cloudwatchlogsiface"
+	"github.com/grailbio/base/retry"
 	"github.com/grailbio/base/traverse"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
@@ -30,6 +32,10 @@ const (
 	stdout streamType = "stdout"
 	stderr            = "stderr"
 )
+
+// Used to prevent throttling errors during CreateLogStream
+var createRateLimiter = rate.NewLimiter(rate.Every(time.Second), 1)
+var cwRetryPolicy = retry.MaxRetries(retry.Jitter(retry.Backoff(time.Second, 20*time.Second, 2), 1.0), 3)
 
 // remoteStream is an interface to log to cloud. It must be closed once all the streams are done.
 // Calls to Output on a stream after this is closed will return an error.
@@ -165,10 +171,28 @@ func (s *cloudWatchLogsStream) putLogs(logs []logEntry) (err error) {
 		}
 	}
 	if !s.created {
-		if err = s.cwl.createStream(s.name); err != nil {
-			return s.handleAwsErr("CreateLogStream", err)
+		for i := 0; ; i++ {
+			err = createRateLimiter.Wait(context.Background())
+			if err != nil {
+				return err
+			}
+			err = s.cwl.createStream(s.name)
+			if err == nil {
+				s.created = true
+				break
+			}
+			err = s.handleAwsErr("CreateLogStream", err)
+			if !errors.Transient(err) {
+				return err
+			}
+			if werr := retry.Wait(context.Background(), cwRetryPolicy, i); werr != nil {
+				err = werr
+				break
+			}
 		}
-		s.created = true
+		if err != nil {
+			return err
+		}
 	}
 	response, err := s.cwl.client.PutLogEvents(&cloudwatchlogs.PutLogEventsInput{
 		LogEvents:     events,
@@ -193,6 +217,10 @@ func (s *cloudWatchLogsStream) handleAwsErr(op string, err error) error {
 		kind = errors.Temporary
 	} else if _, ok := err.(*cloudwatchlogs.ServiceUnavailableException); ok {
 		kind = errors.Unavailable
+	} else if aerr, ok := err.(awserr.Error); ok {
+		if aerr.Code() == "ThrottlingException" {
+			kind = errors.Temporary
+		}
 	}
 	return errors.E(op, err, kind)
 }
