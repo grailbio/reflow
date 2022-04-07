@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -500,7 +501,7 @@ func TestTaskNetError(t *testing.T) {
 
 	mtdb := scheduler.TaskDB.(*inmemorytaskdb.InmemoryTaskDB)
 	tdbTasks, _ := mtdb.Tasks(ctx, taskdb.TaskQuery{})
-	if got, want := len(tdbTasks), 1 + len(tasks); got != want {
+	if got, want := len(tdbTasks), 1+len(tasks); got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
@@ -702,6 +703,91 @@ func TestSchedulerDirectTransfer(t *testing.T) {
 		if got, want := outfs.Map[k].Assertions, inf.Assertions; !got.Equal(want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
+	}
+}
+func TestSchedulerDirectTransferRetryableErrorsProgress(t *testing.T) {
+	scheduler, _, shutdown := newTestScheduler(t)
+	blb := &testblob.ErrStore{
+		Store: testblob.New("test"),
+		CopyFromMaybeErr: func() error {
+			// all operations on this blob will return an error 50% of the time
+			if rand.Float32() < 0.5 {
+				return errors.E("op", errors.Temporary, "temp error")
+			}
+			return nil
+		},
+	}
+	scheduler.Mux = blob.Mux{"test": blb}
+	defer shutdown()
+	ctx := context.Background()
+	repo := testutil.NewInmemoryLocatorRepository()
+	in := utiltest.RandomFileset(repo)
+	expectExists(t, repo, in)
+	for _, f := range in.Files() {
+		loc := fmt.Sprintf("test://bucketin/objects/%s", f.ID)
+		repo.SetLocation(f.ID, loc)
+		rc, _ := repo.Get(ctx, f.ID)
+		_ = scheduler.Mux.Put(ctx, loc, f.Size, rc, "")
+	}
+
+	task := utiltest.NewTask(1, 10<<20, 0).WithRepo(repo)
+	task.Config.Args = []reflow.Arg{{Fileset: &in}}
+	task.Config.Type = "extern"
+	task.Config.URL = "test://bucketout/"
+
+	scheduler.Submit(task)
+	_ = task.Wait(ctx, sched.TaskDone)
+
+	// since we only get retryable errors some times, eventually they should all succeed
+	infs, outfs := in.Pullup(), task.Result.Fileset.Pullup()
+	if got, want := infs.Size(), outfs.Size(); got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	for k, inf := range infs.Map {
+		if got, want := outfs.Map[k].Assertions, inf.Assertions; !got.Equal(want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	}
+}
+
+func TestSchedulerDirectTransferRetryableErrorsStalled(t *testing.T) {
+	scheduler, _, shutdown := newTestScheduler(t)
+	blb := &testblob.ErrStore{
+		Store: testblob.New("test"),
+		CopyFromMaybeErr: func() error {
+			// operations on this blob will always return an error
+			return errors.E("op", errors.Temporary, "temp error")
+		},
+	}
+	scheduler.Mux = blob.Mux{"test": blb}
+	defer shutdown()
+	ctx := context.Background()
+	repo := testutil.NewInmemoryLocatorRepository()
+	in := utiltest.RandomFileset(repo)
+	expectExists(t, repo, in)
+	for _, f := range in.Files() {
+		loc := fmt.Sprintf("test://bucketin/objects/%s", f.ID)
+		repo.SetLocation(f.ID, loc)
+		rc, _ := repo.Get(ctx, f.ID)
+		_ = scheduler.Mux.Put(ctx, loc, f.Size, rc, "")
+	}
+
+	task := utiltest.NewTask(1, 10<<20, 0).WithRepo(repo)
+	task.Config.Args = []reflow.Arg{{Fileset: &in}}
+	task.Config.Type = "extern"
+	task.Config.URL = "test://bucketout/"
+
+	scheduler.Submit(task)
+	_ = task.Wait(ctx, sched.TaskDone)
+
+	// since all the transfers stalled, there should be no files in the result fileset
+	outfs := task.Result.Fileset.Pullup()
+	if got, want := outfs.Size(), int64(0); got != want {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	wantErrPrefix := "scheduler direct transfer: progress stalled for retryable errors (see earlier logs)"
+	if got := task.Result.Err.Error(); !strings.HasPrefix(got, wantErrPrefix) {
+		t.Errorf("got '%v'\nwant prefix:'%v'", got, wantErrPrefix)
 	}
 }
 

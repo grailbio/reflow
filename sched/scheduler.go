@@ -706,7 +706,7 @@ func (s *Scheduler) directTransfer(ctx context.Context, task *Task) {
 	task.Set(TaskRunning)
 	task.Err = s.doDirectTransfer(ctx, task, taskLogger)
 	if task.Err != nil && errors.Is(errors.NotSupported, task.Err) {
-		taskLogger.Debugf("switching to non-direct %v", task.Err)
+		taskLogger.Debugf("switching to non-direct due to error: %v", task.Err)
 		task.nonDirectTransfer = true
 		task.Set(TaskLost)
 		s.submitc <- []*Task{task}
@@ -818,26 +818,61 @@ func (s *Scheduler) doDirectTransfer(ctx context.Context, task *Task, taskLogger
 	task.mu.Lock()
 	task.Result.Fileset.Map = map[string]reflow.File{}
 	task.mu.Unlock()
-	g, ctx := errgroup.WithContext(ctx)
-	for _, t := range transfers {
-		t := t
-		g.Go(func() error {
-			start := time.Now()
-			if err := s.Mux.Transfer(ctx, t.dstUrl, t.srcUrl); err != nil {
-				return errors.E(fmt.Sprintf("scheduler direct transfer: %s -> %s", t.srcUrl, t.dstUrl), err)
-			}
-			dur := time.Since(start).Round(time.Second)
-			if dur < 1 {
-				dur += time.Second
-			}
-			sz := t.file.Size
-			taskLogger.Debugf("completed %s -> %s (%s) in %s (%s/s) ", t.srcUrl, t.dstUrl, data.Size(sz), dur, data.Size(sz/int64(dur.Seconds())))
-			task.mu.Lock()
-			task.Result.Fileset.Map[t.filename] = t.file
-			task.mu.Unlock()
-			return nil
-		})
+
+	var (
+		failed          []directTransfer
+		stalledAttempts int
+	)
+	const maxStalledAttempts = 3
+
+	for stalledAttempts <= maxStalledAttempts && len(transfers) > 0 {
+		g, gctx := errgroup.WithContext(ctx)
+		for _, t := range transfers {
+			taskLogger.Debugf("%d transfers remaining, stalled attempts: %d/%d", len(transfers), stalledAttempts, maxStalledAttempts)
+			t := t
+			g.Go(func() error {
+				start := time.Now()
+				if err := s.Mux.Transfer(gctx, t.dstUrl, t.srcUrl); err != nil {
+					if !errors.Restartable(err) {
+						return errors.E(fmt.Sprintf("scheduler direct transfer: %s -> %s", t.srcUrl, t.dstUrl), err)
+					}
+					// retryable, so log and track it in failed, but don't return an error for now
+					taskLogger.Debugf("retryable failure %s -> %s: %s", t.srcUrl, t.dstUrl, err)
+					task.mu.Lock()
+					failed = append(failed, t)
+					task.mu.Unlock()
+					return nil
+				}
+				dur := time.Since(start).Round(time.Second)
+				if dur < 1 {
+					dur += time.Second
+				}
+				sz := t.file.Size
+				taskLogger.Debugf("completed %s -> %s (%s) in %s (%s/s) ", t.srcUrl, t.dstUrl, data.Size(sz), dur, data.Size(sz/int64(dur.Seconds())))
+				task.mu.Lock()
+				task.Result.Fileset.Map[t.filename] = t.file
+				task.mu.Unlock()
+				return nil
+			})
+		}
+		err := g.Wait()
+		if err != nil && !errors.Restartable(err) {
+			task.Result.Err = errors.Recover(err)
+			break // no point in trying further
+		}
+		switch {
+		case len(failed) == 0:
+		case len(failed) == len(transfers):
+			stalledAttempts++
+		case len(failed) < len(transfers):
+			// completed some transfers, so no longer stalled
+			stalledAttempts = 0
+		}
+		// swap the underlying arrays; reset failed slice
+		transfers, failed = failed, transfers[:0]
 	}
-	task.Result.Err = errors.Recover(g.Wait())
+	if stalledAttempts > maxStalledAttempts && task.Result.Err == nil {
+		task.Result.Err = errors.Recover(errors.E(fmt.Sprintf("scheduler direct transfer: progress stalled for retryable errors (see earlier logs); %d incomplete transfers", len(transfers))))
+	}
 	return nil
 }

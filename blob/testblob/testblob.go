@@ -206,6 +206,9 @@ func (b *bucket) Copy(ctx context.Context, src, dst, contentHash string) error {
 }
 
 func (b *bucket) CopyFrom(ctx context.Context, srcBucket blob.Bucket, src, dst string) error {
+	if errb, ok := srcBucket.(*ErrBucket); ok {
+		srcBucket = errb.Bucket
+	}
 	srcb, ok := srcBucket.(*bucket)
 	if !ok {
 		return errors.E(errors.NotSupported, "testblob.CopyFrom", srcBucket.Location())
@@ -231,9 +234,12 @@ func (b *bucket) Location() string {
 	return b.name
 }
 
+// ErrStore is a blob.Store implementation useful for testing. PutErr and
+// CopyFromMaybeErr will be passed on to buckets created with this store.
 type ErrStore struct {
 	blob.Store
-	PutErr error
+	PutErr           error
+	CopyFromMaybeErr func() error
 }
 
 func (es *ErrStore) Bucket(ctx context.Context, name string) (blob.Bucket, error) {
@@ -241,12 +247,13 @@ func (es *ErrStore) Bucket(ctx context.Context, name string) (blob.Bucket, error
 	if err != nil {
 		return nil, err
 	}
-	return &ErrBucket{Bucket: bucket, PutErr: es.PutErr}, nil
+	return &ErrBucket{Bucket: bucket, CopyFromMaybeErr: es.CopyFromMaybeErr}, nil
 }
 
 type ErrBucket struct {
 	blob.Bucket
-	PutErr error
+	PutErr           error
+	CopyFromMaybeErr func() error
 }
 
 func (eb *ErrBucket) Put(ctx context.Context, key string, size int64, body io.Reader, contentHash string) error {
@@ -254,4 +261,16 @@ func (eb *ErrBucket) Put(ctx context.Context, key string, size int64, body io.Re
 		return eb.PutErr
 	}
 	return eb.Bucket.Put(ctx, key, size, body, contentHash)
+}
+
+// CopyFrom bucket will invoke eb.CopyFromMaybeErr if it is non-nil. If the
+// return value of the invocation is a non-nil error, it will be returned
+// immediately. Otherwise, CopyFrom is called on the underlying bucket.
+func (eb *ErrBucket) CopyFrom(ctx context.Context, srcBucket blob.Bucket, src, dst string) error {
+	if eb.CopyFromMaybeErr != nil {
+		if err := eb.CopyFromMaybeErr(); err != nil {
+			return err
+		}
+	}
+	return eb.Bucket.CopyFrom(ctx, srcBucket, src, dst)
 }

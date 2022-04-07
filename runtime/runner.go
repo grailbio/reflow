@@ -359,7 +359,7 @@ func (r *runnerImpl) setRunComplete(ctx context.Context, tdb taskdb.TaskDB, endT
 		if !trace.IsZero() {
 			ds = append(ds, fmt.Sprintf("trace: %s", trace.Short()))
 		}
-		r.Log.Debugf("Saved all logs in task db %s", strings.Join(ds, ", "))
+		r.Log.Debugf("Saved all logs for run %s in task db %s", r.RunID.IDShort(), strings.Join(ds, ", "))
 	}
 	return err
 }
