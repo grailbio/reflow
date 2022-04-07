@@ -749,7 +749,7 @@ func (w *WriterWithCounter) BytesWritten() int {
 func BenchmarkMarshal(b *testing.B) {
 	fuzz := testutil.NewFuzz(nil)
 	for _, nums := range benchCombinations {
-		fs := fuzz.FilesetDeep(nums.nfiles, 0, false, false)
+		fs := fuzz.FilesetDeep(nums.nfiles, 0, true, false)
 		a := createAssertions(nums.nass)
 		if err := fs.AddAssertions(a); err != nil {
 			b.Fatal(err)
@@ -798,7 +798,7 @@ func BenchmarkMarshal(b *testing.B) {
 func BenchmarkUnmarshal(b *testing.B) {
 	fuzz := testutil.NewFuzz(nil)
 	for _, nums := range benchCombinations {
-		fs := fuzz.FilesetDeep(nums.nfiles, 0, false, false)
+		fs := fuzz.FilesetDeep(nums.nfiles, 0, true, false)
 		a := createAssertions(nums.nass)
 		if err := fs.AddAssertions(a); err != nil {
 			b.Fatal(err)
@@ -847,11 +847,16 @@ func BenchmarkUnmarshal(b *testing.B) {
 			b.Run(fmt.Sprintf("%s-nfiles-%d-nass-%d", s.name, nums.nfiles, nums.nass), func(b *testing.B) {
 				b.ReportAllocs()
 				for i := 0; i < b.N; i++ {
+					r := bytes.NewReader(buf.Bytes())
+					b.StartTimer()
 					var gotfs reflow.Fileset
-					if err := s.decode(buf, &gotfs); err != nil && err != io.EOF {
+					if err := s.decode(r, &gotfs); err != nil && err != io.EOF {
 						b.Fatal(err)
 					}
-					buf.Reset()
+					b.StopTimer()
+					if got, want := gotfs, fs; !got.Equal(want) {
+						b.Errorf("unmarshal failed")
+					}
 				}
 			})
 		}
