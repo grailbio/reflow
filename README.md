@@ -725,10 +725,13 @@ no longer there, the `info` and `cat` tools can be used if you have
 the run ID:
 
 	% reflow info 2fd5a9b6
-	runid    user       start   end    ExecLog  SysLog   EvalGraph Trace
-    2fd5a9b6 username   4:41PM  4:41PM 29a4b506 41a8594d 90f40bfc  4ec75aac
+	runid    user       start   end    RunLog   EvalGraph Trace
+    2fd5a9b6 username   4:41PM  4:41PM 29a4b506 90f40bfc  4ec75aac
     
-    % reflow cat 29a4b506 > /tmp/29a4b506.execlog
+    % reflow cat 29a4b506 > /tmp/29a4b506.runlog
+
+    # fetch the evalgraph data, pass to the dot tool to generate an svg image (viewable in your browser)
+    % reflow cat 90f40bfc | dot -Tsvg > /tmp/90f40bfc.svg
 
 For more information about tracing, see: [doc/tracing.md](doc/tracing.md).
 

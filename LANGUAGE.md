@@ -417,10 +417,20 @@ c := fold(func(i {b int}, j int) => {b: i.b + j}, [1, 2, 3], {b:0})
 d := fold(func(i, j int) => if i >= j { i } else { j }, [], 0)
 ```
 
-### Runtime errors: `panic`
+### Runtime errors: `panic`, `error`
 
-Builtin `panic` halts execution with a (string) message.
-Panic is used to indicate a runtime error.
+Builtins `panic` and `error` are used to indicate a runtime error; `panic` halts
+execution with a (string) message and `error` includes an error code (int) along
+with the message.
+
+```
+if foo == 0 {
+    error(123, "foo should not equal 0")	
+} else {
+    "some value"	
+}
+panic("should never reach here")
+```
 
 ### Sequencing: `~>`
 
