@@ -308,7 +308,7 @@ func TestCacheLookupFilesetMigration(t *testing.T) {
 	config.CacheMode = infra.CacheRead | infra.CacheWrite
 	eval := flow.NewEval(extern, config)
 
-	// TODO(ghorrell): remove once fileset migration is complete
+	// TODO(smahadevan): remove once fileset migration is complete
 	fs := testutil.WriteFiles(eval.Repository, "foo", "bar")
 	buf := new(bytes.Buffer)
 	wErr := fs.Write(buf, assoc.Fileset, true, true)
