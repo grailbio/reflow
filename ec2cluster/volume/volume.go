@@ -43,6 +43,9 @@ type Volume interface {
 
 	// SetSize sets this volume's size to the specified amount.
 	SetSize(ctx context.Context, newSize data.Size) error
+
+	// GetVolumeIds returns the volume IDs.
+	GetVolumeIds() []string
 }
 
 const maxRetries = 10
@@ -295,6 +298,11 @@ func (v *ebsLvmVolume) SetSize(ctx context.Context, newSize data.Size) error {
 		return fmt.Errorf("unknown volume status after setting size to %s: %v", newSize, err)
 	}
 	return nil
+}
+
+// GetVolumeIds returns the EBS volume IDs.
+func (v *ebsLvmVolume) GetVolumeIds() []string {
+	return v.ebsVolIds
 }
 
 // getModificationState returns the current modification state for each underlying EBS volume.

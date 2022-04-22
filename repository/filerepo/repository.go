@@ -152,6 +152,11 @@ func (r *Repository) ReadFrom(ctx context.Context, id digest.Digest, u *url.URL)
 			defer os.Remove(temp.Name())
 			_, err = gf.GetFile(ctx, id, temp)
 			if err != nil {
+				_ = temp.Close()
+				return nil, err
+			}
+			err = temp.Close()
+			if err != nil {
 				return nil, err
 			}
 			f, err := r.Install(temp.Name())
@@ -159,7 +164,15 @@ func (r *Repository) ReadFrom(ctx context.Context, id digest.Digest, u *url.URL)
 				return nil, err
 			}
 			if id != f.ID {
-				return nil, errors.E("readfrom", u.String(), errors.Integrity, errors.Errorf("%v != %v", id, f.ID))
+				srcSize := "unknown size"
+				if srcStat, serr := repo.Stat(ctx, id); serr == nil {
+					srcSize = data.Size(srcStat.Size).String()
+				}
+				dstSize := "unknown size"
+				if dstStat, derr := temp.Stat(); derr == nil {
+					dstSize = data.Size(dstStat.Size()).String()
+				}
+				return nil, errors.E("readfrom (GetFile)", u.String(), errors.Integrity, errors.Errorf("%v (%s) != %v (%s)", id, srcSize, f.ID, dstSize))
 			}
 			return nil, nil
 		}
@@ -174,7 +187,15 @@ func (r *Repository) ReadFrom(ctx context.Context, id digest.Digest, u *url.URL)
 			return nil, err
 		}
 		if id != id2 {
-			return nil, errors.E("readfrom", u.String(), errors.Integrity, errors.Errorf("%v != %v", id, id2))
+			srcSize := "unknown size"
+			if srcStat, serr := repo.Stat(ctx, id); serr == nil {
+				srcSize = data.Size(srcStat.Size).String()
+			}
+			dstSize := "unknown size"
+			if dstStat, derr := r.Stat(ctx, id2); derr == nil {
+				dstSize = data.Size(dstStat.Size).String()
+			}
+			return nil, errors.E("readfrom (Get)", u.String(), errors.Integrity, errors.Errorf("%v (%s) != %v (%s)", id, srcSize, id2, dstSize))
 		}
 		return nil, nil
 	})

@@ -72,6 +72,10 @@ func (v *testVolume) ResizeFS() error {
 	return v.rfsErr
 }
 
+func (v *testVolume) GetVolumeIds() []string {
+	return []string{"vol-testvolume1"}
+}
+
 func TestWatcher_initError(t *testing.T) {
 	if _, err := NewWatcher(&testVolume{sizeErr: errTest}, testWatcherParams, log.Std); err == nil {
 		t.Errorf("got no error, want error")

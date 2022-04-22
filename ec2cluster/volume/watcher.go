@@ -61,7 +61,7 @@ func (w *Watcher) Watch(ctx context.Context) {
 	if err != nil {
 		w.log.Error(err)
 	}
-	w.log.Printf("started watching (volume size: %s, used: %.2f%%)", sz, pct)
+	w.log.Printf("started watching %s (volume size: %s, used: %.2f%%)", w.v.GetVolumeIds(), sz, pct)
 
 	for {
 		select {
