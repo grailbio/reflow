@@ -452,6 +452,9 @@ func (c *Cluster) Allocate(ctx context.Context, req reflow.Requirements, labels 
 			if err == nil {
 				return alloc, nil
 			}
+			if err = ctx.Err(); err != nil {
+				return alloc, err // don't try to allocate again if ctx is canceled
+			}
 			c.Log.Errorf("failed to allocate from pool: %v; provisioning new instances", err)
 			// We didn't get it--try again!
 			needch = c.manager.Allocate(ctx, req)

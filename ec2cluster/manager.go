@@ -94,7 +94,7 @@ type Manager struct {
 	// Logger for manager events.
 	log *log.Logger
 
-	waitc  chan *waiter
+	waitc chan *waiter
 
 	mu   sync.Mutex
 	cond *ctxsync.Cond
@@ -163,7 +163,11 @@ func (m *Manager) Allocate(ctx context.Context, req reflow.Requirements) <-chan 
 		ctx:          ctx,
 		c:            make(chan struct{}),
 	}
-	m.waitc <- w
+	select {
+	case m.waitc <- w: // waitc is unbuffered so this is blocking
+	case <-ctx.Done():
+		defer w.notify()
+	}
 	return w.c
 }
 
