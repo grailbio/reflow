@@ -1,6 +1,37 @@
+val regexp = make("$/regexp")
+
 val d = dir("testdata/testdir")
 val filelist = list(d)
 val filemap = map(d)
+
+// Dir comprehension test cases
+
+val TestDirComprIdentity = {
+	val compr = [ pair | pair <- d ]
+	filelist == compr
+}
+
+val TestDirComprFilter = {
+	val compr = [ (path, f) | (path, f) <- d, if regexp.Match(path, "^.*c$") ]
+	switch compr {
+	case [(path1, file1), (path2, file2)]:
+		path1 == "ac" && file1 == file("testdata/testdir/ac") && path2 == "c" && file2 == file("testdata/testdir/c")
+	case _:
+		false
+	}
+}
+
+val TestDirComprFilterMap = {
+	val compr = [ path | (path, _) <- d, if regexp.Match(path, "^a.*$") ]
+	[ "a", "aa", "aaa", "aaab", "ab", "ac", "ad" ] == compr
+}
+
+val TestDirComprCartesianProduct = {
+	val compr = [ path1 + path2 | (path1, _) <- d, if regexp.Match(path1, "^a*$"), (path2, _) <- d, if regexp.Match(path2, "^[0-9]$") ]
+	// 3 prefixes: "a", "aa", "aaa"
+	// 7 suffixes: "0", "1", "2", "3", "4", "5", "6"
+	len(compr) == 21
+}
 
 // List comprehension test cases
 

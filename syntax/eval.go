@@ -1344,6 +1344,33 @@ func (e *Expr) evalCompr(sess *Session, env *values.Env, ident string, begin int
 			switch clause.Expr.Type.Kind {
 			default:
 				panic("invalid expr")
+			case types.DirKind:
+				left := vs[0].(values.Dir)
+				list = make(values.List, 0, left.Len())
+				for scan := left.Scan(); scan.Scan(); {
+					pair := values.Tuple{scan.Path(), scan.File()}
+					env2 := env.Push()
+					for _, m := range clause.Pat.Matchers() {
+						w, err := coerceMatch(pair, clause.Expr.Type.Elem, clause.Pat.Position, m.Path())
+						if err != nil {
+							return nil, err
+						}
+						if m.Ident != "" {
+							env2.Bind(m.Ident, w)
+						}
+					}
+					var err error
+					var element values.T
+					if last {
+						element, err = e.ComprExpr.eval(sess, env2, ident)
+					} else {
+						element, err = e.evalCompr(sess, env2, ident, begin+1)
+					}
+					if err != nil {
+						return nil, err
+					}
+					list = append(list, element)
+				}
 			case types.ListKind:
 				left := vs[0].(values.List)
 				list = make(values.List, len(left))

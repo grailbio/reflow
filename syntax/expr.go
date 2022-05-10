@@ -754,8 +754,13 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 						e.Type = types.Error(err)
 						return
 					}
+				case types.DirKind:
+					if err := clause.Pat.BindTypes(env, clause.Expr.Type.Elem, types.Always); err != nil {
+						e.Type = types.Error(err)
+						return
+					}
 				default:
-					e.Type = types.Errorf("expected list or map, got %v", clause.Expr.Type)
+					e.Type = types.Errorf("expected list, map, or dir, got %v", clause.Expr.Type)
 					return
 				}
 			case ComprFilter:
@@ -771,7 +776,7 @@ func (e *Expr) init(sess *Session, env *types.Env) {
 		}
 		e.ComprExpr.init(sess, env)
 		e.Type = types.List(e.ComprExpr.Type)
-		// Don't (yet) allow constant comptuation of comprehensions.
+		// Don't (yet) allow constant computation of comprehensions.
 		e.Type = types.Swizzle(e.Type, types.NotConst, clauseTypes...)
 	case ExprThunk:
 		// ExprThunks are synthetic expressions and are always typed.

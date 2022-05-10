@@ -358,7 +358,7 @@ type T struct {
 	Kind Kind
 	// Index is the type of the type's index; used in maps.
 	Index *T
-	// Elem is the type of the type's elem; used in lists, maps, and funcs.
+	// Elem is the type of the type's elem; used in lists, maps, dirs, and funcs.
 	Elem *T
 	// Fields stores module, struct, and tuple fields, as well as func
 	// arguments.
@@ -401,7 +401,7 @@ var (
 	String  = &T{Kind: StringKind}
 	Bool    = &T{Kind: BoolKind}
 	File    = &T{Kind: FileKind}
-	Dir     = &T{Kind: DirKind}
+	Dir     = &T{Kind: DirKind, Elem: Tuple(&Field{T: String}, &Field{ T:File})}
 	Unit    = &T{Kind: UnitKind}
 	Fileset = &T{Kind: FilesetKind}
 )

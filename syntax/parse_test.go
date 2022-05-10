@@ -213,6 +213,36 @@ func TestParseModule(t *testing.T) {
 	}
 }
 
+func TestParseModuleListCompr(t *testing.T) {
+	p := Parser{Mode: ParseModule, Body: bytes.NewReader([]byte(`
+        param names [string]
+		val compr = [n | n <- names]
+	`))}
+
+	if err := p.Parse(); err != nil {
+		t.Error(err)
+	}
+	expect := `module(keyspace(<nil>), params(<[string]>declare(names, [string])), decls(assign(compr, compr(ident("n"), enum(ident("names"), n)))))`
+	if got, want := p.Module.String(), expect; got != want {
+		t.Errorf("got %s, want %s", got, want)
+	}
+}
+
+func TestParseModuleDirCompr(t *testing.T) {
+	p := Parser{Mode: ParseModule, Body: bytes.NewReader([]byte(`
+        param items dir
+		val compr = [n | n <- items]
+	`))}
+
+	if err := p.Parse(); err != nil {
+		t.Error(err)
+	}
+	expect := `module(keyspace(<nil>), params(<dir>declare(items, dir)), decls(assign(compr, compr(ident("n"), enum(ident("items"), n)))))`
+	if got, want := p.Module.String(), expect; got != want {
+		t.Errorf("got %s, want %s", got, want)
+	}
+}
+
 func TestParseComments(t *testing.T) {
 	p := Parser{Mode: ParseDecls, Body: bytes.NewReader([]byte(`
 		// Foo computes 123

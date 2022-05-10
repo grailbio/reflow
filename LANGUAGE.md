@@ -280,8 +280,8 @@ val #Yes(excuse) = decision // ERROR: cannot match tag #Yes with a variant with 
 
 <dt>comprehensions</dt>
   <dd>
-  Comprehensions provide list and map processing functionality. A
-  comprehension ranges over a list (or map) and applies an expression
+  Comprehensions provide list, map, and dir processing functionality. A
+  comprehension ranges over a list, map or dir and applies an expression
   to each entry, returning a list of the results. Comprehensions also
   perform inline pattern matching. The following example will apply
   <code>absMul</code> to each pair of integers:
@@ -291,7 +291,15 @@ val multiplied = [absMul(x, y) | (x, y) <- integers]
 </pre>
 Each pair of integers are multiplied together, producing <code>[2, 12, 1]</code>.
 <p>
-Comprehensions can range over multiple lists (or maps),
+Dir comprehensions yield (path, file) pairs. For example, after running:
+<pre>
+d := dir("/home/notes")
+result := [ strings.Join([path, "has", strings.FromInt(len(f)), "bytes"], " ") | (path, f) <- d, if strings.HasSuffix(path, ".txt") ]
+</pre>
+result contains a list of strings based on the files in /home/notes with the ".txt" extension, such as:
+<pre>["foo.txt has 725 bytes", "bar.txt has 89 bytes", "zoo.txt has 7061 bytes"]</pre>
+<p>
+Comprehensions can range over multiple lists (or maps or dirs),
 computing the cross product of these. For example
 <pre>
 val integers = [1,2,3,4]
