@@ -340,6 +340,13 @@ Scan:
 					comment.WriteString(strings.TrimSpace(text[2 : len(text)-2]))
 				}
 			case '\n':
+				if prev1 == '\n' {
+					// Only comments directly preceding declarations should be
+					// considered documentation commentary, so reset when we
+					// see blank lines.
+					comment.Reset()
+					break
+				}
 				comment.WriteString(text)
 			default:
 				if prev1 == '\n' {

@@ -245,23 +245,34 @@ func TestParseModuleDirCompr(t *testing.T) {
 
 func TestParseComments(t *testing.T) {
 	p := Parser{Mode: ParseDecls, Body: bytes.NewReader([]byte(`
+		// A non-doc
+		// comment.
+
 		// Foo computes 123
 		// Line two
 		val Foo = 123
 
 		// A comment before an annotation.
 		@requires(cpu := 1)
-		val Bar = "ok"`))}
+		val Bar = "ok"
+
+		// A non-doc comment.
+
+		val Baz = [0]
+		`))}
 	if err := p.Parse(); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := len(p.Decls), 2; got != want {
+	if got, want := len(p.Decls), 3; got != want {
 		t.Fatalf("got %d, want %v", got, want)
 	}
 	if got, want := p.Decls[0].Comment, "Foo computes 123\nLine two\n"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 	if got, want := p.Decls[1].Comment, "A comment before an annotation.\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if got, want := p.Decls[2].Comment, ""; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }

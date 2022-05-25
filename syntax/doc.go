@@ -153,6 +153,8 @@ the following tokens: identifier, string, integer, template, ')',
 '}', or ']'
 
 All bytes in a line following the characters "//" are commentary.
+Comments directly preceding declarations, with no intervening blank
+line, will be included in `reflow doc` output.
 */
 package syntax
 
