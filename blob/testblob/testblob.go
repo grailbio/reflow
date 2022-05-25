@@ -247,7 +247,7 @@ func (es *ErrStore) Bucket(ctx context.Context, name string) (blob.Bucket, error
 	if err != nil {
 		return nil, err
 	}
-	return &ErrBucket{Bucket: bucket, CopyFromMaybeErr: es.CopyFromMaybeErr}, nil
+	return &ErrBucket{Bucket: bucket, PutErr: es.PutErr, CopyFromMaybeErr: es.CopyFromMaybeErr}, nil
 }
 
 type ErrBucket struct {

@@ -3,6 +3,7 @@
 // license that can be found in the LICENSE file.
 
 //go:build !unit || integration
+// +build !unit integration
 
 package local
 
@@ -649,8 +650,7 @@ func TestExecLoadUnloadDeadObjectRace(t *testing.T) {
 	}
 }
 
-// TODO(awissmann): Fix this test.  (Currently failing on master)
-func skippedTestInspect(t *testing.T) {
+func TestInspect(t *testing.T) {
 	x, cleanup := newTestExecutorOrSkip(t, nil)
 	x.SaveLogsToRepo = true
 	defer cleanup()
