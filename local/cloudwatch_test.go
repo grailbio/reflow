@@ -50,15 +50,6 @@ func (mc *MockCloudWatchClient) CreateLogStream(input *cloudwatchlogs.CreateLogS
 	return nil, nil
 }
 
-func (mc *MockCloudWatchClient) DescribeLogStreams(input *cloudwatchlogs.DescribeLogStreamsInput) (*cloudwatchlogs.DescribeLogStreamsOutput, error) {
-	output, ok := mc.Streams[*input.LogStreamNamePrefix]
-	if ok {
-		return &output, nil
-	} else {
-		return &cloudwatchlogs.DescribeLogStreamsOutput{}, nil
-	}
-}
-
 func (mc *MockCloudWatchClient) PutLogEvents(input *cloudwatchlogs.PutLogEventsInput) (*cloudwatchlogs.PutLogEventsOutput, error) {
 	if mc.PutErr != nil {
 		return nil, mc.PutErr
@@ -162,26 +153,24 @@ func TestCloudWatchLimits(t *testing.T) {
 	client := NewMockCloudWatch()
 	cwlogs := newCloudWatchLogs(&client, "test")
 	countLog := newLogStream(cwlogs, "count")
-	countLog.rateLimiter = &rate.Limiter{}
+	countLog.rateLimiter = rate.NewLimiter(rate.Every(10*time.Millisecond), 1)
 	byteLog := newLogStream(cwlogs, "byte")
-	byteLog.rateLimiter = &rate.Limiter{}
+	byteLog.rateLimiter = rate.NewLimiter(rate.Every(10*time.Millisecond), 1)
 	entries := make([]logEntry, 15000)
+	var szB int
 	for i := 0; i < len(entries); i++ {
 		entries[i] = logEntry{"a", 0}
+		szB += cwLogEntryOverheadBytes + len(entries[i].msg)
 	}
-	countLog.buffer.buffer = entries
+	countLog.buffer.Add(false, szB, entries...)
 
-	countLog.sendBufferToCw()
-	// Two requests should have been sent
-	if got, want := len(client.PutLogInputs), 1; got != want {
+	// Close the log and wait.  Two requests should have been sent.
+	countLog.Close()
+
+	if got, want := len(client.PutLogInputs), 2; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	if got, want := len(client.PutLogInputs[0].LogEvents), 10000; got != want {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	countLog.sendBufferToCw()
-	// Two requests should have been sent
-	if got, want := len(client.PutLogInputs), 2; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	if got, want := len(client.PutLogInputs[1].LogEvents), 5000; got != want {
@@ -195,8 +184,9 @@ func TestCloudWatchLimits(t *testing.T) {
 	// Two logs should be send in separate requests
 	_ = byteLog.Output(0, strings.Repeat("a", cwRequestMaxBytes-26))
 	_ = byteLog.Output(0, "a")
-	byteLog.sendBufferToCw()
-	byteLog.sendBufferToCw()
+
+	// Close the log and wait.  Two requests should have been sent.
+	byteLog.Close()
 	if got, want := len(client.PutLogInputs), 4; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
@@ -280,6 +270,11 @@ func TestCloudWatchErrorHandling(t *testing.T) {
 	client := NewMockCloudWatch()
 	cwlogs := newCloudWatchLogs(&client, "test")
 	stdoutLog := cwlogs.NewStream("err_test", stdout).(*cloudWatchLogsStream)
+	// TODO(swami/awissmann): This unit test should be fixed because it relies on the fact
+	// that setting a nil rate limiter causes the loop() goroutine to become a no-op
+	// and the test directly makes calls to sendBufferToCw().
+	// Ideally, unit tests should test the behavior regardless of implementation specific details.
+
 	stdoutLog.rateLimiter = &rate.Limiter{}
 	logsDone := make(chan struct{})
 	_ = stdoutLog.Output(0, strings.Repeat("a", cwRequestMaxBytes-26))

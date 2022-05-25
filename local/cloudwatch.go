@@ -70,32 +70,16 @@ func newCloudWatchLogs(client cloudwatchlogsiface.CloudWatchLogsAPI, group strin
 }
 
 // createStream creates a LogStream in cloudwatch if it does not yet exist.
-func (c *cloudWatchLogs) createStream(name string) error {
-	out, err := c.client.DescribeLogStreams(&cloudwatchlogs.DescribeLogStreamsInput{
-		LogGroupName:        aws.String(c.group),
-		LogStreamNamePrefix: aws.String(name),
-	})
-	if err == nil {
-		var found bool
-		for _, s := range out.LogStreams {
-			if found = aws.StringValue(s.LogStreamName) == name; found {
-				break
-			}
-		}
-		if found {
-			return nil
-		}
-	}
-	_, err = c.client.CreateLogStream(&cloudwatchlogs.CreateLogStreamInput{
+func (c *cloudWatchLogs) createStream(name string) (err error) {
+	if _, err = c.client.CreateLogStream(&cloudwatchlogs.CreateLogStreamInput{
 		LogGroupName:  aws.String(c.group),
 		LogStreamName: aws.String(name),
-	})
-	if err != nil {
+	}); err != nil {
 		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == cloudwatchlogs.ErrCodeResourceAlreadyExistsException {
 			err = nil
 		}
 	}
-	return err
+	return
 }
 
 // NewStream creates new stream with the given stream prefix and type.
@@ -251,7 +235,7 @@ func (s *cloudWatchLogsStream) sendBufferToCw() {
 func (s *cloudWatchLogsStream) loop() {
 	defer s.wg.Done()
 	for 0 == atomic.LoadInt32(&s.quit) {
-		if s.rateLimiter.Allow() {
+		if err := s.rateLimiter.Wait(context.TODO()); err == nil {
 			s.sendBufferToCw()
 		}
 	}
