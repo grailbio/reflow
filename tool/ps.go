@@ -74,8 +74,8 @@ var (
 		{"procs", "the set of processes running in the exec"},
 	}
 	taskColsType    = headerDesc{"hosttype", "(long listing only) Type of the host on which the task was completed (if available)"}
-	taskColsUri     = headerDesc{"uri/resultid", "(long listing only) URI of a running task or (if taskdb exists) ID of the result of a completed task"}
 	taskColsInspect = headerDesc{"inspect", "(long listing and if taskdb exists) ID of the inspect of a completed task"}
+	taskColsUri     = headerDesc{"uri", "(long listing only) URI of a running task (empty if completed)"}
 	taskColsErr     = headerDesc{"error", "error message if the task failed"}
 
 	poolCols = []headerDesc{
@@ -98,7 +98,7 @@ The columns associated with a run are as follows:
 ` + description(runCols) + `
 
 The columns associated with a task are as follows:
-` + description(append(taskCols, taskColsType, taskColsUri, taskColsInspect, taskColsErr)) + `
+` + description(append(taskCols, taskColsType, taskColsInspect, taskColsUri, taskColsErr)) + `
 `
 )
 
@@ -619,7 +619,7 @@ func poolInfos(prs []taskdb.PoolRow, cc *costComputer) []poolInfo {
 func printTaskHeader(w io.Writer, longListing bool) {
 	fmt.Fprint(w, "\t", header(taskCols))
 	if longListing {
-		fmt.Fprint(w, "\t", header([]headerDesc{taskColsType, taskColsUri, taskColsInspect, taskColsErr}))
+		fmt.Fprint(w, "\t", header([]headerDesc{taskColsType, taskColsInspect, taskColsUri, taskColsErr}))
 	}
 	fmt.Fprint(w, "\n")
 }
@@ -754,13 +754,10 @@ func (c *Cmd) writeTask(task taskInfo, w io.Writer, longListing, full bool) {
 		if task.Alloc != nil && task.Alloc.Pool != nil {
 			hostType = task.Alloc.Pool.PoolType
 		}
-		result := getShort(task.Task.ResultID)
-		if result == "" {
-			result = task.Task.URI
-		}
+		uri := task.Task.URI
 		inspect := getShort(task.Task.Inspect)
 		errstr := getErrStr(task.Err, full)
-		fmt.Fprintf(w, "\t%s\t%s\t%s\t%s", hostType, result, inspect, errstr)
+		fmt.Fprintf(w, "\t%s\t%s\t%s\t%s", hostType, inspect, uri, errstr)
 	}
 	fmt.Fprint(w, "\n")
 }
