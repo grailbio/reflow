@@ -730,9 +730,16 @@ params:
 	{$$ = append($1, $2...)}
 
 param:
-	{$$=nil}
+	{$$ = nil}
 |	tokParam paramdef
-	{$$ = $2}
+	{
+		$$ = $2
+		for _, d := range $$ {
+			if d.Comment == "" {
+				d.Comment = $1.comment
+			}
+		}
+	}
 | 	tokParam '(' paramdefs ')'
 	{$$ = $3}
 

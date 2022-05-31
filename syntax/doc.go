@@ -158,4 +158,4 @@ line, will be included in `reflow doc` output.
 */
 package syntax
 
-//go:generate goyacc reflow.y
+//go:generate goyacc -o reflow.y.go -v reflow.y.output reflow.y

@@ -1498,7 +1498,7 @@ state 96
 	commaOk: .    (169)
 
 	','  shift 177
-	.  reduce 169 (src line 739)
+	.  reduce 169 (src line 746)
 
 	commaOk  goto 176
 
@@ -1566,7 +1566,7 @@ state 101
 	commaOk: .    (169)
 
 	','  shift 185
-	.  reduce 169 (src line 739)
+	.  reduce 169 (src line 746)
 
 	commaOk  goto 184
 
@@ -1584,7 +1584,7 @@ state 103
 	commaOk: .    (169)
 
 	','  shift 188
-	.  reduce 169 (src line 739)
+	.  reduce 169 (src line 746)
 
 	commaOk  goto 187
 
@@ -2772,7 +2772,7 @@ state 162
 	commaOk: .    (169)
 
 	','  shift 230
-	.  reduce 169 (src line 739)
+	.  reduce 169 (src line 746)
 
 	commaOk  goto 229
 
@@ -2944,7 +2944,7 @@ state 177
 	commaOk:  ','.    (170)
 
 	tokIdent  shift 243
-	.  reduce 170 (src line 740)
+	.  reduce 170 (src line 747)
 
 	structfieldarg  goto 242
 
@@ -3087,7 +3087,7 @@ state 185
 	'-'  shift 16
 	'!'  shift 15
 	'#'  shift 27
-	.  reduce 170 (src line 740)
+	.  reduce 170 (src line 747)
 
 	expr  goto 251
 	term  goto 12
@@ -3131,7 +3131,7 @@ state 188
 	'-'  shift 16
 	'!'  shift 15
 	'#'  shift 27
-	.  reduce 170 (src line 740)
+	.  reduce 170 (src line 747)
 
 	expr  goto 254
 	term  goto 12
@@ -3738,7 +3738,7 @@ state 230
 	'-'  shift 16
 	'!'  shift 15
 	'#'  shift 27
-	.  reduce 170 (src line 740)
+	.  reduce 170 (src line 747)
 
 	expr  goto 286
 	term  goto 12
@@ -3887,7 +3887,7 @@ state 239
 	commaOk: .    (169)
 
 	','  shift 296
-	.  reduce 169 (src line 739)
+	.  reduce 169 (src line 746)
 
 	commaOk  goto 295
 
@@ -4035,7 +4035,7 @@ state 249
 
 	tokEllipsis  shift 299
 	','  shift 300
-	.  reduce 169 (src line 739)
+	.  reduce 169 (src line 746)
 
 	commaOk  goto 298
 
@@ -4125,7 +4125,7 @@ state 253
 
 	tokEllipsis  shift 299
 	','  shift 300
-	.  reduce 169 (src line 739)
+	.  reduce 169 (src line 746)
 
 	commaOk  goto 302
 
@@ -4776,7 +4776,7 @@ state 294
 	commaOk: .    (169)
 
 	','  shift 330
-	.  reduce 169 (src line 739)
+	.  reduce 169 (src line 746)
 
 	commaOk  goto 331
 
@@ -4808,7 +4808,7 @@ state 296
 	'-'  shift 16
 	'!'  shift 15
 	'#'  shift 27
-	.  reduce 170 (src line 740)
+	.  reduce 170 (src line 747)
 
 	expr  goto 333
 	term  goto 12
@@ -4858,7 +4858,7 @@ state 299
 state 300
 	commaOk:  ','.    (170)
 
-	.  reduce 170 (src line 740)
+	.  reduce 170 (src line 747)
 
 
 state 301
@@ -4906,7 +4906,7 @@ state 301
 	'&'  shift 82
 	'.'  shift 88
 	';'  shift 337
-	.  reduce 171 (src line 742)
+	.  reduce 171 (src line 749)
 
 	semiOk  goto 336
 
@@ -5109,7 +5109,7 @@ state 317
 state 318
 	param:  tokParam '(' paramdefs ')'.    (168)
 
-	.  reduce 168 (src line 736)
+	.  reduce 168 (src line 743)
 
 
 state 319
@@ -5196,7 +5196,7 @@ state 322
 	semiOk: .    (171)
 
 	';'  shift 337
-	.  reduce 171 (src line 742)
+	.  reduce 171 (src line 749)
 
 	semiOk  goto 345
 
@@ -5414,7 +5414,7 @@ state 330
 	tokVal  shift 64
 	tokFunc  shift 66
 	tokType  shift 67
-	.  reduce 170 (src line 740)
+	.  reduce 170 (src line 747)
 
 	valdef  goto 61
 	typedef  goto 62
@@ -5531,7 +5531,7 @@ state 335
 	'&'  shift 82
 	'.'  shift 88
 	';'  shift 337
-	.  reduce 171 (src line 742)
+	.  reduce 171 (src line 749)
 
 	semiOk  goto 352
 
@@ -5544,7 +5544,7 @@ state 336
 state 337
 	semiOk:  ';'.    (172)
 
-	.  reduce 172 (src line 743)
+	.  reduce 172 (src line 750)
 
 
 state 338
@@ -6142,14 +6142,14 @@ state 364
 
 
 77 terminals, 57 nonterminals
-173 grammar rules, 365/8000 states
+173 grammar rules, 365/16000 states
 0 shift/reduce, 0 reduce/reduce conflicts reported
 106 working sets used
-memory: parser 435/120000
+memory: parser 435/240000
 243 extra closures
 2311 shift entries, 2 exceptions
 175 goto entries
 249 entries saved by goto default
-Optimizer space used: output 1146/120000
+Optimizer space used: output 1146/240000
 1146 table entries, 316 zero
 maximum spread: 77, maximum offset: 361

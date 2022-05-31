@@ -243,7 +243,7 @@ func TestParseModuleDirCompr(t *testing.T) {
 	}
 }
 
-func TestParseComments(t *testing.T) {
+func TestParseDeclComments(t *testing.T) {
 	p := Parser{Mode: ParseDecls, Body: bytes.NewReader([]byte(`
 		// A non-doc
 		// comment.
@@ -273,6 +273,43 @@ func TestParseComments(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 	if got, want := p.Decls[2].Comment, ""; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestParseParamComments(t *testing.T) {
+	p := Parser{Mode: ParseModule, Body: bytes.NewReader([]byte(`
+		// a is an int.
+        param a int
+
+		// b and c are ints.
+		param b, c int
+
+		// d and e are ints too.
+		param /* override param commentary */ d, e int
+	`))}
+	if err := p.Parse(); err != nil {
+		t.Fatal(err)
+	}
+	params := p.Module.ParamDecls
+	if got, want := len(params), 5; got != want {
+		t.Fatalf("got %d, want %v", got, want)
+	}
+	if got, want := params[0].Comment, "a is an int.\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if got, want := params[1].Comment, "b and c are ints.\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if got, want := params[2].Comment, "b and c are ints.\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	// Let commentary on identifier override commentary on overall param
+	// definition.
+	if got, want := params[3].Comment, "override param commentary"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if got, want := params[4].Comment, "d and e are ints too.\n"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
