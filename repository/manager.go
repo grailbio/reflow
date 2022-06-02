@@ -320,6 +320,10 @@ func (m *Manager) transfer(ctx context.Context, dst, src reflow.Repository, file
 }
 
 func (m *Manager) updateStats(src, dst reflow.Repository, status transferStatus, stat stat) {
+	// If there's no status object to report to, then don't bother with updating stats.
+	if m.Status == nil {
+		return
+	}
 	k := key(src) + key(dst)
 	m.mu.Lock()
 	t := m.tasks[k]

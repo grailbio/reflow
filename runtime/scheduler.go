@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/grailbio/base/status"
 	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/errors"
@@ -46,7 +45,7 @@ func newScheduler(config infra.Config, logger *log.Logger) (*sched.Scheduler, er
 		return nil, err
 	}
 	transferer := &repository.Manager{
-		Status:           new(status.Status).Group("transfers"),
+		Status:           nil,
 		PendingTransfers: repository.NewLimits(limit),
 		Stat:             repository.NewLimits(statLimit),
 		Log:              logger,

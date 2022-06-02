@@ -418,10 +418,10 @@ func (o *clientExec) RemoteLogs(ctx context.Context, stdout bool) (reflow.Remote
 		which = "stdoutloc"
 	}
 	call, code, err := o.makeLogsCall(ctx, which, false)
+	defer func() { _ = call.Close() }()
 	if err != nil {
 		return reflow.RemoteLogs{}, errors.E("logslocation", o.URI(), which, err)
 	}
-	defer func() { _ = call.Close() }()
 	if code != http.StatusOK {
 		return reflow.RemoteLogs{}, call.Error()
 	}

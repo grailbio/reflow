@@ -332,13 +332,13 @@ func (n execNode) logNode(loc, stdout, stderr bool, follow string) rest.Node {
 			call.Error(err)
 			return
 		}
+		defer func() { _ = rc.Close() }()
 		_, err = io.Copy(&rest.StreamingCall{Call: call}, rc)
 		if err != nil {
 			call.Error(err)
 			return
 		}
-		rc.Close()
-		call.Write(http.StatusOK, bytes.NewReader(nil))
+		_ = call.Write(http.StatusOK, bytes.NewReader(nil))
 	})
 }
 
