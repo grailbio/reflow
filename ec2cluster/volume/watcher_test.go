@@ -20,6 +20,8 @@ var testWatcherParams = infra.VolumeWatcher{
 	WatcherSleepDuration:  100 * time.Millisecond,
 	ResizeSleepDuration:   50 * time.Millisecond,
 	FastThresholdDuration: 50 * time.Millisecond,
+	FastIncreaseFactor:    10,
+	SlowIncreaseFactor:    5,
 }
 
 type testVolume struct {
@@ -103,11 +105,11 @@ func TestWatcher(t *testing.T) {
 		},
 		{
 			&testVolume{size: data.GiB, duPct: 80.0, ready: true, rfsErr: errTest},
-			2 * data.GiB, 4, 1, 1, 3, 10,
+			data.Size(testWatcherParams.SlowIncreaseFactor) * data.GiB, 4, 1, 1, 3, 10,
 		},
 		{
 			&testVolume{size: data.GiB, duPct: 80.0, ready: true},
-			2 * data.GiB, 5, 1, 1, 10, 1,
+			data.Size(testWatcherParams.SlowIncreaseFactor) * data.GiB, 5, 1, 1, 10, 1,
 		},
 	} {
 		w, err := NewWatcher(tt.v, testWatcherParams, log.Std)

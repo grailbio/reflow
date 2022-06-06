@@ -111,10 +111,10 @@ func (w *Watcher) Watch(ctx context.Context) {
 				break
 			}
 			w.log.Printf("volume ready to modify")
-			// Either double or quadruple (if filling fast) the size
-			incFactor := 2
+			// Determine factor by which to increase disk size.
+			incFactor := w.w.SlowIncreaseFactor
 			if dur := time.Now().Sub(lastBelowThresholdTime); dur < w.w.FastThresholdDuration {
-				incFactor *= 2
+				incFactor = w.w.FastIncreaseFactor
 			}
 			w.log.Printf("attempting size increase by %dX", incFactor)
 			currSize, err := w.v.GetSize(ctx)

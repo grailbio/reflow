@@ -401,8 +401,18 @@ type VolumeWatcher struct {
 
 	// FastThresholdDuration is the time duration within which if the disk usage
 	// went from below LowThresholdPct to above HighThresholdPct, then
-	// we quadruple the disk size (otherwise we just double)
+	// we increase the disk size by FastIncreaseFactor (otherwise, by SlowIncreaseFactor)
 	FastThresholdDuration time.Duration `yaml:"fastthresholdduration,omitempty"`
+
+	// FastIncreaseFactor is factor by which the disk size is increased,
+	// if disk usage went from below LowThresholdPct to above HighThresholdPct,
+	// within FastThresholdDuration.
+	FastIncreaseFactor uint `yaml:"fastincreasefactor,omitempty"`
+
+	// SlowIncreaseFactor is factor by which the disk size is increased,
+	// if disk usage went from below LowThresholdPct to above HighThresholdPct,
+	// in more than FastThresholdDuration duration.
+	SlowIncreaseFactor uint `yaml:"slowincreasefactor,omitempty"`
 }
 
 // ReflowletConfig is a provider for reflowlet configuration parameters which control its behavior.
@@ -441,6 +451,12 @@ func MergeReflowletConfig(base, other ReflowletConfig) ReflowletConfig {
 	if other.VolumeWatcher.FastThresholdDuration != 0 {
 		rc.VolumeWatcher.FastThresholdDuration = other.VolumeWatcher.FastThresholdDuration
 	}
+	if other.VolumeWatcher.FastIncreaseFactor > 0 {
+		rc.VolumeWatcher.FastIncreaseFactor = other.VolumeWatcher.FastIncreaseFactor
+	}
+	if other.VolumeWatcher.SlowIncreaseFactor > 0 {
+		rc.VolumeWatcher.SlowIncreaseFactor = other.VolumeWatcher.SlowIncreaseFactor
+	}
 	return rc
 }
 
@@ -458,6 +474,8 @@ var DefaultVolumeWatcher = VolumeWatcher{
 	WatcherSleepDuration:  1 * time.Minute,
 	ResizeSleepDuration:   5 * time.Second,
 	FastThresholdDuration: 24 * time.Hour,
+	FastIncreaseFactor:    10,
+	SlowIncreaseFactor:    5,
 }
 
 // Init implements infra.Provider.
@@ -477,13 +495,15 @@ func (rp *ReflowletConfig) InstanceConfig() interface{} {
 
 // Flags implements infra.Provider.
 func (rp *ReflowletConfig) Flags(flags *flag.FlagSet) {
-	flags.DurationVar(&rp.MaxIdleDuration, "maxidleduration", 10 * time.Minute, "MaxIdleDuration is the maximum duration the reflowlet will be idle waiting to receive work after which it dies.")
-	flags.DurationVar(&rp.LogStatsDuration, "logstatsduration",  time.Minute, "LogStatsDuration is the periodicity with which the reflowlet will log statistics.")
+	flags.DurationVar(&rp.MaxIdleDuration, "maxidleduration", 10*time.Minute, "MaxIdleDuration is the maximum duration the reflowlet will be idle waiting to receive work after which it dies.")
+	flags.DurationVar(&rp.LogStatsDuration, "logstatsduration", time.Minute, "LogStatsDuration is the periodicity with which the reflowlet will log statistics.")
 	flags.Float64Var(&rp.VolumeWatcher.LowThresholdPct, "lowthresholdpct", 55.0, "LowThresholdPct defines how full the filesystem needs to be to trigger the low threshold.")
 	flags.Float64Var(&rp.VolumeWatcher.HighThresholdPct, "highthresholdpct", 75.0, "HighThresholdPct defines how full the filesystem needs to be to trigger the high threshold.")
-	flags.DurationVar(&rp.VolumeWatcher.WatcherSleepDuration, "watchersleepduration",  time.Minute, "WatcherSleepDuration is the frequency at which to check if resizing is needed")
-	flags.DurationVar(&rp.VolumeWatcher.ResizeSleepDuration, "resizesleepduration",  5 * time.Second, "ResizeSleepDuration is the frequency at which to attempt resizing")
-	flags.DurationVar(&rp.VolumeWatcher.FastThresholdDuration, "fastthresholdduration",  24 * time.Hour, "LogStatsDuration is the periodicity with which the reflowlet will log statistics.")
+	flags.DurationVar(&rp.VolumeWatcher.WatcherSleepDuration, "watchersleepduration", time.Minute, "WatcherSleepDuration is the frequency at which to check if resizing is needed")
+	flags.DurationVar(&rp.VolumeWatcher.ResizeSleepDuration, "resizesleepduration", 5*time.Second, "ResizeSleepDuration is the frequency at which to attempt resizing")
+	flags.DurationVar(&rp.VolumeWatcher.FastThresholdDuration, "fastthresholdduration", 24*time.Hour, "FastThresholdDuration is the duration to use to determine whether disk usage grew fast or slow.")
+	flags.UintVar(&rp.VolumeWatcher.FastIncreaseFactor, "fastincreasefactor", 10, "FastIncreaseFactor is the factor by which to increase disk size if it filled up fast.")
+	flags.UintVar(&rp.VolumeWatcher.SlowIncreaseFactor, "slowincreasefactor", 5, "SlowIncreaseFactor is the factor by which to increase disk size if it filled up slow.")
 }
 
 // DockerConfig sets the docker memory limit to either be hard or soft.
