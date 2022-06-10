@@ -44,6 +44,13 @@ var (
 		},
 	}
 	Gauges = map[string]gaugeOpts{
+		"allocs_live_resources": {
+			Help:   "Resources of live allocs.",
+			Labels: []string{"resource"},
+		},
+		"allocs_live_size": {
+			Help: "Size of live allocs.",
+		},
 		"memstats_heap_inuse_bytes": {
 			Help: "Bytes of memory used by in use heap spans.",
 		},
@@ -58,6 +65,27 @@ var (
 		},
 		"memstats_stack_sys_bytes": {
 			Help: "Bytes of stack memory obtained from the OS.",
+		},
+		"pool_avail_resources": {
+			Help:   "Available resources in a pool.",
+			Labels: []string{"resource"},
+		},
+		"pool_avail_size": {
+			Help: "Available size in a pool.",
+		},
+		"pool_total_resources": {
+			Help:   "Total resources in a pool.",
+			Labels: []string{"resource"},
+		},
+		"pool_total_size": {
+			Help: "Total size of a pool.",
+		},
+		"tasks_in_progress_resources": {
+			Help:   "Resources of tasks currently being processed.",
+			Labels: []string{"resource"},
+		},
+		"tasks_in_progress_size": {
+			Help: "Size of tasks currently being processed.",
 		},
 	}
 	Histograms = map[string]histogramOpts{
@@ -119,6 +147,16 @@ func GetTasksSubmittedSizeCounter(ctx context.Context) Counter {
 	return getCounter(ctx, "tasks_submitted_size", nil)
 }
 
+// GetAllocsLiveResourcesGauge returns a Gauge to set metric allocs_live_resources (resources of live allocs).
+func GetAllocsLiveResourcesGauge(ctx context.Context, resource string) Gauge {
+	return getGauge(ctx, "allocs_live_resources", map[string]string{"resource": resource})
+}
+
+// GetAllocsLiveSizeGauge returns a Gauge to set metric allocs_live_size (size of live allocs).
+func GetAllocsLiveSizeGauge(ctx context.Context) Gauge {
+	return getGauge(ctx, "allocs_live_size", nil)
+}
+
 // GetMemstatsHeapInuseBytesGauge returns a Gauge to set metric memstats_heap_inuse_bytes (bytes of memory used by in use heap spans).
 func GetMemstatsHeapInuseBytesGauge(ctx context.Context) Gauge {
 	return getGauge(ctx, "memstats_heap_inuse_bytes", nil)
@@ -142,6 +180,36 @@ func GetMemstatsStackInuseBytesGauge(ctx context.Context) Gauge {
 // GetMemstatsStackSysBytesGauge returns a Gauge to set metric memstats_stack_sys_bytes (bytes of stack memory obtained from the OS).
 func GetMemstatsStackSysBytesGauge(ctx context.Context) Gauge {
 	return getGauge(ctx, "memstats_stack_sys_bytes", nil)
+}
+
+// GetPoolAvailResourcesGauge returns a Gauge to set metric pool_avail_resources (available resources in a pool).
+func GetPoolAvailResourcesGauge(ctx context.Context, resource string) Gauge {
+	return getGauge(ctx, "pool_avail_resources", map[string]string{"resource": resource})
+}
+
+// GetPoolAvailSizeGauge returns a Gauge to set metric pool_avail_size (available size in a pool).
+func GetPoolAvailSizeGauge(ctx context.Context) Gauge {
+	return getGauge(ctx, "pool_avail_size", nil)
+}
+
+// GetPoolTotalResourcesGauge returns a Gauge to set metric pool_total_resources (total resources in a pool).
+func GetPoolTotalResourcesGauge(ctx context.Context, resource string) Gauge {
+	return getGauge(ctx, "pool_total_resources", map[string]string{"resource": resource})
+}
+
+// GetPoolTotalSizeGauge returns a Gauge to set metric pool_total_size (total size of a pool).
+func GetPoolTotalSizeGauge(ctx context.Context) Gauge {
+	return getGauge(ctx, "pool_total_size", nil)
+}
+
+// GetTasksInProgressResourcesGauge returns a Gauge to set metric tasks_in_progress_resources (resources of tasks currently being processed).
+func GetTasksInProgressResourcesGauge(ctx context.Context, resource string) Gauge {
+	return getGauge(ctx, "tasks_in_progress_resources", map[string]string{"resource": resource})
+}
+
+// GetTasksInProgressSizeGauge returns a Gauge to set metric tasks_in_progress_size (size of tasks currently being processed).
+func GetTasksInProgressSizeGauge(ctx context.Context) Gauge {
+	return getGauge(ctx, "tasks_in_progress_size", nil)
 }
 
 // GetDydbassocOpLatencySecondsHistogram returns a Histogram to set metric dydbassoc_op_latency_seconds (dydbassoc operation latency in seconds).

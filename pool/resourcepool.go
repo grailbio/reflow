@@ -42,7 +42,7 @@ type ResourcePool struct {
 
 	mu        sync.Mutex
 	allocs    map[string]Alloc // the set of active allocs
-	resources reflow.Resources // the total amount of available resources
+	resources reflow.Resources // the total amount of resources in the pool.
 	stopped   bool
 
 	log *log.Logger

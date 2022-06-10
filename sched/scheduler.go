@@ -415,6 +415,11 @@ func (s *Scheduler) allocate(ctx context.Context, alloc *alloc, notify, dead cha
 
 	metrics.GetAllocsStartedCountCounter(ctx).Inc()
 	metrics.GetAllocsStartedSizeCounter(ctx).Add(alloc.Resources().ScaledDistance(nil))
+	metrics.GetAllocsLiveSizeGauge(ctx).Add(alloc.Resources().ScaledDistance(nil))
+	for _, r := range reflow.ResourcesKeys {
+		metrics.GetAllocsLiveResourcesGauge(ctx, r).Add(alloc.Resources()[r])
+	}
+
 	alloc.Context, alloc.Cancel = context.WithCancel(ctx)
 	var endAllocLifespanTrace func()
 	alloc.Context, endAllocLifespanTrace = trace.Start(alloc.Context, trace.AllocLifespan, reflow.Digester.FromString(alloc.Alloc.ID()), "alloc: "+alloc.Alloc.ID())
@@ -422,8 +427,13 @@ func (s *Scheduler) allocate(ctx context.Context, alloc *alloc, notify, dead cha
 	err = pool.Keepalive(alloc.Context, s.Log, alloc.Alloc)
 	alloc.Cancel()
 	endAllocLifespanTrace()
+
 	metrics.GetAllocsCompletedCountCounter(ctx).Inc()
 	metrics.GetAllocsCompletedSizeCounter(ctx).Add(alloc.Resources().ScaledDistance(nil))
+	metrics.GetAllocsLiveSizeGauge(ctx).Sub(alloc.Resources().ScaledDistance(nil))
+	for _, r := range reflow.ResourcesKeys {
+		metrics.GetAllocsLiveResourcesGauge(ctx, r).Sub(alloc.Resources()[r])
+	}
 
 	switch {
 	case err == nil:
@@ -467,8 +477,18 @@ func (s *Scheduler) run(task *Task, returnc chan<- *Task) {
 
 	metrics.GetTasksStartedCountCounter(ctx).Inc()
 	metrics.GetTasksStartedSizeCounter(ctx).Add(task.Config.ScaledDistance(nil))
-	defer metrics.GetTasksCompletedCountCounter(ctx).Inc()
-	defer metrics.GetTasksCompletedSizeCounter(ctx).Add(task.Config.ScaledDistance(nil))
+	metrics.GetTasksInProgressSizeGauge(ctx).Add(task.Config.ScaledDistance(nil))
+	for _, r := range reflow.ResourcesKeys {
+		metrics.GetTasksInProgressResourcesGauge(ctx, r).Add(task.Config.Resources[r])
+	}
+	defer func() {
+		metrics.GetTasksCompletedCountCounter(ctx).Inc()
+		metrics.GetTasksCompletedSizeCounter(ctx).Add(task.Config.ScaledDistance(nil))
+		metrics.GetTasksInProgressSizeGauge(ctx).Sub(task.Config.ScaledDistance(nil))
+		for _, r := range reflow.ResourcesKeys {
+			metrics.GetTasksInProgressResourcesGauge(ctx, r).Sub(task.Config.Resources[r])
+		}
+	}()
 
 	defer func() {
 		if tcancel == nil {

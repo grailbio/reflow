@@ -19,6 +19,10 @@ const (
 	disk = "disk"
 )
 
+// ResourcesKeys are the type of labeled resources typically used.
+// ResourcesKeys does not include disk because it is not updated/used for most practical purposes.
+var ResourcesKeys = []string{mem, cpu}
+
 // Resources describes a set of labeled resources. Each resource is
 // described by a string label and assigned a value. The zero value
 // of Resources represents the resources with zeros for all labels.
@@ -131,13 +135,13 @@ func (r *Resources) Scale(s Resources, factor float64) *Resources {
 // ScaledDistance returns the distance between two resources computed as a sum
 // of the differences in memory, cpu and disk with some predefined scaling.
 func (r Resources) ScaledDistance(u Resources) float64 {
-	// Consider 6G Memory and 1 CPU are somewhat the same cost
+	// Consider 8G Memory and 1 CPU are somewhat the same cost
 	// when we compute "distance" between the resources.
-	// % reflow ec2instances | awk '{s += $2/$3; n++} END{print s/n}'
-	// 5.98788
+	// % reflow ec2instances | grep -v usable | awk '{print $2, $4}' | sed 's/GiB/*1024/g' | sed 's/TiB/*1024*1024/g' | awk '{s += $1/$2; n++} END{print s/n}'
+	// 8.06203
 	const (
 		G             = 1 << 30
-		memoryScaling = 1.0 / (6 * G)
+		memoryScaling = 1.0 / (8 * G)
 		cpuScaling    = 1
 	)
 	return math.Abs(float64(r[mem])-float64(u[mem]))*memoryScaling +

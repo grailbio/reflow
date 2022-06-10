@@ -50,9 +50,13 @@ import (
 	"golang.org/x/net/http2"
 )
 
-// maxConcurrentStreams is the number of concurrent http/2 streams we
-// support.
-const maxConcurrentStreams = 20000
+const (
+	// maxConcurrentStreams is the number of concurrent http/2 streams we support.
+	maxConcurrentStreams = 20000
+
+	// metricsUpdatePeriodicity is the periodicity at which reflowlet metrics are updated.
+	metricsUpdatePeriodicity = 30 * time.Second
+)
 
 // A Server is a reflow server, exposing a local pool over an HTTP server.
 type Server struct {
@@ -206,7 +210,7 @@ func (s *Server) ListenAndServe() error {
 	// In the case of an error, we delay the return of this function to allow for the
 	// logs to be flushed to cloudwatch
 	defer func() {
-		time.Sleep(time.Second + ec2cluster.ReflowletCloudwatchFlushMs * time.Millisecond)
+		time.Sleep(time.Second + ec2cluster.ReflowletCloudwatchFlushMs*time.Millisecond)
 	}()
 
 	addr := os.Getenv("DOCKER_HOST")
@@ -264,8 +268,8 @@ func (s *Server) ListenAndServe() error {
 	}
 
 	var (
-		tdb    taskdb.TaskDB
-		poolId reflow.StringDigest
+		tdb                    taskdb.TaskDB
+		poolId                 reflow.StringDigest
 		expectedUsableMemBytes int64
 	)
 	if s.EC2Cluster {
@@ -351,6 +355,14 @@ func (s *Server) ListenAndServe() error {
 	go func() {
 		defer wg.Done()
 		logStats(ctx, p, reflowletLog.Tee(nil, "stats: "), rc.LogStatsDuration)
+	}()
+
+	// Start periodic prometheus metrics updation.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ctx := metrics.WithClient(ctx, mclient)
+		updateMetrics(ctx, p, metricsUpdatePeriodicity)
 	}()
 
 	// Start the loop to exit reflowlet if idle.
@@ -469,6 +481,27 @@ func logStats(ctx context.Context, p *local.Pool, log *log.Logger, d time.Durati
 			usedPcts = append(usedPcts, fmt.Sprintf("%s: %.1f%%", k, 100.0-math.Round(100*freeFrac[k])))
 		}
 		log.Printf("Allocated resources %s; total %s free %s", strings.Join(usedPcts, " "), tot, free)
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-iter.C:
+		}
+	}
+}
+
+// updateMetrics updates prometheus metrics every d duration.
+func updateMetrics(ctx context.Context, p *local.Pool, d time.Duration) {
+	iter := time.NewTicker(d)
+	for {
+		tot, free := p.Resources(), p.Available()
+
+		metrics.GetPoolTotalSizeGauge(ctx).Set(tot.ScaledDistance(nil))
+		metrics.GetPoolAvailSizeGauge(ctx).Set(free.ScaledDistance(nil))
+		for _, r := range reflow.ResourcesKeys {
+			metrics.GetPoolTotalResourcesGauge(ctx, r).Set(tot[r])
+			metrics.GetPoolAvailResourcesGauge(ctx, r).Set(free[r])
+		}
 
 		select {
 		case <-ctx.Done():

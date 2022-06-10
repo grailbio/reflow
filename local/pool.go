@@ -97,8 +97,6 @@ type Pool struct {
 
 	// NodeOomDetector is an oom detector based node metrics
 	NodeOomDetector OomDetector
-
-	mu sync.Mutex
 }
 
 // saveState saves the current state of the pool to Prefix/Dir/state.json.
@@ -120,18 +118,17 @@ func (p *Pool) saveState(allocs []pool.Alloc) error {
 	return nil
 }
 
-// updateDiskSize detects and updates the disk resources.
-// It must be called while p.mu is locked.
-func (p *Pool) updateDiskSize(r reflow.Resources) {
-	root := filepath.Join(p.Prefix, p.Dir)
+// addDiskSize adds the disk size to the the given resources based on disk stats
+// fetched for the given path.
+func addDiskSize(r reflow.Resources, path string, log *log.Logger) {
 	diskSize := 2e12
 	if existing, ok := r["disk"]; ok {
 		diskSize = existing
 	}
-	if usage, err := fs.Stat(root); err == nil {
+	if usage, err := fs.Stat(path); err == nil {
 		r["disk"] = float64(usage.Total)
 	} else {
-		p.Log.Printf("refresh disk size (assuming %s), stat %s: %v", data.Size(diskSize), root, err)
+		log.Printf("refresh disk size (assuming %s), stat %s: %v", data.Size(diskSize), path, err)
 		r["disk"] = diskSize
 	}
 }
@@ -144,8 +141,6 @@ func (p *Pool) updateDiskSize(r reflow.Resources) {
 // expectedUsableMemBytes can be set to a small number (eg: zero) to signify that
 // there's no specific expectation.
 func (p *Pool) Start(expectedUsableMemBytes int64) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	ctx := context.Background()
 	p.ResourcePool = pool.NewResourcePool(p, p.Log)
 	info, err := p.Client.Info(ctx)
@@ -172,7 +167,7 @@ func (p *Pool) Start(expectedUsableMemBytes int64) error {
 	if err := os.MkdirAll(root, 0777); err != nil {
 		log.Printf("mkdir %s: %v", root, err)
 	}
-	p.updateDiskSize(resources)
+	addDiskSize(resources, filepath.Join(p.Prefix, p.Dir), p.Log)
 
 	if err := os.MkdirAll(filepath.Join(p.Prefix, p.Dir, allocsPath), 0777); err != nil {
 		return err
@@ -237,7 +232,7 @@ func (p *Pool) Start(expectedUsableMemBytes int64) error {
 
 func (p *Pool) Resources() reflow.Resources {
 	r := p.ResourcePool.Resources()
-	p.updateDiskSize(r)
+	addDiskSize(r, filepath.Join(p.Prefix, p.Dir), p.Log)
 	return r
 }
 
@@ -269,8 +264,6 @@ func (p *Pool) Name() string {
 // The list of other existing allocs are provided here to enable atomic saving
 // of the state of all allocs.
 func (p *Pool) New(ctx context.Context, id string, meta pool.AllocMeta, keepalive time.Duration, existing []pool.Alloc) (pool.Alloc, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	alloc := p.newAlloc(id, keepalive)
 	if err := alloc.configure(meta); err != nil {
 		return nil, err

@@ -18,6 +18,13 @@ tasks_started_size:
 tasks_completed_size:
   type: "counter"
   help: "Size of completed tasks."
+tasks_in_progress_size:
+  type: "gauge"
+  help: "Size of tasks currently being processed."
+tasks_in_progress_resources:
+  type: "gauge"
+  help: "Resources of tasks currently being processed."
+  labels: ["resource"]
 
 ## allocs
 allocs_started_count:
@@ -32,6 +39,29 @@ allocs_started_size:
 allocs_completed_size:
   type: "counter"
   help: "Size of completed allocs."
+allocs_live_size:
+  type: "gauge"
+  help: "Size of live allocs."
+allocs_live_resources:
+  type: "gauge"
+  help: "Resources of live allocs."
+  labels: ["resource"]
+
+## reflowlet
+pool_total_resources:
+  type: "gauge"
+  help: "Total resources in a pool."
+  labels: ["resource"]
+pool_avail_resources:
+  type: "gauge"
+  help: "Available resources in a pool."
+  labels: ["resource"]
+pool_total_size:
+  type: "gauge"
+  help: "Total size of a pool."
+pool_avail_size:
+  type: "gauge"
+  help: "Available size in a pool."
 
 # assoc
 dydbassoc_op_latency_seconds:
