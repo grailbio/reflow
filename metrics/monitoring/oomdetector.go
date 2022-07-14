@@ -29,8 +29,7 @@ const (
 )
 
 func NewNodeOomDetector(nodeMetricsUrl string, log *log.Logger) *oomDetector {
-	m := &oomDetector{timeSeries: newTimeSeries(nodeMetricsUrl, periodicity,
-		[]string{pressureMemWaiting, pressureMemStalled, memAvailableBytes, memTotalBytes}, log)}
+	m := &oomDetector{timeSeries: newTimeSeries(nodeMetricsUrl, periodicity, []string{memAvailableBytes, memTotalBytes}, log)}
 	m.setupConsumerFn()
 	return m
 }
@@ -60,14 +59,7 @@ func (m *oomDetector) Oom(pid int, start, end time.Time) (bool, string) {
 	if pid != -1 {
 		return false, ""
 	}
-	tvs, err := m.query(pressureMemStalled, start, end)
-	if err != nil {
-		m.log.Errorf("oomDetector query %s: %v", pressureMemStalled, err)
-	} else if d := diff(tvs); d > 0 {
-		return true, fmt.Sprintf("possible OOM within period [%s, %s]: change in %s: %.4f",
-			start.Format(time.RFC3339), end.Format(time.RFC3339), pressureMemStalled, d)
-	}
-	tvs, err = m.query(memTotalBytes, start, end)
+	tvs, err := m.query(memTotalBytes, start, end)
 	if err != nil {
 		m.log.Errorf("oomDetector query %s: %v", memTotalBytes, err)
 	}
