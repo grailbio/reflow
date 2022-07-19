@@ -1375,6 +1375,53 @@ func TestOomAdjust(t *testing.T) {
 	}
 }
 
+func TestCapMemory(t *testing.T) {
+	e := flow.EvalConfig{MaxResources: reflow.Resources{"cpu": 16, "mem": 64 << 30}}
+	eNoMax := flow.EvalConfig{}
+	for _, tt := range []struct {
+		specified, want reflow.Resources
+		wantCapped      bool
+		wantErr         error
+	}{
+		{reflow.Resources{"cpu": 5, "mem": 10 << 30}, reflow.Resources{"cpu": 5, "mem": 10 << 30}, false, nil},
+		{reflow.Resources{"cpu": 5, "mem": 64 << 30}, reflow.Resources{"cpu": 5, "mem": 64 << 30}, false, nil},
+		{reflow.Resources{"cpu": 16, "mem": 64 << 30}, reflow.Resources{"cpu": 16, "mem": 64 << 30}, false, nil},
+		{reflow.Resources{"cpu": 10, "mem": 66 << 30}, reflow.Resources{"cpu": 10, "mem": 64 << 30}, true, nil},
+		{reflow.Resources{"cpu": 24, "mem": 64 << 30}, reflow.Resources{"cpu": 24, "mem": 64 << 30}, false, nil},
+		{reflow.Resources{"cpu": 17, "mem": 32 << 30}, reflow.Resources{"cpu": 17, "mem": 32 << 30}, false, nil},
+		{reflow.Resources{"cpu": 17, "mem": 65 << 30}, reflow.Resources{"cpu": 17, "mem": 64 << 30}, true, nil},
+		{reflow.Resources{"cpu": 10, "mem": 71 << 30}, nil, false, fmt.Errorf("resources {mem:71.0GiB cpu:10 disk:0B} are way higher than max %s", e.MaxResources)},
+	} {
+		got, gotCapped, gotErr := eNoMax.CapMemory(tt.specified)
+		if gotErr != nil {
+			t.Errorf("got %v, want nil", gotErr)
+			continue
+		}
+		if !got.Equal(tt.specified) || gotCapped {
+			t.Errorf("got %v, want %v (capped %v)", got, tt.specified, gotCapped)
+		}
+
+		got, gotCapped, gotErr = e.CapMemory(tt.specified)
+		switch {
+		case (gotErr == nil) != (tt.wantErr == nil):
+			t.Errorf("got %v, want %v", gotErr, tt.wantErr)
+		case gotErr != nil && tt.wantErr != nil:
+			if tt.wantErr.Error() != gotErr.Error() {
+				t.Errorf("got %v, want %v", gotErr, tt.wantErr)
+			}
+		}
+		if gotErr != nil {
+			continue
+		}
+		if gotCapped != tt.wantCapped {
+			t.Errorf("got %v, want %v", gotCapped, tt.wantCapped)
+		}
+		if !got.Equal(tt.want) {
+			t.Errorf("got %v, want %v", got, tt.want)
+		}
+	}
+}
+
 func flowFiles(files ...string) *flow.Flow {
 	v := testutil.Files(files...)
 	return &flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done}

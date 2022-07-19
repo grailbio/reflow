@@ -25,6 +25,9 @@ type Cluster interface {
 	// CanAllocate returns whether this cluster can allocate the given amount of resources.
 	CanAllocate(reflow.Resources) (bool, error)
 
+	// MaxAlloc returns the max resources which can be obtained in a single alloc from this cluster.
+	MaxAlloc() reflow.Resources
+
 	// GetName returns the name of the cluster
 	GetName() string
 }

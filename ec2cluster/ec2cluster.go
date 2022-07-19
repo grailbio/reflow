@@ -413,6 +413,12 @@ func (c *Cluster) CanAllocate(r reflow.Resources) (bool, error) {
 	return true, nil
 }
 
+// MaxAlloc returns the max resources which can be obtained in a single alloc from this cluster.
+func (c *Cluster) MaxAlloc() reflow.Resources {
+	max := c.instanceState.Largest()
+	return max.Resources
+}
+
 // Allocate reserves an alloc with within the resource requirement
 // boundaries form this cluster. If an existing instance can serve
 // the request, it is returned immediately; otherwise new instance(s)

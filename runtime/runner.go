@@ -79,13 +79,14 @@ func (rt *runtime) NewRunner(params RunnerParams) (ReflowRunner, error) {
 		return nil, err
 	}
 	r := &runnerImpl{
-		RunConfig: params.RunConfig,
-		RunID:     *runID,
-		sess:      rt.sess,
-		scheduler: rt.scheduler,
-		predictor: pred,
-		Log:       params.Logger,
-		user:      user.User(),
+		RunConfig:    params.RunConfig,
+		RunID:        *runID,
+		sess:         rt.sess,
+		scheduler:    rt.scheduler,
+		maxResources: rt.cluster.MaxAlloc(),
+		predictor:    pred,
+		Log:          params.Logger,
+		user:         user.User(),
 	}
 	r.status = params.Status
 	if r.status == nil {
@@ -147,11 +148,12 @@ type runnerImpl struct {
 	// DotWriter is the writer to write the flow evaluation graph to write to, in dot format.
 	DotWriter io.Writer
 
-	RunConfig RunConfig
-	scheduler *sched.Scheduler
-	predictor *predictor.Predictor
-	cmdline   string
-	wg        *wg.WaitGroup
+	RunConfig    RunConfig
+	scheduler    *sched.Scheduler
+	maxResources reflow.Resources
+	predictor    *predictor.Predictor
+	cmdline      string
+	wg           *wg.WaitGroup
 
 	// infra
 	sess   *session.Session
@@ -248,6 +250,7 @@ func (r *runnerImpl) Go(ctx context.Context) (runner.State, error) {
 			ImageMap:           e.ImageMap,
 			RunID:              r.RunID,
 			DotWriter:          r.DotWriter,
+			MaxResources:       r.maxResources,
 		},
 		Type:    e.MainType(),
 		Labels:  r.labels,

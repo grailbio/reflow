@@ -79,9 +79,9 @@ const (
 	// If the file is too big (ie, bigger than sizePerToken * numCPUs), then we simply
 	// prevent more than one file of such size to be processed concurrently.
 	sizePerToken = 16 * 1024 * 1024 // 16MiB
-)
 
-const defaultCacheLookupTimeout = 20 * time.Minute
+	defaultCacheLookupTimeout = 20 * time.Minute
+)
 
 // stateStatusOrder defines the order in which differenet flow
 // statuses are rendered.
@@ -179,6 +179,9 @@ type EvalConfig struct {
 
 	// Labels is the labels for this run.
 	Labels pool.Labels
+
+	// MaxResources is the max resources that can be used for a single task for this evaluation
+	MaxResources reflow.Resources
 }
 
 // String returns a human-readable form of the evaluation configuration.
@@ -540,7 +543,7 @@ func (e *Eval) Do(ctx context.Context) error {
 							// because the linux OOM killer does not catch all OOM errors. In order to prevent such an error from
 							// causing a reflow program to fail, assume that if the Predictor lowers the memory of a task and
 							// that task returns a non-OOM error, the task should be retried with its original resources.
-							retry, resources, retryType = true, f.Resources, "Predictor"
+							retry, retryType, resources = true, "Predictor", f.Resources
 							msg = fmt.Sprintf("non-OOM error, switch from predicted (%s) to default (%s) memory", data.Size(f.Reserved["mem"]), data.Size(f.Resources["mem"]))
 						case errors.Is(errors.OOM, task.Result.Err):
 							// Retry OOMs with adjusted resources.
@@ -1958,12 +1961,14 @@ func (e *Eval) newTask(f *Flow) *sched.Task {
 
 // reviseResources revises the resources of the submitted tasks and flows, if applicable.
 func (e *Eval) reviseResources(ctx context.Context, tasks []*sched.Task, flows []*Flow) {
-	if e.Predictor == nil {
-		return
+	predictions := make(map[*sched.Task]predictor.Prediction)
+	if e.Predictor != nil {
+		// Compute predictions if applicable
+		predictions = e.Predictor.Predict(ctx, tasks...)
 	}
-	predictions := e.Predictor.Predict(ctx, tasks...)
 	for i, task := range tasks {
 		if predicted, ok := predictions[task]; ok {
+			// Set predicted resources for each task (and flow).
 			oldResources := task.Config.Resources.String()
 			f := flows[i]
 			newReserved := make(reflow.Resources)
@@ -1978,7 +1983,41 @@ func (e *Eval) reviseResources(ctx context.Context, tasks []*sched.Task, flows [
 			task.ExpectedDuration = predicted.Duration
 			e.Log.Debugf("(flow %s): predicted duration %s", task.FlowID.Short(), predicted.Duration.Round(time.Second))
 		}
+
+		// Whether resources were modified by predictor or not, check if they need to be capped.
+		oldResources := task.Config.Resources
+		cappedR, capped, err := e.capMemory(oldResources)
+		switch {
+		case err != nil:
+			e.Log.Errorf("(flow %s): reviseResources %s: %v", task.FlowID.Short(), oldResources, err)
+		case capped:
+			f := flows[i]
+			e.Mutate(f, SetReserved(cappedR))
+			task.Config = f.ExecConfig()
+			e.Log.Printf("(flow %s): capping resources from %s to %s (max available %s)", task.FlowID.Short(), oldResources, task.Config.Resources, e.MaxResources)
+		}
 	}
+}
+
+// capMemory caps the memory specified in the given resources to the max available.
+// capMemory will return an error if the given memory is way higher than the max.
+func (e *EvalConfig) capMemory(r reflow.Resources) (rr reflow.Resources, capped bool, err error) {
+	rr.Set(r) // First set the return value to the original.
+
+	switch {
+	case e.MaxResources.Equal(nil):
+		// If MaxResources is undefined, return the original.
+	case r["mem"] > e.MaxResources["mem"]*reflow.GetMaxResourcesMemoryBufferFactor():
+		// If memory requirements are more than the max available (with buffer) then return an error.
+		// This is to avoid allowing execs which require way more memory than the max which can be obtained.
+		err = fmt.Errorf("resources %s are way higher than max %s", r, e.MaxResources)
+	case r["mem"] > e.MaxResources["mem"]:
+		// Cap the memory to the max available if applicable.
+		rr["mem"] = e.MaxResources["mem"]
+	}
+
+	capped = !r.Equal(rr) && !r.Equal(e.MaxResources)
+	return
 }
 
 // retryTask retries a task with the specified resources and waits for it to complete.
@@ -1986,9 +2025,17 @@ func (e *Eval) retryTask(ctx context.Context, f *Flow, resources reflow.Resource
 	// Apply ExecReset so that the exec can be resubmitted to the scheduler with the flow's
 	// exec runtime parameters reset.
 	f.ExecReset()
+	cappedR, capped, err := e.capMemory(resources)
+	switch {
+	case err != nil:
+		return nil, err
+	case capped:
+		e.Log.Printf("flow %s: retryTask (reason: %s): capping resources from %s to %s (max available %s)", f.Digest().Short(), retryType, resources, cappedR, e.MaxResources)
+		resources.Set(cappedR)
+	}
 	e.Mutate(f, SetReserved(resources), Execing)
 	task := e.newTask(f)
-	e.Log.Printf("flow %s: %s: re-submitting task with %s", f.Digest().Short(), retryType, msg)
+	e.Log.Printf("flow %s: retryTask (reason: %s): re-submitting task with %s", f.Digest().Short(), retryType, msg)
 	e.Scheduler.Submit(task)
 	return task, e.taskWait(ctx, f, task)
 }

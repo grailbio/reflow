@@ -38,12 +38,6 @@ const (
 	allocsPath = "allocs"
 	// remoteStreamCWLogGroupName is the cloudwatch log group name for remote streams.
 	remoteStreamCWLogGroupName = "reflow"
-
-	// reflowletProcessMemoryReservationPct is the amount of memory that's reserved for the reflowlet process,
-	// currently set to 5%. The EC2 overhead and this memory reservation for the reflowlet process,
-	// will both be accounted for when we do per-instance verification (using `reflow ec2verify`).
-	// NOTE: Changing this will warrant re-verification of all instance types.
-	reflowletProcessMemoryReservationPct = 0.05
 )
 
 var errAllocExpired = errors.New("alloc expired")
@@ -147,7 +141,7 @@ func (p *Pool) Start(expectedUsableMemBytes int64) error {
 	if err != nil {
 		return err
 	}
-	availableMem := math.Floor(float64(info.MemTotal) * (1 - reflowletProcessMemoryReservationPct))
+	availableMem := math.Floor(float64(info.MemTotal) * (1 - reflow.ReflowletProcessMemoryReservationPct))
 	if got, want := int64(availableMem), expectedUsableMemBytes; got < want {
 		return errors.Errorf("unviable pool, available mem (%d) < expected mem (%d)", got, want)
 	}

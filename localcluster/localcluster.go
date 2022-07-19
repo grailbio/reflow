@@ -46,8 +46,8 @@ type Cluster struct {
 	// Session is the aws session.
 	Session *session.Session
 
-	total     reflow.Resources
-	dir       string
+	total reflow.Resources
+	dir   string
 }
 
 // Init implements infra.Provider
@@ -106,6 +106,11 @@ func (c *Cluster) CanAllocate(r reflow.Resources) (bool, error) {
 		return false, errors.E(errors.ResourcesExhausted, fmt.Sprintf("required resource %s greater than available %s", r, c.total))
 	}
 	return true, nil
+}
+
+// MaxAlloc returns the max resources which can be obtained in a single alloc from this cluster.
+func (c *Cluster) MaxAlloc() reflow.Resources {
+	return c.total
 }
 
 // Allocate allocates an alloc on the local machine with the specified requirements.

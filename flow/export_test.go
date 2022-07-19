@@ -50,3 +50,7 @@ func (e *Eval) FindFlowCopy(f *Flow) *Flow {
 	}
 	return nil
 }
+
+func (e *EvalConfig) CapMemory(r reflow.Resources) (rr reflow.Resources, capped bool, err error) {
+	return e.capMemory(r)
+}

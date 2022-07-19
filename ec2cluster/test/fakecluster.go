@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 
+	"github.com/grailbio/base/data"
 	"github.com/grailbio/infra"
 	"github.com/grailbio/reflow"
 	"github.com/grailbio/reflow/ec2cluster"
@@ -27,6 +28,13 @@ func (c *Cluster) Init() error {
 
 func (c *Cluster) CanAllocate(r reflow.Resources) (bool, error) {
 	return true, nil
+}
+
+var maxResources = reflow.Resources{"cpu": 16, "mem": 64 * float64(data.GiB)}
+
+// MaxAlloc returns the max resources which can be obtained in a single alloc from this cluster.
+func (c *Cluster) MaxAlloc() reflow.Resources {
+	return maxResources
 }
 
 // Allocate is a no op.
