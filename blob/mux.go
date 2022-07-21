@@ -55,13 +55,14 @@ func (m Mux) File(ctx context.Context, url string) (reflow.File, error) {
 }
 
 // Scan returns a scanner for the provided URL (which represents a
-// prefix).
-func (m Mux) Scan(ctx context.Context, url string) (Scanner, error) {
+// prefix). If withMetadata is true, the scanner is configured to
+// make a best-effort attempt to fetch each object's metadata.
+func (m Mux) Scan(ctx context.Context, url string, withMetadata bool) (Scanner, error) {
 	bucket, prefix, err := m.Bucket(ctx, url)
 	if err != nil {
 		return nil, err
 	}
-	return bucket.Scan(prefix), nil
+	return bucket.Scan(prefix, withMetadata), nil
 }
 
 // Download downloads the object named by the provided URL to the

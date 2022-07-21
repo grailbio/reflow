@@ -48,7 +48,8 @@ func GetFiles(ctx context.Context, bucketName string) ([]reflow.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	scan := bucket.Scan("")
+	const withMetadata = true
+	scan := bucket.Scan("", withMetadata)
 	var files []reflow.File
 	for scan.Scan(ctx) {
 		_, file := scan.Key(), scan.File()

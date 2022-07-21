@@ -292,10 +292,21 @@ func (s *scanner) Key() string {
 }
 
 // Scan returns a scanner that iterates over all objects in the
-// provided prefix.
-func (b *Bucket) Scan(prefix string) blob.Scanner {
+// provided prefix. If withMetadata is true, the scanner is configured
+// to make a best-effort attempt to fetch each object's metadata.
+func (b *Bucket) Scan(prefix string, withMetadata bool) blob.Scanner {
+	walker := &s3walker.S3Walker{
+		S3:      b.client,
+		Bucket:  b.bucket,
+		Prefix:  prefix,
+		Policy:  b.fileAdmitter,
+		Retrier: b.retrier,
+	}
+	if withMetadata {
+		walker = walker.WithMetadata()
+	}
 	return &scanner{
-		S3Walker: &s3walker.S3Walker{S3: b.client, Bucket: b.bucket, Prefix: prefix, Policy: b.fileAdmitter, Retrier: b.retrier},
+		S3Walker: walker,
 		bucket:   b.bucket,
 	}
 }
@@ -501,7 +512,8 @@ func (b *Bucket) Snapshot(ctx context.Context, prefix string) (reflow.Fileset, e
 		dir     = reflow.Fileset{Map: make(map[string]reflow.File)}
 		nprefix = len(prefix)
 	)
-	scan := b.Scan(prefix)
+	const withMetadata = true
+	scan := b.Scan(prefix, withMetadata)
 	for scan.Scan(ctx) {
 		key := scan.Key()
 		// Skip "directories".

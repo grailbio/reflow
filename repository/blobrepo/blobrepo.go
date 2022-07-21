@@ -146,10 +146,11 @@ func (r *Repository) resolve(ctx context.Context, id digest.Digest) (digest.Dige
 	if !id.IsAbbrev() {
 		return id, nil
 	}
+	const withMetadata = false
 	var (
 		abbrev = id.ShortString(id.NPrefix())
 		prefix = path.Join(r.Prefix, objectsPath, abbrev)
-		scan   = r.Bucket.Scan(prefix)
+		scan   = r.Bucket.Scan(prefix, withMetadata)
 	)
 	if !scan.Scan(ctx) {
 		return id, errors.E("blobrepo.resolve", id, errors.NotExist)
@@ -202,7 +203,8 @@ func (r *Repository) CollectWithThreshold(ctx context.Context, live liveset.Live
 		todo                = make([]string, 0, deleteMaxObjects)
 	)
 
-	scan := r.Bucket.Scan(path.Join(r.Prefix, objectsPath))
+	const withMetadata = false
+	scan := r.Bucket.Scan(path.Join(r.Prefix, objectsPath), withMetadata)
 	for scan.Scan(ctx) {
 		objectsCheckedCount++
 		if objectsCheckedCount%10000 == 0 {

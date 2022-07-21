@@ -369,7 +369,8 @@ func (e *blobExec) doIntern(ctx context.Context) error {
 	}
 	rw := newRateExporter(internRate)
 	defer rw.Done()
-	scan := bucket.Scan(prefix)
+	const withMetadata = true
+	scan := bucket.Scan(prefix, withMetadata)
 	for scan.Scan(ctx) {
 		key, file := scan.Key(), scan.File()
 		if len(key) < nprefix {

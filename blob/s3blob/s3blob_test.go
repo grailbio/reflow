@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/rand"
-	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -144,24 +143,52 @@ func TestSnapshot(t *testing.T) {
 func TestScanner(t *testing.T) {
 	bucket := newTestBucket(t)
 	ctx := context.Background()
-	scan := bucket.Scan("test/")
 
-	var got, want []string
+	// Without metadata
+	scan := bucket.Scan("test/", false)
+	var got, want []reflow.File
 	for scan.Scan(ctx) {
-		got = append(got, scan.Key())
+		got = append(got, scan.File())
 	}
 	if err := scan.Err(); err != nil {
 		t.Fatal(err)
 	}
 	for k := range testKeys {
 		if strings.HasPrefix(k, "test/") {
-			want = append(want, k)
+			want = append(want, testFile(k, false))
 		}
 	}
-	sort.Strings(got)
-	sort.Strings(want)
-	if !reflect.DeepEqual(got, want) {
+	checkFiles(t, want, got)
+
+	// With metadata
+	scan = bucket.Scan("test/", true)
+	got = nil
+	want = nil
+	for scan.Scan(ctx) {
+		got = append(got, scan.File())
+	}
+	if err := scan.Err(); err != nil {
+		t.Fatal(err)
+	}
+	for k := range testKeys {
+		if strings.HasPrefix(k, "test/") {
+			want = append(want, testFile(k, true))
+		}
+	}
+	checkFiles(t, want, got)
+}
+
+func checkFiles(t *testing.T, want, got []reflow.File) {
+	t.Helper()
+	sort.Slice(got, func(i, j int) bool { return got[i].Source < got[j].Source })
+	sort.Slice(want, func(i, j int) bool { return want[i].Source < want[j].Source })
+	if len(want) != len(got) {
 		t.Errorf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if !want[i].Equal(got[i]) {
+			t.Errorf("got %v, want %v", got, want)
+		}
 	}
 }
 

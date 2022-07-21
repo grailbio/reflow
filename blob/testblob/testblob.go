@@ -118,7 +118,7 @@ func (s scanner) File() reflow.File {
 	return file
 }
 
-func (b *bucket) Scan(prefix string) blob.Scanner {
+func (b *bucket) Scan(prefix string, withMetadata bool) blob.Scanner {
 	s := &scanner{b: b}
 	for k := range b.objects {
 		if strings.HasPrefix(k, prefix) {

@@ -31,7 +31,9 @@ type Bucket interface {
 
 	// Scan returns a scanner for the provided prefix, which is
 	// then used to retrieve all keys (in order) with this prefix.
-	Scan(prefix string) Scanner
+	// If withMetadata is true, the scanner is configured to make
+	// a best-effort attempt to fetch each object's metadata.
+	Scan(prefix string, withMetadata bool) Scanner
 
 	// Download downloads the provided key into the provided writer. The
 	// underlying implementation may perform concurrent downloading,

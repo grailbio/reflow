@@ -24,11 +24,14 @@ type S3Walker struct {
 	// Bucket and Prefix name the location of the scan.
 	Bucket, Prefix string
 
-	// Admission policy for S3 operations (can be nil)
+	// Admission policy for S3 operations (can be nil).
 	Policy admit.Policy
 
-	// Retrier policy for S3 operations
+	// Retrier policy for S3 operations.
 	Retrier retry.Policy
+
+	// fetchMetadata determines if each object's metadata is fetched.
+	fetchMetadata bool
 
 	object    *s3.Object
 	metadata  map[string]*string
@@ -37,6 +40,19 @@ type S3Walker struct {
 	token     *string
 	err       error
 	done      bool
+}
+
+// WithMetadata returns a new S3Walker configured to make a best-effort
+// attempt to fetch each object's metadata.
+func (w *S3Walker) WithMetadata() *S3Walker {
+	return &S3Walker{
+		S3:            w.S3,
+		Bucket:        w.Bucket,
+		Prefix:        w.Prefix,
+		Policy:        w.Policy,
+		Retrier:       w.Retrier,
+		fetchMetadata: true,
+	}
 }
 
 // Scan scans the next key; it returns false when no more keys can
@@ -50,7 +66,10 @@ func (w *S3Walker) Scan(ctx context.Context) bool {
 		return false
 	}
 	if len(w.objects) > 0 {
-		w.object, w.metadata, w.objects, w.metadatas = w.objects[0], w.metadatas[0], w.objects[1:], w.metadatas[1:]
+		w.object, w.objects = w.objects[0], w.objects[1:]
+		if w.fetchMetadata {
+			w.metadata, w.metadatas = w.metadatas[0], w.metadatas[1:]
+		}
 		return true
 	}
 	if w.done {
@@ -90,19 +109,22 @@ func (w *S3Walker) Scan(ctx context.Context) bool {
 	w.token = res.NextContinuationToken
 	w.objects = res.Contents
 	w.done = !aws.BoolValue(res.IsTruncated)
-	// Loading object metadata is best-effort.
-	w.metadatas = make([]map[string]*string, len(w.objects))
-	_ = traverse.Each(len(w.metadatas), func(i int) error {
-		return admit.Do(ctx, w.Policy, 1, func() (bool, error) {
-			if resp, err := w.S3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
-				Bucket: aws.String(w.Bucket),
-				Key:    w.objects[i].Key,
-			}); err == nil {
-				w.metadatas[i] = resp.Metadata
-			}
-			return true, nil
+
+	if w.fetchMetadata {
+		// Loading object metadata is best-effort.
+		w.metadatas = make([]map[string]*string, len(w.objects))
+		_ = traverse.Each(len(w.metadatas), func(i int) error {
+			return admit.Do(ctx, w.Policy, 1, func() (bool, error) {
+				if resp, err := w.S3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+					Bucket: aws.String(w.Bucket),
+					Key:    w.objects[i].Key,
+				}); err == nil {
+					w.metadatas[i] = resp.Metadata
+				}
+				return true, nil
+			})
 		})
-	})
+	}
 	return w.Scan(ctx)
 }
 

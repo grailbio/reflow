@@ -32,11 +32,23 @@ func getFile(content string) file {
 	return file{content: content, sha256: "not_really_sha256" + content}
 }
 
-func checkScan(t *testing.T, w *S3Walker, want []file) {
+func getContentHash(metadata map[string]*string) string {
+	if metadata == nil {
+		return ""
+	}
+	return *metadata["Content-Sha256"]
+}
+
+func checkScan(t *testing.T, w *S3Walker, want []file, withMetadata bool) {
 	t.Helper()
+	if !withMetadata {
+		for i, _ := range want {
+			want[i].sha256 = ""
+		}
+	}
 	var got []file
 	for w.Scan(context.Background()) {
-		got = append(got, file{aws.StringValue(w.Object().Key), *w.Metadata()["Content-Sha256"]})
+		got = append(got, file{aws.StringValue(w.Object().Key), getContentHash(w.Metadata())})
 	}
 	if err := w.Err(); err != nil {
 		t.Error(err)
@@ -61,7 +73,27 @@ func setup(t *testing.T) (client *s3test.Client, want []file) {
 func TestS3Walker(t *testing.T) {
 	client, want := setup(t)
 	w := &S3Walker{S3: client, Bucket: bucket, Prefix: "test/"}
-	checkScan(t, w, want)
+	checkScan(t, w, want, false)
+}
+
+func TestS3WalkerWithMetadata(t *testing.T) {
+	client, want := setup(t)
+	const idxNoMetadata = 1 // Index of file for which HeadObject will fail.
+	want[idxNoMetadata].sha256 = ""
+	client.Err = func(api string, input interface{}) error {
+		if api != "HeadObject" {
+			return nil
+		}
+		if input, ok := input.(*s3.HeadObjectInput); ok {
+			if *input.Key == want[idxNoMetadata].content {
+				return awserr.New(s3.ErrCodeNoSuchKey, "test", nil)
+			}
+		}
+		return nil
+	}
+	w := &S3Walker{S3: client, Bucket: bucket, Prefix: "test/"}
+	w = w.WithMetadata()
+	checkScan(t, w, want, true)
 }
 
 func TestS3WalkerRetries(t *testing.T) {
@@ -88,7 +120,7 @@ func TestS3WalkerRetries(t *testing.T) {
 		t.Fatal("scan must fail")
 	}
 	w = &S3Walker{S3: client, Bucket: bucket, Prefix: "test/", Retrier: rp}
-	checkScan(t, w, want)
+	checkScan(t, w, want, false)
 }
 
 func TestS3WalkerWithPolicy(t *testing.T) {
@@ -108,40 +140,5 @@ func TestS3WalkerWithPolicy(t *testing.T) {
 	policy.Release(10, true)
 	// Setup new S3Walker with same policy (previous will be in err state).
 	w = &S3Walker{S3: client, Bucket: bucket, Prefix: "test/", Policy: policy, Retrier: rp}
-	checkScan(t, w, want)
-}
-
-func TestS3WalkerFile(t *testing.T) {
-	client := s3test.NewClient(t, bucket)
-	const key1, key2 = "path/to/a/file", "path/to/another/file"
-	client.SetFile(key1, []byte("contents"), "sha256")
-	client.SetFile(key2, []byte("other contents"), "another_sha256")
-	client.Err = func(api string, input interface{}) error {
-		if api != "HeadObject" {
-			return nil
-		}
-		if input, ok := input.(*s3.HeadObjectInput); ok {
-			if *input.Key == key2 {
-				return awserr.New(s3.ErrCodeNoSuchKey, "test", nil)
-			}
-		}
-		return nil
-	}
-	ctx := context.Background()
-	w := &S3Walker{S3: client, Bucket: bucket, Prefix: "path/to/"}
-	var got []file
-	for w.Scan(ctx) {
-		f := file{content: aws.StringValue(w.Object().Key)}
-		if len(w.Metadata()) > 0 {
-			f.sha256 = *w.Metadata()["Content-Sha256"]
-		}
-		got = append(got, f)
-	}
-	if err := w.Err(); err != nil {
-		t.Error(err)
-	}
-	sort.Slice(got, func(i, j int) bool { return got[i].content < got[j].content })
-	if want := []file{{key1, "sha256"}, {key2, ""}}; !reflect.DeepEqual(got, want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
+	checkScan(t, w, want, false)
 }
