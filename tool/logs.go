@@ -42,6 +42,8 @@ func (c *Cmd) logs(ctx context.Context, args ...string) {
 		followFlag    = flags.Bool("f", false, "for exec logs, follows until exec completion (full exec URI must be specified e.g. ec2-35-165-199-174.us-west-2.compute.amazonaws.com:9000/bb97e35db4101030/9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49)")
 		reflowletFlag = flags.Bool("reflowlet", false, "if true, then streams the logs of the reflowlet")
 		runLevelFlag  = flags.String("level", "info", "for a run log, this is the minimum log level for logs returned from the runlog")
+		startFlag     = flags.String("start", "", "start of the time range (inclusive) for reflowlet logs (format YYYY-MM-DD UTC or time.Duration)")
+		endFlag       = flags.String("end", "", "end of the time range (exclusive) for reflowlet logs (format YYYY-MM-DD UTC or time.Duration)")
 		help          = `Logs displays logs from reflow runs, execs, or reflowlets.
 
 The valid arguments are:
@@ -51,15 +53,24 @@ The valid arguments are:
 			  -level=info
 				   one of (debug,info,error), this specifies the minimum log level for logs returned
 
-  TaskId / Exec URI / Alloc URI / Hostname
-	Fetches a log produced by a reflow exec. Argument may be a TaskId or Exec URI. If -reflowlet is set, you may also provide an Alloc URI or just a hostname.
+  TaskId / Exec URI
+	Fetches a log produced by a reflow exec. Argument may be a TaskId or Exec URI.
 		  Options:
 			  -stdout
 				   if set, will retrieve exec's stdout log instead of stderr.
 			  -f
 				   if the argument provided is an exec URI, follow the exec log until the exec completes.
-			 -reflowlet
-				   stream reflowlet logs instead of exec logs
+			  -reflowlet
+				   stream reflowlet logs instead of exec logs.
+
+  Alloc URI / Hostname
+	Fetches a log produced by a reflowlet. Requires -reflowlet to be set.
+		  Options:
+			 -start=[YYYY-MM-DD | time.Duration]
+				   exclude logs produced before a UTC date or X [hours|minutes|seconds] ago.
+			 -end=[YYYY-MM-DD | time.Duration]
+				   exclude logs produced on or after a UTC date or X [hours|minutes|seconds] ago.
+
 Examples:
   $ reflow logs 9909853c                                                                            (RunId or TaskId, requires taskdb)
   $ reflow logs 9909853c8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49                    (RunId or TaskId, requires taskdb)
@@ -69,6 +80,7 @@ Examples:
   $ reflow logs -f ec2-35-165-199-174.us-west-2.compute.amazonaws.com:9000/bb97e35db4101030/71444f1a8cada5431400c5f89fe5658e139aea88cab8c1479a8c35c902b1cb49
   $ reflow logs -reflowlet ec2-35-165-199-174.us-west-2.compute.amazonaws.com                       (requires -reflowlet to be set)
   $ reflow logs -reflowlet ec2-35-165-199-174.us-west-2.compute.amazonaws.com:9000/bb97e35db4101030 (requires -reflowlet to be set)
+  $ reflow logs -reflowlet -start=24h -end=12h ec2-35-165-199-174.us-west-2.compute.amazonaws.com   (requires -reflowlet to be set)
 `
 	)
 	c.Parse(flags, args, help, "logs [OPTIONS] ARG")
@@ -139,11 +151,20 @@ Examples:
 			c.Fatalf("Found multiple matches for the given ID. Matches are [%s]", strings.Join(matches, ", "))
 		}
 	case hostName, allocName:
-		if *reflowletFlag {
-			c.reflowletLogsCw(ctx, n.Hostname, st, et, nil)
-		} else {
+		if !*reflowletFlag {
 			c.Fatal("alloc URI and hostnames require -reflowlet to be set")
 		}
+		if dateStr := *startFlag; dateStr != "" {
+			if st, err = parseDateStr(dateStr); err != nil {
+				c.Fatalf("invalid -start %s: %v", dateStr, err)
+			}
+		}
+		if dateStr := *endFlag; dateStr != "" {
+			if et, err = parseDateStr(dateStr); err != nil {
+				c.Fatalf("invalid -end %s: %v", dateStr, err)
+			}
+		}
+		c.reflowletLogsCw(ctx, n.Hostname, st, et, nil)
 	}
 }
 
