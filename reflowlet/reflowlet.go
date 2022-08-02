@@ -187,31 +187,33 @@ func (s *Server) getVolumeWatcher(sess *session.Session, path string, vw infra2.
 	return volume.NewWatcher(v, vw, logger)
 }
 
-// loopUtilIdle loops forever while the given pool is in use; if the pool is idle for long enough it returns.
-func (s *Server) loopUntilIdle(p *local.Pool, rc *infra2.ReflowletConfig, logger *log.Logger) {
-	// Always give the instance an expiry period to receive work,
-	// then check periodically if the instance has been idle for more
-	// than the expiry time.
+// loopUntilIdleOrBad loops forever while the given pool is in use and healthy.
+// It returns if the pool is idle for rc.MaxIdleDuration or if any of the pool's
+// executors encounter a file integrity error.
+func (s *Server) loopUntilIdleOrBad(p *local.Pool, rc *infra2.ReflowletConfig, logger *log.Logger) {
 	t := time.NewTimer(rc.MaxIdleDuration)
 	defer t.Stop()
 	for {
-		<-t.C
-		if stopped, _ := p.StopIfIdleFor(rc.MaxIdleDuration); stopped {
-			logger.Printf("idle for %s; shutting down", rc.MaxIdleDuration)
+		select {
+		case <-t.C:
+			// Always give the instance an expiry period to receive work,
+			// then check periodically if the instance has been idle for more
+			// than the expiry time.
+			if stopped, _ := p.StopIfIdleFor(rc.MaxIdleDuration); stopped {
+				logger.Printf("idle for %s; shutting down", rc.MaxIdleDuration)
+				return
+			}
+			t.Reset(time.Minute)
+		case <-p.IntegrityErrSignal:
+			logger.Error("received integrity error signal; shutting down")
 			return
 		}
-		t.Reset(time.Minute)
 	}
 }
 
 // ListenAndServe serves the Reflowlet server on the configured address.
 func (s *Server) ListenAndServe() error {
-	// We don't expect this function to ever return unless there is an error.
-	// In the case of an error, we delay the return of this function to allow for the
-	// logs to be flushed to cloudwatch
-	defer func() {
-		time.Sleep(time.Second + ec2cluster.ReflowletCloudwatchFlushMs*time.Millisecond)
-	}()
+	defer s.waitForCloudwatchLogs()
 
 	addr := os.Getenv("DOCKER_HOST")
 	if addr == "" {
@@ -294,17 +296,18 @@ func (s *Server) ListenAndServe() error {
 	}
 	repositoryhttp.HTTPClient = &http.Client{Transport: transport}
 	p := &local.Pool{
-		Client:        client,
-		Dir:           s.Dir,
-		Prefix:        s.Prefix,
-		Authenticator: ec2authenticator.New(sess),
-		AWSCreds:      creds,
-		Session:       sess,
-		Blob:          blob.Mux{"s3": s3blob.New(sess)},
-		TaskDBPoolId:  poolId,
-		TaskDB:        tdb,
-		Log:           log.Std.Tee(nil, "executor: "),
-		HardMemLimit:  hardMemLimit,
+		Client:             client,
+		Dir:                s.Dir,
+		Prefix:             s.Prefix,
+		Authenticator:      ec2authenticator.New(sess),
+		AWSCreds:           creds,
+		Session:            sess,
+		Blob:               blob.Mux{"s3": s3blob.New(sess)},
+		TaskDBPoolId:       poolId,
+		TaskDB:             tdb,
+		Log:                log.Std.Tee(nil, "executor: "),
+		HardMemLimit:       hardMemLimit,
+		IntegrityErrSignal: make(chan struct{}),
 	}
 	if err = p.Start(expectedUsableMemBytes); err != nil {
 		return err
@@ -365,13 +368,13 @@ func (s *Server) ListenAndServe() error {
 		updateMetrics(ctx, p, metricsUpdatePeriodicity)
 	}()
 
-	// Start the loop to exit reflowlet if idle.
+	// Start the loop to exit reflowlet if idle or unhealthy.
 	go func() {
-		s.loopUntilIdle(p, rc, reflowletLog)
-		// Cancel and wait for other goroutines
+		s.loopUntilIdleOrBad(p, rc, reflowletLog)
+		// Cancel and wait for other goroutines.
 		cancel()
 		wg.Wait()
-		// Exit normally
+		s.waitForCloudwatchLogs()
 		os.Exit(0)
 	}()
 
@@ -434,6 +437,12 @@ func (s *Server) ListenAndServe() error {
 		return err
 	}
 	return s.server.ListenAndServeTLS("", "")
+}
+
+// waitForCloudwatchLogs sleeps for enough time to allow logs to be flushed to
+// CloudWatch during server shutdown.
+func (s *Server) waitForCloudwatchLogs() {
+	time.Sleep(time.Second + ec2cluster.ReflowletCloudwatchFlushMs*time.Millisecond)
 }
 
 func (s *Server) Shutdown() {

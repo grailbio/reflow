@@ -95,6 +95,11 @@ type Executor struct {
 	// NodeOomDetector is an oom detector based node metrics
 	NodeOomDetector OomDetector
 
+	// IntegrityErrSignal is a channel for signaling an integrity issue with
+	// the EC2 instance's EBS volume(s). The signal is sent by this Executor
+	// if a file fails integrity verification in Load or VerifyIntegrity.
+	IntegrityErrSignal chan struct{}
+
 	// SaveLogsToRepo determines whether or not exec's used by this Executor save their raw stdout/stderr logs during Exec.RunInfo
 	SaveLogsToRepo bool
 
@@ -436,7 +441,7 @@ func (e *Executor) Unload(ctx context.Context, fs reflow.Fileset) error {
 	return err
 }
 
-// VerifyIntegrity verifies the integrity of the given set of files
+// VerifyIntegrity verifies the integrity of the given set of files.
 func (e *Executor) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -471,7 +476,10 @@ func (e *Executor) VerifyIntegrity(ctx context.Context, fs reflow.Fileset) error
 		return nil
 	})
 	if len(mismatches) > 0 {
-		return errors.E("verifyintegrity", fmt.Sprintf("digest mismatches: %s", strings.Join(mismatches, ", ")))
+		s := fmt.Sprintf("digest mismatches: %s", strings.Join(mismatches, ", "))
+		e.Log.Errorf("failed to verify integrity of %s: %s", fs.Short(), s)
+		e.IntegrityErrSignal <- struct{}{}
+		return errors.E("verifyintegrity", errors.Integrity, s)
 	}
 	return err
 }
@@ -553,6 +561,10 @@ func (e *Executor) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) (
 		return nil
 	})
 	if err != nil {
+		if errors.Is(errors.Integrity, err) {
+			e.Log.Errorf("failed to load %s due to integrity error: %v", fs.Short(), err)
+			e.IntegrityErrSignal <- struct{}{}
+		}
 		return reflow.Fileset{}, err
 	}
 	if err := e.FileRepository.Vacuum(ctx, &tempRepo); err != nil {

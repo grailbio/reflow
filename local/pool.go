@@ -91,6 +91,11 @@ type Pool struct {
 
 	// NodeOomDetector is an oom detector based node metrics
 	NodeOomDetector OomDetector
+
+	// IntegrityErrSignal is a channel for signaling an integrity issue with
+	// the EC2 instance's EBS volume(s). The signal is sent by any of the
+	// Pool's Executors as a result of a file integrity error.
+	IntegrityErrSignal chan struct{}
 }
 
 // saveState saves the current state of the pool to Prefix/Dir/state.json.
@@ -356,17 +361,18 @@ func (p *Pool) createCwLogGroup() error {
 func (p *Pool) newAlloc(id string, keepalive time.Duration) *alloc {
 	_, isNoop := p.TaskDB.(noptaskdb.NopTaskDB)
 	e := &Executor{
-		ID:              id,
-		Client:          p.Client,
-		Dir:             filepath.Join(p.Dir, allocsPath, id),
-		Prefix:          p.Prefix,
-		Authenticator:   p.Authenticator,
-		AWSCreds:        p.AWSCreds,
-		Blob:            p.Blob,
-		Log:             p.Log.Tee(nil, id+": "),
-		HardMemLimit:    p.HardMemLimit,
-		NodeOomDetector: p.NodeOomDetector,
-		SaveLogsToRepo:  isNoop,
+		ID:                 id,
+		Client:             p.Client,
+		Dir:                filepath.Join(p.Dir, allocsPath, id),
+		Prefix:             p.Prefix,
+		Authenticator:      p.Authenticator,
+		AWSCreds:           p.AWSCreds,
+		Blob:               p.Blob,
+		Log:                p.Log.Tee(nil, id+": "),
+		HardMemLimit:       p.HardMemLimit,
+		NodeOomDetector:    p.NodeOomDetector,
+		IntegrityErrSignal: p.IntegrityErrSignal,
+		SaveLogsToRepo:     isNoop,
 	}
 	if p.Session != nil {
 		cwlclient := cloudwatchlogs.New(p.Session)
