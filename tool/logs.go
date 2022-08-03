@@ -66,6 +66,8 @@ The valid arguments are:
   Alloc URI / Hostname
 	Fetches a log produced by a reflowlet. Requires -reflowlet to be set.
 		  Options:
+			  -f
+				   follow logs until there have been no new events in the last 60s.
 			 -start=[YYYY-MM-DD | time.Duration]
 				   exclude logs produced before a UTC date or X [hours|minutes|seconds] ago.
 			 -end=[YYYY-MM-DD | time.Duration]
@@ -101,7 +103,7 @@ Examples:
 		c.Fatalf("argument has invalid kind %s. An exec URI or task ID is required", n.Kind)
 	case execName:
 		if *reflowletFlag {
-			c.reflowletLogsCw(ctx, n.Hostname, st, et, nil)
+			c.reflowletLogsCw(ctx, n.Hostname, st, et, false, nil)
 		} else {
 			if err = c.execLogsFromAlloc(ctx, n, *stdoutFlag, *followFlag); err != nil {
 				c.execLogsCloudWatch(ctx, execPath(n), *stdoutFlag)
@@ -164,7 +166,7 @@ Examples:
 				c.Fatalf("invalid -end %s: %v", dateStr, err)
 			}
 		}
-		c.reflowletLogsCw(ctx, n.Hostname, st, et, nil)
+		c.reflowletLogsCw(ctx, n.Hostname, st, et, *followFlag, nil)
 	}
 }
 
@@ -180,7 +182,7 @@ func (c *Cmd) execLogsForTaskId(ctx context.Context, tdb taskdb.TaskDB, task tas
 			return
 		}
 		var st, et time.Time
-		c.must(c.writeCwLogs(c.Stdout, rlogs.LogGroupName, rlogs.LogStreamName, st, et, func(w io.Writer, event *cloudwatchlogs.OutputLogEvent) {
+		c.must(c.writeCwLogs(c.Stdout, rlogs.LogGroupName, rlogs.LogStreamName, st, et, false, func(w io.Writer, event *cloudwatchlogs.OutputLogEvent) {
 			_, _ = fmt.Fprintln(w, *event.Message)
 		}))
 		return
@@ -206,11 +208,11 @@ func (c *Cmd) reflowletLogsForTask(ctx context.Context, task taskdb.Task) {
 		task.Start: fmt.Sprintf("TASK %s START", task.ID.IDShort()),
 		taskEnd:    fmt.Sprintf("TASK %s END", task.ID.IDShort()),
 	}
-	c.reflowletLogsCw(ctx, n.Hostname, task.Start.Add(-2*time.Minute), taskEnd.Add(2*time.Minute), inlines)
+	c.reflowletLogsCw(ctx, n.Hostname, task.Start.Add(-2*time.Minute), taskEnd.Add(2*time.Minute), false, inlines)
 	return
 }
 
-func (c *Cmd) reflowletLogsCw(ctx context.Context, host string, st, et time.Time, inlines map[time.Time]string) {
+func (c *Cmd) reflowletLogsCw(ctx context.Context, host string, st, et time.Time, follow bool, inlines map[time.Time]string) {
 	past := make(map[time.Time]bool)
 	for t := range inlines {
 		past[t] = false
@@ -237,7 +239,7 @@ func (c *Cmd) reflowletLogsCw(ctx context.Context, host string, st, et time.Time
 		}
 		_, _ = fmt.Fprintln(w, t.Format(rFC3339Millis), js["message"])
 	}
-	c.must(c.writeCwLogs(c.Stdout, "reflow/reflowlet", host, st, et, mw))
+	c.must(c.writeCwLogs(c.Stdout, "reflow/reflowlet", host, st, et, follow, mw))
 }
 
 func (c *Cmd) execLogsCloudWatch(ctx context.Context, p string, stdout bool) {
@@ -246,7 +248,7 @@ func (c *Cmd) execLogsCloudWatch(ctx context.Context, p string, stdout bool) {
 	if stdout {
 		streamName = p + "/stdout"
 	}
-	c.must(c.writeCwLogs(c.Stdout, "reflow", streamName, st, et, func(w io.Writer, event *cloudwatchlogs.OutputLogEvent) {
+	c.must(c.writeCwLogs(c.Stdout, "reflow", streamName, st, et, false, func(w io.Writer, event *cloudwatchlogs.OutputLogEvent) {
 		_, _ = fmt.Fprintln(w, *event.Message)
 	}))
 }
@@ -371,7 +373,7 @@ func (c *Cmd) tryLocalRunLog(n name, level log.Level) bool {
 // messageWriter writes the given event to the writer
 type messageWriter func(w io.Writer, event *cloudwatchlogs.OutputLogEvent)
 
-func (c *Cmd) writeCwLogs(w io.Writer, groupName, streamName string, st, et time.Time, mw messageWriter) error {
+func (c *Cmd) writeCwLogs(w io.Writer, groupName, streamName string, st, et time.Time, follow bool, mw messageWriter) error {
 	var awsSession *session.Session
 	if err := c.Config.Instance(&awsSession); err != nil {
 		return err
@@ -390,15 +392,25 @@ func (c *Cmd) writeCwLogs(w io.Writer, groupName, streamName string, st, et time
 		etNanos := et.UTC().Round(time.Millisecond).UnixNano()
 		req.EndTime = aws.Int64(etNanos / int64(time.Millisecond))
 	}
+	const sleepAfterEndOfStream = 5 * time.Second
+	const maxEndOfStream = 12
+	var curEndOfStream int
 	for {
 		out, err := api.GetLogEvents(req)
 		if err != nil {
 			return errors.E("GetLogEvents", req, err)
 		}
 		// AWS indicates that we have reached the end of the stream by returning the same
-		// token that was passed in.
+		// token that was passed in. If follow is true, then wait for new logs for 60s
+		// (maxEndOfStream * sleepAfterEndOfStream) before returning.
 		if aws.StringValue(req.NextToken) == aws.StringValue(out.NextForwardToken) {
-			return nil
+			curEndOfStream++
+			if !follow || curEndOfStream > maxEndOfStream {
+				return nil
+			}
+			time.Sleep(sleepAfterEndOfStream)
+		} else {
+			curEndOfStream = 0
 		}
 		req.NextToken = out.NextForwardToken
 		for _, m := range out.Events {
