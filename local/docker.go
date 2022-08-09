@@ -55,7 +55,12 @@ const (
 	temporaryExecErrorExitCode = 75
 )
 
-var dockerUser = fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+var (
+	dockerUser = fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+	// errorHintSubstrings is the list of substrings we look for in each log line entry,
+	// and if any of these exist, that line is considered as a hint.
+	errorHintSubstrings = []string{"panic", "error", "Error", "ERROR"}
+)
 
 // dockerExec is a (local) exec attached to a local executor, from which it
 // is given its own subdirectory to operate. exec is responsible for
@@ -83,6 +88,11 @@ type dockerExec struct {
 	Manifest
 	err         error
 	promoteOnce once.Task
+
+	// stderrHints is where all error hints from stderr are aggregated into a string builder.
+	stderrHints strings.Builder
+	// stdoutHints is where all error hints from stdout are aggregated into a string builder.
+	stdoutHints strings.Builder
 }
 
 var retryPolicy = retry.MaxRetries(retry.Backoff(time.Second, 10*time.Second, 1.5), 5)
@@ -267,15 +277,28 @@ func (e *dockerExec) create(ctx context.Context) (execState, error) {
 	return execCreated, nil
 }
 
-func scanLines(input io.ReadCloser, output *log.Logger) error {
+func scanLines(input io.ReadCloser, output *log.Logger, streamName string, b *strings.Builder) error {
 	r, w := io.Pipe()
 	go func() {
 		stdcopy.StdCopy(w, w, input)
 		w.Close()
 	}()
+	ln := 0
 	s := bufio.NewScanner(r)
 	for s.Scan() {
-		output.Print(s.Text())
+		line := s.Text()
+		ln++
+		output.Print(line)
+		if b == nil {
+			continue
+		}
+		// Check for error hints
+		for _, substr := range errorHintSubstrings {
+			if strings.Contains(line, substr) {
+				b.WriteString(fmt.Sprintf("(%s) line %d: %s\n", streamName, ln, line))
+				break
+			}
+		}
 	}
 	return s.Err()
 }
@@ -299,7 +322,7 @@ func (e *dockerExec) start(ctx context.Context) (execState, error) {
 			e.Log.Errorf("docker.containerlogs %q: %v", e.containerName(), err)
 		} else {
 			go func() {
-				err := scanLines(rcStdout, log.New(e.stdout, log.InfoLevel))
+				err := scanLines(rcStdout, log.New(e.stdout, log.InfoLevel), "stdout", &e.stdoutHints)
 				if err != nil {
 					log.Errorf("scanlines stdout: %v", err)
 				}
@@ -314,7 +337,7 @@ func (e *dockerExec) start(ctx context.Context) (execState, error) {
 			e.Log.Errorf("docker.containerlogs %q: %v", e.containerName(), err)
 		} else {
 			go func() {
-				err := scanLines(rcStderr, log.New(e.stderr, log.InfoLevel))
+				err := scanLines(rcStderr, log.New(e.stderr, log.InfoLevel), "stderr", &e.stderrHints)
 				if err != nil {
 					log.Errorf("scanlines stderr: %v", err)
 				}
@@ -322,6 +345,7 @@ func (e *dockerExec) start(ctx context.Context) (execState, error) {
 			}()
 		}
 	}
+
 	return execRunning, nil
 }
 
@@ -355,7 +379,6 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 		ctx, e.containerName(),
 		types.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
 	if err == nil {
-		// TODO: these should be put into the repository.
 		stderr, err := os.Create(e.path("stderr"))
 		if err != nil {
 			e.Log.Errorf("failed to stderr log file %q: %s", e.path("stderr"), err)
@@ -462,7 +485,17 @@ func (e *dockerExec) wait(ctx context.Context) (state execState, err error) {
 	case oomNode:
 		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.OOM, oomNodeReason))
 	default:
-		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.DockerExec, errors.Errorf("exited with code %d", code)))
+		var hintStr string
+		if n := e.stderrHints.Len(); n > 0 {
+			hintStr = hintStr + e.stderrHints.String()
+		}
+		if n := e.stdoutHints.Len(); n > 0 {
+			hintStr = hintStr + e.stdoutHints.String()
+		}
+		if len(hintStr) > 0 {
+			hintStr = fmt.Sprintf(" (hints from exec logs):\n%s", hintStr)
+		}
+		e.Manifest.Result.Err = errors.Recover(errors.E("exec", e.id, errors.DockerExec, errors.Errorf("exited with code %d%s", code, hintStr)))
 	}
 
 	// Clean up args. TODO(marius): replace these with symlinks to sha256s also?
