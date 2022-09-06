@@ -18,9 +18,11 @@ type FlagName string
 const (
 	Unknown FlagName = "unknown"
 	// CommonRunFlags flag names
-	FlagNameAssert          FlagName = "assert"
-	FlagNameEvalStrategy    FlagName = "eval"
-	FlagNameInvalidate      FlagName = "invalidate"
+	FlagNameAssert       FlagName = "assert"
+	FlagNameEvalStrategy FlagName = "eval"
+	FlagNameInvalidate   FlagName = "invalidate"
+	// Deprecated: externs are no longer cached.
+	// TODO(pfialho): remove flag.
 	FlagNameNoCacheExtern   FlagName = "nocacheextern"
 	FlagNamePostUseChecksum FlagName = "postusechecksum"
 	FlagNameRecomputeEmpty  FlagName = "recomputeempty"
@@ -39,8 +41,6 @@ type CommonRunFlags struct {
 	EvalStrategy string
 	// Invalidate is a regular expression for node identifiers that should be invalidated.
 	Invalidate string
-	// NoCacheExtern indicates if extern operations should be written to cache.
-	NoCacheExtern bool
 	// PostUseChecksum indicates whether input filesets are checksummed after use.
 	PostUseChecksum bool
 	// RecomputeEmpty indicates if cache results with empty filesets be automatically recomputed.
@@ -104,13 +104,11 @@ Reach out to the reflow team for more information.`)
 		flags.StringVar(&r.Invalidate, prefix+"invalidate", "", "regular expression for node identifiers that should be invalidated")
 	}
 	if names == nil || names[FlagNameNoCacheExtern] {
-		// TODO(pboyapalli): [SYSINFRA-554] modify extern caching so that we can drop the nocacheextern flag
-		flags.BoolVar(&r.NoCacheExtern, prefix+string(FlagNameNoCacheExtern), false, `don't cache extern ops
+		var vacuum bool
+		flags.BoolVar(&vacuum, prefix+string(FlagNameNoCacheExtern), false, `don't cache extern ops
 
-For all extern operations, "nocacheextern=true" acts like "cache=off" and 
-"nocacheextern=false" acts like "cache=readwrite". With "nocacheextern=true", 
-extern operations that have a cache hit will result in the fileset being copied 
-to the extern URL again.`)
+DEPRECATED. This flag may still be set, but the program will always behave as if
+"nocacheextern=true" because externs are no longer cached.`)
 	}
 	if names == nil || names[FlagNamePostUseChecksum] {
 		flags.BoolVar(&r.PostUseChecksum, prefix+string(FlagNamePostUseChecksum), false, `checksum exec input files after use
@@ -152,7 +150,6 @@ func (r *CommonRunFlags) Configure(c *flow.EvalConfig) (err error) {
 	if c.Assert, err = asserter(r.Assert); err != nil {
 		return err
 	}
-	c.NoCacheExtern = r.NoCacheExtern
 	c.RecomputeEmpty = r.RecomputeEmpty
 	c.BottomUp = r.EvalStrategy == "bottomup"
 	c.PostUseChecksum = r.PostUseChecksum

@@ -62,11 +62,6 @@ type Cluster interface {
 	CanAllocate(reflow.Resources) (bool, error)
 }
 
-// blobLocator defines an interface for locating blobs.
-type blobLocator interface {
-	Location(ctx context.Context, id digest.Digest) (string, error)
-}
-
 // A Scheduler is responsible for managing a set of tasks and allocs,
 // assigning (and reassigning) tasks to appropriate allocs. Scheduler
 // can manage large numbers of tasks and allocs efficiently.
@@ -797,47 +792,76 @@ func (s *Scheduler) doDirectTransfer(ctx context.Context, task *Task, taskLogger
 		return errors.E(errors.Precondition,
 			errors.Errorf("unexpected args (must be 1, but was %d): %v", len(task.Config.Args), task.Config.Args))
 	}
-	// Check if the task's repository supports blobLocator.
-	fileLocator, ok := task.Repository.(blobLocator)
-	if !ok {
-		return errors.E(errors.NotSupported, errors.New("scheduler repository does not support locating blobs"))
-	}
 	// Check if the destination is a blob store.
 	if _, _, err := s.Mux.Bucket(ctx, task.Config.URL); err != nil {
 		return err
 	}
-
+	// Get existing keys at destination path.
 	extUrl := strings.TrimSuffix(task.Config.URL, "/")
-	fs := task.Config.Args[0].Fileset.Pullup()
-
-	var transfers []directTransfer
-	for k, v := range fs.Map {
-		filename, file := k, v
-		var srcUrl string
-		if !file.IsRef() {
-			// resolved file
-			if src, err := fileLocator.Location(ctx, file.ID); err != nil {
-				return err
-			} else {
-				srcUrl = src
-			}
-		} else {
-			// reference file
-			srcUrl = file.Source
-		}
-		dstUrl := extUrl + "/" + filename
-		if filename == "." {
-			dstUrl = extUrl
-		}
-		if ok, err := s.Mux.CanTransfer(ctx, dstUrl, srcUrl); !ok {
-			return errors.E(fmt.Sprintf("scheduler cannot direct transfer: %s -> %s", srcUrl, dstUrl), err)
-		}
-		transfers = append(transfers, directTransfer{filename, file, srcUrl, dstUrl})
+	const withMetadata = false
+	scan, err := s.Mux.Scan(ctx, extUrl, withMetadata)
+	if err != nil {
+		return err
 	}
-
+	existing := make(map[string]reflow.File)
+	for scan.Scan(ctx) {
+		f := scan.File()
+		existing[f.Source] = f
+	}
+	if err = scan.Err(); err != nil {
+		return err
+	}
+	// Determine which files need to be transferred.
+	fs := task.Config.Args[0].Fileset.Pullup()
 	task.mu.Lock()
-	task.Result.Fileset.Map = map[string]reflow.File{}
+	task.Result.Fileset.Map = make(map[string]reflow.File, len(fs.Map))
 	task.mu.Unlock()
+	var transfers []directTransfer
+	g, gctx := errgroup.WithContext(ctx)
+	for k, v := range fs.Map {
+		filename, srcFile := k, v
+		g.Go(func() error {
+			// A resolved file does not contain the metadata needed for the
+			// Mux.*Transfer methods.
+			var srcRef reflow.File
+			if !srcFile.IsRef() {
+				var err error
+				srcRef, err = task.Repository.Stat(gctx, srcFile.ID)
+				if err != nil {
+					return err
+				}
+			} else {
+				srcRef = srcFile
+			}
+			dstUrl := extUrl + "/" + filename
+			if filename == "." {
+				dstUrl = extUrl
+			}
+			if ok, err := s.Mux.CanTransfer(gctx, dstUrl, srcRef.Source); !ok {
+				return errors.E(fmt.Sprintf("scheduler cannot direct transfer: %s -> %s", srcRef.Source, dstUrl), err)
+			}
+			if dstRef, ok := existing[dstUrl]; ok {
+				need, err := s.Mux.NeedTransfer(gctx, dstRef, srcRef)
+				if err != nil {
+					taskLogger.Errorf("scheduler cannot determine if direct transfer is needed: %s -> %s: %v", srcRef.Source, dstUrl, err)
+				} else if !need {
+					// Skip transfer.
+					task.mu.Lock()
+					task.Result.Fileset.Map[filename] = srcFile
+					task.mu.Unlock()
+					return nil
+				}
+			}
+			task.mu.Lock()
+			transfers = append(transfers, directTransfer{filename, srcFile, srcRef.Source, dstUrl})
+			task.mu.Unlock()
+			return nil
+		})
+	}
+	err = g.Wait()
+	if err != nil {
+		return err
+	}
 
 	var (
 		failed          []directTransfer
@@ -846,7 +870,7 @@ func (s *Scheduler) doDirectTransfer(ctx context.Context, task *Task, taskLogger
 	const maxStalledAttempts = 3
 
 	for stalledAttempts <= maxStalledAttempts && len(transfers) > 0 {
-		g, gctx := errgroup.WithContext(ctx)
+		g, gctx = errgroup.WithContext(ctx)
 		for _, t := range transfers {
 			taskLogger.Debugf("%d transfers remaining, stalled attempts: %d/%d", len(transfers), stalledAttempts, maxStalledAttempts)
 			t := t

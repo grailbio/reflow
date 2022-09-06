@@ -666,12 +666,12 @@ func TestSchedulerDirectTransfer(t *testing.T) {
 	scheduler.Mux = blob.Mux{"test": blb}
 	defer shutdown()
 	ctx := context.Background()
-	repo := testutil.NewInmemoryLocatorRepository()
+	repo := testutil.NewInmemoryRepository("")
 	in := utiltest.RandomFileset(repo)
 	expectExists(t, repo, in)
 	for _, f := range in.Files() {
 		loc := fmt.Sprintf("test://bucketin/objects/%s", f.ID)
-		repo.SetLocation(f.ID, loc)
+		_ = repo.SetLocation(ctx, f.ID, loc)
 		rc, _ := repo.Get(ctx, f.ID)
 		_ = scheduler.Mux.Put(ctx, loc, f.Size, rc, "")
 	}
@@ -720,12 +720,12 @@ func TestSchedulerDirectTransferRetryableErrorsProgress(t *testing.T) {
 	scheduler.Mux = blob.Mux{"test": blb}
 	defer shutdown()
 	ctx := context.Background()
-	repo := testutil.NewInmemoryLocatorRepository()
+	repo := testutil.NewInmemoryRepository("")
 	in := utiltest.RandomFileset(repo)
 	expectExists(t, repo, in)
 	for _, f := range in.Files() {
 		loc := fmt.Sprintf("test://bucketin/objects/%s", f.ID)
-		repo.SetLocation(f.ID, loc)
+		_ = repo.SetLocation(ctx, f.ID, loc)
 		rc, _ := repo.Get(ctx, f.ID)
 		_ = scheduler.Mux.Put(ctx, loc, f.Size, rc, "")
 	}
@@ -762,12 +762,12 @@ func TestSchedulerDirectTransferRetryableErrorsStalled(t *testing.T) {
 	scheduler.Mux = blob.Mux{"test": blb}
 	defer shutdown()
 	ctx := context.Background()
-	repo := testutil.NewInmemoryLocatorRepository()
+	repo := testutil.NewInmemoryRepository("")
 	in := utiltest.RandomFileset(repo)
 	expectExists(t, repo, in)
 	for _, f := range in.Files() {
 		loc := fmt.Sprintf("test://bucketin/objects/%s", f.ID)
-		repo.SetLocation(f.ID, loc)
+		_ = repo.SetLocation(ctx, f.ID, loc)
 		rc, _ := repo.Get(ctx, f.ID)
 		_ = scheduler.Mux.Put(ctx, loc, f.Size, rc, "")
 	}
@@ -801,7 +801,7 @@ func TestSchedulerDirectTransfer_noLocator(t *testing.T) {
 }
 
 func TestSchedulerDirectTransfer_unresolvedFile(t *testing.T) {
-	repo := testutil.NewInmemoryLocatorRepository()
+	repo := testutil.NewInmemoryRepository("")
 	scheduler, _, shutdown := newTestScheduler(t)
 	blb1, blb2 := testblob.New("test"), testblob.New("test2")
 	scheduler.Mux = blob.Mux{"test": blb1, "test2": blb2}
@@ -811,7 +811,7 @@ func TestSchedulerDirectTransfer_unresolvedFile(t *testing.T) {
 	ctx := context.Background()
 	for _, f := range in.Files() {
 		loc := fmt.Sprintf("test://bucketin/objects/%s", f.ID)
-		repo.SetLocation(f.ID, loc)
+		_ = repo.SetLocation(ctx, f.ID, loc)
 		rc, _ := repo.Get(ctx, f.ID)
 		_ = scheduler.Mux.Put(ctx, loc, f.Size, rc, "")
 	}
