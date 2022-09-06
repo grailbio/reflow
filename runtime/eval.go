@@ -99,6 +99,7 @@ func (e *Eval) Run(getBundle bool) (*syntax.Bundle, error) {
 		if err != nil {
 			return nil, err
 		}
+		defer func() { _ = f.Close() }()
 		prog := &lang.Program{File: file, Errors: os.Stderr}
 		if err := prog.ParseAndTypecheck(f); err != nil {
 			return nil, fmt.Errorf("type error: %s", err)

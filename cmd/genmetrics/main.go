@@ -174,6 +174,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer func() { _ = f.Close() }()
 
 	var conf confRoot
 	yd := yaml.NewDecoder(f)

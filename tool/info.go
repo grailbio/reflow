@@ -152,6 +152,7 @@ func (c *Cmd) printLocalRunInfo(w io.Writer, id digest.Digest) bool {
 		c.Errorln(err)
 		return false
 	}
+	defer func() { _ = f.Close() }()
 	infos, err := f.Readdir(-1)
 	if err != nil {
 		c.Errorln(err)
@@ -189,6 +190,7 @@ func (c *Cmd) printLocalRunInfo(w io.Writer, id digest.Digest) bool {
 		c.Errorf("%s: %v\n", id.Short(), err)
 		return false
 	}
+	defer func() { _ = statefile.Close() }()
 
 	var state runner.State
 	c.must(statefile.Unmarshal(&state))

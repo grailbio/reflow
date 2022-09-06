@@ -88,6 +88,7 @@ func (z *zombie) Inspect(ctx context.Context) (pool.AllocInspect, error) {
 	if err != nil {
 		return pool.AllocInspect{}, errors.E("inspect", z.id, err)
 	}
+	defer func() { _ = f.Close() }()
 	inspect := pool.AllocInspect{ID: z.id}
 	if err := json.NewDecoder(f).Decode(&inspect.Meta); err != nil {
 		return pool.AllocInspect{}, errors.E("inspect", z.id, err)
@@ -103,6 +104,7 @@ func (z *zombie) Execs(ctx context.Context) ([]reflow.Exec, error) {
 	} else if err != nil {
 		return nil, errors.E("execs", z.id, err)
 	}
+	defer func() { _ = file.Close() }()
 	infos, err := file.Readdir(-1)
 	if err != nil {
 		return nil, errors.E("execs", z.id, err)

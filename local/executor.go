@@ -182,6 +182,7 @@ func (e *Executor) Start() error {
 	} else if err != nil {
 		return err
 	}
+	defer func() { _ = file.Close() }()
 
 	infos, err := file.Readdir(-1)
 	if err != nil {
@@ -205,7 +206,12 @@ func (e *Executor) Start() error {
 		}
 		var m Manifest
 		if err := json.NewDecoder(f).Decode(&m); err != nil {
+			_ = f.Close()
 			e.Log.Errorf("decode %v: %v", path, err)
+			continue
+		}
+		if err := f.Close(); err != nil {
+			e.Log.Errorf("close %v: %v", path, err)
 			continue
 		}
 		var x exec

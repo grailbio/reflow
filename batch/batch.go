@@ -181,6 +181,7 @@ func (r *Run) flow() (*flow.Flow, *types.T, error) {
 		if err != nil {
 			return nil, nil, err
 		}
+		defer func() { _ = f.Close() }()
 		file := f.Name()
 		prog := &lang.Program{File: file, Errors: os.Stderr, Args: r.Argv}
 		if err := prog.ParseAndTypecheck(f); err != nil {

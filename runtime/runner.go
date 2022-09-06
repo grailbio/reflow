@@ -275,6 +275,7 @@ func (r *runnerImpl) Go(ctx context.Context) (runner.State, error) {
 	if err != nil {
 		return runner.State{}, errors.E("failed to open state file: %v", err)
 	}
+	defer func() { _ = stateFile.Close() }()
 	if err = stateFile.Marshal(run.State); err != nil {
 		return runner.State{}, errors.E("failed to marshal state: %v", err)
 	}

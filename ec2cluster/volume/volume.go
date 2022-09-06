@@ -379,6 +379,7 @@ func findNvmeVolumes(devices []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer func() { _ = dir.Close() }()
 	fileInfoList, err := dir.Readdir(0)
 	if err != nil {
 		return nil, err
