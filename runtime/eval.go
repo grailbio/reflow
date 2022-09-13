@@ -33,7 +33,7 @@ type Eval struct {
 	Program string
 	// Params stores the evaluation's module parameters and raw values.
 	Params map[string]string
-	// Args stores the evaluation's command line arugments.
+	// Args stores the evaluation's command line arguments.
 	Args []string
 	// V1 tells whether this program is a "V1" (".rf") program.
 	V1 bool
