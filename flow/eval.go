@@ -142,9 +142,12 @@ type EvalConfig struct {
 	RunID taskdb.RunID
 
 	// CacheMode determines whether the evaluator reads from
-	// or writes to the cache. If CacheMode is nonzero, Assoc,
+	// or writees to the cache. If CacheMode is nonzero, Assoc,
 	// Repository, and Transferer must be non-nil.
 	CacheMode infra2.CacheMode
+
+	// NoCacheExtern determines whether externs are cached.
+	NoCacheExtern bool
 
 	// RecomputeEmpty determines whether cached empty values
 	// are recomputed.
@@ -205,6 +208,11 @@ func (e EvalConfig) String() string {
 	}
 
 	var flags []string
+	if e.NoCacheExtern {
+		flags = append(flags, "nocacheextern")
+	} else {
+		flags = append(flags, "cacheextern")
+	}
 	if e.CacheMode == infra2.CacheOff {
 		flags = append(flags, "nocache")
 	} else {
@@ -838,6 +846,9 @@ func (e *Eval) returnFlow(f *Flow) {
 // incur extra computation, thus dirtying does not work when dirtying
 // nodes are hidden behind maps, continuations, or coercions.
 func (e *Eval) dirty(f *Flow) bool {
+	if !e.NoCacheExtern {
+		return false
+	}
 	if f.Op == Extern {
 		return true
 	}
@@ -884,7 +895,7 @@ func (e *Eval) todo(f *Flow, visited flowOnce, v *FlowVisitor) {
 			}
 		}
 		switch f.Op {
-		case Intern, Exec:
+		case Intern, Exec, Extern:
 			if !e.BottomUp && e.CacheMode.Reading() && !e.dirty(f) {
 				v.Push(f)
 				e.Mutate(f, NeedLookup)
@@ -1113,7 +1124,7 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow) error {
 	ctx, endTrace = trace.Start(ctx, trace.Cache, f.Digest(), fmt.Sprintf("cache write %s", f.Digest().Short()))
 	defer endTrace()
 	switch f.Op {
-	case Intern, Exec:
+	case Intern, Extern, Exec:
 	default:
 		return nil
 	}
@@ -1124,6 +1135,12 @@ func (e *Eval) CacheWrite(ctx context.Context, f *Flow) error {
 	}
 	// We don't cache errors, and only completed nodes.
 	if f.Err != nil || f.State != Done {
+		return nil
+	}
+	if f.Op == Data {
+		return nil
+	}
+	if e.NoCacheExtern && f.Op == Extern {
 		return nil
 	}
 	keys := f.CacheKeys()
@@ -1235,7 +1252,7 @@ func (e *Eval) batchLookup(ctx context.Context, flows ...*Flow) {
 
 	batch := make(assoc.Batch)
 	for _, f := range flows {
-		if !e.valid(f) || !e.CacheMode.Reading() || f.Op == Extern || f == e.root {
+		if !e.valid(f) || !e.CacheMode.Reading() || e.NoCacheExtern && (f.Op == Extern || f == e.root) {
 			e.lookupFailed(f)
 			continue
 		}

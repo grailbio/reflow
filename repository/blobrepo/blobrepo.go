@@ -63,6 +63,20 @@ func (r *Repository) Stat(ctx context.Context, id digest.Digest) (reflow.File, e
 	return file, err
 }
 
+// Location returns the location of this object.
+func (r *Repository) Location(ctx context.Context, id digest.Digest) (string, error) {
+	id, err := r.resolve(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	var src string
+	file, err := r.Bucket.File(ctx, path.Join(r.Prefix, objectsPath, id.String()))
+	if err == nil {
+		src = file.Source
+	}
+	return src, err
+}
+
 // Get retrieves an object from the repository.
 func (r *Repository) Get(ctx context.Context, id digest.Digest) (io.ReadCloser, error) {
 	id, err := r.resolve(ctx, id)
