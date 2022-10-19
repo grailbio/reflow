@@ -26,10 +26,15 @@ import (
 
 //go:generate stringer -type=RepositoryCallKind
 
+type FileWithContents struct {
+	reflow.File
+	contents []byte
+}
+
 // InmemoryRepository is an in-memory repository used for testing.
 type InmemoryRepository struct {
 	mu    sync.Mutex
-	files map[digest.Digest][]byte
+	files map[digest.Digest]FileWithContents
 	url   *url.URL
 }
 
@@ -58,7 +63,7 @@ func NewInmemoryRepository(name string) *InmemoryRepository {
 		return nil
 	}
 	repo := &InmemoryRepository{
-		files: map[digest.Digest][]byte{},
+		files: map[digest.Digest]FileWithContents{},
 		url:   url,
 	}
 	repos[name] = repo
@@ -71,16 +76,16 @@ func GetInMemoryRepository(repo *url.URL) *InmemoryRepository {
 	return repos[repo.Host]
 }
 
-func (r *InmemoryRepository) get(k digest.Digest) []byte {
+func (r *InmemoryRepository) get(k digest.Digest) (FileWithContents, bool) {
 	r.mu.Lock()
-	b := r.files[k]
+	b, ok := r.files[k]
 	r.mu.Unlock()
-	return b
+	return b, ok
 }
 
-func (r *InmemoryRepository) set(k digest.Digest, b []byte) {
+func (r *InmemoryRepository) set(k digest.Digest, f FileWithContents) {
 	r.mu.Lock()
-	r.files[k] = b
+	r.files[k] = f
 	r.mu.Unlock()
 }
 
@@ -93,20 +98,31 @@ func (r *InmemoryRepository) Delete(_ context.Context, id digest.Digest) {
 
 // Stat returns metadata for the blob named by id.
 func (r *InmemoryRepository) Stat(_ context.Context, id digest.Digest) (reflow.File, error) {
-	b := r.get(id)
-	if b == nil {
+	f, ok := r.get(id)
+	if !ok {
 		return reflow.File{}, errors.E("stat", id, errors.NotExist)
 	}
-	return reflow.File{ID: id, Size: int64(len(b))}, nil
+	return f.File, nil
+}
+
+// SetLocation returns metadata for the blob named by id.
+func (r *InmemoryRepository) SetLocation(_ context.Context, id digest.Digest, loc string) error {
+	f, ok := r.get(id)
+	if !ok {
+		return errors.E("setlocation", id, errors.NotExist)
+	}
+	f.File.Source = loc
+	r.set(id, f)
+	return nil
 }
 
 // Get returns the blob named by id.
 func (r *InmemoryRepository) Get(_ context.Context, id digest.Digest) (io.ReadCloser, error) {
-	b := r.get(id)
-	if b == nil {
+	b, ok := r.get(id)
+	if !ok {
 		return nil, errors.E("get", id, errors.NotExist)
 	}
-	return ioutil.NopCloser(bytes.NewReader(b)), nil
+	return ioutil.NopCloser(bytes.NewReader(b.contents)), nil
 }
 
 // Put installs the blob rd and returns its digest.
@@ -116,7 +132,8 @@ func (r *InmemoryRepository) Put(_ context.Context, rd io.Reader) (digest.Digest
 		return digest.Digest{}, err
 	}
 	id := reflow.Digester.FromBytes(b)
-	r.set(id, b)
+	f := FileWithContents{reflow.File{ID: id, Size: int64(len(b))}, b}
+	r.set(id, f)
 	return id, nil
 }
 
@@ -155,7 +172,11 @@ func (r *InmemoryRepository) URL() *url.URL {
 }
 
 func (r *InmemoryRepository) RawFiles() map[digest.Digest][]byte {
-	return r.files
+	m := make(map[digest.Digest][]byte, len(r.files))
+	for k, v := range r.files {
+		m[k] = v.contents
+	}
+	return m
 }
 
 func (r *InmemoryRepository) Copy() *InmemoryRepository {
@@ -176,36 +197,6 @@ func (r *InmemoryRepository) Vacuum(ctx context.Context, repo *InmemoryRepositor
 		r.set(k, v)
 	}
 	repo.files = nil
-}
-
-// InmemoryLocatorRepository is an in-memory repository used for testing which also implements scheduler.blobLocator.
-type InmemoryLocatorRepository struct {
-	*InmemoryRepository
-	locations map[digest.Digest]string
-}
-
-// NewInmemoryLocatorRepository returns a new repository that stores objects
-// in memory.
-func NewInmemoryLocatorRepository() *InmemoryLocatorRepository {
-	return &InmemoryLocatorRepository{
-		InmemoryRepository: NewInmemoryRepository(""),
-		locations:          map[digest.Digest]string{},
-	}
-}
-
-func (r *InmemoryLocatorRepository) SetLocation(k digest.Digest, loc string) {
-	r.mu.Lock()
-	r.locations[k] = loc
-	r.mu.Unlock()
-}
-
-// Location implements scheduler.blobLocator
-func (r *InmemoryLocatorRepository) Location(ctx context.Context, id digest.Digest) (string, error) {
-	loc := r.locations[id]
-	if loc == "" {
-		return "", errors.E(errors.NotExist, fmt.Errorf("unknown %v", id))
-	}
-	return loc, nil
 }
 
 // RepositoryCallKind indicates the type of repository call.

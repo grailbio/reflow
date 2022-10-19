@@ -256,52 +256,50 @@ func TestExecRetry(t *testing.T) {
 
 func TestCacheWrite(t *testing.T) {
 	for _, bottomup := range []bool{false, true} {
-		e, config, done := newTestScheduler()
-		defer done()
-		config.CacheMode = infra.CacheRead | infra.CacheWrite
-		config.BottomUp = bottomup
+		// The following is done in a func to defer context cancellations.
+		func() {
+			e, config, done := newTestScheduler()
+			defer done()
+			config.CacheMode = infra.CacheRead | infra.CacheWrite
+			config.BottomUp = bottomup
 
-		intern := op.Intern("internurl")
-		exec := op.Exec("image", "command", testutil.Resources, intern)
-		groupby := op.Groupby("(.*)", exec)
-		pullup := op.Pullup(groupby)
+			intern := op.Intern("internurl")
+			exec := op.Exec("image", "command", testutil.Resources, intern)
+			groupby := op.Groupby("(.*)", exec)
+			pullup := op.Pullup(groupby)
 
-		eval := flow.NewEval(pullup, config)
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		rc := testutil.EvalAsync(ctx, eval)
-		var (
-			internValue = testutil.WriteFiles(e.Repo, "ignored")
-			execValue   = testutil.WriteFiles(e.Repo, "a", "b", "c", "d")
-		)
-		e.Ok(ctx, intern, internValue)
-		e.Ok(ctx, exec, execValue)
-		r := <-rc
-		cancel()
-		if r.Err != nil {
-			t.Fatal(r.Err)
-		}
-		if got, want := r.Val, execValue; !got.Equal(want) {
-			t.Errorf("got %v, want %v", got, want)
-		}
-		if got, want := testutil.Exists(eval, intern.CacheKeys()...), true; got != want {
-			t.Errorf("got %v, want %v", got, want)
-		}
-		if got, want := testutil.Value(eval, exec.Digest()), execValue; !testutil.Exists(eval, exec.CacheKeys()...) || !got.Equal(want) {
-			t.Errorf("got %v, want %v", got, want)
-		}
+			eval := flow.NewEval(pullup, config)
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			rc := testutil.EvalAsync(ctx, eval)
+			var (
+				internValue = testutil.WriteFiles(e.Repo, "ignored")
+				execValue   = testutil.WriteFiles(e.Repo, "a", "b", "c", "d")
+			)
+			e.Ok(ctx, intern, internValue)
+			e.Ok(ctx, exec, execValue)
+			r := <-rc
+			cancel()
+			if r.Err != nil {
+				t.Fatal(r.Err)
+			}
+			if got, want := r.Val, execValue; !got.Equal(want) {
+				t.Errorf("got %v, want %v", got, want)
+			}
+			if got, want := testutil.Exists(eval, intern.CacheKeys()...), true; got != want {
+				t.Errorf("got %v, want %v", got, want)
+			}
+			if got, want := testutil.Value(eval, exec.Digest()), execValue; !testutil.Exists(eval, exec.CacheKeys()...) || !got.Equal(want) {
+				t.Errorf("got %v, want %v", got, want)
+			}
+		}()
 	}
 }
 
 func TestCacheLookupFilesetMigration(t *testing.T) {
 	*debug = true
 	intern := op.Intern("internurl")
-	groupby := op.Groupby("(.*)", intern)
-	m := newMapper(func(f *flow.Flow) *flow.Flow {
-		return op.Exec("image", "command", testutil.Resources, f)
-	})
-	mapCollect := op.Map(m.mapFunc, groupby)
-	pullup := op.Pullup(mapCollect)
-	extern := op.Extern("externurl", pullup)
+	exec := op.Exec("image", "command", testutil.Resources, intern)
+	extern := op.Extern("externurl", exec)
 
 	e, config, done := newTestScheduler()
 	defer done()
@@ -320,30 +318,32 @@ func TestCacheLookupFilesetMigration(t *testing.T) {
 	if pErr != nil {
 		t.Fatal(pErr)
 	}
-	if err := eval.Assoc.Store(ctx, assoc.Fileset, extern.Digest(), v1Digest); err != nil {
+	if err := eval.Assoc.Store(ctx, assoc.Fileset, exec.Digest(), v1Digest); err != nil {
 		t.Fatal(err)
 	}
 	cancel()
 
 	ctx, cancel = context.WithTimeout(context.Background(), timeout)
 	rc := testutil.EvalAsync(ctx, eval)
+	e.Ok(ctx, extern, reflow.Fileset{})
 	r := <-rc
 	cancel()
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if !e.Equiv() { //no flows to be executed, eval will read v1 fileset format
-		t.Error("did not expect any flows to be executed")
+	if !e.Equiv(extern) { // only extern is executed, eval will read v1 fileset format
+		t.Error("wrong set of expected flows")
 	}
 
 	// expect eval to also writeback v2 format
-	fsWriteback := testutil.Value(eval, extern.Digest())
+	fsWriteback := testutil.Value(eval, exec.Digest())
 	if diff, nomatch := fsWriteback.Diff(fs); nomatch {
 		t.Errorf("expected writeback fs to match input fs but found following diff: %s", diff)
 	}
 }
 
 func TestCacheLookup(t *testing.T) {
+	// TopDown evaluation with cache entries for intern and execs.
 	intern := op.Intern("internurl")
 	groupby := op.Groupby("(.*)", intern)
 	m := newMapper(func(f *flow.Flow) *flow.Flow {
@@ -358,18 +358,25 @@ func TestCacheLookup(t *testing.T) {
 	config.CacheMode = infra.CacheRead | infra.CacheWrite
 	eval := flow.NewEval(extern, config)
 
-	testutil.WriteCache(eval, extern.Digest())
+	// Write cache entries for intern and execs.
+	testutil.WriteCache(eval, intern.Digest(), "a", "b")
+	testutil.WriteCache(eval, m.mapFunc(flowFiles("a")).Digest(), "c")
+	testutil.WriteCache(eval, m.mapFunc(flowFiles("b")).Digest(), "d")
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	rc := testutil.EvalAsync(ctx, eval)
+	// Prevent scheduler submission because externs are not cached.
+	e.Ok(ctx, extern, reflow.Fileset{})
 	r := <-rc
 	cancel()
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if !e.Equiv() { //no flows to be executed
-		t.Error("did not expect any flows to be executed")
+	if !e.Equiv(extern) { // only the extern is executed.
+		t.Error("wrong set of expected flows")
 	}
 
+	// TopDown evaluation with cache entry for intern.
 	e, config, done = newTestScheduler()
 	defer done()
 	config.CacheMode = infra.CacheRead | infra.CacheWrite
@@ -412,25 +419,31 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 	defer done()
 	config.CacheMode = infra.CacheRead | infra.CacheWrite
 	config.CacheLookupTimeout = 100 * time.Millisecond
-	config.AssertionGenerator = newTestGenerator(map[string]string{"c": "v1"})
+	config.AssertionGenerator = newTestGenerator(map[string]string{"c1": "v1"})
 	config.Assert = reflow.AssertExact
 	eval := flow.NewEval(extern, config)
 
-	// Write a cached result with same value returned by the generator.
-	fs := testutil.WriteFiles(eval.Repository, "c")
-	_ = fs.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{Subject: "c", Namespace: "blob"}, map[string]string{"etag": "v1"}))
-	testutil.WriteCacheFileset(eval, extern.Digest(), fs)
+	// Write cached results with the same values returned by the generator.
+	testutil.WriteCache(eval, intern.Digest(), "a1", "b1")
+	fs := testutil.WriteFiles(eval.Repository, "c1")
+	assertion := reflow.AssertionsFromEntry(
+		reflow.AssertionKey{Subject: "c1", Namespace: "blob"}, map[string]string{"etag": "v1"})
+	if err := fs.AddAssertions(assertion); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("a1")).Digest(), fs)
+	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("b1")).Digest(), fs)
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	rc := testutil.EvalAsync(ctx, eval)
+	e.Ok(ctx, extern, reflow.Fileset{})
 	r := <-rc
 	cancel()
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if !e.Equiv() { //no flows to be executed
-		t.Error("did not expect any flows to be executed")
+	if !e.Equiv(extern) {
+		t.Error("wrong set of expected flows")
 	}
 
 	fmt.Println("finished first async eval")
@@ -439,36 +452,40 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 	defer done()
 	config.CacheMode = infra.CacheRead | infra.CacheWrite
 	config.CacheLookupTimeout = 100 * time.Millisecond
-	config.AssertionGenerator = newTestGenerator(map[string]string{"c": "v1"})
+	config.AssertionGenerator = newTestGenerator(map[string]string{"c2": "v1"})
 	config.Assert = reflow.AssertExact
 	eval = flow.NewEval(extern, config)
 
-	testutil.WriteCache(eval, intern.Digest(), "a", "b")
+	testutil.WriteCache(eval, intern.Digest(), "a2", "b2")
 
 	// Write a cached result with different value returned by the generator.
-	fs = testutil.WriteFiles(eval.Repository, "c")
-	_ = fs.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{Subject: "c", Namespace: "blob"}, map[string]string{"etag": "v2"}))
-	testutil.WriteCacheFileset(eval, extern.Digest(), fs)
+	fs = testutil.WriteFiles(eval.Repository, "c2")
+	assertion = reflow.AssertionsFromEntry(
+		reflow.AssertionKey{Subject: "c2", Namespace: "blob"}, map[string]string{"etag": "v2"})
+	if err := fs.AddAssertions(assertion); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("a2")).Digest(), fs)
+	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("b2")).Digest(), fs)
 	ctx, cancel = context.WithTimeout(context.Background(), timeout)
 	rc = testutil.EvalAsync(ctx, eval)
 	for _, v := range []reflow.Fileset{
-		testutil.WriteFiles(e.Repo, "a"),
-		testutil.WriteFiles(e.Repo, "b"),
+		testutil.WriteFiles(e.Repo, "a2"),
+		testutil.WriteFiles(e.Repo, "b2"),
 	} {
 		v := v
 		f := m.mapFunc(&flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done})
 		go e.Ok(ctx, f, v) // identity
 	}
 
-	testutil.WriteFiles(e.Repo, "c")
-	e.Ok(ctx, extern, fs)
+	testutil.WriteFiles(e.Repo, "c2")
+	e.Ok(ctx, extern, reflow.Fileset{})
 	r = <-rc
 	cancel()
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if !e.Equiv(extern, m.mapFunc(flowFiles("a")), m.mapFunc(flowFiles("b"))) {
+	if !e.Equiv(extern, m.mapFunc(flowFiles("a2")), m.mapFunc(flowFiles("b2"))) {
 		t.Error("wrong set of expected flows")
 	}
 
@@ -476,38 +493,42 @@ func TestCacheLookupWithAssertions(t *testing.T) {
 	defer done()
 	config.CacheMode = infra.CacheRead | infra.CacheWrite
 	config.CacheLookupTimeout = 100 * time.Millisecond
-	config.AssertionGenerator = newTestGenerator(map[string]string{"c": "v1"})
+	config.AssertionGenerator = newTestGenerator(map[string]string{"c3": "v1"})
 	config.Assert = reflow.AssertExact
 	eval = flow.NewEval(extern, config)
 
-	testutil.WriteCache(eval, intern.Digest(), "a", "b")
+	testutil.WriteCache(eval, intern.Digest(), "a3", "b3")
 
 	// Write a cached result with an assertion for which the generator will return an error.
-	fs = testutil.WriteFiles(eval.Repository, "c")
-	_ = fs.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{Subject: "c", Namespace: "error"}, map[string]string{"etag": "v"}))
-	testutil.WriteCacheFileset(eval, extern.Digest(), fs)
+	fs = testutil.WriteFiles(eval.Repository, "c3")
+	assertion = reflow.AssertionsFromEntry(
+		reflow.AssertionKey{Subject: "c3", Namespace: "error"}, map[string]string{"etag": "v"})
+	if err := fs.AddAssertions(assertion); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("a3")).Digest(), fs)
+	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("b3")).Digest(), fs)
 
 	ctx, cancel = context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	rc = testutil.EvalAsync(ctx, eval)
 	for _, v := range []reflow.Fileset{
-		testutil.WriteFiles(e.Repo, "a"),
-		testutil.WriteFiles(e.Repo, "b"),
+		testutil.WriteFiles(e.Repo, "a3"),
+		testutil.WriteFiles(e.Repo, "b3"),
 	} {
 		v := v
 		f := m.mapFunc(&flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done})
 		go e.Ok(ctx, f, v) // identity
 	}
 
-	testutil.WriteFiles(e.Repo, "c")
+	testutil.WriteFiles(e.Repo, "c3")
 	e.Ok(ctx, extern, fs)
 	r = <-rc
 
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if !e.Equiv(extern, m.mapFunc(flowFiles("a")), m.mapFunc(flowFiles("b"))) {
+	if !e.Equiv(extern, m.mapFunc(flowFiles("a3")), m.mapFunc(flowFiles("b3"))) {
 		t.Error("wrong set of expected flows")
 	}
 }
@@ -615,7 +636,6 @@ func TestCacheLookupBottomupPhysical(t *testing.T) {
 	internFiles, execFiles := "a:same_contents", "same_exec_result"
 	testutil.WriteCache(eval, internA.Digest(), internFiles)
 	testutil.WriteFile(e.Repo, execFiles)
-	testutil.WriteCache(eval, extern.Digest(), "extern_result")
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -633,11 +653,12 @@ func TestCacheLookupBottomupPhysical(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	// Now define internB's result (same as internA)
 	e.Ok(ctx, internB, testutil.WriteFiles(e.Repo, internFiles))
+	e.Ok(ctx, extern, reflow.Fileset{})
 	r := <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if !e.Equiv(execA, internB) {
+	if !e.Equiv(extern, execA, internB) {
 		t.Error("wrong set of expected flows")
 	}
 }
@@ -672,16 +693,25 @@ func TestCacheLookupBottomupWithAssertions(t *testing.T) {
 
 	fsA, fsB, fsC := testutil.Files("a"), testutil.Files("b"), testutil.Files("c")
 	// "a" has "v1" and will get "v1" from the generator, so the cache hit will be accepted.
-	_ = fsA.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{Subject: "a", Namespace: "blob"}, map[string]string{"etag": "v1"}))
+	assertionA := reflow.AssertionsFromEntry(
+		reflow.AssertionKey{Subject: "a", Namespace: "blob"}, map[string]string{"etag": "v1"})
+	if err := fsA.AddAssertions(assertionA); err != nil {
+		t.Fatal(err)
+	}
 	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("a")).Digest(), fsA)
 	// "b" has "v2" but will get "v1" from the generator, so the cache hit will be rejected.
-	_ = fsB.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{Subject: "b", Namespace: "blob"}, map[string]string{"etag": "v2"}))
+	assertionB := reflow.AssertionsFromEntry(
+		reflow.AssertionKey{Subject: "b", Namespace: "blob"}, map[string]string{"etag": "v2"})
+	if err := fsB.AddAssertions(assertionB); err != nil {
+		t.Fatal(err)
+	}
 	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("b")).Digest(), fsB)
 	// "c" has "error" in the namespace so the generator will error out, so the cache hit will be rejected.
-	_ = fsC.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{Subject: "c", Namespace: "error"}, map[string]string{"etag": "v"}))
+	assertionC := reflow.AssertionsFromEntry(
+		reflow.AssertionKey{Subject: "c", Namespace: "error"}, map[string]string{"etag": "v"})
+	if err := fsC.AddAssertions(assertionC); err != nil {
+		t.Fatal(err)
+	}
 	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("c")).Digest(), fsC)
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -723,12 +753,21 @@ func TestCacheLookupBottomupWithAssertExact(t *testing.T) {
 
 	fsA, fsB, fsC := testutil.Files("a"), testutil.Files("b"), testutil.Files("c")
 	// All three will be cache-hits.
-	_ = fsA.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{Subject: "a", Namespace: "blob"}, map[string]string{"etag": "va"}))
-	_ = fsB.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{Subject: "b", Namespace: "blob"}, map[string]string{"etag": "vb"}))
-	_ = fsC.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{Subject: "c", Namespace: "blob"}, map[string]string{"etag": "vc"}))
+	assertionA := reflow.AssertionsFromEntry(
+		reflow.AssertionKey{Subject: "a", Namespace: "blob"}, map[string]string{"etag": "va"})
+	if err := fsA.AddAssertions(assertionA); err != nil {
+		t.Fatal(err)
+	}
+	assertionB := reflow.AssertionsFromEntry(
+		reflow.AssertionKey{Subject: "b", Namespace: "blob"}, map[string]string{"etag": "vb"})
+	if err := fsB.AddAssertions(assertionB); err != nil {
+		t.Fatal(err)
+	}
+	assertionC := reflow.AssertionsFromEntry(
+		reflow.AssertionKey{Subject: "c", Namespace: "blob"}, map[string]string{"etag": "vc"})
+	if err := fsC.AddAssertions(assertionC); err != nil {
+		t.Fatal(err)
+	}
 	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("a")).Digest(), fsA)
 	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("b")).Digest(), fsB)
 	testutil.WriteCacheFileset(eval, mapFunc(flowFiles("c")).Digest(), fsC)
@@ -747,6 +786,7 @@ func TestCacheLookupBottomupWithAssertExact(t *testing.T) {
 }
 
 func TestCacheLookupBottomupWithAssertNever(t *testing.T) {
+	// TopDown evaluation with filesets containing invalid assertions.
 	intern := op.Intern("internurl")
 	groupby := op.Groupby("(.*)", intern)
 	m := newMapper(func(f *flow.Flow) *flow.Flow {
@@ -764,23 +804,35 @@ func TestCacheLookupBottomupWithAssertNever(t *testing.T) {
 	config.Assert = reflow.AssertNever
 	eval := flow.NewEval(extern, config)
 
-	fs := testutil.Files("e")
-	_ = fs.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{Subject: "e", Namespace: "blob"}, map[string]string{"etag": "invalid"}))
-	testutil.WriteCacheFileset(eval, extern.Digest(), fs)
+	testutil.WriteCache(eval, intern.Digest(), "a", "b")
+	fsA := testutil.Files("a")
+	assertionA := reflow.AssertionsFromEntry(
+		reflow.AssertionKey{Subject: "a", Namespace: "blob"}, map[string]string{"etag": "invalid"})
+	if err := fsA.AddAssertions(assertionA); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("a")).Digest(), fsA)
+	fsB := testutil.Files("b")
+	assertionB := reflow.AssertionsFromEntry(
+		reflow.AssertionKey{Subject: "b", Namespace: "blob"}, map[string]string{"etag": "invalid"})
+	if err := fsB.AddAssertions(assertionB); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("b")).Digest(), fsB)
 
-	testutil.WriteCache(eval, extern.Digest())
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	rc := testutil.EvalAsync(ctx, eval)
+	e.Ok(ctx, extern, reflow.Fileset{})
 	r := <-rc
 	cancel()
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if !e.Equiv() { //no flows to be executed
-		t.Error("did not expect any flows to be executed")
+	if !e.Equiv(extern) {
+		t.Error("wrong set of expected flows")
 	}
 
+	// BottomUp evaluation with filesets containing invalid assertions.
 	e, config, done = newTestScheduler()
 	defer done()
 	config.CacheMode = infra.CacheRead | infra.CacheWrite
@@ -801,27 +853,35 @@ func TestCacheLookupBottomupWithAssertNever(t *testing.T) {
 
 	fsA, fsB, fsC := testutil.Files("a"), testutil.Files("b"), testutil.Files("c")
 	// All three will be cache-hits.
-	_ = fsA.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{Subject: "a", Namespace: "blob"}, map[string]string{"etag": "invalid"}))
-	_ = fsB.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{Subject: "b", Namespace: "blob"}, map[string]string{"etag": "invalid"}))
-	_ = fsC.AddAssertions(reflow.AssertionsFromEntry(
-		reflow.AssertionKey{Subject: "c", Namespace: "blob"}, map[string]string{"etag": "invalid"}))
+	assertionA = reflow.AssertionsFromEntry(
+		reflow.AssertionKey{Subject: "a", Namespace: "blob"}, map[string]string{"etag": "invalid"})
+	if err := fsA.AddAssertions(assertionA); err != nil {
+		t.Fatal(err)
+	}
+	assertionB = reflow.AssertionsFromEntry(
+		reflow.AssertionKey{Subject: "b", Namespace: "blob"}, map[string]string{"etag": "invalid"})
+	if err := fsB.AddAssertions(assertionB); err != nil {
+		t.Fatal(err)
+	}
+	assertionC := reflow.AssertionsFromEntry(
+		reflow.AssertionKey{Subject: "c", Namespace: "blob"}, map[string]string{"etag": "invalid"})
+	if err := fsC.AddAssertions(assertionC); err != nil {
+		t.Fatal(err)
+	}
 	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("a")).Digest(), fsA)
 	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("b")).Digest(), fsB)
 	testutil.WriteCacheFileset(eval, m.mapFunc(flowFiles("c")).Digest(), fsC)
 
-	// extern also has a cached result.
-	testutil.WriteCache(eval, extern.Digest())
 	ctx, cancel = context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	rc = testutil.EvalAsync(ctx, eval)
+	e.Ok(ctx, extern, reflow.Fileset{})
 	r = <-rc
 	if r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	if !e.Equiv() { //no flows to be executed
-		t.Error("did not expect any flows to be executed")
+	if !e.Equiv(extern) {
+		t.Error("wrong set of expected flows")
 	}
 }
 
@@ -854,43 +914,89 @@ func TestCacheLookupMissing(t *testing.T) {
 	}
 }
 
-func TestNoCacheExtern(t *testing.T) {
+func TestExtern(t *testing.T) {
 	for _, bottomup := range []bool{false, true} {
-		intern := op.Intern("internurl")
-		groupby := op.Groupby("(.*)", intern)
-		m := newMapper(func(f *flow.Flow) *flow.Flow {
-			return op.Exec("image", "command", testutil.Resources, f)
-		})
-		mapCollect := op.Map(m.mapFunc, groupby)
-		pullup := op.Pullup(mapCollect)
-		extern := op.Extern("externurl", pullup)
+		// The following is done in a func to defer context cancellations.
+		func() {
+			intern := op.Intern("internurl")
+			groupby := op.Groupby("(.*)", intern)
+			m := newMapper(func(f *flow.Flow) *flow.Flow {
+				return op.Exec("image", "command", testutil.Resources, f)
+			})
+			mapCollect := op.Map(m.mapFunc, groupby)
+			pullup := op.Pullup(mapCollect)
+			extern := op.Extern("externurl", pullup)
 
-		e, config, done := newTestScheduler()
-		defer done()
-		config.CacheMode = infra.CacheRead | infra.CacheWrite
-		config.BottomUp = bottomup
-		config.NoCacheExtern = true
-		eval := flow.NewEval(extern, config)
+			e, config, done := newTestScheduler()
+			defer done()
+			config.CacheMode = infra.CacheRead | infra.CacheWrite
+			config.BottomUp = bottomup
+			eval := flow.NewEval(extern, config)
 
-		testutil.WriteCache(eval, intern.Digest(), "a", "b")
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		rc := testutil.EvalAsync(ctx, eval)
-		for _, v := range []reflow.Fileset{
-			testutil.WriteFiles(e.Repo, "a"),
-			testutil.WriteFiles(e.Repo, "b"),
-		} {
-			f := &flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done}
-			go e.Ok(ctx, m.mapFunc(f), v)
-		}
+			testutil.WriteCache(eval, intern.Digest(), "a", "b")
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			rc := testutil.EvalAsync(ctx, eval)
+			for _, v := range []reflow.Fileset{
+				testutil.WriteFiles(e.Repo, "a"),
+				testutil.WriteFiles(e.Repo, "b"),
+			} {
+				f := &flow.Flow{Op: flow.Val, Value: values.T(v), State: flow.Done}
+				go e.Ok(ctx, m.mapFunc(f), v)
+			}
 
-		e.Ok(ctx, extern, reflow.Fileset{})
-		r := <-rc
-		if r.Err != nil {
-			t.Fatal(r.Err)
-		}
+			e.Ok(ctx, extern, reflow.Fileset{})
+			r := <-rc
+			if r.Err != nil {
+				t.Fatal(r.Err)
+			}
+			if !e.Equiv(extern, m.mapFunc(flowFiles("a")), m.mapFunc(flowFiles("b"))) {
+				t.Error("wrong set of expected flows")
+			}
+			// Assert that we don't write cache entries for externs.
+			want := errors.E(errors.NotExist)
+			if _, _, err := eval.Assoc.Get(ctx, assoc.Fileset, extern.Digest()); !errors.Match(want, err) {
+				t.Fatal("did not expect to write a cache entry for extern")
+			}
+			if _, _, err := eval.Assoc.Get(ctx, assoc.FilesetV2, extern.Digest()); !errors.Match(want, err) {
+				t.Fatal("did not expect to write a cache entry for extern")
+			}
+		}()
+	}
+}
 
-		// TODO(swami): Add assertion that the 'extern' flow result isn't cached.
+func TestNoCacheExternDeprecation(t *testing.T) {
+	// Assert that extern cache entries written before deprecating the
+	// nocacheextern flag are not used in new evaluations.
+	for _, bottomup := range []bool{false, true} {
+		// The following is done in a func to defer context cancellations.
+		func() {
+			intern := op.Intern("internurl")
+			exec := op.Exec("image", "command", testutil.Resources, intern)
+			extern := op.Extern("externurl", exec)
+
+			e, config, done := newTestScheduler()
+			defer done()
+			config.CacheMode = infra.CacheRead | infra.CacheWrite
+			config.BottomUp = bottomup
+			eval := flow.NewEval(extern, config)
+
+			testutil.WriteCache(eval, intern.Digest(), "a")
+			testutil.WriteCache(eval, exec.Digest())
+			testutil.WriteCache(eval, extern.Digest()) // existing cache entry should not be used.
+
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			rc := testutil.EvalAsync(ctx, eval)
+			e.Ok(ctx, extern, reflow.Fileset{})
+			r := <-rc
+			if r.Err != nil {
+				t.Fatal(r.Err)
+			}
+			if !e.Equiv(extern) {
+				t.Error("wrong set of expected flows")
+			}
+		}()
 	}
 }
 

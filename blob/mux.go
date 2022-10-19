@@ -124,6 +124,42 @@ func (m Mux) CanTransfer(ctx context.Context, dsturl, srcurl string) (bool, erro
 	return true, nil
 }
 
+// NeedTransfer returns whether src needs to be transferred to the location
+// of dst. It expects both src and dst to be reference files, and it only
+// determines that a transfer is unnecessary if the objects have the same ETag
+// or ContentHash.
+func (m Mux) NeedTransfer(ctx context.Context, dst, src reflow.File) (bool, error) {
+	if src.Size != 0 && dst.Size != 0 && src.Size != dst.Size {
+		return true, nil
+	}
+	// An ETag mismatch doesn't necessarily mean that the objects have different
+	// contents. E.g. the ETag of an S3 object uploaded via multipart copy is
+	// not a digest of the object data (https://docs.aws.amazon.com/AmazonS3/latest/API/API_Object.html).
+	if src.ETag != "" && src.ETag == dst.ETag {
+		return false, nil
+	}
+	// A zero ContentHash doesn't necessarily mean that the field is missing
+	// from the object's metadata.
+	if src.ContentHash.IsZero() {
+		var err error
+		src, err = m.File(ctx, src.Source)
+		if err != nil {
+			return false, err
+		}
+	}
+	if dst.ContentHash.IsZero() {
+		var err error
+		dst, err = m.File(ctx, dst.Source)
+		if err != nil {
+			return false, err
+		}
+	}
+	if !src.ContentHash.IsZero() && !dst.ContentHash.IsZero() {
+		return src.ContentHash != dst.ContentHash, nil
+	}
+	return true, nil
+}
+
 // Transfer transfers the contents of object in srcurl to dsturl.
 // errors.NotSupported is returned if the transfer is not possible.
 func (m Mux) Transfer(ctx context.Context, dsturl, srcurl string) error {
