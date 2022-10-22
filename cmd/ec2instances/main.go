@@ -130,8 +130,20 @@ func generateInstances(dir string) {
 	g.Printf("// Types stores known EC2 instance types.\n")
 	g.Printf("var Types = []Type{\n")
 
+	var allowedFamilies = map[string]struct{}{
+		"Compute optimized":               {},
+		"General purpose":                 {},
+		"GPU instance":                    {},
+		"Machine Learning ASIC Instances": {},
+		"Memory optimized":                {},
+		"Storage optimized":               {},
+	}
 	var acceptedTypes []string
 	for _, e := range entries {
+		if _, ok := allowedFamilies[e.Family]; !ok {
+			log.Printf("excluding instance type %s of family %s", e.Type, e.Family)
+			continue
+		}
 		var ok bool
 		for _, arch := range e.Arch {
 			if arch == "x86_64" {
@@ -151,24 +163,11 @@ func generateInstances(dir string) {
 			log.Printf("excluding instance type %s because its network performance can be Low", e.Type)
 			continue
 		}
-		if strings.HasPrefix(e.Type, "a1.") {
-			log.Printf("excluding instance type %s because it uses ARM (would need a different AMI)", e.Type)
-			continue
-		}
 		if strings.HasPrefix(e.Type, "u-") {
 			log.Printf("excluding High Memory instance type %s (purpose-built for large in-memory Databases)", e.Type)
 			continue
 		}
-		if strings.HasPrefix(e.Type, "vt1") {
-			log.Printf("excluding VT* instance type %s (specialized for video transcoding)", e.Type)
-			continue
-		}
 
-		parts := strings.Split(e.Type, ".")
-		if strings.HasSuffix(parts[0], "gd") || strings.HasSuffix(parts[0], "g") {
-			log.Printf("excluding instance type %s because it uses AWS Graviton (would need a different AMI)", e.Type)
-			continue
-		}
 		ok = false
 		// TODO(marius): should we prefer a particular virtualization type?
 		var virt string
@@ -378,6 +377,7 @@ type ami struct {
 type entry struct {
 	Arch          []string `json:"arch"`
 	Type          string   `json:"instance_type"`
+	Family        string   `json:"family"`
 	EBSOptimized  bool     `json:"ebs_optimized"`
 	EBSThroughput float64  `json:"ebs_throughput"`
 	Memory        float64  `json:"memory"`
