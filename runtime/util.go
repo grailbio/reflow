@@ -85,11 +85,12 @@ func PredictorConfig(cfg infra.Config, validate bool) (*infra2.PredictorConfig, 
 		sess       *session.Session
 		tdb        taskdb.TaskDB
 	)
+	// Predictor config is optional.
+	if err := cfg.Instance(&predConfig); err != nil {
+		return nil, nil
+	}
 	if err := cfg.Instance(&tdb); err != nil {
 		return nil, errors.E("predictor config: no taskdb", err)
-	}
-	if err := cfg.Instance(&predConfig); err != nil {
-		return nil, errors.E("predictor config: no predconfig", err)
 	}
 	if err := cfg.Instance(&sess); err != nil {
 		return nil, errors.E("predictor config: session", err)

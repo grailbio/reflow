@@ -59,6 +59,10 @@ Valid values for -name are "mem" and "duration".
 	if err != nil {
 		c.Fatal(err)
 	}
+	if cfg == nil {
+		c.Fatalf("missing predictor config")
+	}
+
 	var tdb taskdb.TaskDB
 	if err := c.Config.Instance(&tdb); err != nil {
 		c.Fatalf("pred needs taskdb: %v", err)
