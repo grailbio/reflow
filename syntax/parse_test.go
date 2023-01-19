@@ -280,7 +280,7 @@ func TestParseDeclComments(t *testing.T) {
 func TestParseParamComments(t *testing.T) {
 	p := Parser{Mode: ParseModule, Body: bytes.NewReader([]byte(`
 		// a is an int.
-        param a int
+		param a int
 
 		// b and c are ints.
 		param b, c int
