@@ -67,3 +67,16 @@ val dirlist2SumReduce = reduce(func(d1, d2 dir) => d1 + d2, dirlist2)
 val TestDir2Values = test.All(
 		[dirlist2Sum == wantDir, dirlist2SumReduce == wantDir] +
 		[map(dirlist2Sum)[k] == map(dirlist2SumReduce)[k] | k <- ["a", "b", "c", "d", "e"]])
+
+// Test dirs on empty inputs.
+val emptyFileMap [string:file] = [:]
+val emptyDir = dirs.Make(emptyFileMap)
+val TestEmptyFromList = dirs.FromList([]) == emptyDir
+
+val TestEmptySum = dirs.Sum([]) == emptyDir
+
+val emptyFileList [file] = []
+val TestEmptyFiles = dirs.Files(emptyDir) == emptyFileList
+
+val emptyDirMap [string:dir] = [:]
+val TestEmptyGroups = dirs.Groups(emptyDir, ".*(.{3})") == emptyDirMap

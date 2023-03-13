@@ -1,0 +1,5 @@
+val dirs = make("$/dirs")
+
+val emptyMap = [:]
+val emptyDir = dirs.Make(emptyMap)
+val TestEmptyPickErr = dirs.Pick(emptyDir, "*")

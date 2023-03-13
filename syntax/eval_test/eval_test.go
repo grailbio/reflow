@@ -51,6 +51,8 @@ func TestEvalErr(t *testing.T) {
 		{"testdata/strings_err3.rf", "expected end of string, found '-'"},
 		{"testdata/map_compr_err.rf", "failed assertion map_compr_err.TestMapComprErr"},
 		{"testdata/list_compr_err.rf", "failed assertion list_compr_err.TestListComprErr"},
+		{"testdata/dirs_err.rf", "empty directory testdata/testdir3/"},
+		{"testdata/dirs_err2.rf", "dirs.Pick: no files matched *"},
 	} {
 		m, err := sess.Open(c.file)
 		if err != nil {

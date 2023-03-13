@@ -461,13 +461,15 @@ var dirsDecls = []*Decl{
 		Id:     "Sum",
 		Module: "dirs",
 		Mode:   ModeForced,
-		Doc: "Sum sums the given list of directories into one dir.",
+		Doc:    "Sum sums the given list of directories into one dir.",
 		Type: types.Func(types.Dir,
 			&types.Field{Name: "dirlist", T: types.List(types.Dir)}),
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
 			list := args[0].(values.List)
 			// Handle some special cases more efficiently
 			switch {
+			case len(list) == 0:
+				return values.Dir{}, nil
 			case len(list) == 1:
 				return list[0].(values.Dir), nil
 			case len(list) == 2:
@@ -609,7 +611,7 @@ var filesDecls = []*Decl{
 		Id:     "Create",
 		Module: "files",
 		Doc:    fmt.Sprintf("Create creates a new file with the provided in-lined data (subject to size limit of %dMB)", filesCreateSizeLimMiB),
-		Type: types.Flow(types.Func(types.File, &types.Field{Name: "data", T: types.String})),
+		Type:   types.Flow(types.Func(types.File, &types.Field{Name: "data", T: types.String})),
 		Do: func(loc values.Location, args []values.T) (values.T, error) {
 			// This is a (small) local data; we inline it as a literal.
 			data := args[0].(string)
@@ -617,7 +619,7 @@ var filesDecls = []*Decl{
 				return nil, fmt.Errorf("%v %v: data is too large (%dMB); files.Create data may not exceed %dMB", loc.Position, loc.Ident, len(data)>>20, filesCreateSizeLimMiB)
 			}
 			return &flow.Flow{
-				Op:         flow.Coerce,
+				Op: flow.Coerce,
 				Deps: []*flow.Flow{{
 					Op:       flow.Data,
 					Data:     []byte(data),
@@ -730,8 +732,8 @@ var stringsDecls = []*Decl{
 	SystemFunc{
 		Id:     "Chunk",
 		Module: "strings",
-		Doc:    fmt.Sprintf("Chunk chunks the string s into valid strings of upto length maxlen such that " +
-			"the splits occur at rune boundaries.  Since runes can be of length upto %d bytes, " +
+		Doc: fmt.Sprintf("Chunk chunks the string s into valid strings of upto length maxlen such that "+
+			"the splits occur at rune boundaries.  Since runes can be of length upto %d bytes, "+
 			"maxlen cannot be less than %d.", utf8.UTFMax, utf8.UTFMax),
 		Type: types.Func(types.List(types.String),
 			&types.Field{Name: "s", T: types.String},
@@ -748,12 +750,12 @@ var stringsDecls = []*Decl{
 				return values.List{s}, nil
 			}
 			var (
-				i int
-				b strings.Builder
-				list   = make(values.List, 0, 1 + (len(s)-1)/maxLen)
+				i    int
+				b    strings.Builder
+				list = make(values.List, 0, 1+(len(s)-1)/maxLen)
 			)
 			for _, r := range s {
-				if b.Len() + utf8.RuneLen(r) > maxLen {
+				if b.Len()+utf8.RuneLen(r) > maxLen {
 					list, i = append(list, b.String()), i+1
 					b.Reset()
 				}

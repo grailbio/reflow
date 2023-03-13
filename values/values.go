@@ -16,6 +16,7 @@ package values
 import (
 	"crypto" // The SHA-256 implementation is required for this package's
 	"sync"
+
 	// Digester.
 	_ "crypto/sha256"
 	"encoding/binary"
@@ -150,9 +151,9 @@ type Struct map[string]T
 type Module map[string]T
 
 type MutableDir struct {
-	mu sync.Mutex
+	mu       sync.Mutex
 	contents map[string]reflow.File
-	done bool
+	done     bool
 }
 
 // Set sets the mutable directory's entry for the provided path.
@@ -190,7 +191,7 @@ func (d *MutableDir) Dir() Dir {
 func SumDir(d Dir, e Dir) Dir {
 	dir := Dir{}
 	// Append contents of d and e to dir.
-	dir.contentsList = make([]map[string]reflow.File, 0, len(d.contentsList) + len(e.contentsList))
+	dir.contentsList = make([]map[string]reflow.File, 0, len(d.contentsList)+len(e.contentsList))
 	dir.contentsList = append(dir.contentsList, d.contentsList...)
 	dir.contentsList = append(dir.contentsList, e.contentsList...)
 	dir.sortedKeys = mergeSortedDedup(d.sortedKeys, e.sortedKeys)
@@ -199,9 +200,8 @@ func SumDir(d Dir, e Dir) Dir {
 
 // ReduceUsingSumDir reduces the given list of dirs into a Dir by successively calling SumDir.
 func ReduceUsingSumDir(dirs []Dir) (sumD Dir) {
-	sumD = dirs[0]
-	for i := 1; i < len(dirs); i++ {
-		sumD = SumDir(sumD, dirs[i])
+	for _, dir := range dirs {
+		sumD = SumDir(sumD, dir)
 	}
 	return
 }
@@ -209,7 +209,7 @@ func ReduceUsingSumDir(dirs []Dir) (sumD Dir) {
 // mergeSortedDedup merges two sorted string slices and dedups the elements.
 // mergeSortedDedup assumes that a and b are sorted (and may even be deduped)
 func mergeSortedDedup(a, b []string) []string {
-	merged := make([]string, len(a) + len(b))
+	merged := make([]string, len(a)+len(b))
 	var i, j, k int
 	for i < len(a) && j < len(b) {
 		var picked string
