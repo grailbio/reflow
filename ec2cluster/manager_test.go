@@ -158,7 +158,7 @@ func TestManagerStart(t *testing.T) {
 	}
 	dio := &ec2.DescribeInstancesOutput{Reservations: []*ec2.Reservation{{Instances: ec2Is}}}
 	var configs []instanceConfig
-	for _, config := range instanceTypes {
+	for _, config := range allInstanceConfigs {
 		configs = append(configs, config)
 	}
 	c := &Cluster{

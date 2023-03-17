@@ -12,37 +12,31 @@ import (
 )
 
 func TestFilterInstanceTypes(t *testing.T) {
-	instanceTypes := []string{"a", "b", "c", "d"}
+	instanceTypes := []instances.Type{
+		{Name: "a"},
+		{Name: "b"},
+		{Name: "c"},
+		{Name: "d"},
+	}
 	existing := map[string]instances.VerifiedStatus{
 		"a": {Attempted: true, Verified: true, ApproxETASeconds: 10, MemoryBytes: 0},
 		"b": {Attempted: true, Verified: false, ApproxETASeconds: 70, MemoryBytes: 0},
 		"c": {Attempted: false, Verified: false, ApproxETASeconds: -1, MemoryBytes: 0},
 	}
 	for _, tt := range []struct {
-		instanceTypes      []string
-		existing           map[string]instances.VerifiedStatus
-		retry              bool
-		verified, toverify []string
+		instanceTypes []instances.Type
+		existing      map[string]instances.VerifiedStatus
+		retry         bool
+		toverify      []string
 	}{
-		{instanceTypes, map[string]instances.VerifiedStatus{}, false, []string{}, instanceTypes},
-		{instanceTypes, existing, false, []string{"a"}, []string{"c", "d"}},
-		{instanceTypes, existing, true, []string{"a"}, []string{"b", "c", "d"}},
-		{[]string{"a"}, existing, false, []string{"a"}, []string{"c"}},
-		{[]string{"a"}, existing, true, []string{"a"}, []string{"b", "c"}},
+		{instanceTypes, map[string]instances.VerifiedStatus{}, false, []string{"a", "b", "c", "d"}},
+		{instanceTypes, existing, false, []string{"c", "d"}},
+		{instanceTypes, existing, true, []string{"b", "c", "d"}},
 	} {
-		verified, toverify := instancesToVerify(tt.instanceTypes, tt.existing, tt.retry)
-		if len(tt.verified) == 0 {
-			if len(verified) != 0 {
-				t.Errorf("got %v want %v", verified, tt.verified)
-			}
-		} else if got, want := verified, tt.verified; !reflect.DeepEqual(got, want) {
-			t.Errorf("got %v want %v", got, want)
-		}
-
+		toverify := instancesToVerify(tt.instanceTypes, tt.existing, tt.retry)
 		if got, want := toverify, tt.toverify; !reflect.DeepEqual(got, want) {
 			t.Errorf("got %v want %v", got, want)
 		}
-
 	}
 }
 

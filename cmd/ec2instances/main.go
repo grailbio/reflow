@@ -206,7 +206,12 @@ func generateInstances(dir string) {
 			case e.Storage.SSD:
 				storageType = "StorageTypeSSD"
 			case e.Storage.NVMeSSD:
-				log.Fatal("inconsistent instance storage type; marked NVMe SSD but not SSD")
+				// https://instances.vantage.sh/instances.json returns nvme_ssd=True and ssd=False for d3 instance types
+				// because their storage type is NVMe HDD but their scraper incorrectly assumes that all NVMe must be
+				// SSD (https://github.com/vantage-sh/ec2instances.info/blob/944a3451715b53a572b38b2ae54973c05a66c0ce/scrape.py#L519)
+				// TODO(pfialho): revert to log.Fatal once the above is fixed.
+				log.Printf("skipping %s: inconsistent instance storage type: marked NVMe SSD but not SSD", e.Type)
+				continue
 			default:
 				storageType = "StorageTypeHDD"
 			}

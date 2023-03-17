@@ -53,40 +53,31 @@ Example usage:
 	} else {
 		c.Fatalf("not an ec2cluster - %s %T", cluster.GetName(), cluster)
 	}
-	existing := instances.VerifiedByRegion[ec.Region()]
-	verified, toverify := instancesToVerify(ec.InstanceTypes, existing, *retry)
+
+	// Find instance types that need to be verified.
+	verified := instances.VerifiedByRegion[ec.Region()]
+	toverify := instancesToVerify(instances.Types, verified, *retry)
 	if len(toverify) == 0 {
 		if _, err := c.Stdout.Write([]byte("no instance types to be verified\n")); err != nil {
 			c.Fatal(err)
 		}
 		c.Exit(0)
 	}
-	sort.Strings(toverify)
-
 	if max := *maxFlag; max > 0 {
 		if len(toverify) < max {
 			max = len(toverify)
 		}
 		toverify = toverify[:max]
 	}
-
 	c.Log.Printf("instance types to be verified [%d]: %s\n", len(toverify), strings.Join(toverify, ", "))
 
-	final := make(map[string]instances.VerifiedStatus)
-	for _, it := range ec.InstanceTypes {
-		vs, ok := existing[it]
-		if !ok {
-			vs = instances.VerifiedStatus{Attempted: false, Verified: false, ApproxETASeconds: -1, MemoryBytes: 0}
-		}
-		final[it] = vs
-	}
+	// Verify.
 	if *probeFlag {
 		results := probe(ctx, ec, toverify, *limitFlag)
 		for _, r := range results {
-			final[r.ec2Type] = instances.VerifiedStatus{Attempted: true, Verified: r.err == nil, ApproxETASeconds: int64(r.duration.Seconds()), MemoryBytes: r.memBytes}
+			verified[r.ec2Type] = instances.VerifiedStatus{Attempted: true, Verified: r.err == nil, ApproxETASeconds: int64(r.duration.Seconds()), MemoryBytes: r.memBytes}
 			if r.err == nil {
 				c.Log.Printf("Successfully verified instance type: %s (took %s)\n", r.ec2Type, r.duration)
-				verified = append(verified, r.ec2Type)
 			}
 		}
 		// Log failed results separately.
@@ -96,12 +87,10 @@ Example usage:
 			}
 		}
 	}
-	sort.Strings(verified)
-	ec.InstanceTypes = verified
 
+	// Write to verified.go.
 	if *pkgPath != "" {
 		dir := *pkgPath
-		instances.VerifiedByRegion[ec.Region()] = final
 		vgen := instances.VerifiedSrcGenerator{Package: filepath.Base(dir), VerifiedByRegion: instances.VerifiedByRegion}
 		src, err := vgen.Source()
 		c.must(err)
@@ -133,27 +122,20 @@ func probe(ctx context.Context, cluster *ec2cluster.Cluster, instanceTypes []str
 	return results
 }
 
-// instancesToVerify returns a list each of verified and toverify instance types, given
-// a list of instance types and an existing mapping of instance types to verification status.
-// If retry is set, already attempted (but unverified) instance types are also included in toverify
-func instancesToVerify(instanceTypes []string, existing map[string]instances.VerifiedStatus, retry bool) (verified, toverify []string) {
-	set := make(map[string]bool)
-	for _, it := range instanceTypes {
-		set[it] = true
-	}
-	for it := range existing {
-		set[it] = true
-	}
-	for it := range set {
-		vs := existing[it]
-		if !vs.Verified && (!vs.Attempted || retry) {
-			toverify = append(toverify, it)
-		}
-		if vs.Verified {
-			verified = append(verified, it)
+// instancesToVerify returns a list of instance types that need to be verified given a list of
+// instance types and an existing mapping of instance types to verification status.
+// If retry is set, already attempted (but unverified) instance types are also included.
+func instancesToVerify(instanceTypes []instances.Type, existing map[string]instances.VerifiedStatus, retry bool) (toverify []string) {
+	for _, typ := range instanceTypes {
+		vs, ok := existing[typ.Name]
+		if !ok {
+			// Attempt to verify instance type if verification status is unknown.
+			toverify = append(toverify, typ.Name)
+		} else if !vs.Verified && (!vs.Attempted || retry) {
+			// Attempt to verify unverified instance type if not previously attempted or if retry is true.
+			toverify = append(toverify, typ.Name)
 		}
 	}
-	sort.Strings(verified)
 	sort.Strings(toverify)
 	return
 }

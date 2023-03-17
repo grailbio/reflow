@@ -21,6 +21,7 @@ import (
 	_ "github.com/grailbio/infra/aws/test"
 	"github.com/grailbio/infra/tls"
 	"github.com/grailbio/reflow"
+	"github.com/grailbio/reflow/errors"
 	infra2 "github.com/grailbio/reflow/infra"
 	"github.com/grailbio/reflow/log"
 	"github.com/grailbio/reflow/metrics"
@@ -255,13 +256,13 @@ func getInfraSchema() infra.Schema {
 	}
 }
 
-func getEC2ClusterWithRestrictedInstanceTypes() (*Cluster, error) {
+func getEC2ClusterWithRestrictedInstanceTypes(instanceTypes []string) (*Cluster, error) {
 	var (
 		config infra.Config
 		err    error
 	)
 	var schema = getInfraSchema()
-	configYaml := `
+	configYaml := fmt.Sprintf(`
         labels: kv
         tls: tls,file=/tmp/ca
         logger: logger
@@ -276,13 +277,10 @@ func getEC2ClusterWithRestrictedInstanceTypes() (*Cluster, error) {
             diskspace: 10
             ami: foo
             securitygroup: blah
-            instancetypes:
-            - c5.large
-            - c5.4xlarge
-            - r3.8xlarge
+            instancetypes: [%s]
         sshkey: key
         metrics: nopmetrics
-    `
+    `, strings.Join(instanceTypes, ","))
 	if config, err = schema.Unmarshal([]byte(configYaml)); err != nil {
 		return nil, err
 	}
@@ -305,7 +303,8 @@ func TestInstanceAllocationRequest(t *testing.T) {
 	// c5.large: mem:3.7GiB cpu:2 disk:10.0GiB intel_avx:2 intel_avx2:2 intel_avx512:2
 	// c5.4xlarge: mem:32GiB cpu:16 disk:10.0GiB intel_avx:16 intel_avx2:16 intel_avx512:16
 	// r3.8xlarge: mem:226.9GiB cpu:32 disk:10.0GiB intel_avx:32
-	if cluster, err = getEC2ClusterWithRestrictedInstanceTypes(); err != nil {
+	instanceTypes := []string{"c5.large", "c5.4xlarge", "r3.8xlarge"}
+	if cluster, err = getEC2ClusterWithRestrictedInstanceTypes(instanceTypes); err != nil {
 		t.Fatal("ec2cluster: ", err)
 	}
 	for _, tc := range []struct {
@@ -364,9 +363,7 @@ func TestInstanceAllocationRequest(t *testing.T) {
 					Type: "r3.8xlarge",
 				},
 			},
-		},
-		{
-			5,
+		}, {5,
 			[]*waiter{
 				{
 					Requirements: reflow.Requirements{Min: reflow.Resources{"cpu": 2, "mem": 3.3 * float64(data.GiB)}},
@@ -444,6 +441,42 @@ func TestInstanceAllocationRequest(t *testing.T) {
 		for i := range reqs {
 			if got, want := reqs[i].Type, tc.reqs[i].Type; got != want {
 				t.Fatalf("%v: expected %v, got %v", tc.index, want, got)
+			}
+		}
+	}
+}
+
+func TestInvalidAndUnverifiedInstanceTypes(t *testing.T) {
+	for _, tt := range []struct {
+		// Instance types to be set as Cluster.InstanceTypes.
+		instanceTypes []string
+		// Subset of instance types that should be set in Cluster.instanceState.
+		want []string
+		err  error
+	}{
+		// r0.xlarge does not exist.
+		{[]string{"r0.xlarge"}, nil, errors.New("unknown instance type: r0.xlarge")},
+		// p4de.24xlarge is an instance type known to fail verification. This test case will need
+		// to be updated if we ever verify it.
+		{[]string{"r6a.12xlarge", "p4de.24xlarge"}, []string{"r6a.12xlarge"}, nil},
+		// Init requires at least one legal instance type.
+		{[]string{"p4de.24xlarge"}, nil, errors.New("no legal instance types configured")},
+	} {
+		cluster, err := getEC2ClusterWithRestrictedInstanceTypes(tt.instanceTypes)
+		if err != nil {
+			if tt.err == nil {
+				t.Fatal("ec2cluster: ", err)
+			}
+			if tt.err != nil && !strings.Contains(err.Error(), tt.err.Error()) {
+				t.Errorf("got %q want %q ", err, tt.err)
+			}
+		} else {
+			got := make([]string, len(cluster.instanceState.configs))
+			for i, config := range cluster.instanceState.configs {
+				got[i] = config.Type
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("got %q want %q ", got, tt.want)
 			}
 		}
 	}

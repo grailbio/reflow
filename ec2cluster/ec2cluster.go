@@ -117,9 +117,6 @@ type Cluster struct {
 	// When requesting a spot instance in a particular AZ, the appropriate subnet will be used.
 	// If this list contains duplicate subnets for any AZ, behavior (of which subnet is used) is non-deterministic.
 	Subnets []string `yaml:"subnets,omitempty"`
-	// InstanceTypesMap stores the set of admissible instance types.
-	// If nil, all instance types are permitted.
-	InstanceTypesMap map[string]bool `yaml:"-"`
 	// BootstrapImage is the URL of the image used for instance bootstrap.
 	BootstrapImage string `yaml:"-"`
 	// BootstrapExpiry is the maximum duration the bootstrap will wait for a reflowlet image after which it dies.
@@ -175,14 +172,19 @@ type Cluster struct {
 	Status *status.Group `yaml:"-"`
 
 	// InstanceTypes defines the set of allowable EC2 instance types for
-	// this cluster. If empty, all instance types are permitted.
+	// this cluster. If empty, all verified instance types are permitted.
 	InstanceTypes []string `yaml:"instancetypes,omitempty"`
 	// Name is the name of the cluster config, which defaults to defaultClusterName.
 	// Multiple clusters can be launched/maintained simultaneously by using different names.
 	Name string `yaml:"name,omitempty"`
 
-	instanceState   *instanceState
-	instanceConfigs map[string]instanceConfig
+	// allInstanceConfigs stores the config of all EC2 instance types.
+	// TODO(pfialho): consider deleting this and using the global allInstanceConfigs. The only difference between the
+	//  two is that the former is configured with DiskSpace.
+	allInstanceConfigs map[string]instanceConfig
+	// instanceState stores the state of the set of legal EC2 instance types for this cluster.
+	// The set of legal instances is the subset of InstanceTypes that are verified.
+	instanceState *instanceState
 
 	mu    sync.Mutex
 	pools map[string]reflowletPool
@@ -250,16 +252,17 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 		return errors.New("missing region parameter")
 	}
 
-	// If InstanceTypes are not defined, include built-in verified instance types.
+	// If c.InstanceTypes is empty, set it to all verified instance types.
+	verified := instances.VerifiedByRegion[c.Region()]
 	if len(c.InstanceTypes) == 0 {
-		verified := instances.VerifiedByRegion[c.Region()]
-		for _, typ := range instances.Types {
-			if !verified[typ.Name].Attempted || verified[typ.Name].Verified {
-				c.InstanceTypes = append(c.InstanceTypes, typ.Name)
+		for typ, vs := range verified {
+			if vs.Verified {
+				c.InstanceTypes = append(c.InstanceTypes, typ)
 			}
 		}
 		sort.Strings(c.InstanceTypes)
 	}
+
 	clientConfig, _, err := tls.HTTPS()
 	if err != nil {
 		return err
@@ -293,12 +296,6 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 		c.MaxHourlyCostUSD = defaultMaxHourlyCostUSD
 	}
 
-	if len(c.InstanceTypes) > 0 {
-		c.InstanceTypesMap = make(map[string]bool)
-		for _, typ := range c.InstanceTypes {
-			c.InstanceTypesMap[typ] = true
-		}
-	}
 	c.InstanceTags = make(map[string]string)
 	c.InstanceTags["Name"] = fmt.Sprintf("%s (reflow)", id.User())
 	c.InstanceTags[userKey] = id.User()
@@ -321,26 +318,32 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 		return errors.New("missing EC2 security group")
 	}
 
-	// Construct the set of legal instances and set available disk space.
-	var configs []instanceConfig
-	c.instanceConfigs = make(map[string]instanceConfig)
-	for _, config := range instanceTypes {
+	// Construct instance configs for all instance types.
+	c.allInstanceConfigs = make(map[string]instanceConfig)
+	for _, config := range allInstanceConfigs {
 		config.Resources["disk"] = float64(c.DiskSpace << 30)
-		if c.InstanceTypesMap == nil || c.InstanceTypesMap[config.Type] {
-			configs = append(configs, config)
-		}
-		c.instanceConfigs[config.Type] = config
+		c.allInstanceConfigs[config.Type] = config
 	}
-	for inst := range c.InstanceTypesMap {
-		if _, ok := instanceTypes[inst]; !ok {
-			c.Log.Debugf("instance type unknown: %v", inst)
+	// Construct instance state using legal instance types only. A legal type is one that is both
+	// allowable (i.e. specified in c.InstanceTypes) and verified.
+	var configs []instanceConfig
+	for _, typ := range c.InstanceTypes {
+		vs, ok := verified[typ]
+		if !ok {
+			return errors.New(fmt.Sprintf("unknown instance type: %s", typ))
 		}
+		if !vs.Verified {
+			c.Log.Debugf("unverified instance type: %s", typ)
+			continue
+		}
+		configs = append(configs, c.allInstanceConfigs[typ])
 	}
 	if len(configs) == 0 {
-		return errors.New("no configured instance types")
+		return errors.New("no legal instance types configured")
 	}
 	adv, _ := sa.NewSpotAdvisor(c.Log, context.Background().Done())
 	c.instanceState = newInstanceState(configs, unavailableInstanceTypeTtl, c.Region(), adv)
+
 	c.manager = NewManager(c, c.MaxHourlyCostUSD, c.MaxPendingInstances, c.Log)
 	c.spotProber = NewSpotProber(
 		func(ctx context.Context, instanceType string, depth int) (bool, error) {
@@ -517,7 +520,7 @@ func (c *Cluster) Probe(ctx context.Context, instanceType string) (reflow.Resour
 		panic("uninitialized ec2cluster - Start() not called ?")
 	}
 	var r reflow.Resources
-	config := c.instanceConfigs[instanceType]
+	config := c.allInstanceConfigs[instanceType]
 	i := c.newInstance(config)
 probe:
 	i.Task = c.Status.Startf("%s", instanceType)
@@ -606,7 +609,7 @@ func (c *Cluster) Available(need reflow.Resources, maxPrice float64) (InstanceSp
 
 // Launch launches an EC2 instance based on the given spec and returns a ManagedInstance.
 func (c *Cluster) Launch(ctx context.Context, spec InstanceSpec) ManagedInstance {
-	config, ok := c.instanceConfigs[spec.Type]
+	config, ok := c.allInstanceConfigs[spec.Type]
 	if !ok {
 		return spec.Instance("")
 	}
@@ -716,7 +719,7 @@ func (c *Cluster) getEC2State(ctx context.Context) (map[string]*reflowletInstanc
 }
 
 func (c *Cluster) InstancePriceUSD(typ string) float64 {
-	config := c.instanceConfigs[typ]
+	config := c.allInstanceConfigs[typ]
 	return config.Price[c.Region()]
 }
 
@@ -739,7 +742,7 @@ func (c *Cluster) printState(suffix string) {
 	instanceTypeCounts := instTypes(c.pools)
 	for typ, ntyp := range instanceTypeCounts {
 		counts = append(counts, fmt.Sprintf("%s:%d", typ, ntyp))
-		config := c.instanceConfigs[typ]
+		config := c.allInstanceConfigs[typ]
 		var r reflow.Resources
 		r.Scale(config.Resources, float64(ntyp))
 		total.Add(total, r)

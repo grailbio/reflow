@@ -15,7 +15,7 @@ const testMaxPrice = 100
 
 func TestInstanceState(t *testing.T) {
 	var instances []instanceConfig
-	for _, config := range instanceTypes {
+	for _, config := range allInstanceConfigs {
 		config.Resources["disk"] = float64(2000 << 30)
 		instances = append(instances, config)
 	}
@@ -46,19 +46,19 @@ func TestInstanceState(t *testing.T) {
 
 func TestInstanceStateLargest(t *testing.T) {
 	instances := newInstanceState(
-		[]instanceConfig{instanceTypes["c5.2xlarge"]},
+		[]instanceConfig{allInstanceConfigs["c5.2xlarge"]},
 		1*time.Second, "us-west-2", nil)
 	if got, want := instances.Largest().Type, "c5.2xlarge"; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	instances = newInstanceState(
-		[]instanceConfig{instanceTypes["c5.2xlarge"], instanceTypes["c5.9xlarge"]},
+		[]instanceConfig{allInstanceConfigs["c5.2xlarge"], allInstanceConfigs["c5.9xlarge"]},
 		1*time.Second, "us-west-2", nil)
 	if got, want := instances.Largest().Type, "c5.9xlarge"; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	instances = newInstanceState(
-		[]instanceConfig{instanceTypes["r5a.8xlarge"], instanceTypes["c5.9xlarge"]},
+		[]instanceConfig{allInstanceConfigs["r5a.8xlarge"], allInstanceConfigs["c5.9xlarge"]},
 		1*time.Second, "us-west-2", nil)
 	if got, want := instances.Largest().Type, "r5a.8xlarge"; got != want {
 		t.Errorf("got %v, want %v", got, want)
@@ -67,19 +67,19 @@ func TestInstanceStateLargest(t *testing.T) {
 
 func TestInstanceStateCheapest(t *testing.T) {
 	instances := newInstanceState(
-		[]instanceConfig{instanceTypes["c5.2xlarge"]},
+		[]instanceConfig{allInstanceConfigs["c5.2xlarge"]},
 		1*time.Second, "us-west-2", nil)
 	if got, want := instances.Cheapest().Type, "c5.2xlarge"; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	instances = newInstanceState(
-		[]instanceConfig{instanceTypes["c5.2xlarge"], instanceTypes["c5.9xlarge"]},
+		[]instanceConfig{allInstanceConfigs["c5.2xlarge"], allInstanceConfigs["c5.9xlarge"]},
 		1*time.Second, "us-west-2", nil)
 	if got, want := instances.Cheapest().Type, "c5.2xlarge"; got != want {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	instances = newInstanceState(
-		[]instanceConfig{instanceTypes["r5a.8xlarge"], instanceTypes["c5.9xlarge"]},
+		[]instanceConfig{allInstanceConfigs["r5a.8xlarge"], allInstanceConfigs["c5.9xlarge"]},
 		1*time.Second, "us-west-2", nil)
 	if got, want := instances.Cheapest().Type, "c5.9xlarge"; got != want {
 		t.Errorf("got %v, want %v", got, want)
@@ -89,7 +89,7 @@ func TestInstanceStateCheapest(t *testing.T) {
 func TestInstanceStateUnavailable(t *testing.T) {
 	const sleepTime = 200 * time.Millisecond
 	instances := newInstanceState(
-		[]instanceConfig{instanceTypes["c5.2xlarge"]},
+		[]instanceConfig{allInstanceConfigs["c5.2xlarge"]},
 		sleepTime, "us-west-2", nil)
 	cfg, _ := instances.Type("c5.2xlarge")
 	gotCfg, gotAvail := instances.MinAvailable(reflow.Resources{"mem": 2 << 30, "cpu": 1}, true, 100.0)
@@ -112,7 +112,7 @@ func TestInstanceStateUnavailable(t *testing.T) {
 func TestInstanceStateWithAdvisor(t *testing.T) {
 	var instances []instanceConfig
 	testAdvisorAllHighInterrupt := testAdvisor{}
-	for _, config := range instanceTypes {
+	for _, config := range allInstanceConfigs {
 		config.Resources["disk"] = float64(2000 << 30)
 		instances = append(instances, config)
 		testAdvisorAllHighInterrupt[sa.InstanceType(config.Type)] = sa.LessThanTwentyPct
@@ -160,7 +160,6 @@ func TestInstanceStateWithAdvisor(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// create an instanceState using the testcase's advisor
 			is := newInstanceState(instances, 1*time.Second, "us-west-2", tc.adv)
-
 			if got, _ := is.MinAvailable(tc.r, tc.spot, testMaxPrice); got.Type != tc.wantMin {
 				t.Errorf("got %v, want %v for spot %v, resources %v", got.Type, tc.wantMin, tc.spot, tc.r)
 			}

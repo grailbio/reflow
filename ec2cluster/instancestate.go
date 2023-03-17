@@ -19,21 +19,26 @@ import (
 )
 
 var (
-	instanceTypes     = map[string]instanceConfig{}
+	initOnce once.Task
+
+	// allInstanceConfigs stores the config of all known EC2 instance types.
+	allInstanceConfigs = map[string]instanceConfig{}
+	// allInstancesState stores the state of all known EC2 instance types.
 	allInstancesState *instanceState
-	initOnce          once.Task
 )
 
 func init() {
 	for _, typ := range instances.Types {
-		instanceTypes[typ.Name] = instanceConfig{
+		allInstanceConfigs[typ.Name] = instanceConfig{
 			Type:          typ.Name,
 			EBSOptimized:  typ.EBSOptimized,
 			EBSThroughput: typ.EBSThroughput,
 			Price:         typ.Price,
 			Resources: reflow.Resources{
 				"cpu": float64(typ.VCPU),
-				// We don't set the memory here, because we will do it later based on verification status.
+				// Set to memory reported by AWS. This will be updated in newInstanceState if the
+				// instance type has already been verified in the target region.
+				"mem": typ.Memory,
 			},
 			// According to Amazon, "t2" instances are the only current-generation
 			// instances not supported by spot.
@@ -45,13 +50,13 @@ func init() {
 				continue
 			}
 			// Allocate one feature per VCPU.
-			instanceTypes[typ.Name].Resources[key] = float64(typ.VCPU)
+			allInstanceConfigs[typ.Name].Resources[key] = float64(typ.VCPU)
 		}
 	}
 
 	if err := initOnce.Do(func() error {
 		var configs []instanceConfig
-		for _, config := range instanceTypes {
+		for _, config := range allInstanceConfigs {
 			configs = append(configs, config)
 		}
 		if len(configs) == 0 {
@@ -103,9 +108,10 @@ func newInstanceState(configs []instanceConfig, sleep time.Duration, region stri
 		if price, cheapest := cfg.Price[region], cheapestCfg.Price[region]; price < cheapest {
 			s.cheapestIndex = i
 		}
-		// Update the resources based on memory sampled during verification
-		verifiedStatus := instances.VerifiedByRegion[region][cfg.Type]
-		cfg.Resources["mem"] = float64(verifiedStatus.ExpectedMemoryBytes())
+		// If verified, update the resources based on memory sampled during verification.
+		if verifiedStatus, ok := instances.VerifiedByRegion[region][cfg.Type]; ok {
+			cfg.Resources["mem"] = float64(verifiedStatus.ExpectedMemoryBytes())
+		}
 	}
 	return s
 }
