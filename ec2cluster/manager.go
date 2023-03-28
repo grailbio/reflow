@@ -250,6 +250,7 @@ func (m *Manager) getInstanceAllocations(waiters []*waiter) (todo []InstanceSpec
 	)
 	// Return early if we don't have any budget to work with.
 	if budget, cheapest := m.remainingBudgetUSD(false), m.cluster.CheapestInstancePriceUSD(); budget-cheapest < 0 {
+		m.log.Printf("remaining budget ($%.2f) is lower than cheapest instance ($%.2f)", budget, cheapest)
 		return
 	}
 	// Return available instances within the remaining budget. The total price of all InstanceSpecs appended to todo
