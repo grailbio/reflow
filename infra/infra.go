@@ -471,7 +471,7 @@ var DefaultReflowletConfig = ReflowletConfig{
 var DefaultVolumeWatcher = VolumeWatcher{
 	LowThresholdPct:       55.0,
 	HighThresholdPct:      75.0,
-	WatcherSleepDuration:  1 * time.Minute,
+	WatcherSleepDuration:  20 * time.Second,
 	ResizeSleepDuration:   5 * time.Second,
 	FastThresholdDuration: 24 * time.Hour,
 	FastIncreaseFactor:    10,
@@ -499,7 +499,7 @@ func (rp *ReflowletConfig) Flags(flags *flag.FlagSet) {
 	flags.DurationVar(&rp.LogStatsDuration, "logstatsduration", time.Minute, "LogStatsDuration is the periodicity with which the reflowlet will log statistics.")
 	flags.Float64Var(&rp.VolumeWatcher.LowThresholdPct, "lowthresholdpct", 55.0, "LowThresholdPct defines how full the filesystem needs to be to trigger the low threshold.")
 	flags.Float64Var(&rp.VolumeWatcher.HighThresholdPct, "highthresholdpct", 75.0, "HighThresholdPct defines how full the filesystem needs to be to trigger the high threshold.")
-	flags.DurationVar(&rp.VolumeWatcher.WatcherSleepDuration, "watchersleepduration", time.Minute, "WatcherSleepDuration is the frequency at which to check if resizing is needed")
+	flags.DurationVar(&rp.VolumeWatcher.WatcherSleepDuration, "watchersleepduration", 20*time.Second, "WatcherSleepDuration is the frequency at which to check if resizing is needed")
 	flags.DurationVar(&rp.VolumeWatcher.ResizeSleepDuration, "resizesleepduration", 5*time.Second, "ResizeSleepDuration is the frequency at which to attempt resizing")
 	flags.DurationVar(&rp.VolumeWatcher.FastThresholdDuration, "fastthresholdduration", 24*time.Hour, "FastThresholdDuration is the duration to use to determine whether disk usage grew fast or slow.")
 	flags.UintVar(&rp.VolumeWatcher.FastIncreaseFactor, "fastincreasefactor", 10, "FastIncreaseFactor is the factor by which to increase disk size if it filled up fast.")

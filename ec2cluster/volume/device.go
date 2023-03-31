@@ -31,7 +31,7 @@ type device string
 
 // Usage implements Device.
 func (d device) Usage() (float64, error) {
-	cmd := exec.Command("/bin/df", "--sync", "--output=pcent", string(d))
+	cmd := exec.Command("/bin/df", "--output=pcent", string(d))
 	out, err := cmd.Output()
 	if err != nil {
 		return 0.0, err

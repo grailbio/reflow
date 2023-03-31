@@ -34,11 +34,11 @@ import (
 type Volume interface {
 	Device
 
-	// Gets returns the total size of the volume.
+	// GetSize returns the total size of the volume.
 	GetSize(ctx context.Context) (size data.Size, err error)
 
 	// ReadyToModify returns whether this volume is ready to be modified (if desired).
-	// If the return value for ready is false, then the reason may contain a reason why its not ready.
+	// If the return value for ready is false, then reason may contain a reason why it's not ready.
 	ReadyToModify(ctx context.Context) (ready bool, reason string, err error)
 
 	// SetSize sets this volume's size to the specified amount.
@@ -163,7 +163,7 @@ func (v *ebsLvmVolume) GetSize(ctx context.Context) (data.Size, error) {
 	return size, nil
 }
 
-// IsReadyForVolumeModification checks to see if there is a still active
+// ReadyToModify checks to see if there is a still active
 // volume modification involving the given volumeId.
 func (v *ebsLvmVolume) ReadyToModify(ctx context.Context) (bool, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
