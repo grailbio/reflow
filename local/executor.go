@@ -165,6 +165,8 @@ func (e *Executor) Start() error {
 	// Monitor /dev/kmsg for OOMs.
 	e.oomTracker = newOOMTracker()
 	go e.oomTracker.Monitor(e.ctx, e.Log)
+	// Monitor for hanging execs.
+	go e.monitorHangingExecs()
 
 	if e.FileRepository == nil {
 		e.FileRepository = &filerepo.Repository{Root: filepath.Join(e.Prefix, e.Dir, objectsDir)}
@@ -711,4 +713,66 @@ func (e *Executor) install(ctx context.Context, path string, replace bool, repo 
 		}
 	}
 	return val, nil
+}
+
+// monitorHangingExecs finds and removes hanging execs.
+func (e *Executor) monitorHangingExecs() {
+	// Monitor infrequently to avoid impacting performance when managing a high number of execs.
+	const sleep = 10 * time.Minute
+	ticker := time.NewTicker(sleep)
+	for {
+		select {
+		case <-e.ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if e.dead {
+			// All containers will already be force removed if executor is dead.
+			e.Log.Printf("executor is dead; stopping exec monitoring")
+			return
+		}
+		e.Log.Printf("checking for hanging execs")
+		e.mu.Lock()
+		execs := make([]exec, len(e.execs))
+		i := 0
+		for _, ex := range e.execs {
+			execs[i] = ex
+			i++
+		}
+		// Unlock before inspecting execs because the hanging check takes a long time.
+		// This can lead to a situation where we attempt to inspect/remove a container that no
+		// longer exists. Therefore, downstream failures are acceptable and will be interpreted as
+		// race conditions.
+		e.mu.Unlock()
+		for _, ex := range execs {
+			cx, ok := ex.(containerExec)
+			if !ok {
+				continue
+			}
+			if err := e.removeIfHanging(cx, ex.ID()); err != nil {
+				e.Log.Debugf("remove if hanging %s: %v", ex.ID().String(), err)
+			}
+		}
+	}
+}
+
+// removeIfHanging removes an exec if its container is hanging.
+func (e *Executor) removeIfHanging(cx containerExec, id digest.Digest) error {
+	hanging, err := cx.IsHanging(e.ctx)
+	if err != nil {
+		return err
+	}
+	if hanging {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		if _, ok := e.execs[id]; !ok {
+			return nil
+		}
+		if err = cx.Remove(e.ctx, true); err != nil {
+			return err
+		}
+		delete(e.execs, id)
+		e.Log.Printf("removed hanging exec %s", id.String())
+	}
+	return nil
 }

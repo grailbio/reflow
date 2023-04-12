@@ -493,7 +493,7 @@ func (e *blobExec) ID() digest.Digest {
 // URI returns a URI For this exec based on its executor's URI.
 func (e *blobExec) URI() string { return e.ExecURI }
 
-// Value returns the interned value when the exec is complete.
+// Result returns the interned value when the exec is complete.
 func (e *blobExec) Result(ctx context.Context) (reflow.Result, error) {
 	state, err := e.getState()
 	if err != nil {

@@ -62,12 +62,20 @@ var (
 	errorHintSubstrings = []string{"panic", "error", "Error", "ERROR"}
 )
 
+type containerExec interface {
+	Name() string
+	IsHanging(ctx context.Context) (bool, error)
+	Remove(ctx context.Context, force bool) error
+}
+
 // dockerExec is a (local) exec attached to a local executor, from which it
 // is given its own subdirectory to operate. exec is responsible for
 // the lifecycle of an exec through an executor. It maintains a state
 // machine (invoked by exec.Go) to see the exec through completion.
 // Before every state change, exec saves its state to manifestPath,
 // and is always recoverable from the previous state.
+//
+// It implements the containerExec interface.
 type dockerExec struct {
 	// The Executor that owns this exec.
 	Executor *Executor
@@ -141,6 +149,11 @@ func (e *dockerExec) save(state execState) error {
 	}
 	f.Close()
 	return nil
+}
+
+// Name returns the name of the docker container.
+func (e *dockerExec) Name() string {
+	return e.containerName()
 }
 
 // containerName returns the name of the container for
@@ -822,7 +835,7 @@ func (e *dockerExec) Inspect(ctx context.Context, repo *url.URL) (resp reflow.In
 	return
 }
 
-// Value returns the value computed by the exec.
+// Result returns the value computed by the exec.
 func (e *dockerExec) Result(ctx context.Context) (reflow.Result, error) {
 	state, err := e.getState()
 	if err != nil {
@@ -851,9 +864,51 @@ func (e *dockerExec) Promote(ctx context.Context) error {
 
 // Kill kills the exec's container and removes it entirely.
 func (e *dockerExec) Kill(ctx context.Context) error {
-	e.client.ContainerKill(ctx, e.containerName(), "KILL")
+	name := e.containerName()
+	if err := e.client.ContainerKill(ctx, name, "KILL"); err != nil {
+		return errors.E("ContainerKill", name, err)
+	}
 	if err := e.Wait(ctx); err != nil {
 		return err
+	}
+	return os.RemoveAll(e.path())
+}
+
+// IsHanging returns whether the exec's container is in an unrecoverable hang state.
+// The symptom is dockerd reporting that the container is running despite having no running
+// processes. This is likely related to https://github.com/moby/moby/issues/31262.
+// TODO(pfialho): investigate if the issue persists after upgrading to the latest Flatcar OS.
+func (e *dockerExec) IsHanging(ctx context.Context) (bool, error) {
+	name := e.containerName()
+	// Perform check twice (and sleep in between) to avoid false positives.
+	for i := 0; i < 2; i++ {
+		inspect, err := e.client.ContainerInspect(ctx, name)
+		if err != nil {
+			return false, err
+		}
+		if inspect.State == nil {
+			return false, nil
+		}
+		if strings.ToLower(inspect.State.Status) != "running" {
+			return false, nil
+		}
+		top, err := e.client.ContainerTop(ctx, name, nil)
+		if err != nil {
+			return false, err
+		}
+		if len(top.Processes) > 0 {
+			return false, nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return true, nil
+}
+
+// Remove removes the exec's container.
+func (e *dockerExec) Remove(ctx context.Context, force bool) error {
+	name := e.containerName()
+	if err := e.client.ContainerRemove(ctx, name, types.ContainerRemoveOptions{Force: force}); err != nil {
+		return errors.E("ContainerRemove", name, err)
 	}
 	return os.RemoveAll(e.path())
 }
@@ -956,8 +1011,6 @@ func (c *allCloser) Close() error {
 // Kind returns the kind of a docker error.
 func kind(err error) errors.Kind {
 	switch {
-	case docker.IsErrNotFound(err):
-		return errors.NotExist
 	case docker.IsErrUnauthorized(err):
 		return errors.NotAllowed
 	default:

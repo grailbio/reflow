@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/url"
+	os_exec "os/exec"
 	"reflect"
 	"strings"
 	"testing"
@@ -731,5 +732,72 @@ func TestInspect(t *testing.T) {
 	_, err = exec.Inspect(ctx, &repoUrl)
 	if err == nil {
 		t.Error("Non retryable error should be returned")
+	}
+}
+
+// TestExecHanging simulates identifying and removing a hanging exec.
+func TestExecHanging(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+	executor, cleanup := newTestExecutorOrSkip(t, nil)
+	defer cleanup()
+
+	// Create exec.
+	ctx := context.Background()
+	id := reflow.Digester.FromString("sleepy")
+	sleep := 5 * time.Second
+	cfg := reflow.ExecConfig{
+		Type:  "exec",
+		Image: bashImage,
+		Cmd:   fmt.Sprintf("sleep %d", int(sleep.Seconds())),
+	}
+	ex, err := executor.Put(ctx, id, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cx := ex.(containerExec)
+
+	// Wait for container to start.
+	time.Sleep(1 * time.Second)
+
+	// Start goroutine to detect and force remove hanging container.
+	errc := make(chan error)
+	go func() {
+		time.Sleep(sleep)
+		hanging, gerr := cx.IsHanging(ctx)
+		if gerr != nil {
+			errc <- gerr
+		}
+		if !hanging {
+			gerr = errors.New(fmt.Sprintf("expected container to be hanging after %d seconds", int(1+sleep.Seconds())))
+			errc <- gerr
+		}
+		if gerr = cx.Remove(ctx, true); err != nil {
+			errc <- gerr
+		}
+		errc <- nil
+	}()
+
+	// Make container hang by making the container log a lot and piping the output to an attached client
+	// that does not read from the stream.
+	cmd := os_exec.Command("docker", "exec", cx.Name(), "yes")
+	pipe, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = pipe.Close() }()
+	if err = cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait does not return until the container is force removed.
+	err = ex.Wait(ctx)
+	if err == nil || !errors.Is(errors.Unavailable, err) {
+		t.Errorf("want unavailable error, got %q", err.Error())
+	}
+	// Ensure that child goroutine completed successfully.
+	if err = <-errc; err != nil {
+		t.Fatal(err)
 	}
 }
