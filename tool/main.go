@@ -5,7 +5,9 @@
 // Package tool implements the reflow command.
 package tool
 
-import (
+// (Unfortunately, this directive doesn't work if placed on the net/http/pprof
+// line where it logically belongs.)
+import ( // nosemgrep: gosec.G108-1
 	"context"
 	"flag"
 	"fmt"
