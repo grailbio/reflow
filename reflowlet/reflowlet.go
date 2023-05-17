@@ -55,7 +55,7 @@ const (
 	maxConcurrentStreams = 20000
 
 	// metricsUpdatePeriodicity is the periodicity at which reflowlet metrics are updated.
-	metricsUpdatePeriodicity = 30 * time.Second
+	metricsUpdatePeriodicity = 1 * time.Minute
 )
 
 // A Server is a reflow server, exposing a local pool over an HTTP server.
