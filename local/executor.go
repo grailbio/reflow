@@ -125,8 +125,6 @@ type Executor struct {
 	refCountsCond *sync.Cond
 	deadObjects   map[digest.Digest]bool
 	gcing         chan struct{}
-
-	downloadManager *downloadManager
 }
 
 type refCount struct {
@@ -173,7 +171,6 @@ func (e *Executor) Start() error {
 	if e.FileRepository == nil {
 		e.FileRepository = &filerepo.Repository{Root: filepath.Join(e.Prefix, e.Dir, objectsDir)}
 	}
-	e.downloadManager = newDownloadManagerWithRepository(e.FileRepository)
 	os.MkdirAll(e.FileRepository.Root, 0777)
 	tempdir := filepath.Join(e.Prefix, e.Dir, "download")
 	if err := os.MkdirAll(tempdir, 0777); err != nil {
@@ -430,7 +427,6 @@ func (e *Executor) unload(ctx context.Context, fs reflow.Fileset) (done <-chan s
 				if err := e.FileRepository.Remove(id); err != nil {
 					e.Log.Errorf("gc: unload dead collect: %v", err)
 				}
-				e.downloadManager.removeDownload(id)
 				e.refCountsMu.Lock()
 				delete(e.deadObjects, id)
 				if e.refCounts[id].count > 0 {
@@ -519,8 +515,6 @@ func (e *Executor) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) (
 	if err != nil {
 		return reflow.Fileset{}, err
 	}
-	filesToResolve := make(chan completedDownload)
-	outstanding := 0
 	err = traverse.Each(len(files), func(i int) error {
 		file := files[i]
 		if !file.IsRef() {
@@ -541,14 +535,16 @@ func (e *Executor) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) (
 			mu.Unlock()
 			return nil
 		}
+		var (
+			incr bool
+			res  reflow.File
+		)
 		if !file.ContentHash.IsZero() {
+			incr = true
 			e.incr(file.ContentHash)
+			res, err = fileFromRepo(ctx, e.FileRepository, file)
 		}
-		res, err := fileFromRepo(ctx, e.FileRepository, file)
-		if err != nil || file.ContentHash.IsZero() {
-			mu.Lock()
-			outstanding++
-			mu.Unlock()
+		if file.ContentHash.IsZero() || err != nil {
 			bucket, key, err := e.Blob.Bucket(ctx, file.Source)
 			if err != nil {
 				return err
@@ -559,49 +555,34 @@ func (e *Executor) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) (
 				File:   file,
 				Log:    e.Log,
 			}
-			var d digest.Digest
-			if !file.ContentHash.IsZero() {
-				d = file.ContentHash
-			} else {
-				d = file.Digest()
+			res, err = dl.Do(ctx, &tempRepo)
+			if err != nil {
+				return err
 			}
-			go e.downloadManager.Acquire(ctx, &dl, filesToResolve, d)
-		} else {
-			d := res.Digest()
-			mu.Lock()
-			if file.ContentHash.IsZero() {
-				e.incr(d)
+			if !incr {
+				e.incr(res.Digest())
 			}
-			resolved[d] = res
-			mu.Unlock()
 		}
+		mu.Lock()
+		resolved[file.Digest()] = res
+		mu.Unlock()
 		return nil
 	})
 	if err != nil {
+		if errors.Is(errors.Integrity, err) {
+			e.Log.Errorf("failed to load %s due to integrity error: %v", fs.Short(), err)
+			e.IntegrityErrSignal <- struct{}{}
+		}
 		return reflow.Fileset{}, err
 	}
-	for outstanding > 0 {
-		select {
-		case res := <-filesToResolve:
-			if res.err != nil {
-				if errors.Is(errors.Integrity, res.err) {
-					e.Log.Errorf("failed to load %s due to integrity error: %v", fs.Short(), res.err)
-					e.IntegrityErrSignal <- struct{}{}
-				}
-				return reflow.Fileset{}, res.err
-			}
-			mu.Lock()
-			resolved[res.key] = res.file
-			e.incr(res.file.Digest())
-			outstanding--
-			mu.Unlock()
-		}
+	if err := e.FileRepository.Vacuum(ctx, &tempRepo); err != nil {
+		return reflow.Fileset{}, err
 	}
-	if subs, ok := fs.Subst(resolved); !ok {
+	x, ok := fs.Subst(resolved)
+	if !ok {
 		return reflow.Fileset{}, errors.E(errors.Invalid, "load", fmt.Sprint(fs), errors.New("fileset not resolved"))
-	} else {
-		return subs, nil
 	}
+	return x, nil
 }
 
 // Repository returns the repository attached to this executor.
