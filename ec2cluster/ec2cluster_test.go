@@ -177,8 +177,11 @@ func TestClusterInfra(t *testing.T) {
         cluster: ec2cluster
         ec2cluster:
             maxhourlycostusd: 10.0
-            disktype: dt
+            disktype: gp3
             diskspace: 10
+            instancesizetodiskspace:
+                large: 50
+                xlarge: 100
             ami: foo
             securitygroup: blah
         sshkey: key
@@ -273,8 +276,11 @@ func getEC2ClusterWithRestrictedInstanceTypes(instanceTypes []string) (*Cluster,
         cluster: ec2cluster
         ec2cluster:
             maxhourlycostusd: 10.0
-            disktype: dt
+            disktype: gp3
             diskspace: 10
+            instancesizetodiskspace:
+                large: 50
+                xlarge: 100
             ami: foo
             securitygroup: blah
             instancetypes: [%s]

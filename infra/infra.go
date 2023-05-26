@@ -474,7 +474,7 @@ var DefaultVolumeWatcher = VolumeWatcher{
 	WatcherSleepDuration:  20 * time.Second,
 	ResizeSleepDuration:   5 * time.Second,
 	FastThresholdDuration: 24 * time.Hour,
-	FastIncreaseFactor:    10,
+	FastIncreaseFactor:    20,
 	SlowIncreaseFactor:    5,
 }
 
@@ -502,7 +502,7 @@ func (rp *ReflowletConfig) Flags(flags *flag.FlagSet) {
 	flags.DurationVar(&rp.VolumeWatcher.WatcherSleepDuration, "watchersleepduration", 20*time.Second, "WatcherSleepDuration is the frequency at which to check if resizing is needed")
 	flags.DurationVar(&rp.VolumeWatcher.ResizeSleepDuration, "resizesleepduration", 5*time.Second, "ResizeSleepDuration is the frequency at which to attempt resizing")
 	flags.DurationVar(&rp.VolumeWatcher.FastThresholdDuration, "fastthresholdduration", 24*time.Hour, "FastThresholdDuration is the duration to use to determine whether disk usage grew fast or slow.")
-	flags.UintVar(&rp.VolumeWatcher.FastIncreaseFactor, "fastincreasefactor", 10, "FastIncreaseFactor is the factor by which to increase disk size if it filled up fast.")
+	flags.UintVar(&rp.VolumeWatcher.FastIncreaseFactor, "fastincreasefactor", 20, "FastIncreaseFactor is the factor by which to increase disk size if it filled up fast.")
 	flags.UintVar(&rp.VolumeWatcher.SlowIncreaseFactor, "slowincreasefactor", 5, "SlowIncreaseFactor is the factor by which to increase disk size if it filled up slow.")
 }
 

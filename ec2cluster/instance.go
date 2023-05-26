@@ -109,6 +109,15 @@ type instanceConfig struct {
 	NVMe bool
 }
 
+// Size returns the instance's instance size.
+func (ic *instanceConfig) Size() (string, error) {
+	s := strings.Split(ic.Type, ".")
+	if len(s) != 2 {
+		return "", errors.New(fmt.Sprintf("cannot infer instance size of type %s", ic.Type))
+	}
+	return s[1], nil
+}
+
 var (
 	localDigest   digest.Digest
 	localSize     int64

@@ -64,6 +64,9 @@ const (
 	defaultMaxHourlyCostUSD    = 10.0
 	defaultMaxPendingInstances = 5
 
+	// defaultDiskSpaceGiB is the default number of GiB to allocate to each reflowlet.
+	defaultDiskSpaceGiB = 300
+
 	// unavailableInstanceTypeTtl is the ttl duration for which an instance type discovered
 	// to be unavailable, remains so.
 	unavailableInstanceTypeTtl = time.Hour
@@ -132,8 +135,8 @@ type Cluster struct {
 	MaxHourlyCostUSD float64 `yaml:"maxhourlycostusd"`
 	// DiskType is the EBS disk type to use.
 	DiskType string `yaml:"disktype"`
-	// DiskSpace is the number of GiB of disk space to allocate for each node.
-	DiskSpace int `yaml:"diskspace"`
+	// InstanceSizeToDiskSpace is a mapping of EC2 instance size (e.g. xlarge) to starting disk space in GiB.
+	InstanceSizeToDiskSpace InstanceSizeToDiskSpace `yaml:"instancesizetodiskspace"`
 	// DiskSlices is the number of EBS volumes that are used. When DiskSlices > 1,
 	// they are arranged in a RAID0 array to increase throughput.
 	DiskSlices int `yaml:"diskslices"`
@@ -305,9 +308,6 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	if c.DiskType == "" {
 		return errors.New("missing disk type parameter")
 	}
-	if c.DiskSpace == 0 {
-		return errors.New("missing disk space parameter")
-	}
 	if c.AMI, err = GetAMI(sess); err != nil {
 		return err
 	}
@@ -321,7 +321,12 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	// Construct instance configs for all instance types.
 	c.allInstanceConfigs = make(map[string]instanceConfig)
 	for _, config := range allInstanceConfigs {
-		config.Resources["disk"] = float64(c.DiskSpace << 30)
+		diskGiB, derr := c.InstanceSizeToDiskSpace.diskSpaceGiB(config)
+		if derr != nil {
+			c.Log.Debugf("cannot determine appropriate disk space for instance config %v: %v", config, derr)
+			diskGiB = defaultDiskSpaceGiB
+		}
+		config.Resources["disk"] = float64(diskGiB << 30)
 		c.allInstanceConfigs[config.Type] = config
 	}
 	// Construct instance state using legal instance types only. A legal type is one that is both
@@ -756,6 +761,22 @@ func (c *Cluster) printState(suffix string) {
 	}
 	c.Status.Print(msg)
 	c.Log.Debug(msg)
+}
+
+// InstanceSizeToDiskSpace is a mapping of EC2 instance size (e.g. xlarge) to starting disk space in GiB.
+type InstanceSizeToDiskSpace map[string]int
+
+// diskSpaceGiB returns the number of GiB of disk space that should be allocated to the input instance.
+func (dc InstanceSizeToDiskSpace) diskSpaceGiB(instance instanceConfig) (int, error) {
+	instanceSize, err := instance.Size()
+	if err != nil {
+		return 0, err
+	}
+	space, ok := dc[instanceSize]
+	if !ok {
+		return 0, errors.New(fmt.Sprintf("disk space for instance size %s is not configured", instanceSize))
+	}
+	return space, nil
 }
 
 type reflowletPool struct {
