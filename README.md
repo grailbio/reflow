@@ -87,51 +87,26 @@ running these commands.
 	% reflow setup-ec2
 	% reflow config
 	cluster: ec2cluster
-	ec2cluster:
-	  ami: ami-d0e54eb0
-	  diskspace: 100
-	  disktype: gp2
-	  instancetypes:
-	  - c1.medium
-	  - c1.xlarge
-	  - c3.2xlarge
-	  - c3.4xlarge
-	  - c3.8xlarge
-	  - c3.large
-	  - c3.xlarge
-	  - c4.2xlarge
-	  - c4.4xlarge
-	  - c4.8xlarge
-	  - c4.large
-	  - c4.xlarge
-	  - cc2.8xlarge
-	  - m1.large
-	  - m1.medium
-	  - m1.small
-	  - m1.xlarge
-	  - m2.2xlarge
-	  - m2.4xlarge
-	  - m2.xlarge
-	  - m3.2xlarge
-	  - m3.large
-	  - m3.medium
-	  - m3.xlarge
-	  - m4.16xlarge
-	  - m4.4xlarge
-	  - m4.xlarge
-	  - r4.xlarge
-	  - t1.micro
-	  - t2.large
-	  - t2.medium
-	  - t2.micro
-	  - t2.nano
-	  - t2.small
-	  keyname: ""
-	  maxinstances: 10
-	  region: us-west-2
-	  securitygroup: <a newly created security group here>
-	  sshkey: <your public SSH key here>
-	https: httpsca,$HOME/.reflow/reflow.pem
+    ec2cluster:
+      securitygroup: <a newly created security group here>
+      maxpendinginstances: 5
+      maxhourlycostusd: 10
+      disktype: gp3
+      instancesizetodiskspace:
+        2xlarge: 300
+        3xlarge: 300
+        ...
+      diskslices: 0
+      ami: ""
+	  sshkey: []
+      keyname: ""
+      cloudconfig: {}
+      instancetypes:
+      - c3.2xlarge
+      - c3.4xlarge
+      ...
+    reflow: reflowversion,version=<hash>
+    tls: tls,file=$HOME/.reflow/reflow.pem
 
 After running `reflow setup-ec2`, we see that Reflow created a new
 security group (associated with the account's default VPC), and
@@ -163,8 +138,8 @@ unique.
 	reflow: creating DynamoDB table reflow-quickstart
 	reflow: created DynamoDB table reflow-quickstart
 	% reflow config
-	assoc: dynamodb,reflow-quickstart
-	repository: s3,reflow-quickstart-cache
+	assoc: dynamodb,table=reflow-quickstart
+	repository: s3,bucket=reflow-quickstart-cache
 
 	<rest is same as before>
 

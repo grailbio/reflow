@@ -40,10 +40,13 @@ The resulting configuration can be examined with "reflow config"`
 	keys := config.Keys
 	if v, ok := keys["repository"]; ok {
 		parts := strings.Split(v.(string), ",")
-		if len(parts) != 2 || parts[0] != pkgPath || parts[1] != bucket {
-			c.Fatalf("repository already setup: %v", v)
+		if len(parts) == 1 && parts[0] == "noprepo" {
+			c.Log.Debugf("replacing noprepo repository with %s", pkgPath)
+		} else if len(parts) != 2 || parts[0] != pkgPath || parts[1] != bucket {
+			c.Fatalf("%s repository already set up; cannot set up %s repository", v, pkgPath)
+		} else {
+			c.Log.Printf("repository already set up; updating schemas")
 		}
-		c.Log.Printf("repository already set up; updating schemas")
 	}
 	c.SchemaKeys["repository"] = fmt.Sprintf("%s,bucket=%v", pkgPath, bucket)
 	setupAndSaveConfig(c)

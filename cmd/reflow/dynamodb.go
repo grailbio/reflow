@@ -66,23 +66,25 @@ The resulting configuration can be examined with "reflow config"`
 	if v, ok := keys["taskdb"]; ok {
 		parts := strings.Split(v.(string), ",")
 		switch {
-		case len(parts) != 3:
-			c.Printf("taskdb configured, but setup incomplete: %v", v)
+		case len(parts) == 1 && parts[0] == "noptaskdb":
+			c.Printf("replacing noptaskdb with %s\n", name)
 		case parts[0] != name:
 			c.Fatalf("taskdb configured, but unexpected provider type '%s' (must be '%s')", parts[0], name)
+		case len(parts) != 3:
+			c.Printf("taskdb configured, but setup incomplete: %v", v)
+			tableCfg, bucketCfg := parts[1], parts[2]
+			if tableParts := strings.Split(tableCfg, "="); len(tableParts) != 2 {
+				c.Fatalf("taskdb table misconfiguration (must be `table=<table_name>`): %s", tableCfg)
+			} else if tableParts[1] != table {
+				c.Fatalf("taskdb configured, but mismatched table '%s' (vs '%s')", tableParts[1], table)
+			}
+			if bucketParts := strings.Split(bucketCfg, "="); len(bucketParts) != 2 {
+				c.Fatalf("taskdb bucket misconfiguration (must be `bucket=<bucket>`): %s", bucketCfg)
+			} else if bucketParts[1] != bucket {
+				c.Fatalf("taskdb configured, but mismatched bucket '%s' (vs '%s')", bucketParts[1], bucketParts)
+			}
+			c.Log.Printf("taskdb already set up; updating schemas (if necessary)")
 		}
-		tableCfg, bucketCfg := parts[1], parts[2]
-		if tableParts := strings.Split(tableCfg, "="); len(tableParts) != 2 {
-			c.Fatalf("taskdb table misconfiguration (must be `table=<table_name>`): %s", tableCfg)
-		} else if tableParts[1] != table {
-			c.Fatalf("taskdb configured, but mismatched table '%s' (vs '%s')", tableParts[1], table)
-		}
-		if bucketParts := strings.Split(bucketCfg, "="); len(bucketParts) != 2 {
-			c.Fatalf("taskdb bucket misconfiguration (must be `bucket=<bucket>`): %s", bucketCfg)
-		} else if bucketParts[1] != bucket {
-			c.Fatalf("taskdb configured, but mismatched bucket '%s' (vs '%s')", bucketParts[1], bucketParts)
-		}
-		c.Log.Printf("taskdb already set up; updating schemas (if necessary)")
 	}
 	c.SchemaKeys["taskdb"] = fmt.Sprintf("%s,table=%s,bucket=%s", name, table, bucket)
 	setupAndSaveConfig(c)

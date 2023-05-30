@@ -3,6 +3,7 @@ package ec2cluster
 import (
 	"fmt"
 	"log"
+	"sort"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -14,7 +15,20 @@ import (
 // Setup sets defaults for any unset ec2 configuration values.
 func (c *Cluster) Setup(sess *session.Session) error {
 	if c.DiskType == "" {
-		c.DiskType = ec2.VolumeTypeGp3
+		c.DiskType = defaultDiskType
+	}
+	if c.InstanceSizeToDiskSpace == nil {
+		c.InstanceSizeToDiskSpace = make(map[string]int)
+		for _, config := range allInstanceConfigs {
+			size, err := config.Size()
+			if err != nil {
+				c.Log.Debugf("failed to set disk space for instance size of type %s: %v", config.Type, err)
+				continue
+			}
+			if _, ok := c.InstanceSizeToDiskSpace[size]; !ok {
+				c.InstanceSizeToDiskSpace[size] = defaultDiskSpaceGiB
+			}
+		}
 	}
 	if c.MaxHourlyCostUSD == 0 {
 		c.MaxHourlyCostUSD = defaultMaxHourlyCostUSD
@@ -23,9 +37,10 @@ func (c *Cluster) Setup(sess *session.Session) error {
 		c.MaxPendingInstances = defaultMaxPendingInstances
 	}
 	if len(c.InstanceTypes) == 0 {
-		for _, instance := range instances.Types {
-			c.InstanceTypes = append(c.InstanceTypes, instance.Name)
+		for _, inst := range instances.Types {
+			c.InstanceTypes = append(c.InstanceTypes, inst.Name)
 		}
+		sort.Strings(c.InstanceTypes)
 	}
 	if c.KeyName == "" {
 		c.Log.Debug("EC2 key pair not configured")

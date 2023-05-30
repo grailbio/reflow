@@ -64,6 +64,8 @@ const (
 	defaultMaxHourlyCostUSD    = 10.0
 	defaultMaxPendingInstances = 5
 
+	// defaultDiskType is the default EBS disk type.
+	defaultDiskType = ec2.VolumeTypeGp3
 	// defaultDiskSpaceGiB is the default number of GiB to allocate to each reflowlet.
 	defaultDiskSpaceGiB = 300
 
@@ -256,8 +258,8 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	}
 
 	// If c.InstanceTypes is empty, set it to all verified instance types.
-	verified := instances.VerifiedByRegion[c.Region()]
-	if len(c.InstanceTypes) == 0 {
+	verified, regionIsVerified := instances.VerifiedByRegion[c.Region()]
+	if regionIsVerified && len(c.InstanceTypes) == 0 {
 		for typ, vs := range verified {
 			if vs.Verified {
 				c.InstanceTypes = append(c.InstanceTypes, typ)
@@ -331,15 +333,18 @@ func (c *Cluster) Init(tls tls.Certs, sess *session.Session, labels pool.Labels,
 	}
 	// Construct instance state using legal instance types only. A legal type is one that is both
 	// allowable (i.e. specified in c.InstanceTypes) and verified.
+	// If we haven't verified any instance types in the given region, then use all allowable types.
 	var configs []instanceConfig
 	for _, typ := range c.InstanceTypes {
-		vs, ok := verified[typ]
-		if !ok {
-			return errors.New(fmt.Sprintf("unknown instance type: %s", typ))
-		}
-		if !vs.Verified {
-			c.Log.Debugf("unverified instance type: %s", typ)
-			continue
+		if regionIsVerified {
+			vs, ok := verified[typ]
+			if !ok {
+				return errors.New(fmt.Sprintf("unknown instance type: %s", typ))
+			}
+			if !vs.Verified {
+				c.Log.Debugf("unverified instance type: %s", typ)
+				continue
+			}
 		}
 		configs = append(configs, c.allInstanceConfigs[typ])
 	}

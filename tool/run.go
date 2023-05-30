@@ -106,7 +106,7 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags runtime.RunFlags, file str
 
 	var (
 		tracer trace.Tracer
-		mc metrics.Client
+		mc     metrics.Client
 	)
 	c.must(c.Config.Instance(&tracer))
 	c.must(c.Config.Instance(&mc))
@@ -128,15 +128,16 @@ func (c *Cmd) runCommon(ctx context.Context, runFlags runtime.RunFlags, file str
 		Config:   c.Config,
 	}
 
-	runlog := golog.New(nil, "", golog.LstdFlags)
+	// Log to stderr until logfile is ready.
+	runlog := golog.New(os.Stderr, "", golog.LstdFlags)
 	// Use a special logger which includes the log level for each log in the run file
 	runLogger := log.NewWithLevelPrefix(runlog)
 	runLogger.Parent = c.Log
 
 	r, err := rr.NewRunner(runtime.RunnerParams{
 		RunConfig: runConfig,
-		Logger: runLogger,
-		Status: c.Status,
+		Logger:    runLogger,
+		Status:    c.Status,
 	})
 	c.must(err)
 

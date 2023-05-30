@@ -2,6 +2,7 @@ package noptaskdb
 
 import (
 	"github.com/grailbio/infra"
+	"github.com/grailbio/reflow/repository/noprepo"
 	"github.com/grailbio/reflow/taskdb"
 	"github.com/grailbio/reflow/test/testutil"
 )
@@ -17,6 +18,6 @@ type NopTaskDB struct {
 
 // Init implements infra.Provider
 func (t *NopTaskDB) Init() error {
-	t.TaskDB = testutil.NewNopTaskDB(nil)
+	t.TaskDB = testutil.NewNopTaskDB(&noprepo.Repository{})
 	return nil
 }
