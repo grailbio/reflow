@@ -125,6 +125,15 @@ type Executor struct {
 	refCountsCond *sync.Cond
 	deadObjects   map[digest.Digest]bool
 	gcing         chan struct{}
+
+	downloadTasks    sync.Map
+	downloadTaskKeys map[digest.Digest][]string
+}
+
+type downloadHandle struct {
+	DoDownload *sync.Once
+	result     *reflow.File
+	err        error
 }
 
 type refCount struct {
@@ -171,6 +180,7 @@ func (e *Executor) Start() error {
 	if e.FileRepository == nil {
 		e.FileRepository = &filerepo.Repository{Root: filepath.Join(e.Prefix, e.Dir, objectsDir)}
 	}
+	e.downloadTaskKeys = make(map[digest.Digest][]string)
 	os.MkdirAll(e.FileRepository.Root, 0777)
 	tempdir := filepath.Join(e.Prefix, e.Dir, "download")
 	if err := os.MkdirAll(tempdir, 0777); err != nil {
@@ -428,6 +438,10 @@ func (e *Executor) unload(ctx context.Context, fs reflow.Fileset) (done <-chan s
 					e.Log.Errorf("gc: unload dead collect: %v", err)
 				}
 				e.refCountsMu.Lock()
+				for _, url := range e.downloadTaskKeys[id] {
+					e.downloadTasks.Delete(url)
+				}
+				delete(e.downloadTaskKeys, id)
 				delete(e.deadObjects, id)
 				if e.refCounts[id].count > 0 {
 					panic(fmt.Sprintf("gc: refcount %v not 0: %v", id.Short(), e.refCounts[id].count))
@@ -507,14 +521,8 @@ func (e *Executor) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) (
 		mu       sync.Mutex
 		resolved = make(map[digest.Digest]reflow.File)
 		files    = fs.Files()
-		tempRepo filerepo.Repository
 		err      error
 	)
-	tempRepo.Root, err = ioutil.TempDir(e.FileRepository.Root, "temp-load")
-	defer os.RemoveAll(tempRepo.Root)
-	if err != nil {
-		return reflow.Fileset{}, err
-	}
 	err = traverse.Each(len(files), func(i int) error {
 		file := files[i]
 		if !file.IsRef() {
@@ -538,6 +546,7 @@ func (e *Executor) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) (
 		var (
 			incr bool
 			res  reflow.File
+			err  error
 		)
 		if !file.ContentHash.IsZero() {
 			incr = true
@@ -545,25 +554,53 @@ func (e *Executor) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) (
 			res, err = fileFromRepo(ctx, e.FileRepository, file)
 		}
 		if file.ContentHash.IsZero() || err != nil {
-			bucket, key, err := e.Blob.Bucket(ctx, file.Source)
+			taskUncast, _ := e.downloadTasks.LoadOrStore(file.Source, &downloadHandle{DoDownload: &sync.Once{}})
+			task := taskUncast.(*downloadHandle)
+			var tempRepo filerepo.Repository
+			tempRepo.Root, err = ioutil.TempDir(e.FileRepository.Root, "temp-load")
 			if err != nil {
 				return err
 			}
-			dl := download{
-				Bucket: bucket,
-				Key:    key,
-				File:   file,
-				Log:    e.Log,
-			}
-			res, err = dl.Do(ctx, &tempRepo)
-			if err != nil {
-				return err
-			}
-			if !incr {
-				e.incr(res.Digest())
+			defer os.RemoveAll(tempRepo.Root)
+			task.DoDownload.Do(func() {
+				bucket, key, _ := e.Blob.Bucket(ctx, file.Source)
+				dl := download{
+					Bucket: bucket,
+					Key:    key,
+					File:   file,
+					Log:    e.Log,
+				}
+				if file, err := dl.Do(ctx, &tempRepo); err != nil {
+					e.Log.Errorf("error downloading file: %v", err)
+					task.err = err
+				} else {
+					task.result = &file
+				}
+			})
+			if task.err != nil {
+				return task.err
+			} else {
+				res = *task.result
+				resDigest := res.Digest()
+				if !incr {
+					e.incr(resDigest)
+				}
+				if err := e.FileRepository.Vacuum(ctx, &tempRepo); err != nil {
+					return err
+				}
+				e.refCountsMu.Lock()
+				// Keys in downloadTaskKeys must be equivalent to the actual file hash, which repo uses to name the file
+				// on the disk
+				if _, ok := e.downloadTaskKeys[resDigest]; !ok {
+					e.downloadTaskKeys[resDigest] = []string{file.Source}
+				} else {
+					e.downloadTaskKeys[resDigest] = append(e.downloadTaskKeys[resDigest], file.Source)
+				}
+				e.refCountsMu.Unlock()
 			}
 		}
 		mu.Lock()
+		// Keys in resolved are what the caller uses to link the argument to the filename
 		resolved[file.Digest()] = res
 		mu.Unlock()
 		return nil
@@ -575,14 +612,11 @@ func (e *Executor) Load(ctx context.Context, repo *url.URL, fs reflow.Fileset) (
 		}
 		return reflow.Fileset{}, err
 	}
-	if err := e.FileRepository.Vacuum(ctx, &tempRepo); err != nil {
-		return reflow.Fileset{}, err
-	}
-	x, ok := fs.Subst(resolved)
-	if !ok {
+	if subs, ok := fs.Subst(resolved); !ok {
 		return reflow.Fileset{}, errors.E(errors.Invalid, "load", fmt.Sprint(fs), errors.New("fileset not resolved"))
+	} else {
+		return subs, nil
 	}
-	return x, nil
 }
 
 // Repository returns the repository attached to this executor.
