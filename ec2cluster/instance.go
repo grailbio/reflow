@@ -741,6 +741,8 @@ func (i *instance) launch(ctx context.Context) (string, error) {
 			RemainAfterExit=yes
 			ExecStartPre=/usr/sbin/pvcreate {{range $_, $name := .devices}}/dev/{{$name}} {{end}}
 			ExecStartPre=/usr/sbin/vgcreate {{.name}}_group {{range $_, $name := .devices}}/dev/{{$name}} {{end}}
+			ExecStartPre=/usr/bin/echo "sleeping to avoid race condition where lvcreate runs before the volume group is ready"
+			ExecStartPre=/usr/bin/sleep 1
 			ExecStartPre=/usr/sbin/lvcreate -l 100%%VG --stripes {{.devices|len}} --stripesize 256 -n {{.name}}_vol {{.name}}_group
 			ExecStart=-/usr/sbin/mkfs.ext4 /dev/{{.name}}_group/{{.name}}_vol
 		`, args{"devices": devices, "name": lvmGroupName}),
