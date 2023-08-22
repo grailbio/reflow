@@ -24,14 +24,14 @@ func TestInstanceState(t *testing.T) {
 		r                reflow.Resources
 		wantMin, wantMax string
 	}{
-		{reflow.Resources{"mem": 2 << 30, "cpu": 1, "disk": 10 << 30}, "t3a.medium", "x2iedn.32xlarge"},
+		{reflow.Resources{"mem": 2 << 30, "cpu": 1, "disk": 10 << 30}, "m7a.medium", "x2iedn.32xlarge"},
 		{reflow.Resources{"mem": 10 << 30, "cpu": 5, "disk": 100 << 30}, "c6a.2xlarge", "x2iedn.32xlarge"},
 		{reflow.Resources{"mem": 30 << 30, "cpu": 8, "disk": 800 << 30}, "r6a.2xlarge", "x2iedn.32xlarge"},
 		{reflow.Resources{"mem": 30 << 30, "cpu": 16, "disk": 800 << 30}, "m6a.4xlarge", "x2iedn.32xlarge"},
 		{reflow.Resources{"mem": 60 << 30, "cpu": 16, "disk": 400 << 30}, "r6a.4xlarge", "x2iedn.32xlarge"},
-		{reflow.Resources{"mem": 122 << 30, "cpu": 16, "disk": 400 << 30}, "r6i.8xlarge", "x2iedn.32xlarge"},
-		{reflow.Resources{"mem": 60 << 30, "cpu": 32, "disk": 1000 << 30}, "c5.9xlarge", "x2iedn.32xlarge"},
-		{reflow.Resources{"mem": 120 << 30, "cpu": 32, "disk": 2000 << 30}, "r6i.8xlarge", "x2iedn.32xlarge"},
+		{reflow.Resources{"mem": 122 << 30, "cpu": 16, "disk": 400 << 30}, "m6a.12xlarge", "x2iedn.32xlarge"},
+		{reflow.Resources{"mem": 60 << 30, "cpu": 32, "disk": 1000 << 30}, "m6a.8xlarge", "x2iedn.32xlarge"},
+		{reflow.Resources{"mem": 120 << 30, "cpu": 32, "disk": 2000 << 30}, "m6a.12xlarge", "x2iedn.32xlarge"},
 	} {
 		for _, spot := range []bool{true, false} {
 			if got, _ := is.MinAvailable(tc.r, spot, testMaxPrice); got.Type != tc.wantMin {
@@ -128,24 +128,24 @@ func TestInstanceStateWithAdvisor(t *testing.T) {
 			"first choice doesn't satisfy interrupt prob threshold",
 			reflow.Resources{"mem": 2 << 30, "cpu": 1, "disk": 10 << 30},
 			map[sa.InstanceType]sa.InterruptProbability{
-				"t3a.medium":      sa.LessThanTwentyPct, // min candidate, but above the threshold
-				"t3.medium":       sa.LessThanTenPct,    // min candidate, within the threshold -> wantMin
+				"m7a.medium":      sa.LessThanTwentyPct, // min candidate, but above the threshold
+				"t3a.medium":      sa.LessThanTenPct,    // min candidate, within the threshold -> wantMin
 				"x2iedn.32xlarge": sa.Any,               // max candidate, but above the threshold
 				"x1e.32xlarge":    sa.LessThanFivePct,   // max candidate, within the threshold -> wantMax
 			},
 			true,
-			"t3.medium",
+			"t3a.medium",
 			"x1e.32xlarge",
 		},
 		{
 			"ignore interrupt probability when spot=false",
 			reflow.Resources{"mem": 2 << 30, "cpu": 1, "disk": 10 << 30},
 			map[sa.InstanceType]sa.InterruptProbability{
-				"t3a.medium":      sa.LessThanTwentyPct, // min candidate, but above the threshold
+				"m7a.medium":      sa.LessThanTwentyPct, // min candidate, but above the threshold
 				"x2iedn.32xlarge": sa.Any,               // max candidate, but above the threshold
 			},
 			false, // since spot is false, these instances should be picked despite not satisfying the threshold
-			"t3a.medium",
+			"m7a.medium",
 			"x2iedn.32xlarge",
 		},
 		{
@@ -153,7 +153,7 @@ func TestInstanceStateWithAdvisor(t *testing.T) {
 			reflow.Resources{"mem": 2 << 30, "cpu": 1, "disk": 10 << 30},
 			testAdvisorAllHighInterrupt, // none of the instance types meet the initial 10% threshold
 			true,
-			"t3a.medium", // we should still pick the same instances as we try higher thresholds
+			"m7a.medium", // we should still pick the same instances as we try higher thresholds
 			"x2iedn.32xlarge",
 		},
 	} {
