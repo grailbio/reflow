@@ -6,6 +6,8 @@ package volume
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -24,121 +26,189 @@ var testWatcherParams = infra.VolumeWatcher{
 	SlowIncreaseFactor:    5,
 }
 
-type testVolume struct {
-	size                              data.Size
-	ready                             bool
-	reason                            string
-	duPct                             float64
-	sizeErr, setSizeErr, readyErr     error
-	duErr, rfsErr                     error
-	nGetSize, nSetSize                int
-	nReadyToModify, nUsage, nResizeFS int
+type transientErr struct {
+	err     error
+	numLeft int
 }
 
-func (v *testVolume) GetSize(ctx context.Context) (size data.Size, err error) {
-	v.nGetSize++
-	if v.sizeErr != nil {
-		return -1, v.sizeErr
+func (e *transientErr) Error() error {
+	if e.numLeft > 0 {
+		e.numLeft--
+		return e.err
 	}
-	return v.size, nil
-}
-
-func (v *testVolume) ReadyToModify(ctx context.Context) (ready bool, reason string, err error) {
-	v.nReadyToModify++
-	if v.readyErr != nil {
-		return false, "", v.readyErr
-	}
-	return v.ready, v.reason, nil
-}
-
-func (v *testVolume) SetSize(ctx context.Context, newSize data.Size) error {
-	v.nSetSize++
-	if v.setSizeErr != nil {
-		return v.setSizeErr
-	}
-	v.size = newSize
-	v.duPct = 10.0
 	return nil
 }
 
-func (v *testVolume) Usage() (float64, error) {
-	v.nUsage++
-	if v.duErr != nil {
-		return -1.0, v.duErr
+// testVolume implements Volume.
+type testVolume struct {
+	// EBS.
+	ebsSize              data.Size
+	nEBSSize, nResizeEBS int
+	resizeEBSErr         transientErr
+	// Device.
+	fsSize                             data.Size
+	fsUsage                            float64
+	nFSSize, nFSUsage, nResizeFS       int
+	fsSizeErr, fsUsageErr, resizeFSErr transientErr
+}
+
+func (v *testVolume) EBSSize(ctx context.Context) (size data.Size, err error) {
+	v.nEBSSize++
+	return v.ebsSize, nil
+}
+
+func (v *testVolume) ResizeEBS(ctx context.Context, newSize data.Size) error {
+	v.nResizeEBS++
+	if err := v.resizeEBSErr.Error(); err != nil {
+		return err
 	}
-	return v.duPct, nil
+	v.ebsSize = newSize
+	return nil
 }
 
-func (v *testVolume) ResizeFS() error {
-	v.nResizeFS++
-	return v.rfsErr
-}
-
-func (v *testVolume) GetVolumeIds() []string {
+func (v *testVolume) EBSIds() []string {
 	return []string{"vol-testvolume1"}
 }
 
+// FSSize implements Device.
+func (v *testVolume) FSSize() (data.Size, error) {
+	v.nFSSize++
+	if err := v.fsSizeErr.Error(); err != nil {
+		return 0, err
+	}
+	return v.fsSize, nil
+}
+
+// FSUsage implements Device.
+func (v *testVolume) FSUsage() (float64, error) {
+	v.nFSUsage++
+	if err := v.fsUsageErr.Error(); err != nil {
+		return -1.0, err
+	}
+	return v.fsUsage, nil
+}
+
+// ResizeFS implements Device.
+func (v *testVolume) ResizeFS() error {
+	v.nResizeFS++
+	if err := v.resizeFSErr.Error(); err != nil {
+		return err
+	}
+	oldSize := v.fsSize
+	newSize := v.ebsSize
+	resizeFactor := newSize.Bytes() / oldSize.Bytes()
+
+	v.fsSize = v.ebsSize
+	v.fsUsage = math.Round(v.fsUsage / float64(resizeFactor))
+	return nil
+}
+
 func TestWatcher_initError(t *testing.T) {
-	if _, err := NewWatcher(&testVolume{sizeErr: errTest}, testWatcherParams, log.Std); err == nil {
+	vol := testVolume{fsSizeErr: transientErr{errTest, 1}}
+	if _, err := NewWatcher(&vol, testWatcherParams, log.Std); err == nil {
 		t.Errorf("got no error, want error")
 	}
-	if _, err := NewWatcher(&testVolume{size: data.GiB, duErr: errTest}, testWatcherParams, log.Std); err == nil {
+	vol = testVolume{fsUsageErr: transientErr{errTest, 1}}
+	if _, err := NewWatcher(&vol, testWatcherParams, log.Std); err == nil {
 		t.Errorf("got no error, want error")
 	}
 }
 
 func TestWatcher(t *testing.T) {
 	for _, tt := range []struct {
-		v                        *testVolume
-		vSz                      data.Size
-		nGetSizeMin, nSetSizeMin int
-		nModifyMin, nUsageMin    int
-		nResizeFSMin             int
+		name string
+		vol  *testVolume
+		// EBS.
+		finalEBSSize data.Size
+		nEBSSize     int
+		nResizeEBS   int
+		// Device.
+		nFSSize     int
+		nFSUsageMin int
+		nResizeFS   int
 	}{
 		{
-			&testVolume{size: data.GiB, duPct: 40.0},
-			data.GiB, 2, 0, 0, 10, 0,
+			name: "no resize",
+			vol: &testVolume{
+				ebsSize: data.GiB,
+				fsUsage: 40.0,
+			},
+			finalEBSSize: data.GiB,
+			nFSSize:      2,
+			nFSUsageMin:  10,
 		},
 		{
-			&testVolume{size: data.GiB, duPct: 80.0, ready: false, reason: "test"},
-			data.GiB, 2, 0, 15, 3, 0,
+			name: "EBS resize succeeds on the third attempt",
+			vol: &testVolume{
+				ebsSize:      data.GiB,
+				fsSize:       data.GiB,
+				fsUsage:      80.0,
+				resizeEBSErr: transientErr{fmt.Errorf("volume not ready"), 2},
+			},
+			finalEBSSize: data.Size(testWatcherParams.SlowIncreaseFactor) * data.GiB,
+			nEBSSize:     4,
+			nResizeEBS:   3,
+			nFSSize:      3,
+			nFSUsageMin:  7,
+			nResizeFS:    1,
 		},
 		{
-			&testVolume{size: data.GiB, duPct: 80.0, ready: true, rfsErr: errTest},
-			data.Size(testWatcherParams.SlowIncreaseFactor) * data.GiB, 4, 1, 1, 3, 10,
+			name: "filesystem resize succeeds on third attempt",
+			vol: &testVolume{
+				ebsSize:     data.GiB,
+				fsSize:      data.GiB,
+				fsUsage:     80.0,
+				resizeFSErr: transientErr{errTest, 2},
+			},
+			finalEBSSize: data.Size(testWatcherParams.SlowIncreaseFactor) * data.GiB,
+			nEBSSize:     2,
+			nResizeEBS:   1,
+			nFSSize:      3,
+			nFSUsageMin:  7,
+			nResizeFS:    3,
 		},
 		{
-			&testVolume{size: data.GiB, duPct: 80.0, ready: true},
-			data.Size(testWatcherParams.SlowIncreaseFactor) * data.GiB, 5, 1, 1, 10, 1,
+			name: "EBS and filesystem resizes succeed on first attempt",
+			vol: &testVolume{
+				ebsSize: data.GiB,
+				fsSize:  data.GiB,
+				fsUsage: 80.0,
+			},
+			finalEBSSize: data.Size(testWatcherParams.SlowIncreaseFactor) * data.GiB,
+			nEBSSize:     2,
+			nResizeEBS:   1,
+			nFSSize:      3,
+			nFSUsageMin:  7,
+			nResizeFS:    1,
 		},
 	} {
-		w, err := NewWatcher(tt.v, testWatcherParams, log.Std)
+		w, err := NewWatcher(tt.vol, testWatcherParams, log.Std)
 		if err != nil {
 			t.Error(err)
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		go w.Watch(ctx)
-		// Wait till watch routine is done
+		// Wait till watch routine is done.
 		<-ctx.Done()
 		cancel()
-		if got, want := tt.v.size, tt.vSz; got != want {
-			t.Errorf("size: got %v, want %v", got, want)
+		if got, want := tt.vol.ebsSize, tt.finalEBSSize; got != want {
+			t.Errorf("%s: ebsSize: got %d, want %d", tt.name, got, want)
 		}
-		if got, want := tt.v.nGetSize, tt.nGetSizeMin; got < want {
-			t.Errorf("nGetSize: got %v, want >= %v", got, want)
+		if got, want := tt.vol.nEBSSize, tt.nEBSSize; got != want {
+			t.Errorf("%s: nEBSSize: got %d, want %d", tt.name, got, want)
 		}
-		if got, want := tt.v.nSetSize, tt.nSetSizeMin; got != want {
-			t.Errorf("nSetSize: got %v, want %v", got, want)
+		if got, want := tt.vol.nResizeEBS, tt.nResizeEBS; got != want {
+			t.Errorf("%s: nResizeEBS: got %d, want %d", tt.name, got, want)
 		}
-		if got, want := tt.v.nReadyToModify, tt.nModifyMin; got < want {
-			t.Errorf("nReadyToModify: got %v, want >= %v", got, want)
+		if got, wantMin := tt.vol.nFSUsage, tt.nFSUsageMin; got < wantMin {
+			t.Errorf("%s: nFSUsage: got %d, want >= %d", tt.name, got, wantMin)
 		}
-		if got, want := tt.v.nUsage, tt.nUsageMin; got < want {
-			t.Errorf("nUsage: got %v, want >= %v", got, want)
+		if got, want := tt.vol.nFSSize, tt.nFSSize; got != want {
+			t.Errorf("%s: nFSSize: got %d, want %d", tt.name, got, want)
 		}
-		if got, want := tt.v.nResizeFS, tt.nResizeFSMin; got < want {
-			t.Errorf("nResizeFS: got %v, want >= %v", got, want)
+		if got, want := tt.vol.nResizeFS, tt.nResizeFS; got != want {
+			t.Errorf("%s: nResizeFS: got %d, want %d", tt.name, got, want)
 		}
 	}
 }

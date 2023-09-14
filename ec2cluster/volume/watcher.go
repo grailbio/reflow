@@ -22,12 +22,12 @@ type Watcher struct {
 	log *log.Logger
 }
 
-// NewWatcher creates a new watcher
+// NewWatcher creates a new watcher.
 func NewWatcher(v Volume, w infra.VolumeWatcher, log *log.Logger) (*Watcher, error) {
-	if _, err := v.GetSize(context.Background()); err != nil {
-		return nil, fmt.Errorf("get volume size: %v", err)
+	if _, err := v.FSSize(); err != nil {
+		return nil, err
 	}
-	if _, err := v.Usage(); err != nil {
+	if _, err := v.FSUsage(); err != nil {
 		return nil, err
 	}
 	return &Watcher{v: v, w: w, log: log}, nil
@@ -38,30 +38,29 @@ func NewWatcher(v Volume, w infra.VolumeWatcher, log *log.Logger) (*Watcher, err
 func (w *Watcher) Watch(ctx context.Context) {
 	type stateT int
 	const (
-		// Watch the volume
+		// Watch the volume.
 		stateWatch stateT = iota
-		// Resize the volume
-		stateResizeVolume
-		// Resize the filesystem
+		// Resize the EBS volumes.
+		stateResizeEBSVolumes
+		// Resize the filesystem.
 		stateResizeFS
 	)
 
 	var (
 		state                  stateT
-		oldSize                data.Size
 		lastBelowThresholdTime = time.Now()
 		iter                   = time.NewTicker(w.w.WatcherSleepDuration)
 	)
 
-	sz, err := w.v.GetSize(ctx)
+	fsSize, err := w.v.FSSize()
 	if err != nil {
 		w.log.Error(err)
 	}
-	pct, err := w.v.Usage()
+	fsUsage, err := w.v.FSUsage()
 	if err != nil {
 		w.log.Error(err)
 	}
-	w.log.Printf("started watching %s (volume size: %s, used: %.2f%%)", w.v.GetVolumeIds(), sz, pct)
+	w.log.Printf("started watching volume backed by %s (size: %s, used: %.2f%%)", w.v.EBSIds(), fsSize, fsUsage)
 
 	for {
 		select {
@@ -73,68 +72,62 @@ func (w *Watcher) Watch(ctx context.Context) {
 
 		switch state {
 		case stateWatch:
-			pct, err = w.v.Usage()
+			fsUsage, err = w.v.FSUsage()
 			if err != nil {
 				w.log.Error(err)
 				break
 			}
-			prefix := fmt.Sprintf("watching (volume size: %s, used: %.2f%%)", sz, pct)
-			if pct < w.w.LowThresholdPct {
+			prefix := fmt.Sprintf("watching volume (size: %s, used: %.2f%%)", fsSize, fsUsage)
+			if fsUsage < w.w.LowThresholdPct {
 				lastBelowThresholdTime = time.Now()
-				w.log.Printf("%s: below low threshold (%.2f%% < %.2f%%)", prefix, pct, w.w.LowThresholdPct)
+				w.log.Printf("%s: below low threshold (%.2f%% < %.2f%%)", prefix, fsUsage, w.w.LowThresholdPct)
 				break
 			}
-			if pct < w.w.HighThresholdPct {
+			if fsUsage < w.w.HighThresholdPct {
 				ago := time.Since(lastBelowThresholdTime).Round(time.Second)
 				w.log.Printf("%s: below high threshold (%.2f%% < %.2f%%) and was below low threshold %s ago",
-					prefix, pct, w.w.HighThresholdPct, ago)
+					prefix, fsUsage, w.w.HighThresholdPct, ago)
 				break
 			}
 			// Above high threshold
 			ago := time.Since(lastBelowThresholdTime).Round(time.Second)
 			w.log.Printf("%s: above high threshold (%.2f%% > %.2f%%) and was below low threshold %s ago",
-				prefix, pct, w.w.HighThresholdPct, ago)
+				prefix, fsUsage, w.w.HighThresholdPct, ago)
 			// Now we are going to resize, so reduce the wait duration
 			// so that we keep re-attempting quickly in case of failures.
 			iter.Stop()
 			iter = time.NewTicker(w.w.ResizeSleepDuration)
-			state = stateResizeVolume
-		case stateResizeVolume:
+			state = stateResizeEBSVolumes
+		case stateResizeEBSVolumes:
 			w.log.Printf("resizing volume")
-			ready, reason, err := w.v.ReadyToModify(ctx)
-			if err != nil {
-				w.log.Errorf("ReadyToModify: %v", err)
-				break
-			}
-			if !ready {
-				w.log.Printf("not ready modify volume due to: %s", reason)
-				break
-			}
-			w.log.Printf("volume ready to modify")
-			// Determine factor by which to increase disk size.
+			// Determine factor by which to increase disk size based on filesystem (not EBS) size. This will handle
+			// partial failures gracefully (e.g. if the previous resize failed only for a subset of volumes).
 			incFactor := w.w.SlowIncreaseFactor
 			if dur := time.Now().Sub(lastBelowThresholdTime); dur < w.w.FastThresholdDuration {
 				incFactor = w.w.FastIncreaseFactor
 			}
+			newSize := fsSize * data.Size(incFactor)
 			w.log.Printf("attempting size increase by %dX", incFactor)
-			currSize, err := w.v.GetSize(ctx)
-			oldSize = currSize
+
+			// Resize EBS volumes.
+			ebsSize, err := w.v.EBSSize(ctx)
 			if err != nil {
-				w.log.Error(err)
+				w.log.Errorf("failed to get size of ebs volumes before resize: %s", err)
 				break
 			}
-			newSize := currSize * data.Size(incFactor)
-			if err := w.v.SetSize(ctx, newSize); err != nil {
-				w.log.Errorf("failed to change size (%s -> %s): %v", currSize, newSize, err)
+			if err := w.v.ResizeEBS(ctx, newSize); err != nil {
+				w.log.Errorf("failed to change ebs volumes size (%s -> %s): %v", ebsSize, newSize, err)
 				// In case of failure, check size again, instead of being stuck trying repeatedly.
+				// Do not attempt to resize the filesystem even if a subset of volumes resized successfully. In RAID0,
+				// the amount of space used in each volume is limited to the size of the smallest volume.
 				state = stateWatch
 				break
 			}
-			sz, err = w.v.GetSize(ctx)
+			newEbsSize, err := w.v.EBSSize(ctx)
 			if err != nil {
-				w.log.Errorf("failed to get volume size after resizing, will continue to resize FS: %v", err)
+				w.log.Errorf("failed to get size of ebs volumes after resize, will continue to resize FS: %v", err)
 			} else {
-				w.log.Printf("changed volume size %s -> %s", currSize, sz)
+				w.log.Printf("changed ebs volumes size %s -> %s", ebsSize, newEbsSize)
 			}
 			state = stateResizeFS
 		case stateResizeFS:
@@ -143,13 +136,14 @@ func (w *Watcher) Watch(ctx context.Context) {
 				w.log.Errorf("resize filesystem: %v", err)
 				break
 			}
-			sz, err = w.v.GetSize(ctx)
+			newFSSize, err := w.v.FSSize()
 			if err != nil {
-				w.log.Errorf("cannot get volume size (after resizeFS): %v", err)
+				w.log.Errorf("failed to get filesystem size after resize: %v", err)
 			}
-			w.log.Printf("successfully increased filesystem size %s -> %s", oldSize, sz)
+			w.log.Printf("successfully increased filesystem size %s -> %s", fsSize, newFSSize)
 			iter.Stop()
 			iter = time.NewTicker(w.w.WatcherSleepDuration)
+			fsSize = newFSSize
 			state = stateWatch
 		}
 	}

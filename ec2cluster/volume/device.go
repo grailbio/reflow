@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/grailbio/base/data"
 )
 
 var (
@@ -17,26 +19,47 @@ var (
 	sepcolon = []byte(":")
 )
 
-// Device is an abstraction of a physical or logical device
+// Device is an abstraction of a physical or logical device.
 type Device interface {
+	// FSSize returns the total amount of disk space in the filesystem.
+	FSSize() (data.Size, error)
 
-	// Usage returns the amount of disk space in-use for this device as a percentage.
-	Usage() (float64, error)
+	// FSUsage returns the percentage of disk space in-use in the filesystem.
+	FSUsage() (float64, error)
 
-	// ResizeFS resizes the filesystem for this device
+	// ResizeFS resizes the filesystem.
 	ResizeFS() error
 }
 
 type device string
 
-// Usage implements Device.
-func (d device) Usage() (float64, error) {
+// FSSize implements Device.
+func (d device) FSSize() (data.Size, error) {
+	cmd := exec.Command("/bin/df", "-B1", "--output=size", string(d))
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+	parts := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(parts) < 2 {
+		return 0, fmt.Errorf("unexpected output: %s\n%v", strings.Join(cmd.Args, " "), out)
+	}
+	numBytesStr := strings.TrimSpace(parts[1])
+	numBytesInt, err := strconv.Atoi(numBytesStr)
+	if err != nil {
+		return 0, fmt.Errorf("failed to convert %s to int: %s", numBytesStr, err)
+	}
+	return data.Size(numBytesInt), nil
+}
+
+// FSUsage implements Device.
+func (d device) FSUsage() (float64, error) {
 	cmd := exec.Command("/bin/df", "--output=pcent", string(d))
 	out, err := cmd.Output()
 	if err != nil {
 		return 0.0, err
 	}
-	parts := strings.Split(string(out), "\n")
+	parts := strings.Split(strings.TrimSpace(string(out)), "\n")
 	if len(parts) < 2 {
 		return 0.0, fmt.Errorf("unexpected output: %s\n%v", strings.Join(cmd.Args, " "), out)
 	}

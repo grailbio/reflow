@@ -30,22 +30,18 @@ import (
 	"github.com/grailbio/reflow/log"
 )
 
-// Volume is an abstraction of an EC2 instance's EBS Volume(s) and supports volume specific operations.
+// Volume is an abstraction of a disk device backed by an EC2 instance's EBS volumes.
 type Volume interface {
 	Device
 
-	// GetSize returns the total size of the volume.
-	GetSize(ctx context.Context) (size data.Size, err error)
+	// EBSSize returns the sum of the size of all EBS volumes.
+	EBSSize(ctx context.Context) (size data.Size, err error)
 
-	// ReadyToModify returns whether this volume is ready to be modified (if desired).
-	// If the return value for ready is false, then reason may contain a reason why it's not ready.
-	ReadyToModify(ctx context.Context) (ready bool, reason string, err error)
+	// ResizeEBS resizes the EBS volumes such that their sizes add up to newSize.
+	ResizeEBS(ctx context.Context, newSize data.Size) error
 
-	// SetSize sets this volume's size to the specified amount.
-	SetSize(ctx context.Context, newSize data.Size) error
-
-	// GetVolumeIds returns the volume IDs.
-	GetVolumeIds() []string
+	// EBSIds returns the IDs of all EBS volumes.
+	EBSIds() []string
 }
 
 const maxRetries = 10
@@ -144,59 +140,42 @@ func (v *ebsLvmVolume) init() error {
 	return nil
 }
 
-// GetSize returns the sum of the size of all EBS volumes for the current instance.
-func (v *ebsLvmVolume) GetSize(ctx context.Context) (data.Size, error) {
+// EBSSize returns the sum of the size of all EBS volumes.
+func (v *ebsLvmVolume) EBSSize(ctx context.Context) (data.Size, error) {
+	sizeById, err := v.getSizeById(ctx)
+	if err != nil {
+		return 0, err
+	}
+	var size data.Size
+	for _, s := range sizeById {
+		size += s
+	}
+	return size, nil
+}
+
+// getSizeById returns a map of EBS volume ID to size.
+func (v *ebsLvmVolume) getSizeById(ctx context.Context) (map[string]data.Size, error) {
 	req := &ec2.DescribeVolumesInput{VolumeIds: aws.StringSlice(v.ebsVolIds)}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	resp, err := v.ec2.DescribeVolumesWithContext(ctx, req)
 	cancel()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	if n, nv := len(v.ebsVolIds), len(resp.Volumes); n != nv {
-		return 0, fmt.Errorf("unexpected number of volumes: %d (!= %d)", nv, n)
+		return nil, fmt.Errorf("unexpected number of volumes: %d (!= %d)", nv, n)
 	}
-	var size data.Size
+	sizeById := make(map[string]data.Size, len(resp.Volumes))
 	for _, v := range resp.Volumes {
-		size += data.GiB * data.Size(aws.Int64Value(v.Size))
+		sizeById[aws.StringValue(v.VolumeId)] = data.GiB * data.Size(aws.Int64Value(v.Size))
 	}
-	return size, nil
+	return sizeById, nil
 }
 
-// ReadyToModify checks to see if there is a still active
-// volume modification involving the given volumeId.
-func (v *ebsLvmVolume) ReadyToModify(ctx context.Context) (bool, string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	mstate, err := v.getModificationState(ctx)
-	cancel()
-	if err != nil {
-		return false, "", err
-	}
-	ready := true
-	var reasons []string
-	for vid, state := range mstate {
-		switch state {
-		case "modifying", "optimizing":
-			ready = false
-			reasons = append(reasons, fmt.Sprintf("%s (%s)", vid, state))
-		}
-	}
-	return ready, strings.Join(reasons, ", "), nil
-}
-
-// SetSize sets this volume's size to the given amount specified (ceiled to GiB).
-// Only supports increasing the size and will return an error if a reduction is attempted.
-func (v *ebsLvmVolume) SetSize(ctx context.Context, newSize data.Size) error {
-	currSize, err := v.GetSize(ctx)
-	if err != nil {
-		return err
-	}
-	if newSize == currSize {
-		return nil
-	}
-	if newSize < currSize {
-		return errors.E(errors.NotSupported, fmt.Sprintf("reducing size %s -> %s", currSize, newSize))
-	}
+// ResizeEBS resizes the EBS volumes such that their sizes (ceiled to GiB) add up to newSize.
+// Size reductions are not supported.
+func (v *ebsLvmVolume) ResizeEBS(ctx context.Context, newSize data.Size) error {
+	// Determine new size per EBS volume.
 	perVolSize := data.Size(int64(newSize) / int64(len(v.ebsVolIds)))
 	limits := minMaxByType[v.ebsVolType]
 	if perVolSize < limits.min {
@@ -205,7 +184,44 @@ func (v *ebsLvmVolume) SetSize(ctx context.Context, newSize data.Size) error {
 	if perVolSize > limits.max {
 		perVolSize = limits.max
 	}
-	perVolSizeGiB := int64(math.Ceil(perVolSize.Count(data.GiB)))
+	perVolSizeGiB := numGiB(perVolSize)
+
+	// Determine which EBS volumes need to be modified.
+	sizeById, err := v.getSizeById(ctx)
+	if err != nil {
+		return err
+	}
+	idsToModify := make([]string, 0, len(sizeById))
+	for id, size := range sizeById {
+		sizeGiB := numGiB(size)
+		if sizeGiB >= perVolSizeGiB {
+			v.log.Printf("skipping ebs volume %s, size (%d GiB) >= target size (%d GiB)", id, sizeGiB, perVolSizeGiB)
+			continue
+		}
+		idsToModify = append(idsToModify, id)
+	}
+	if len(idsToModify) == 0 {
+		v.log.Printf("no ebs volume needs to be modified")
+		return nil
+	}
+
+	// Determine if EBS volumes are ready to be modified.
+	stateById, err := v.getModificationStateById(ctx, idsToModify)
+	if err != nil {
+		return err
+	}
+	var notReadyVols []string
+	for id, state := range stateById {
+		switch state {
+		case "modifying", "optimizing":
+			notReadyVols = append(notReadyVols, fmt.Sprintf("%s (%s)", id, state))
+		}
+	}
+	if len(notReadyVols) > 0 {
+		return fmt.Errorf("cannot modify ebs volumes before previous modification completes: %s", strings.Join(notReadyVols, ","))
+	}
+
+	// Modify EBS volumes.
 	// As per AWS, the size change takes affect when the EBS volume is in the 'optimizing' state.
 	// So loop until we can confirm that each volume is in the 'optimizing' (or just in case 'completed' state).
 	type stateT int
@@ -220,21 +236,21 @@ func (v *ebsLvmVolume) SetSize(ctx context.Context, newSize data.Size) error {
 	)
 
 	var (
-		state    stateT
-		stateStr string
-		retries  int
-		mstates  map[string]string
-		modVols  = v.ebsVolIds
+		state          stateT
+		stateStr       string
+		modifiedIds    []string
+		modifiedStates map[string]string
 	)
+	retriesByState := make(map[stateT]int)
 	for state < stateDone {
 		err = nil
 		switch state {
 		case stateModify:
-			stateStr = fmt.Sprintf("modifying volumes (%s)", strings.Join(modVols, ", "))
-			errs := make([]error, len(modVols))
-			_ = traverse.Each(len(modVols), func(idx int) error {
+			stateStr = fmt.Sprintf("modifying volumes (%s)", strings.Join(idsToModify, ", "))
+			errs := make([]error, len(idsToModify))
+			_ = traverse.Each(len(idsToModify), func(idx int) error {
 				req := &ec2.ModifyVolumeInput{
-					VolumeId: aws.String(modVols[idx]),
+					VolumeId: aws.String(idsToModify[idx]),
 					Size:     aws.Int64(perVolSizeGiB),
 				}
 				ctx2, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -242,25 +258,26 @@ func (v *ebsLvmVolume) SetSize(ctx context.Context, newSize data.Size) error {
 				cancel()
 				return nil
 			})
+			modifiedIds = nil
 			var failed []string
 			for idx, err := range errs {
 				if err != nil {
-					failed = append(failed, modVols[idx])
+					failed = append(failed, idsToModify[idx])
+				} else {
+					modifiedIds = append(modifiedIds, idsToModify[idx])
 				}
 			}
-			modVols = failed
+			idsToModify = failed
 			if len(failed) > 0 {
 				err = fmt.Errorf("failed to modify (%s): %v", strings.Join(failed, ", "), errs)
 			}
 		case stateGetModificationStatus:
-			stateStr = fmt.Sprintf("get modification status (%s)", strings.Join(v.ebsVolIds, ", "))
-			ctx2, cancel := context.WithTimeout(ctx, 10*time.Second)
-			mstates, err = v.getModificationState(ctx2)
-			cancel()
+			stateStr = fmt.Sprintf("get modification status (%s)", strings.Join(modifiedIds, ", "))
+			modifiedStates, err = v.getModificationStateById(ctx, modifiedIds)
 		case stateCheckModificationStatus:
-			stateStr = fmt.Sprintf("checking modification status (%v)", mstates)
+			stateStr = fmt.Sprintf("checking modification status (%v)", modifiedStates)
 			var reasons []string
-			for v, s := range mstates {
+			for v, s := range modifiedStates {
 				switch s {
 				case "optimizing", "completed":
 					// do nothing, ie, leave done as true
@@ -268,7 +285,7 @@ func (v *ebsLvmVolume) SetSize(ctx context.Context, newSize data.Size) error {
 				// Rarely, a transient AWS fault can result in a failed state. This is not an indication of volume health;
 				// it merely indicates that the modification to the volume failed. If this occurs, retry the volume modification.
 				case "failed":
-					modVols = append(modVols, v)
+					idsToModify = append(idsToModify, v)
 					reasons = append(reasons, fmt.Sprintf("volume %s: %s", v, s))
 				case "modifying":
 					state = stateGetModificationStatus
@@ -281,18 +298,18 @@ func (v *ebsLvmVolume) SetSize(ctx context.Context, newSize data.Size) error {
 		}
 		if err == nil {
 			v.log.Printf("%s: success", stateStr)
-			retries = 0
+			retriesByState[state] = 0
 			state++
 			continue
 		}
 		v.log.Errorf("%s: %v", stateStr, err)
-		if len(modVols) > 0 {
-			state = stateModify
-		}
-		if err = retry.Wait(ctx, v.retrier, retries); err != nil {
+		if err = retry.Wait(ctx, v.retrier, retriesByState[state]); err != nil {
 			break
 		}
-		retries++
+		retriesByState[state]++
+		if len(idsToModify) > 0 {
+			state = stateModify
+		}
 	}
 	if state < stateDone {
 		return fmt.Errorf("unknown volume status after setting size to %s: %v", newSize, err)
@@ -300,23 +317,25 @@ func (v *ebsLvmVolume) SetSize(ctx context.Context, newSize data.Size) error {
 	return nil
 }
 
-// GetVolumeIds returns the EBS volume IDs.
-func (v *ebsLvmVolume) GetVolumeIds() []string {
+// EBSIds returns the EBS volume IDs.
+func (v *ebsLvmVolume) EBSIds() []string {
 	return v.ebsVolIds
 }
 
-// getModificationState returns the current modification state for each underlying EBS volume.
+// getModificationStateById returns the current modification state for the input EBS volumes.
 // Apart from the valid values described below, we add a (default) 'unmodified' state.
 // https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_VolumeModification.html
 // Current state of modification. Modification state is null for unmodified volumes.
 // Valid Values: modifying | optimizing | completed | failed
-func (v *ebsLvmVolume) getModificationState(ctx context.Context) (map[string]string, error) {
-	mstate := make(map[string]string, len(v.ebsVolIds))
-	for _, vid := range v.ebsVolIds {
+func (v *ebsLvmVolume) getModificationStateById(ctx context.Context, volIds []string) (map[string]string, error) {
+	mstate := make(map[string]string, len(volIds))
+	for _, vid := range volIds {
 		mstate[vid] = "unmodified"
 	}
-	req := &ec2.DescribeVolumesModificationsInput{VolumeIds: aws.StringSlice(v.ebsVolIds)}
-	resp, err := v.ec2.DescribeVolumesModificationsWithContext(ctx, req)
+	req := &ec2.DescribeVolumesModificationsInput{VolumeIds: aws.StringSlice(volIds)}
+	ctx2, cancel := context.WithTimeout(ctx, 10*time.Second)
+	resp, err := v.ec2.DescribeVolumesModificationsWithContext(ctx2, req)
+	cancel()
 	if err != nil {
 		if awsErr, ok := err.(awserr.Error); ok && awsErr.Code() == "InvalidVolumeModification.NotFound" {
 			return mstate, nil
@@ -414,4 +433,9 @@ func findNvmeVolumes(devices []string) ([]string, error) {
 	}
 	sort.Strings(volIds)
 	return volIds, nil
+}
+
+// numGiB returns the number of GiB in size.
+func numGiB(size data.Size) int64 {
+	return int64(math.Ceil(size.Count(data.GiB)))
 }
