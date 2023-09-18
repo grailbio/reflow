@@ -238,9 +238,9 @@ func (v *ebsLvmVolume) ResizeEBS(ctx context.Context, newSize data.Size) error {
 	var (
 		state          stateT
 		stateStr       string
-		modifiedIds    []string
 		modifiedStates map[string]string
 	)
+	modifiedIds := make(map[string]struct{})
 	retriesByState := make(map[stateT]int)
 	for state < stateDone {
 		err = nil
@@ -258,13 +258,12 @@ func (v *ebsLvmVolume) ResizeEBS(ctx context.Context, newSize data.Size) error {
 				cancel()
 				return nil
 			})
-			modifiedIds = nil
 			var failed []string
 			for idx, err := range errs {
 				if err != nil {
 					failed = append(failed, idsToModify[idx])
 				} else {
-					modifiedIds = append(modifiedIds, idsToModify[idx])
+					modifiedIds[idsToModify[idx]] = struct{}{}
 				}
 			}
 			idsToModify = failed
@@ -272,8 +271,12 @@ func (v *ebsLvmVolume) ResizeEBS(ctx context.Context, newSize data.Size) error {
 				err = fmt.Errorf("failed to modify (%s): %v", strings.Join(failed, ", "), errs)
 			}
 		case stateGetModificationStatus:
-			stateStr = fmt.Sprintf("get modification status (%s)", strings.Join(modifiedIds, ", "))
-			modifiedStates, err = v.getModificationStateById(ctx, modifiedIds)
+			ids := make([]string, 0, len(modifiedIds))
+			for id, _ := range modifiedIds {
+				ids = append(ids, id)
+			}
+			stateStr = fmt.Sprintf("get modification status (%s)", strings.Join(ids, ", "))
+			modifiedStates, err = v.getModificationStateById(ctx, ids)
 		case stateCheckModificationStatus:
 			stateStr = fmt.Sprintf("checking modification status (%v)", modifiedStates)
 			var reasons []string
