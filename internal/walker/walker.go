@@ -28,7 +28,7 @@ func (w *Walker) Init(root string) {
 // Scan advances the walker to the next entry in the hierarchy.
 // It returns false either when the scan stops because we have
 // reached the end of the input or else because there was error.
-// After Scan returns, the Err method returns any error that occured
+// After Scan returns, the Err method returns any error that occurred
 // during scanning.
 func (w *Walker) Scan() bool {
 again:
@@ -77,7 +77,7 @@ func (w *Walker) Info() os.FileInfo {
 	return w.info
 }
 
-// Err returns the first error that occured while scanning.
+// Err returns the first error that occurred while scanning.
 func (w *Walker) Err() error {
 	return w.err
 }

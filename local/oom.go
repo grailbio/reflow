@@ -42,7 +42,7 @@ func newOOMTracker() *oomTracker {
 // all OOMs it finds. It returns after the provided
 // context has been canceled or if it encounters an error.
 // It has the option of passing a Logger to log non-os.ErrClosed
-// errors that occured while monitoring.
+// errors that occurred while monitoring.
 func (o *oomTracker) Monitor(ctx context.Context, log *log.Logger) {
 	o.monitor(ctx, log, devKmsgPath, bootTime)
 }

@@ -26,7 +26,7 @@ keys:
 
 `
 		footer = `A Reflow distribution may contain a builtin configuration that may be
-modified and overriden:
+modified and overridden:
 
 	$ reflow config > myconfig
 	<edit myconfig>
