@@ -155,7 +155,7 @@ func generateInstances(dir string) {
 			log.Printf("excluding instance type %s because it does not support arch x86_64", e.Type)
 			continue
 		}
-		if strings.HasSuffix(e.Type, ".metal") {
+		if strings.Contains(e.Type, ".metal") {
 			log.Printf("excluding bare-metal instance type %s", e.Type)
 			continue
 		}
