@@ -112,7 +112,7 @@ func (c *ClientCall) SetQueryParam(k, v string) {
 }
 
 // Do performs a call with the given context and body. It returns the
-// HTTP status code for the reply, or a non-nil error if one occured.
+// HTTP status code for the reply, or a non-nil error if one occurred.
 func (c *ClientCall) Do(ctx context.Context, body io.Reader) (int, error) {
 	var r *http.Request
 	r, c.err = http.NewRequest(c.method, "", body)
